@@ -7,9 +7,11 @@ import json
 import os
 from pathlib import Path
 import shlex
+import shutil
 import subprocess
 import sys
 import time
+import uuid
 
 ROOT = Path(__file__).resolve().parents[3]
 STACK = Path('/home/fred/projects/zeldaWWHDRecomp/build-vita-tools/local-stack')
@@ -52,6 +54,22 @@ def checked_output(output):
                     str(output / 'private/main.dol'), str(output / 'vita/ww05.vpk')],
                    check=True, capture_output=True)
     return output
+
+
+def preserve_artifacts(vita, output):
+    snapshot = output / ('artifacts-' + uuid.uuid4().hex)
+    snapshot.mkdir(mode=0o700)
+    artifacts = {}
+    for name in ('ww05_host', 'ww05_host.velf', 'eboot.bin', 'ww05.vpk_param.sfo', 'ww05.vpk'):
+        original = vita / name
+        destination = snapshot / name
+        expected = sha256(original)
+        with original.open('rb') as source, destination.open('xb') as target:
+            shutil.copyfileobj(source, target)
+        if sha256(destination) != expected or sha256(original) != expected:
+            raise ValueError('artifact changed while preserving build: ' + name)
+        artifacts[str(destination)] = {'bytes': destination.stat().st_size, 'sha256': expected}
+    return artifacts
 
 
 class Build:
@@ -143,14 +161,19 @@ def main():
                                  f'-DRECOMPCORE_DIR={sources["RecompCore"]}', f'-DCOMPOSITE_DIR={composite}',
                                  f'-DWW05_IDENTITY_DIR={identity}', f'-DWW05_DOL={private}/main.dol'])
     build.run('vita-build', [cmake, '--build', vita, '-j', args.jobs])
-    artifacts = {str(vita / name): {'bytes': (vita / name).stat().st_size, 'sha256': sha256(vita / name)}
-                 for name in ('ww05_host', 'ww05_host.velf', 'eboot.bin', 'ww05.vpk_param.sfo', 'ww05.vpk')}
     from inspect_build import inspect
     inspect(vita)
-    (output / 'build-evidence.json').write_text(json.dumps({'source': source, 'pins': PINS,
+    artifacts = preserve_artifacts(vita, output)
+    snapshot = Path(next(iter(artifacts))).parent
+    for path in (output / 'footprint.json', vita / 'ww05.map', vita / 'compile_commands.json'):
+        shutil.copyfile(path, snapshot / path.name)
+    receipt = json.dumps({'source': source, 'pins': PINS,
         'composite_digest': digest, 'title': 'BWWG00005', 'method': 'startup-gx-v1',
         'artifacts': artifacts, 'config': {'static_module': True, 'aurora': False, 'aurora_recomp': False,
-        'optimization': 1, 'fp_patch': None}, 'footprint_sha256': sha256(output / 'footprint.json')}, indent=2) + '\n')
+        'optimization': 1, 'fp_patch': None}, 'footprint_sha256': sha256(output / 'footprint.json'),
+        'snapshot': str(snapshot)}, indent=2) + '\n'
+    (snapshot / 'build-evidence.json').write_text(receipt)
+    (output / 'build-evidence.json').write_text(receipt)
     checked_sources()
     print('PRIVATE BUILD ONLY; Vita3K NOT RUN')
     return 0

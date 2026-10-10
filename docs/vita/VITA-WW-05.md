@@ -104,6 +104,9 @@ mapping, compiled ABI, single-owner symbols and all compiled frame sizes. This i
 any load. The source SHA is embedded after commit; an artifact is described as executed only when
 its own run record binds its exact bytes. Packaging timestamps need not be bit-reproducible; the exact
 built bytes are hashed.
+Each completed build preserves its five artifact files, footprint, link map, compile commands and
+receipt in a fresh `artifacts-<uuid>/` directory. Rebuilding never overwrites these retained bytes;
+individual run plans refer to that preserved build, not merely a mutable filename in `vita/`.
 
 - The reused platform reserves a **96 MiB newlib heap** and **256 KiB worker stack**.
 - Estimated MEM1/VM/cache backing requests inside that heap are 25,165,824 / 33,554,432 / 16,384
@@ -190,7 +193,7 @@ a lingering process. Its short red/green loops are in `logs/private-{launch,gues
 The parent-symlink loop reproduced creation outside an owned fake profile, then prevented it with the
 existing no-follow directory-descriptor pattern. No real/shared profile was involved.
 
-The WW05 host suite currently has **42 tests**. Source-bound logs retain exact counts/commands for these,
+The WW05 host suite currently has **43 tests**. Source-bound logs retain exact counts/commands for these,
 native runtime CTest, 71 native FP cases and the eight direct baseline files. Audit, attribution,
 pin/scope/diff and clean-worktree checks accompany delivery. The pre-launch `1ba507c` checkpoint passed
 35 WW05 tests, 177 unchanged tests, 53 direct baseline tests, 71 native FP cases and 3/1/5 runtime/corpus/
