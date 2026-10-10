@@ -1,10 +1,25 @@
 """Byte and symlink identities for exposed public runtime trees."""
 
+from contextlib import contextmanager
 import hashlib
 import json
 import os
 from pathlib import Path
 import stat
+
+
+@contextmanager
+def directory_fd(path):
+    descriptor = os.open("/", os.O_RDONLY | os.O_DIRECTORY | os.O_CLOEXEC)
+    try:
+        for component in Path(path).absolute().parts[1:]:
+            child = os.open(component, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW | os.O_CLOEXEC,
+                            dir_fd=descriptor)
+            os.close(descriptor)
+            descriptor = child
+        yield descriptor
+    finally:
+        os.close(descriptor)
 
 
 def file_identity(path):

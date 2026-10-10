@@ -19,8 +19,8 @@ import zipfile
 
 from build import ROOT, build_directory
 from fp_build import sha256
-from fp_libraries import library_identity
-from fp_profile import FIRMWARE_DIRECTORY, stage_firmware, verify_firmware
+from fp_libraries import directory_fd, library_identity
+from fp_profile import FIRMWARE_DIRECTORY, config_identity, stage_firmware, verify_config_log, verify_firmware
 from fp_report import validate
 from fp_vectors import cases
 
@@ -42,20 +42,6 @@ def create_run(root):
     root.mkdir(mode=0o700)
     for child in (*WRITABLE_DIRECTORIES, "evidence", "runtime", "config-system", "data-system"):
         (root / child).mkdir(mode=0o700)
-
-
-@contextmanager
-def directory_fd(path):
-    descriptor = os.open("/", os.O_RDONLY | os.O_DIRECTORY | os.O_CLOEXEC)
-    try:
-        for component in Path(path).absolute().parts[1:]:
-            child = os.open(component, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW | os.O_CLOEXEC,
-                            dir_fd=descriptor)
-            os.close(descriptor)
-            descriptor = child
-        yield descriptor
-    finally:
-        os.close(descriptor)
 
 
 @contextmanager
@@ -310,6 +296,7 @@ def main():
         shutil.copyfileobj(source_file, destination)
     verify_package(staged_vpk, package)
     firmware = stage_firmware(root, reject_symlinks(args.firmware)) if args.firmware else {}
+    private_config = config_identity(root) if firmware else None
     directory = root / REPORT_DIRECTORY
     directory.mkdir(parents=True)
     (directory / "fp.request").write_text(f"{token} {source} {package}\n")
@@ -324,6 +311,7 @@ def main():
             "runtime_source_mapping": "UNVERIFIED",
             "wayland_socket": str(args.wayland_socket) if args.wayland_socket else None,
             "firmware": firmware, "firmware_provenance": "installed system trees; version/PUP UNVERIFIED",
+            "private_config": private_config,
             "runtime_assets": assets,
             "runtime_libraries": {"root": libraries_before["root"], "sha256": libraries_before["sha256"],
                                   "manifest": "libraries-before.json"},
@@ -338,6 +326,9 @@ def main():
     if not args.execute_reviewed:
         print("STAGED ONLY: real Vita3K NOT RUN; review gate still required")
         return 0
+    verify_firmware(firmware)
+    if private_config and config_identity(root) != private_config:
+        raise ValueError("staged configuration changed before execution")
     status = run_owned(command, root, args.timeout, report_identity=(token, source, package))
     process = json.loads((root / "evidence/process.json").read_text())
     identity_error = None
@@ -348,6 +339,8 @@ def main():
         if libraries_after != libraries_before:
             identity_error = "public library tree changed during execution"
         verify_firmware(firmware)
+        if private_config:
+            verify_config_log(root)
     except (OSError, ValueError) as error:
         identity_error = f"cannot verify runtime inputs after execution: {error}"
     return collect_result(root, token, source, package, status, identity_error, process)

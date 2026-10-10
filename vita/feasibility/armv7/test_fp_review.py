@@ -60,6 +60,13 @@ class LauncherReviewTest(unittest.TestCase):
             archive.writestr("eboot.bin", payload)
             archive.writestr("sce_sys/param.sfo", b"BWWF00003\0")
 
+    def fake_firmware(self):
+        firmware = self.output / "firmware"
+        for name in ("vs0", "sa0", "ux0"):
+            (firmware / name).mkdir(parents=True)
+            (firmware / name / "fixture.bin").write_bytes(name.encode())
+        return firmware
+
     def test_sandbox_cannot_redirect_result_or_modify_plan(self):
         sentinel = self.output / "sentinel"
         sentinel.write_text("untouched")
@@ -155,10 +162,7 @@ class LauncherReviewTest(unittest.TestCase):
 
     def test_stage_only_copies_system_firmware_and_completes_private_welcome(self):
         _, _, argv = self.fake_inputs()
-        firmware = self.output / "firmware"
-        for name in ("vs0", "sa0", "ux0"):
-            (firmware / name).mkdir(parents=True)
-            (firmware / name / "fixture.bin").write_bytes(name.encode())
+        firmware = self.fake_firmware()
         (firmware / "sa0/fixture.bin").chmod(0o640)
         with mock.patch.object(sys, "argv", [*argv, "--firmware", str(firmware)]), \
                 mock.patch.object(launch, "build_directory", return_value=self.output):
@@ -174,7 +178,36 @@ class LauncherReviewTest(unittest.TestCase):
         plan = json.loads((run / "evidence/plan.json").read_text())
         self.assertEqual(plan["firmware"]["vs0"]["source"]["sha256"],
                          plan["firmware"]["vs0"]["staged"]["sha256"])
+        self.assertEqual(plan.get("private_config", {}).get("sha256"), launch.sha256(run / "config/Vita3K/config.yml"))
+        self.assertEqual(plan["private_config"]["source_sha256"],
+                         "9e64e723c8286e77e7cd57ffb6049d3cdcf202615062a503348c3170a18edff7")
         self.assertFalse((run / "evidence/process.log").exists())
+
+    def reject_changed_profile_input(self, target):
+        _, _, argv = self.fake_inputs()
+        firmware = self.fake_firmware()
+        identity = launch.library_identity
+
+        def change_after_staging(path):
+            result = identity(path)
+            run, = self.output.glob("vita3k-run-*")
+            changed = run / target
+            changed.write_bytes(changed.read_bytes() + b"unexpected change")
+            return result
+
+        with mock.patch.object(sys, "argv", [*argv, "--firmware", str(firmware), "--execute-reviewed"]), \
+                mock.patch.object(launch, "build_directory", return_value=self.output), \
+                mock.patch.object(launch, "library_identity", side_effect=change_after_staging), \
+                mock.patch.object(launch, "run_owned", side_effect=AssertionError("spawned with changed profile input")) as runner:
+            with self.assertRaises(ValueError):
+                launch.main()
+            runner.assert_not_called()
+
+    def test_changed_staged_firmware_is_rejected_before_process_start(self):
+        self.reject_changed_profile_input("data/Vita3K/Vita3K/vs0/fixture.bin")
+
+    def test_changed_staged_config_is_rejected_before_process_start(self):
+        self.reject_changed_profile_input("config/Vita3K/config.yml")
 
     def run_lingering_report(self, failure=False):
         from fp_vectors import cases
@@ -292,9 +325,11 @@ class LauncherReviewTest(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "socket"):
             launch.sandbox_command(self.root, "Fake", [], wayland_socket=file)
 
-    def run_fake_library_case(self, mutate):
+    def run_fake_library_case(self, mutate, config_error=None):
         from fp_vectors import cases
         runtime, _, argv = self.fake_inputs()
+        if config_error is not None:
+            argv.extend(["--firmware", str(self.fake_firmware())])
         library = runtime / "public.so"
         library.write_bytes(b"first library")
         (runtime / "alias.so").symlink_to("public.so")
@@ -312,7 +347,8 @@ class LauncherReviewTest(unittest.TestCase):
                               f"directory=Path('/run/ww03/{launch.REPORT_DIRECTORY}')\n"
                               "identity=(directory/'fp.request').read_text().strip()\n"
                               f"text='RUN '+identity+'\\n'+{chr(10).join(lines) + chr(10)!r}\n"
-                              "(directory/'fp.report').write_text(text)\n")
+                              "(directory/'fp.report').write_text(text)\n"
+                              + ("print(\"Config file can't be loaded: Error: invalid node\")\n" if config_error else ""))
             script.chmod(0o700)
             return assets
 
@@ -355,6 +391,21 @@ class LauncherReviewTest(unittest.TestCase):
         before = json.loads((run / "evidence/libraries-before.json").read_text())
         after = json.loads((run / "evidence/libraries-after.json").read_text())
         self.assertEqual(before, after)
+
+    def test_config_parse_failure_cannot_accept_a_passing_fake_report(self):
+        status, run, _ = self.run_fake_library_case(False, config_error=True)
+        result = json.loads((run / "evidence/result.json").read_text())
+        self.assertEqual(status, 2, result)
+        self.assertEqual(result["completion"], "INCOMPLETE")
+        self.assertEqual(result["reported_semantic"], "PASS")
+        self.assertIn("configuration", result["identity_error"])
+
+    def test_complete_profile_allows_valid_early_fake_report(self):
+        status, run, _ = self.run_fake_library_case(False, config_error=False)
+        result = json.loads((run / "evidence/result.json").read_text())
+        self.assertEqual(status, 0, result)
+        self.assertEqual(result["completion"], "COMPLETE")
+        self.assertEqual(result["semantic"], "PASS")
 
     def test_fifo_report_does_not_block_collection(self):
         report = self.root / launch.REPORT_DIRECTORY / "fp.report"

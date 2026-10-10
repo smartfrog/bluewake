@@ -2,7 +2,7 @@
 
 2026-10-10 · [ticket](https://trello.com/c/DcwHCjuc) · game-free, opt-in
 
-## Deadline correction checkpoint: REVISE, exact-launch authorization pending
+## Private configuration checkpoint: REVISE, final-trial authorization pending
 
 The AArch64 Linux diagnostic passes **71/71** independently specified result-bit cases. The same
 emitted synthetic PowerPC functions and pristine RecompCore CPU build into a Vita ARMv7 VPK.
@@ -15,9 +15,11 @@ descendant cleanup and preserving semantic failure when the emulator process exi
 PulseAudio's 64 MiB memfd allocation. Subsequent isolated GUI-only runs reached Welcome (confirmed by
 the user) and the main window with the copied stack. GUI startup is not FP execution.
 
-This correction pass is code, fake-process tests, builds and a checkpoint commit only. Renewed real
-Vita3K execution is **NOT RUN** and requires coordinator risk review and exact-launch authorization.
-The approved later budget is at most two 30-second attempts by this original worker. Physical Vita,
+The first renewed 30-second attempt at `53cc609` also timed out without an FP report. It installed
+BWWF00003, but logged a configuration parse error and reset Welcome to true. The full record is below.
+**Renewed budget: 1/2 used; ARMv7 FP cases observed: 0/71.** This localized configuration pass is
+code, fake-process tests, builds and a checkpoint commit only. The remaining real trial is **NOT RUN**
+and requires follow-up review and exact-launch authorization. Physical Vita,
 Windows hardware and gameplay remain NOT RUN. This is not completion of 03 or a GO recommendation;
 runtime repair follows a reproduced defect. VITA-WW-04 and the native game/renderer work remain separate.
 
@@ -42,8 +44,8 @@ actual Vita3K/ARMv7 correctness. Physical tests follow useful emulator results.
 The checkpoint revision is `git log -1 --format=%H -- docs/vita/VITA-WW-03.md`. After committing,
 the complete commands below are repeated at that immutable revision. The resulting exact source
 SHA, ELF/SELF/VPK SHA-256 values, sizes and host run directory are in
-the new `build-vita-ww-03-deadline-c6f417fb8b79483a9165b0d6273bfde1/fp-evidence.json`;
-01 evidence is in `build-vita-ww-01-deadline-c6f417fb8b79483a9165b0d6273bfde1/evidence.json`.
+the new `build-vita-ww-03-config-45114f8e04de4707851fe8afb9b13fe2/fp-evidence.json`;
+01 evidence is in `build-vita-ww-01-config-45114f8e04de4707851fe8afb9b13fe2/evidence.json`.
 Do not identify a package by filename alone. Rebuilding embeds the source revision and changes
 hashes; SELF/VPK packaging can also vary. The handoff includes that revision's artifact hashes.
 
@@ -56,8 +58,8 @@ Checkpoint commands on AArch64 Linux (`7.1.13-402.asahi.fc44.aarch64+16k`), repe
 
 ```sh
 STACK=/home/fred/projects/zeldaWWHDRecomp/build-vita-tools/local-stack
-OUT="$PWD/build-vita-ww-03-deadline-c6f417fb8b79483a9165b0d6273bfde1"
-BASELINE_OUT="$PWD/build-vita-ww-01-deadline-c6f417fb8b79483a9165b0d6273bfde1"
+OUT="$PWD/build-vita-ww-03-config-45114f8e04de4707851fe8afb9b13fe2"
+BASELINE_OUT="$PWD/build-vita-ww-01-config-45114f8e04de4707851fe8afb9b13fe2"
 PYTHONDONTWRITEBYTECODE=1 VITASDK="$STACK/vitasdk" PATH="$STACK/bin:/usr/bin:/bin" \
   python3 -B scripts/vita/armv7/fp_build.py --vita --out "$OUT" \
   --vitasdk "$STACK/vitasdk" --cc "$STACK/bin/aarch64-conda-linux-gnu-gcc" \
@@ -303,6 +305,12 @@ rejected; modes and every source/staged file identity are checked. No parent pro
 app, save or key is copied. After verified firmware staging only, the new private config selects the
 private VitaFS, completes Welcome, retains `warn-missing-firmware: true`, and disables network update
 checks. Source and staged firmware identities are checked again after execution.
+The complete, neutral configuration is now an exact pinned template, described below. Its bytes,
+lineage and sanitization are recorded in the protected plan, and both configuration and firmware are
+rechecked immediately before execution. The runtime's known configuration-load error is an input
+failure, never an accepted PASS; stdout/stderr inspection is no-follow, regular-file-only and bounded
+to 1 MiB. Oversized/invalid log input also fails closed. Existing nonzero execution dispositions retain
+priority. This check recognizes the observed error string, not an unverified general parser API.
 
 The generated sandbox command uses installed `/usr/bin/bwrap`:
 
@@ -409,13 +417,14 @@ identities rather than reuse this inspection's inventory as execution evidence.
 | --- | --- |
 | AArch64 FP diagnostic | 71/71 PASS; actual bits equal the table-generated literal expectations; all path checks pass |
 | FP ARMv7 ELF/SELF/VPK | Build PASS, title BWWF00003; exactly `eboot.bin` and `sce_sys/param.sfo` |
-| Fixture Python regressions | 57/57 PASS with copied native GCC: prior 50 plus seven deterministic deadline regressions |
+| Fixture Python regressions | 69/69 PASS with copied native GCC: prior 57 plus twelve profile/schema regressions |
 | 01 corpus / contract / pinned GXRuntime CTest | 1/1, 5/5, 3/3 PASS |
 | 01 complete host executables and both VPKs | PASS |
 | Repo audit and eight direct baseline files | PASS; 53 baseline tests |
 | Prior real diagnostic startups | INCOMPLETE, 0/71 observed; timeout and instrumentation-induced SIGXFSZ documented above |
 | Copied-stack GUI-only startup | Main window verified; no guest execution or exercised firmware-state API |
-| Renewed diagnostic / physical Vita / Windows CI / full game | NOT RUN |
+| First renewed diagnostic | Timeout 124 / INCOMPLETE; BWWF00003 installed, config parse error, 0/71 observed |
+| Remaining diagnostic / physical Vita / Windows CI / full game | NOT RUN |
 
 Genuine short red/green observations, saved under `build-vita-ww-03/logs/`:
 
@@ -527,9 +536,79 @@ emulator invocation or live PID signalling occur in these tests. They publish a 
 
 New exact-commit manifests, logs and `proposed-launch.json` supersede the prior plan as new artifacts;
 the prior plan, builds and evidence are preserved. The new source-bound ELF/SELF/VPK must be used.
-**Renewed real launches: 0/2. Observed ARMv7 FP cases: 0/71.** Follow-up review and exact-launch
-authorization are still required. Opaque runtime/source/Boost and firmware provenance limitations
+At that pre-execution checkpoint, renewed real launches were 0/2 and observed ARMv7 FP cases 0/71.
+Its follow-up review accepted the deadline correction and authorized the first renewed trial below.
+Opaque runtime/source/Boost and firmware provenance limitations
 are unchanged; this correction supplies no emulator, game, renderer or physical performance result.
+
+### First renewed trial and localized configuration adaptation
+
+The single authorized run used clean `53cc60949da76d37b752f6d9df2359eb114990ce` and VPK
+`9f743331bb9ba0dfe10b933c72a94069edf75a73fcb02b35243469f7b8880980` with the unchanged accepted
+copied runtime. Evidence remains under `build-vita-ww-03-deadline-c6f417fb8b79483a9165b0d6273bfde1/`:
+
+- Run `vita3k-run-3d235470292e4af1b90007d0d242a6f1/`.
+- Delivery `renewed-first-1a9d7944b2a54a808e814cceaf10ec73/manifest.json`, SHA-256
+  `fcaf940f8220ec969dd62c256d84fdccc2897a3947592b08daf1b579c9a4af6a`.
+- Preparation to plan output: 12.315 s; execution/owned cleanup: 30.002 s; total launcher: 54.487 s,
+  including approximately 12.170 s of post-execution identity checks. Exit 124 / INCOMPLETE,
+  actual process -15 (watchdog SIGTERM), waited and gone, owned group empty. Inputs and worktrees
+  unchanged; integration remained `a6ea2e9`. No report or partial report, 0/71 cases observed.
+- Installed `ux0/app/BWWF00003/{eboot.bin,sce_sys/param.sfo}` matched the authorized package exactly.
+  Installation is established; guest execution is not. This does not prove the earlier CLI11 hypothesis.
+- First log error: `Config file can't be loaded: Error: invalid node; first invalid key:
+  "keyboard-button-select"`. The runtime rewrote its private config with `show-welcome: true` and
+  update mode 1; the network namespace remained isolated. This error is observed, not established as
+  the unique timeout cause. No retry, settings repair or product change occurred during execution.
+
+The inspected source candidate's `config.cpp:119–126,216–220` checks legacy keyboard nodes before
+applying config overrides. Missing keyboard nodes explain a plausible route to this exact error;
+mapping of those sources to the opaque binary remains UNVERIFIED. Adding just the first missing key
+would leave the rest of the required keyboard schema absent.
+
+Only the authorized, owned GUI record was used as a schema source:
+`/home/fred/projects/zeldaWWHDRecomp/build-vita-tools/vita3k/gui-runs/6aa76e5c788e4e1caa8f275dcfde3981/local-adoption-fbfae8841e53439db2d5d034b00a4c89/evidence/config-after.yml`.
+That binary-generated record was loaded in the copied-stack main-window baseline. Its SHA-256 is
+`9e64e723c8286e77e7cd57ffb6049d3cdcf202615062a503348c3170a18edff7` (4,284 bytes).
+
+`scripts/vita/armv7/fp_config.yml` freezes the complete public schema: **154 distinct top-level keys,
+64 physical-name keyboard bindings**, including all alternate bindings. Its only differences from
+the source record are `backend-renderer: Vulkan → OpenGL` and `user-id: 00 → ""`. Auto-connect remains
+false; user language, camera identifiers/images and custom driver name remain empty. No user/profile
+tree, app, save, credential, key, personal value or external filesystem path is imported. Public
+default capability flags are retained inside the unchanged network/device/session isolation.
+Private `pref-path`, firmware warning true, Welcome false and update mode 0 remain explicit.
+
+The template and initially staged configuration share SHA-256
+`c11fa8feaa4240186f652672643ee1c8d4cbdecbc09b62ac841a936272b67f25` (4,284 bytes). This exact-byte
+allowlist fixes every key, value and type: changed hashes, duplicates, aliases, tags, unexpected keys,
+legacy numeric bindings, shared/game paths and personal values are rejected. There is no arbitrary
+profile import argument or YAML library. The existing no-follow directory descriptor helper is reused
+unchanged from `fp_libraries.py` for bounded template reads and exclusive mode-0600 config creation.
+Firmware is fully verified before writing the Welcome setting; firmware/config are rechecked before
+starting a process. The runtime may subsequently create its own fresh private user.
+
+Current evidence: `build-vita-ww-03-config-45114f8e04de4707851fe8afb9b13fe2/`. `config-lineage.json`
+records the approved source path/hash and both exact substitutions. The short actual red/green loops:
+
+- `logs/schema-red.log`: frozen `fp_profile-53cc609.py` produces four keys and lacks all 64 keyboard
+  bindings. `schema-green-attempt.log` passes the complete schema contract with the fixed template.
+- `logs/profile-binding-{red,green}.log`: formerly a changed staged config/firmware could reach the
+  child-spawn boundary, and no config hash was in the plan. The corrected path rejects both mutations
+  before spawning and records exact protected config identity/provenance.
+- `logs/parse-failure-{red,green}.log`: a fake zero-exit process with a valid PASS report and the observed
+  config error formerly became COMPLETE/PASS. It now remains nonzero/INCOMPLETE with reported bits
+  preserved. A healthy full-profile fake still completes normally.
+- The expanded suite rejects polluted templates, symlinks/FIFOs, redirected config ancestors and
+  preexisting config overwrites. A sandboxed fake reads the exact config hash and read-only firmware
+  without access to a neighboring profile sentinel. Prior 57 regressions, including all seven deadline
+  cases, semantic FAIL, early shutdown 125 and detached-child cleanup, remain passing.
+
+The reviewed relative argv, monotonic deadline, completion code, mounts, CPU/oracles and pins are
+unchanged. New source-bound build artifacts and a fresh stage-only plan replace the old proposal as
+new evidence; all original failed-run/config records remain intact. **1/2 renewed trials used; 0/71
+ARMv7 cases observed.** The remaining trial awaits review and exact authorization. A loadable profile
+does not establish a guest OpenGL context or game boot; the GUI baseline certified neither.
 
 Current artifact locations: `$OUT/{host-fp,vita-fp}/ww_fixture`, `$OUT/vita-fp/{eboot.bin,ww_fp.vpk}`.
 Host run records are fresh `$OUT/host-run-<uuid>/{fp.request,fp.report,process.log}`. The full 01
