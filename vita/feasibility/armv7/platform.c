@@ -14,9 +14,8 @@ static int print_free_memory(void) {
         fprintf(stderr, "sceKernelGetFreeMemorySize failed: %08X\n", (unsigned)result);
         return 1;
     }
-    printf("FREE user=%d cdram=%d phycont=%d (current process, not nominal RAM)\n",
-           info.size_user, info.size_cdram, info.size_phycont);
-    return 0;
+    return printf("FREE user=%d cdram=%d phycont=%d (current process, not nominal RAM)\n",
+                  info.size_user, info.size_cdram, info.size_phycont) < 0;
 }
 #endif
 
@@ -91,9 +90,11 @@ int main(int argc, char** argv) {
 int fixture_log_close(void) {
 #ifdef __vita__
     int result = print_free_memory();
-    if (fflush(stdout) != 0 || fflush(stderr) != 0)
-        return 1;
-    return result;
+    int stdout_flush = fflush(stdout);
+    int stderr_flush = fflush(stderr);
+    int stdout_error = ferror(stdout);
+    int stderr_error = ferror(stderr);
+    return result || stdout_flush != 0 || stderr_flush != 0 || stdout_error || stderr_error;
 #else
     return 0;
 #endif

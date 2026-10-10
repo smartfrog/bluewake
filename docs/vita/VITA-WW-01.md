@@ -43,7 +43,8 @@ or published.
 
 ## Reproduce
 
-Prerequisites: native GCC, Python 3, Git, CMake, Ninja and, for `--vita`, an existing VitaSDK.
+Prerequisites: a Linux host, native GCC, Python 3, Git, CMake, Ninja and an existing VitaSDK.
+Host logging regressions use its headers; its cross-compiler is used only with `--vita`.
 The defaults run host checks only. `--fetch` opts into downloading missing pinned public sources.
 The generator is always native; its emitted C is compiled separately for host and Vita.
 
@@ -205,8 +206,8 @@ The 96 MiB heap reservation contains those guest allocations: do not add it to t
 | ARM artifact / section | Corpus | Contract |
 | --- | ---: | ---: |
 | ELF file bytes | 224,288 | 242,908 |
-| SELF `eboot.bin` file bytes | 100,504 | 108,611 |
-| VPK file bytes | 97,069 | 104,954 |
+| SELF `eboot.bin` file bytes | 100,479 | 108,618 |
+| VPK file bytes | 97,198 | 105,183 |
 | `.text` | 138,648 | 145,560 |
 | `.rodata` | 5,988 | 9,532 |
 | `.data` | 2,536 | 2,640 |
@@ -219,7 +220,9 @@ LOAD sizes already contain the sections and their dispatch/alias/dirty metadata;
 They exclude heap, thread stacks, pool/page rounding and platform reservations. Compressed VPK/SELF
 file sizes are not resident memory. Each VPK has exactly `sce_sys/param.sfo` and `eboot.bin`.
 Local artifacts are `build-vita-ww-01/vita-{corpus,contract}/`; they have not been installed or uploaded.
-ELF SHA-256 values are recorded in `evidence.json`; packaging timestamps can change VPK hashes on rerun.
+ELF SHA-256 values are recorded in `evidence.json`. Package sizes above describe the correction build
+sample; SELF/VPK sizes and hashes can vary on rerun. The final delivery's exact artifact sizes and
+hashes are recorded privately in `build-vita-ww-01/artifact-inventory.json` after immutable-SHA validation.
 
 ### Production source bounds, not measurements
 
@@ -291,9 +294,47 @@ then retained the maximum in both record orders. Its exact red/green logs are
 `build-vita-ww-01/logs/stack-evidence-undercount-red.log` and `stack-evidence-green.log`.
 This last change corrects evidence aggregation, not CPU/runtime behavior.
 
+### Review-driven logging correction, round 1
+
+The original delivery `4531ced19680c9dc7cbcb57eafa6a20df13c15e9` could report success after a
+failed unbuffered diagnostic write: `ferror` remained set even when a subsequent empty `fflush`
+returned zero. It also ignored the memory snapshot's `printf` result and could skip flushing stderr
+when stdout's flush failed. The localized correction checks the snapshot return, attempts **both**
+flushes and reads **both** stream error indicators before returning the completion status. Existing
+entry, kernel-query and scenario failure propagation remains intact; no error indicator is cleared.
+
+`logging_probe.c` includes the actual production `platform.c`, compiled natively with `__vita__`
+and the installed VitaSDK headers. The unused platform entry/thread code is linker-discarded;
+only the kernel free-memory query is stubbed, and flush instrumentation calls the real libc `fflush`.
+This is a host execution of the real Vita logging branch, **not execution on Vita or newlib**, a
+duplicate test-only completion algorithm, or a synthetic CPU implementation.
+The rebuilt ARM disassembly also shows the snapshot return's sign test, two unconditional calls to
+`fflush`, and loads of both stream error flags before the final completion result.
+
+Actual red/green observations:
+
+- Unbuffered writes to `/dev/full` fail with **ENOSPC (28)** on stdout and stderr. `dup2` restores
+  the file descriptor to `/dev/null` without resetting the FILE error; later `fflush` succeeds with
+  `ferror` still set. Original close status: **0**; corrected close status: **1** for both streams.
+- A snapshot write fails with ENOSPC: original snapshot status **0**, corrected status **1**.
+- A buffered stdout flush fails: the original path attempts **1 stdout / 0 stderr** flushes;
+  the correction attempts **1 / 1** and returns failure.
+- Healthy completion still succeeds; a kernel-query failure still fails, with both streams flushed.
+
+The first two behaviors were run red before their corrections, then green. The final probe was also
+compiled against a saved, unmodified `platform.c` from the original SHA: all four fault scenarios
+fail its regression assertions, while both healthy/query-error controls pass. Logs are
+`build-vita-ww-01/logs/logging-failed-write-{red,green}.log`, `logging-snapshot-{red,green}.log`,
+`logging-original-red.log` and `logging-green.log`. The native probe compile command is recorded in
+`build-vita-ww-01/logging-regression/compile.log`; the campaign supplies its chosen native CC and SDK.
+
+All executions described here were run locally in this worktree. The independent reviewer did not
+execute these checks. This correction does not close the ARMv7 FP, hardware or full-game budget gates.
+
 Local checks before delivery passed:
 
-- Fixture Python tests: **5/5**; corpus CTest: **1/1**; contract CTest: **5/5**;
+- Fixture Python tests: **10/10**, including five logging tests with six scenario executions;
+  corpus CTest: **1/1**; contract CTest: **5/5**;
   pinned standalone GXRuntime CTest: **3/3**. Both complete host fixtures also executed directly.
 - Both Vita ELF/SELF/VPK builds; ELF ABI, section, symbol, assembly and compiler stack inspection.
 - `bash scripts/audit_repo.sh` and all **53** supplied source/synthetic baseline tests, running each

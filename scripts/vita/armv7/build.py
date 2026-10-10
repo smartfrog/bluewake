@@ -53,10 +53,10 @@ class Campaign:
         self.logs = output / "logs"
         self.logs.mkdir(parents=True, exist_ok=True)
 
-    def run(self, name, command):
+    def run(self, name, command, env=None):
         command = [str(argument) for argument in command]
         result = subprocess.run(command, cwd=ROOT, stdout=subprocess.PIPE,
-                                stderr=subprocess.STDOUT, text=True)
+                                stderr=subprocess.STDOUT, text=True, env=env)
         (self.logs / f"{name}.log").write_text(shlex.join(command) + "\n" + result.stdout)
         if result.returncode:
             raise RuntimeError(f"{name} failed ({result.returncode}); see {self.logs / (name + '.log')}")
@@ -128,7 +128,8 @@ def main():
         sources[name] = path
     campaign.run("host-compiler", [args.cc, "--version"])
     campaign.run("fixture-python-tests", [sys.executable, "-m", "unittest", "discover",
-                                          "-s", ROOT / "vita/feasibility/armv7", "-p", "test_*.py"])
+                                          "-s", ROOT / "vita/feasibility/armv7", "-p", "test_*.py"],
+                 env=dict(os.environ, CC=args.cc, VITASDK=str(args.vitasdk)))
     generator = campaign.configure("host-generator", ROOT / "vita/feasibility/armv7/generator", args,
                                    [f"-DCMAKE_C_COMPILER={args.cc}", f"-DDOLRECOMP_DIR={sources['dolrecomp']}"])
     campaign.compile("host-generator", generator, args, ("test_codegen_emit", "ww_stack_emit"))
