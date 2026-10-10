@@ -1,12 +1,13 @@
 # VITA-WW-08 — independent scalar VFP / pristine runtime comparison
 
-2026-10-10 · [ticket](https://trello.com/c/N9iec8am) · **stage 1 only, target NOT RUN**
+2026-10-10 · [ticket](https://trello.com/c/N9iec8am) · **negative diagnostic: STOP_CONTROL / REVOIR**
 
-The bounded diagnostic is implemented and host/cross-build checked. This is not a runtime repair,
-CPU GO, game boot or physical Vita result. Actual 08 Vita3K process usage is **0/4**. Material-risk
-review and exact coordinator authorization must precede the named pristine baseline pair **1/2**.
-Any experimental correction and confirmation pair **3/4** remain conditional within this ticket.
-The exhausted 03/04 campaigns must not be rerun.
+The reviewed pristine baseline pair **1/2** ran once and produced a valid negative report. Independent
+scalar arithmetic failed despite correct FPSCR mode write/readback. This is not a runtime repair,
+CPU GO, game boot, FPS result or physical Vita result. Actual 08 Vita3K process usage is **2/4, frozen**;
+processes **3/4 are forbidden**, not spare attempts for configuration comparisons. No retry or runtime
+patch follows from this result. The exhausted 03/04 campaigns must not be rerun. The remaining
+05/02/06 product work stays blocked; any further experiment needs a new approved scope and budget.
 
 ## Inputs and scope
 
@@ -102,7 +103,7 @@ deletion. Exclusive `arm.partial` becomes `arm.report` only after successful wri
 I/O errors return nonzero and do not publish. Host-only injected APIs are unit tests, never target
 measurements; report-I/O failure tests verify their final environment restoration too.
 
-## Protected baseline pair — not executed
+## Protected baseline pair — executed once after review
 
 `arm_launch.py` defaults to staging only: **zero processes, no guest request**. Exact synthetic title
 **BWWA00008** has just SELF and SFO. Both phase plans/evidence are host-protected, read-only in the
@@ -114,8 +115,10 @@ the coordinator's external hash before reservation or subprocess creation, and p
 The expected hash is never derived from the parsed plan or an embedded self-hash.
 It rechecks clean checkpoint/pins, commands, deadlines,
 protected plans, source/staged package, runtime/assets/libraries and canonical configuration.
-An exclusive ignored baseline reservation prevents a second baseline authorization/retry.
-The conditional 3/4 pair is not implemented or authorized by this stage-1 entry point.
+An exclusive baseline reservation prevents a second baseline authorization/retry. The original file
+`/tmp/opencode/ww08/build-ww08-baseline-reservation.json` remains intact. The coordinator excluded
+that exact generated filename through local Git metadata; no source ignore rule or guard was changed.
+The conditional 3/4 pair is not implemented by this entry point and is forbidden after this result.
 
 1. Installer **1**, `Vita3K --console --backend-renderer OpenGL arm.vpk`, fresh private profile,
    absolute deadline **at most 30 s**. Installer status and preparation readiness remain separate.
@@ -140,7 +143,7 @@ mount name, not diagnostic identity. Opaque copied runtime hash remains
 `c11fa8feaa4240186f652672643ee1c8d4cbdecbc09b62ac841a936272b67f25`.
 Runtime/source/Boost and installed firmware version/PUP provenance remain UNVERIFIED.
 
-## Checkpoint verification
+## Historical implementation and review verification
 
 Linux AArch64, copied tool stack only:
 `/home/fred/projects/zeldaWWHDRecomp/build-vita-tools/local-stack`.
@@ -148,7 +151,8 @@ Initial red loops observed missing control API, missing typed report/launch mode
 configuration not restored, missing report-I/O injection and missing fake cleanup audit. Focused
 green loops then passed. No full baseline rerun preceded the first red loop.
 
-Checks are repeated after the checkpoint commit (`git log -1 --format=%H -- docs/vita/VITA-WW-08.md`):
+The reviewed code checkpoint is `fd66ff3d38f4835f71fd198e69b1f7b8bd129b07`. These checks ran at that
+immutable checkpoint before its separately authorized target pair:
 
 - **155/155** fixture tests: previous 151 plus four focused reviewed-plan binding regressions.
 - Real HOST FP **71/71** in both 03 and 08; 08 independent ARM **32 SKIP**.
@@ -156,21 +160,119 @@ Checks are repeated after the checkpoint commit (`git log -1 --format=%H -- docs
   new fake-control guard 4. HOST real memory PASS, SDK SKIP.
 - All four older VPK builds plus new 08 ELF/SELF/VPK; source bindings, hard-float flags,
   scalar instruction inspection, pristine pins, scope/diff, repository audit and attribution.
-- No Windows CI or hardware, physical Vita, real 08 emulator process or gameplay was run.
+- At that preexecution checkpoint, no real 08 emulator process had run. Windows CI/hardware,
+  physical Vita and gameplay remain untested after the diagnostic pair too.
 
-Ignored evidence is in `build-ww08/{arm-evidence.json,logs,proof}`, `build-ww01/evidence.json`,
-`build-ww03/fp-evidence.json`, `build-ww04/mem-evidence.json`. The proof manifest records actual
-commands, counts, immutable checkpoint SHA, documentation provenance hashes, selected instructions,
-ELF/SELF/VPK hashes and the protected exact pair plans. The final source-binding rebuild is
-**NONEXECUTED**; intermediate dirty-source packages are not eligible as target evidence.
+The original `ab8e3b2f5c1b37927b29616fcc280363ef1c6e99` evidence remains in
+`build-ww08/{arm-evidence.json,logs,proof}`, `build-ww01/evidence.json`, `build-ww03/fp-evidence.json`
+and `build-ww04/mem-evidence.json`. The reviewed fd66 checkpoint evidence is separately preserved
+under `/home/fred/projects/zeldaWWHDRecomp/build-r1/build-proof/` and its `build-{01,03,04,08}` trees.
+The manifests retain actual commands, counts, source bindings, instruction and artifact hashes.
+Preexecution statements such as **NONEXECUTED** describe that historical checkpoint, not the later
+authorized run. Intermediate dirty-source packages and the ab8 stage remain ineligible.
 
 Reproduction: prepend `$STACK/bin` to PATH, set CC to its native GCC and VITASDK to `$STACK/vitasdk`;
 run `arm_build.py --vita --out "$PWD/build-ww08" --cc "$CC" --cmake "$STACK/bin/cmake"
 --ninja "$STACK/bin/ninja" --vitasdk "$VITASDK" --jobs 2`. The final proof records complete argv.
-Staging is harmless and is not runtime success. Only the coordinator may authorize execution
-of the exact recorded baseline pair after material-risk review.
+Staging is not runtime success. The named fd66 baseline below exhausted the permitted baseline;
+this reproduction command is a build command, not permission to create or execute another campaign.
 
-## Decision after the baseline — do not act yet
+## Authorized baseline result
+
+The coordinator independently supplied both the exact authorization string and the reviewed root-plan
+SHA-256 `9e7a87dae41b907c4ecd120029cc55334467d4de6194d725f6bd416f486c6d6f`.
+The existing saved stage was used without rebuilding, replacing its UUID or making a second request.
+
+| Binding | Observed value |
+| --- | --- |
+| Executed source | `fd66ff3d38f4835f71fd198e69b1f7b8bd129b07` |
+| Run | `6c6f3c20224d478c85bbe5bd2bc983f0` |
+| VPK SHA-256 | `84f4f51e2a50997d9897efa44e05ca23ae1ae85dd313e311f0fade1a32f6c51b` |
+| Fresh guest token | `1edb49bccb294e518a0de9c1869d493d` |
+| Method / platform | `scalar-vfp-v1` / `VITA` guest in Vita3K, **not physical Vita** |
+| Report SHA-256 | `18eef2875e2674e4787c24f7e85141b0630fb82ffc6a846f90f538b9f9cd977e` |
+
+Installer 1 reached its configured 30-second deadline: status **124**, raw exit **-15**, waited,
+duration **30.001257481 s** including stop/wait overhead. Preparation was independently **VERIFIED**,
+not process PASS. Installed `eboot.bin` (146,551 bytes, SHA-256
+`196692627cb4e8d3214d20cc02bdcbfac7c5e77069481152f37e5c4fdbbe0aa2`) and `sce_sys/param.sfo`
+(912 bytes, SHA-256 `52b86eedd2314a646fc0ae0db0736021bf34557c0d765778b717b4756a34115a`)
+matched the VPK exactly, with the required type/owner/link/directory checks. Only then was the fresh
+guest request created in the same private profile.
+
+Guest 2 produced a closed **20,305-byte / 107-line** report with the required identity and order.
+`arm_report.analyze` validated those same bounded bytes: **status 1, STOP_CONTROL**. After the
+natural-exit grace, the runner stopped/reaped the process: status **125**, raw exit **-15**, duration
+**0.866093347 s**. Protected result: **INCOMPLETE**, semantic **UNAVAILABLE**, reported semantic
+**FAIL**. Neither preparation readiness nor a complete negative report implies natural process exit.
+
+### Independent scalar controls
+
+**20 PASS / 12 FAIL / 0 SKIP**. All **32/32** requested FPSCR mode words read back correctly, all
+**32/32** retained the requested RN/FZ bits after their operation, and all **32/32** restored the
+initial `00000000` word. These register observations do not prove arithmetic correctness: two RN
+addition, six RN conversion and four FZ double cases returned the wrong literal result bits.
+
+| Failed control | Expected bits | Actual bits |
+| --- | --- | --- |
+| `vadd-positive-rn2-fz0` | `3ff0000000000001` | `3ff0000000000000` |
+| `vadd-negative-rn3-fz0` | `bff0000000000001` | `bff0000000000000` |
+| `vcvt-positive-even-rn2-fz0` | `3ff0000020000000` | `3ff0000000000000` |
+| `vcvt-positive-odd-rn1-fz0` | `3ff0000020000000` | `3ff0000040000000` |
+| `vcvt-positive-odd-rn3-fz0` | `3ff0000020000000` | `3ff0000040000000` |
+| `vcvt-negative-even-rn3-fz0` | `bff0000020000000` | `bff0000000000000` |
+| `vcvt-negative-odd-rn1-fz0` | `bff0000020000000` | `bff0000040000000` |
+| `vcvt-negative-odd-rn2-fz0` | `bff0000020000000` | `bff0000040000000` |
+| `vmul-input-positive-rn0-fz1` | `0000000000000000` | `0000000000000002` |
+| `vmul-output-positive-rn0-fz1` | `0000000000000000` | `0008000000000000` |
+| `vmul-input-negative-rn0-fz1` | `8000000000000000` | `8000000000000002` |
+| `vmul-output-negative-rn0-fz1` | `8000000000000000` | `8008000000000000` |
+
+RN1/RN2/RN3 requests were respectively `00c00000`/`00400000`/`00800000`; FZ-on requests were
+`01000000`. Requested/readback values agree in every record; post-operation words preserve these
+mode bits while some arithmetic records also set status bit `00000010`. Full observations are
+retained, not replaced by the table's arithmetic verdicts. Earlier HOST controls remain **32 SKIP**;
+they are not these actual emulated ARM measurements.
+
+### Pristine runtime comparison
+
+**56 PASS / 15 FAIL**, all **71** original cases in order with **71/71 path checks 1**. The failures
+are the original eleven directed-rounding cases (two add, six frsp, three direct/indirect/host-boundary)
+and four double-NI cases. All 32 quantization cases passed; this is not full NI certification.
+
+Every runtime `before` and `updated` FPSCR was `00000000`. All **51 nonzero requested host modes**
+were absent after the pristine setter, and RN/FZ bits remained zero after the operations; other
+post-operation status bits varied. All **71/71** runtime restorations and the final restoration
+passed with `00000000`. The ARM runtime mode-write gap is confirmed, but independent arithmetic
+also failed when the raw control word was correct. The whole failure cannot be attributed solely
+to that runtime gap, nor repaired blindly by inserting a mode write.
+
+### Cleanup, configuration and retained evidence
+
+Both owned leaders (113389/113464) were waited/reaped; their groups were absent, and no identified
+process retaining the private profile binding was observed. Historical namespace inode IDs were
+**UNRECORDED**: there is no retrospective inode-based namespace certificate. A read-only `/proc`
+mountinfo check returned EINVAL for an unrelated pre-existing zombie (4661, group 4605/session 3033);
+that error and its context remain recorded. Runtime/API negatives also remain raw: missing `os0`
+preloads, Vulkan/PulseAudio warnings, absent-output ENOENT and existing-directory EEXIST. Do not
+claim zero errors globally or convert these records into a clean natural exit.
+
+Both emitted configuration snapshots retain `user-id: 00`, SHA-256
+`321eb130dcf8d38a639ab67b16f6eb9eccf52a80e0c0c3f97fb21ada47266eb9`. The only byte difference from
+the approved configuration is that user ID serialization. The reviewed runner restored canonical
+`user-id: ""` after preparation and guest cleanup; the final 4,284 bytes were independently verified
+against `c11fa8feaa4240186f652672643ee1c8d4cbdecbc09b62ac841a936272b67f25`. This is verified
+restoration, not a claim that the emulator never rewrote configuration.
+
+The private run is `/home/fred/projects/zeldaWWHDRecomp/build-r1/build-08/vita3k-run-6c6f3c20224d478c85bbe5bd2bc983f0`.
+Postcampaign evidence is `/home/fred/projects/zeldaWWHDRecomp/build-r1/build-08/post-baseline-6c6f3c20224d478c85bbe5bd2bc983f0/`:
+`observation.json`, `cleanup-supplement.json` and `manifest-final.json`. The final manifest SHA-256 is
+`49e576b47f08f90674b200feaf535fb11f884251b2ad73cbc80f23fbb23f2c5c`, with **2,558 typed entries /
+1,962 regular files / 114 internal cache links**. It includes the current report and protected result.
+Old ab8, fd66, stage and postcampaign proofs keep their original source bindings. The old stage
+manifest is historical: the guest wrote cache/data; the whole private profile is not unchanged.
+
+## Decision after the baseline — STOP_CONTROL
 
 | Observations | Next disposition |
 | --- | --- |
@@ -179,11 +281,22 @@ of the exact recorded baseline pair after material-risk review.
 | Runtime controls right but arithmetic wrong | Attribution remains open; no automatic FPSCR patch. |
 | No reproduction | No patch. |
 
-Any later experimental dependency checkout stays ignored, with an explicit scoped delta; pristine
-pins stay untouched. A fixed confirmation needs separate review/exact authorization, consumes only
-processes **3/4**, at most 30 seconds each, with no retry. Permanent upstream adoption must follow
-project policy; no external pull request/action is authorized. Useful bounded results still do not
-establish native playability or a balanced physical game/renderer/memory budget.
+The first row applies. Result review finalized a **negative diagnostic / REVOIR**, not a repaired
+runtime or product GO. No experimental checkout, emitter/HLE change, configuration A/B, physical
+execution or confirmation is authorized. Processes **3/4 remain forbidden**. The product owner
+must select any new objective, scope and execution budget; permanent adoption would also require
+the normal project review. Useful negative evidence does not establish native playability or a
+balanced physical game/renderer/memory budget.
+
+Source-only options, not an execution plan: the public template has `cpu-opt: true`; candidate
+`cpu/dynarmic_cpu.cpp:335–350` routes `cpu-opt: false` to `no_optimizations` and removes fastmem
+globally, rather than selecting a dedicated strict-FP flag. `all_safe_optimizations` excludes
+`Unsafe_IgnoreStandardFPCRValue` (ASIMD). Candidate `Arm64SetFpscr` in `emit_arm64_a32.cpp:668–688`
+updates state without `MSR FPCR`, while `a32_address_space.cpp:252–256` installs FPCR at JIT entry.
+That contrast is a compatible hypothesis, not exclusive attribution or verified mapping to the
+opaque `cea2b91f...` executable. A separately approved physical scalar fixture could discriminate
+the platform behavior; a cheaper configuration comparison would have low confidence and broader
+optimization effects. Neither is approved here, and no illustrative patch is a ready implementation.
 
 ## Review rework 1/2 — blocker 1
 
@@ -197,11 +310,31 @@ The unchanged reviewed plan reaches the fake pair; invalid hashes and omission o
 fail closed. All prior source/pin, argv, phase-plan, ownership, package/input and configuration
 guards remain intact. Native FP code, 32 ARM oracles and 71 runtime cases are unchanged.
 
-The new human checkpoint is validated from an isolated, detached verification worktree at
+The reviewed human checkpoint was validated from an isolated, detached verification worktree at
 `/home/fred/projects/zeldaWWHDRecomp/build-r1`, avoiding the known tmpfs UID quota. The sole writing
 branch/session stays at `/tmp/opencode/ww08`; no primary worktree is moved and no old proof is rewritten.
-New copied-tool builds and the fresh **stage-only** pair live in that verification worktree's ignored
+Its copied-tool builds and then **stage-only** pair live in that verification worktree's ignored
 `build-{01,03,04,08}` trees; exact commands, hashes and regressions are in `build-proof/checkpoint.json`
 and its proof manifest. The new root-plan SHA-256 and intended command containing it are recorded
-there for coordinator review only: a locally computed digest is **not authorization**. Actual target
-usage remains **0/4**, with no real Vita3K invocation or native-playability result.
+there as preexecution history: a locally computed digest is **not authorization**. Usage was **0/4**
+at that checkpoint. The coordinator later independently verified the plan hash and authorized only
+the exact pair recorded above; actual usage is now **2/4, frozen**, with no native-playability result.
+
+## Documentation-only finalization
+
+The final authored delta is this document only. Every other tracked blob, including native code,
+scripts/tests and dependency pins, must match the reviewed fd66 tree exactly. Target results remain
+bound to **fd66 and VPK `84f4f51e...`**, not to the later documentation commit or its rebuilt package.
+
+Final verification uses the separate detached worktree `/home/fred/projects/zeldaWWHDRecomp/build-f8`
+and ignored `build-proof/` evidence, keeping the primary writing branch and all earlier proofs intact.
+Required local checks at its immutable documentation SHA are 155 fixture tests, 53 baseline tests,
+HOST runtime 71/71 with ARM controls 32 SKIP, HOST memory PASS/SDK SKIP, CTest 1+5+3+1+4, ARM08
+cross-build, repository audit, attribution, diff/scope and pristine-pin checks. Exact commands,
+results, tree-equivalence proof and artifact hashes belong to that final checkpoint evidence.
+No artificial TDD red test is added for prose; accuracy is checked against the retained report.
+
+The four older target package/instruction records are explicitly reused by unchanged-code/pin
+equivalence, not claimed as fresh cross-builds. A new final-SHA ARM08 ELF/SELF/VPK is **NONEXECUTED**.
+Finalization creates no fresh target stage/profile/request, reservation attempt or process. It does
+not integrate into `main`, close a ticket or enlarge the frozen target budget.
