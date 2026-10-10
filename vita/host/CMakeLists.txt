@@ -52,7 +52,7 @@ else()
     set(BLUEWAKE_STATIC_MODULE ON CACHE BOOL "" FORCE)
     set(COMPOSITE_OPTIMIZATION_LEVEL 1 CACHE STRING "" FORCE)
     add_subdirectory("${BLUEWAKE_ROOT}/cmake/composite" composite)
-    target_compile_options(gGZLE01_recomp PRIVATE -fno-fast-math -fstack-usage)
+    target_compile_options(gGZLE01_recomp PRIVATE -fno-tree-dominator-opts -fno-fast-math -fstack-usage)
     add_executable(ww05_host main.c "${BLUEWAKE_ROOT}/vita/feasibility/armv7/platform.c"
         "${BLUEWAKE_ROOT}/vita/feasibility/armv7/abi.c")
     target_include_directories(ww05_host PRIVATE "${WW05_IDENTITY_DIR}"

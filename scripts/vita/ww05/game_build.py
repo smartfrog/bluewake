@@ -170,7 +170,8 @@ def main():
     receipt = json.dumps({'source': source, 'pins': PINS,
         'composite_digest': digest, 'title': 'BWWG00005', 'method': 'startup-gx-v1',
         'artifacts': artifacts, 'config': {'static_module': True, 'aurora': False, 'aurora_recomp': False,
-        'optimization': 1, 'fp_patch': None}, 'footprint_sha256': sha256(output / 'footprint.json'),
+        'optimization': 1, 'compiler_pass_disabled': 'tree-dominator-opts', 'fp_patch': None},
+        'footprint_sha256': sha256(output / 'footprint.json'),
         'snapshot': str(snapshot)}, indent=2) + '\n'
     (snapshot / 'build-evidence.json').write_text(receipt)
     (output / 'build-evidence.json').write_text(receipt)

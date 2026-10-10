@@ -10,7 +10,7 @@ STACK = Path('/home/fred/projects/zeldaWWHDRecomp/build-vita-tools/local-stack')
 
 
 class StaticModeTest(unittest.TestCase):
-    def configure(self, static):
+    def configure(self, static, vita=False):
         with tempfile.TemporaryDirectory(prefix='build-ww05-static-', dir=ROOT) as directory:
             output = Path(directory)
             source = output / 'generated'
@@ -20,17 +20,24 @@ class StaticModeTest(unittest.TestCase):
                 (source / name).touch()
             (source / 'chunks_dol').mkdir()
             (source / 'chunks_dol/chunk.c').write_text('void chunk(void) {}\n')
-            subprocess.run([str(STACK / 'bin/cmake'), '-S', str(ROOT / 'cmake/composite'),
+            options = [f'-DCMAKE_C_COMPILER={os.environ["CC"]}', '-DCOMPOSITE_OPTIMIZATION_LEVEL=0']
+            if vita:
+                (output / 'ww05_identity.h').write_text('#define WW05_SOURCE "' + 'a' * 40 + '"\n')
+                (output / 'synthetic.dol').write_bytes(b'synthetic configuration input only')
+                options = [f'-DCMAKE_TOOLCHAIN_FILE={STACK}/vitasdk/share/vita.toolchain.cmake',
+                           f'-DRECOMPCORE_DIR={ROOT}/ref/vita-ww-01/RecompCore',
+                           f'-DWW05_IDENTITY_DIR={output}', f'-DWW05_DOL={output}/synthetic.dol']
+            environment = {**os.environ, 'VITASDK': str(STACK / 'vitasdk')}
+            subprocess.run([str(STACK / 'bin/cmake'), '-S', str(ROOT / ('vita/host' if vita else 'cmake/composite')),
                             '-B', str(output / 'build'), '-G', 'Ninja',
-                            f'-DCMAKE_C_COMPILER={os.environ["CC"]}',
+                            *options,
                             f'-DCMAKE_MAKE_PROGRAM={STACK}/bin/ninja',
                             '-DCMAKE_EXPORT_COMPILE_COMMANDS=ON',
-                            '-DCOMPOSITE_OPTIMIZATION_LEVEL=0',
                             f'-DCOMPOSITE_DIR={source}',
                             f'-DGXRUNTIME_DIR={ROOT}/ref/vita-ww-01/RecompCore/GXRuntime',
                             f'-DABI_DIR={ROOT}/ref/vita-ww-01/RecompCore/Source/Core/Core/PowerPC/StaticRecomp',
                             *(['-DBLUEWAKE_STATIC_MODULE=ON'] if static else [])],
-                           check=True, capture_output=True, text=True)
+                           check=True, capture_output=True, text=True, env=environment)
             commands = json.loads((output / 'build/compile_commands.json').read_text())
             return commands, (output / 'build/build.ninja').read_text()
 
@@ -45,6 +52,16 @@ class StaticModeTest(unittest.TestCase):
         cpu = [entry for entry in commands if '/src/core/cpu' in entry['file']]
         self.assertEqual(len(cpu), 6)
         self.assertIn('SHARED_LIBRARY_LINKER', ninja)
+
+    def test_private_vita_chunks_disable_the_costly_gcc_dominator_pass(self):
+        commands, _ = self.configure(True, vita=True)
+        chunks = [row for row in commands if row['file'].endswith('/chunks_dol/chunk.c')]
+        self.assertEqual(len(chunks), 1)
+        self.assertIn('-O1', chunks[0]['command'])
+        self.assertIn('-fno-tree-dominator-opts', chunks[0]['command'])
+        runtime = [row for row in commands if '/GXRuntime/src/' in row['file']]
+        self.assertTrue(runtime)
+        self.assertTrue(all('-fno-tree-dominator-opts' not in row['command'] for row in runtime))
 
 
 if __name__ == '__main__':

@@ -28,7 +28,7 @@ an exception or unsupported service is negative evidence, never permission to pa
   The comparison recipe/proof is private `build-f5/default-equivalence/proof.json`.
 - `vita/host/CMakeLists.txt`: a separate Vita-only real-game target, one `GXRuntime::runtime`
   instance, exactly `GXRUNTIME_ENABLE_AURORA=OFF` and `GXRUNTIME_ENABLE_AURORA_RECOMP=OFF`.
-  The private module uses composite O1, Cortex-A9/NEON/hard-float,
+  The private module uses composite O1 with GCC's `tree-dominator-opts` pass disabled, Cortex-A9/NEON/hard-float,
   `-ffp-contract=off`, `-fno-fast-math`, stack-usage files and a link map. Desktop defaults are untouched.
 - New build/inspection/staging/report entries are in `scripts/vita/ww05/`. Nothing in
   `scripts/vita/armv7/` or the feasibility fixtures is modified. Existing pin checking, platform
@@ -123,6 +123,13 @@ individual run plans refer to that preserved build, not merely a mutable filenam
   a full-stack guarantee. O1 uses the existing composite option only, not a translator/FP patch.
   Final frame/mapping evidence must be checked against the existing bounded native call depth
   and the reservation before execution.
+- Compiler profiling on that same untouched auction unit measured 138.138 s wall / 128.77 s
+  GCC time, including 75.69 s in incremental SSA updates. Disabling only `tree-dominator-opts`
+  reduced this to 52.328 s wall / 47.01 s GCC time, 8.13 s incremental SSA and a 64-byte function
+  frame. The private translated target alone gets `-fno-tree-dominator-opts`; the pinned runtime,
+  generator, generated source digest and default SHARED target are unchanged. This is a normal
+  compiler optimization selection, not an FP workaround or instruction substitution. Retained
+  timing/stack evidence is in `o1-time-profile/` and `o1-no-dom-pilot/`.
   No 512 MiB nominal cap or new physical-platform GO is inferred.
 
 ## Repeated private execution
@@ -193,7 +200,7 @@ a lingering process. Its short red/green loops are in `logs/private-{launch,gues
 The parent-symlink loop reproduced creation outside an owned fake profile, then prevented it with the
 existing no-follow directory-descriptor pattern. No real/shared profile was involved.
 
-The WW05 host suite currently has **43 tests**. Source-bound logs retain exact counts/commands for these,
+The WW05 host suite currently has **44 tests**. Source-bound logs retain exact counts/commands for these,
 native runtime CTest, 71 native FP cases and the eight direct baseline files. Audit, attribution,
 pin/scope/diff and clean-worktree checks accompany delivery. The pre-launch `1ba507c` checkpoint passed
 35 WW05 tests, 177 unchanged tests, 53 direct baseline tests, 71 native FP cases and 3/1/5 runtime/corpus/
