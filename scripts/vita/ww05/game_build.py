@@ -127,7 +127,7 @@ def main():
     generator = output / 'generator'
     build.run('generator-configure', [cmake, '-S', sources['DolRecomp'], '-B', generator, '-G', 'Ninja',
                                      f'-DCMAKE_C_COMPILER={cc}', f'-DCMAKE_MAKE_PROGRAM={ninja}',
-                                     '-DCMAKE_BUILD_TYPE=Release'])
+                                      '-DCMAKE_BUILD_TYPE=Release', '-DCMAKE_DISABLE_FIND_PACKAGE_ZLIB=ON'])
     build.run('generator-build', [cmake, '--build', generator, '--target', 'dolrecomp', '-j', args.jobs])
     translated = output / 'translated'
     composite = output / 'composite'

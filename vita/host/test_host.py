@@ -29,6 +29,21 @@ class StartupHostTest(unittest.TestCase):
     def test_unknown_spr_fails(self):
         subprocess.run([str(OUT / 'host_probe'), 'unknown-spr'], check=True)
 
+    def test_l2_control_resets_disabled_without_an_instruction_skip(self):
+        subprocess.run([str(OUT / 'host_probe'), 'l2-reset'], check=True)
+
+    def test_l2_enable_control_is_retained(self):
+        subprocess.run([str(OUT / 'host_probe'), 'l2-enable'], check=True)
+
+    def test_empty_coherent_l2_invalidation_preserves_guest_memory(self):
+        subprocess.run([str(OUT / 'host_probe'), 'l2-invalidate-empty'], check=True)
+
+    def test_unimplemented_l2_control_flags_fail(self):
+        subprocess.run([str(OUT / 'host_probe'), 'l2-unsupported'], check=True)
+
+    def test_l2_write_requires_supervisor_privilege(self):
+        subprocess.run([str(OUT / 'host_probe'), 'l2-privilege'], check=True)
+
     def test_timebase_uses_shared_cycle_domain(self):
         subprocess.run([str(OUT / 'host_probe'), 'clock'], check=True)
 

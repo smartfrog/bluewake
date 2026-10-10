@@ -77,6 +77,37 @@ int main(int argc, char** argv) {
         ppc_mfspr(&host->cpu, 999u, 0x80001000u);
         assert(host->error != NULL);
         assert(host->error_address == 999u);
+    } else if (strcmp(argv[1], "l2-reset") == 0) {
+        host->cpu.pc = 0x803014ECu;
+        host->cpu.instruction_fallback(&host->cpu, 0x7C79FAA6u, host->cpu.pc);
+        assert(host->cpu.gpr[3] == 0u);
+        assert(host->cpu.pc == 0x803014F0u);
+        assert(host->error == NULL);
+    } else if (strcmp(argv[1], "l2-enable") == 0) {
+        ppc_mtspr(&host->cpu, 1017u, 0x80000000u, 0x803014F4u);
+        assert(ppc_mfspr(&host->cpu, 1017u, 0x803014ECu) == 0x80000000u);
+        assert(host->error == NULL);
+    } else if (strcmp(argv[1], "l2-invalidate-empty") == 0) {
+        mem_write32(&host->cpu, 0x80001000u, 0x12345678u);
+        host->cpu.pc = 0x803014F4u;
+        host->cpu.gpr[3] = 0x00200000u;
+        host->cpu.instruction_fallback(&host->cpu, 0x7C79FBA6u, host->cpu.pc);
+        assert(host->cpu.pc == 0x803014F8u);
+        assert(ppc_mfspr(&host->cpu, 1017u, 0x803014ECu) == 0x00200000u);
+        assert(mem_read32(&host->cpu, 0x80001000u) == 0x12345678u);
+        assert(host->error == NULL);
+    } else if (strcmp(argv[1], "l2-unsupported") == 0) {
+        ppc_mtspr(&host->cpu, 1017u, 2u, 0x803014F4u);
+        assert(host->error != NULL);
+        assert(host->error_address == 1017u);
+        assert(host->error_pc == 0x803014F4u);
+        assert(ppc_mfspr(&host->cpu, 1017u, 0x803014ECu) == 0u);
+    } else if (strcmp(argv[1], "l2-privilege") == 0) {
+        host->cpu.msr |= PPC_MSR_PR;
+        ppc_mtspr(&host->cpu, 1017u, 0x80000000u, 0x803014F4u);
+        assert(host->cpu.exception & PPC_EXC_PROGRAM);
+        host->cpu.msr &= ~PPC_MSR_PR;
+        assert(ppc_mfspr(&host->cpu, 1017u, 0x803014ECu) == 0u);
     } else if (strcmp(argv[1], "clock") == 0) {
         bluewake_cycle_domain_begin_turn(&host->cycles, &host->cpu);
         bluewake_cycle_domain_prepare_dispatch(&host->cycles, &host->cpu);

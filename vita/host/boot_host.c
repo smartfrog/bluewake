@@ -45,6 +45,8 @@ static u32 spr_read(CPUState* cpu, u16 spr, u32 cia) {
         return 0x00083214u;
     if (spr == 1008u)
         return host->hid0;
+    if (spr == 1017u)
+        return host->l2cr;
     if (spr == 22u || spr == 268u || spr == 269u) {
         observe(cpu);
         return spr == 22u ? host->decrementer :
@@ -64,6 +66,16 @@ static void spr_write(CPUState* cpu, u16 spr, u32 value, u32 cia) {
         host->decrementer_valid = true;
     } else if (spr == 1008u) {
         host->hid0 = value;
+    } else if (spr == 1017u) {
+        if (value & ~0x80200000u) {
+            ww_host_fail(host, "unsupported L2CR control flags", spr, cia);
+            return;
+        }
+        if (value & 0x00200000u) {
+            // There are no L2 lines in this coherent-memory host to invalidate.
+            ppc_memory_fence();
+        }
+        host->l2cr = value;
     } else {
         ww_host_fail(host, "unsupported SPR write", spr, cia);
     }
