@@ -2,7 +2,7 @@
 
 2026-10-10 · [ticket](https://trello.com/c/DcwHCjuc) · game-free, opt-in
 
-## Two-phase checkpoint: REVISE, code-risk review and exact authorization pending
+## Final delivery accepted: REVOIR (negative FP diagnostic)
 
 The AArch64 Linux diagnostic passes **71/71** independently specified result-bit cases. The same
 emitted synthetic PowerPC functions and pristine RecompCore CPU build into a Vita ARMv7 VPK.
@@ -10,20 +10,24 @@ The corrected launcher passes fake-process tests, including protected host evide
 bounded report collection, staged-package/library identity, network/filesystem isolation, detached
 descendant cleanup and preserving semantic failure when the emulator process exits zero.
 
-**No ARMv7 FP case has been observed.** Two prior diagnostic startups were INCOMPLETE: the original
-60-second attempt timed out, and temporary tracing imposed an inherited file-size limit which killed
-PulseAudio's 64 MiB memfd allocation. Subsequent isolated GUI-only runs reached Welcome (confirmed by
-the user) and the main window with the copied stack. GUI startup is not FP execution.
+**71/71 ARMv7 guest cases were observed: 56 PASS, 15 FAIL, all path checks 1.** The complete report
+is bound to executed source `bc888b2134fe0e33f954199a7129d8f99dd4d88c`, the exact VPK and a fresh
+guest token. The two-phase campaign used **2/2 actual processes**. Installation timed out with status
+124 but passed preparation verification; the guest published its negative report and closed the game.
+Qt did not exit naturally: owned shutdown produced **125 / INCOMPLETE**, `semantic: UNAVAILABLE`,
+`reported_semantic: FAIL`. These execution classifications and the independent oracles are unchanged.
 
-The first renewed 30-second attempt at `53cc609` also timed out without an FP report. It installed
-BWWF00003, but logged a configuration parse error and reset Welcome to true. The full record is below.
-The second renewed attempt at `d55440b` also timed out after installation, with the prior config error
-absent and Welcome still false. Both earlier attempts are preserved. **New two-phase campaign: 0/2
-actual processes used; ARMv7 FP cases observed: 0/71.** This pass implements and tests installation
-followed by an installed-title launch in the same private profile. Neither real phase has run; both
-require code-risk review and exact conditional authorization. Physical Vita,
-Windows hardware and gameplay remain NOT RUN. This is not completion of 03 or a GO recommendation;
-runtime repair follows a reproduced defect. VITA-WW-04 and the native game/renderer work remain separate.
+The user explicitly revised **delivery acceptance**: a complete bound negative guest report plus
+verified input integrity and owned cleanup is sufficient to finish the diagnostic delivery without
+natural Qt exit. Under that decision, 03 is ready for integration with verdict **REVOIR**, never
+execution PASS or GO. The correction here is documentation only. The new delivery-SHA VPK is rebuilt
+for checks and **NOT executed**; the accepted report remains historical evidence for the identical
+implementation at `bc888b2`, not a report from the new SHA/package. No further emulator run is authorized.
+
+Prior failed startups and all their evidence remain preserved in the history below. Physical Vita,
+Windows hardware and gameplay remain NOT RUN. VITA-WW-04 may proceed with this negative FP diagnostic
+after 03 integration. Separate [VITA-WW-08](https://trello.com/c/N9iec8am) covers FP attribution and any
+conditional experimental repair after 03/04; no such repair is part of this delivery.
 
 Round 1 replaced the proposed clean-source provenance hold with an accepted opaque runtime hash.
 The current copied ELF has an explicitly accepted RPATH-only relocation and a **different hash**,
@@ -32,8 +36,8 @@ does not authorize a launch by itself.
 
 There is no supported working BlueWake game host here. These results establish neither game boot,
 memory/stack/pool sufficiency nor physical 30 FPS/normal speed. Confidence is high in the bounded
-host results and cross-build, high in the fake-process sandbox observations, and insufficient in
-actual Vita3K/ARMv7 correctness. Physical tests follow useful emulator results.
+host results and cross-build, high in the bound guest mismatches and fake-process sandbox observations;
+the 15 mismatches prevent an ARMv7 correctness claim. Physical tests follow useful emulator results.
 
 ## Frozen inputs and reproduction
 
@@ -46,10 +50,12 @@ actual Vita3K/ARMv7 correctness. Physical tests follow useful emulator results.
 The checkpoint revision is `git log -1 --format=%H -- docs/vita/VITA-WW-03.md`. After committing,
 the complete commands below are repeated at that immutable revision. The resulting exact source
 SHA, ELF/SELF/VPK SHA-256 values, sizes and host run directory are in
-the new `build-vita-ww-03-phases-7e70bb2b97d945a3866aed90d3535a63/fp-evidence.json`;
-01 evidence is in `build-vita-ww-01-phases-7e70bb2b97d945a3866aed90d3535a63/evidence.json`.
+the new `build-vita-ww-03-final-4d0a2391e48042e3a1548eebee81567b/fp-evidence.json`;
+01 evidence is in `build-vita-ww-01-final-4d0a2391e48042e3a1548eebee81567b/evidence.json`.
 Do not identify a package by filename alone. Rebuilding embeds the source revision and changes
 hashes; SELF/VPK packaging can also vary. The handoff includes that revision's artifact hashes.
+These final-build artifacts are unexecuted in Vita3K. The executed `bc888b2` artifacts and their report
+retain their original identities in the separate `build-vita-ww-03-phases-7e70bb2b97d945a3866aed90d3535a63/` tree.
 
 Dependencies are private pristine clones under this worktree's ignored `ref/vita-ww-01/`, copied
 with `git clone --no-hardlinks` from the integration tree's pinned references. Both campaigns check
@@ -60,8 +66,8 @@ Checkpoint commands on AArch64 Linux (`7.1.13-402.asahi.fc44.aarch64+16k`), repe
 
 ```sh
 STACK=/home/fred/projects/zeldaWWHDRecomp/build-vita-tools/local-stack
-OUT="$PWD/build-vita-ww-03-phases-7e70bb2b97d945a3866aed90d3535a63"
-BASELINE_OUT="$PWD/build-vita-ww-01-phases-7e70bb2b97d945a3866aed90d3535a63"
+OUT="$PWD/build-vita-ww-03-final-4d0a2391e48042e3a1548eebee81567b"
+BASELINE_OUT="$PWD/build-vita-ww-01-final-4d0a2391e48042e3a1548eebee81567b"
 PYTHONDONTWRITEBYTECODE=1 VITASDK="$STACK/vitasdk" PATH="$STACK/bin:/usr/bin:/bin" \
   python3 -B scripts/vita/armv7/fp_build.py --vita --out "$OUT" \
   --vitasdk "$STACK/vitasdk" --cc "$STACK/bin/aarch64-conda-linux-gnu-gcc" \
@@ -373,7 +379,7 @@ The runner rejects inherited finite RLIMIT_FSIZE and never sets a file-size limi
 Its CLI deadline is finite, positive and at most 30 seconds. The process record separates actual exit
 from timeout, malformed-report and validated-report shutdown reasons.
 
-Stage-only command (variables defined in the build runbook):
+Stage-only reference command (variables defined in the build runbook; not needed for finalization):
 
 ```sh
 PYTHONDONTWRITEBYTECODE=1 python3 -B scripts/vita/armv7/fp_launch.py \
@@ -431,7 +437,9 @@ identities rather than reuse this inspection's inventory as execution evidence.
 | Copied-stack GUI-only startup | Main window verified; no guest execution or exercised firmware-state API |
 | First renewed diagnostic | Timeout 124 / INCOMPLETE; BWWF00003 installed, config parse error, 0/71 observed |
 | Second renewed diagnostic | Timeout 124 / INCOMPLETE; exact installed payload, old config error absent, 0/71 observed |
-| New two-phase campaign / physical Vita / Windows CI / full game | NOT RUN |
+| Accepted two-phase guest diagnostic at bc888b2 | 71 cases: 56 PASS / 15 FAIL, all path=1; status 125 / INCOMPLETE, reported_semantic FAIL |
+| Final delivery acceptance | Complete negative diagnostic accepted explicitly; REVOIR, not execution PASS/GO |
+| Final delivery-SHA VPK in Vita3K / physical Vita / Windows CI / full game | NOT RUN |
 
 Genuine short red/green observations, saved under `build-vita-ww-03/logs/`:
 
@@ -679,14 +687,119 @@ tests count actual Popen calls (at most two), verify detached-installer cleanup 
 payload/type/identity gates, config preservation/restoration, stale-output preservation and guest
 125/FAIL/error dispositions. All prior 69 tests, including seven deadline regressions, remain green.
 
-New source-bound artifacts and `proposed-launch.json` identify the immutable checkpoint and both
-phase plans. **New budget 0/2 consumed; observed ARMv7 cases still 0/71.** Full corrective-code risk
-review and exact named-process authorization remain pending. This step targets diagnostic guest
-progress toward Wind Waker; it certifies neither CPU/firmware behavior, GPU context, game boot nor
-physical performance and does not complete 03 or unblock 04.
+At the pre-execution checkpoint, source-bound artifacts and `proposed-launch.json` identified both
+phase plans with 0/2 processes used and 0/71 cases observed. Full corrective-code review then found no
+blockers and the coordinator authorized the exact conditional pair. The actual result and revised
+delivery decision follow; that checkpoint's pending gate is historical.
 
 Current artifact locations: `$OUT/{host-fp,vita-fp}/ww_fixture`, `$OUT/vita-fp/{eboot.bin,ww_fp.vpk}`.
 Host run records are fresh `$OUT/host-run-<uuid>/{fp.request,fp.report,process.log}`. The full 01
 campaign is rebuilt in `$BASELINE_OUT`; earlier 01/03 evidence remains preserved at its original paths.
-An accepted runtime diagnostic FAIL supports REVISE and a narrowly scoped reproduction-driven repair,
+An accepted runtime diagnostic FAIL supports REVOIR and a narrowly scoped reproduction-driven repair,
 never GO. Neither GUI setup nor the failed prior startups establish ARMv7 correctness.
+
+### Accepted actual pair: complete negative report, execution still INCOMPLETE
+
+Executed source: **`bc888b2134fe0e33f954199a7129d8f99dd4d88c`**. The exact outer invocation was the
+`proposed_reviewed_command` recorded in the phases checkpoint's `proposed-launch.json`:
+
+```sh
+python3 -B scripts/vita/armv7/fp_launch.py \
+  --runtime /home/fred/projects/zeldaWWHDRecomp/build-vita-tools/local-stack/vita3k/Vita3K \
+  --runtime-sha256 cea2b91f05d9d03bb577b9c414e0da54d3b234f97dc4b23537561e800b1fbf30 \
+  --runtime-source-revision 'observed-banner:bbd5c36;local-RPATH-relocation;mapping:UNVERIFIED' \
+  --libraries /home/fred/projects/zeldaWWHDRecomp/build-vita-tools/local-stack/vita3k-env \
+  --firmware /home/fred/projects/zeldaWWHDRecomp/build-vita-tools/local-stack/firmware \
+  --wayland-socket /run/user/1000/wayland-0 \
+  --build-evidence /tmp/opencode/zeldaWWHDRecomp-vita-ww-03/build-vita-ww-03-phases-7e70bb2b97d945a3866aed90d3535a63/fp-evidence.json \
+  --out /tmp/opencode/zeldaWWHDRecomp-vita-ww-03/build-vita-ww-03-phases-7e70bb2b97d945a3866aed90d3535a63 \
+  --timeout 30 --two-phase --execute-reviewed
+```
+
+This is a historical command, not authorization to repeat it. It started exactly two owned processes
+in the same new profile, each with the reviewed absolute deadline and `/stack/vita3k` cwd:
+
+| Phase | Actual inner command / result |
+| --- | --- |
+| 1: install | `/stack/vita3k/Vita3K --console --backend-renderer OpenGL fp.vpk`; 30.001 s including cleanup; timeout 124, actual exit -15, waited; exact SELF/SFO, config, firmware and input checks yielded preparation `VERIFIED`, not semantic PASS |
+| 2: guest | `/stack/vita3k/Vita3K --backend-renderer OpenGL --installed-path BWWF00003`; 0.906 s including cleanup; `validated_report` stop, actual exit -15, waited; result 125 / INCOMPLETE, semantic UNAVAILABLE, reported_semantic FAIL |
+
+Launcher total was 77.498 s: 12.270 s to staged plan output, approximately 11.345 s pre-install checks,
+11.405 s between phases and 11.571 s post-guest checks. These wall partitions are approximate;
+the process durations come from the runner's monotonic clock.
+
+The private canonical config **was restored before the guest** with SHA-256
+`c11fa8feaa4240186f652672643ee1c8d4cbdecbc09b62ac841a936272b67f25`. Both emitted configs and the
+final config instead hash to `321eb130dcf8d38a639ab67b16f6eb9eccf52a80e0c0c3f97fb21ada47266eb9`:
+their sole difference is `user-id: ""` becoming `user-id: 00`. The final config is not canonical.
+Private user data was retained and no stale diagnostic output was deleted.
+
+Logs record `input-installed-path: BWWF00003`, OpenGL 4.6/llvmpipe context creation, `Launching ->
+Running`, `Game started: WW fp fixture`, reading the bound request, closing/renaming the report,
+`Game closed` and `Stopping -> Idle`. Qt remained alive until owned shutdown. No fatal crash was
+recorded. Missing `os0:kd/bootimage.skprx` and `os0:kd/sysmodule.skprx` were explicitly ignored before
+guest start; this does not certify firmware. The token-bound individual report bits establish guest
+execution; the window or context alone would not.
+
+| Case family | PASS | FAIL | Observed mismatch |
+| --- | ---: | ---: | --- |
+| add | 6 | 2 | Directed RN2 positive / RN3 negative round to the nearest result |
+| frsp | 10 | 6 | Directed single-precision rounding differs from golden bits |
+| direct / indirect / host-boundary | 0 | 3 | Same positive RN2 add mismatch; all three path checks are 1 |
+| double-input NI | 2 | 2 | NI1 retains the signed input subnormal instead of signed zero |
+| double-underflow NI | 2 | 2 | NI1 retains the signed underflow result instead of signed zero |
+| single-underflow | 4 | 0 | Includes both NI1 signs |
+| quantization | 32 | 0 | All eight families across all four RN modes |
+| **Total** | **56** | **15** | **11 rounding + 4 double NI; 71/71 path checks = 1** |
+
+Examples, expected → actual: positive RN2 add `3ff0000000000001 → 3ff0000000000000`; positive even
+frsp RN2 `3ff0000020000000 → 3ff0000000000000`; positive odd frsp RN1/RN3
+`3ff0000020000000 → 3ff0000040000000`. Positive double NI1 input is
+`0000000000000000 → 0000000000000002`; double NI1 underflow is
+`0000000000000000 → 0008000000000000`. Corresponding negative cases preserve the sign bit.
+The strict existing validator verifies identity, ordered modes/expected/actual/path/verdicts and
+`END FAIL cases=71 failures=15`; it returns semantic failure, not protocol success.
+
+Static analysis confirms an ARMv7 host FP-control gap in the inspected implementation. Attribution
+of these actual mismatches among runtime, compiler and emulator remains UNVERIFIED. The unchanged
+oracles and negative evidence support separate attribution in 08, not a repair or an exception here.
+
+All actual proof paths below are relative to
+`build-vita-ww-03-phases-7e70bb2b97d945a3866aed90d3535a63/`:
+
+- Run: `vita3k-run-f41304ba2fd04831bb5f6b5091d8a12b/`; its `phases/{install,guest}/evidence/` holds
+  exact commands, process/preparation/result records and emitted config copies.
+- Guest token: `fae36262ca464baa9b32c6a54fb49ade`.
+- Executed VPK SHA-256: `b674a9613d1cc421c6e8b6b38191214e148468b0cdbfb752edfe4e60cc6c6edf`.
+- Guest report: run-relative `data/Vita3K/Vita3K/ux0/data/bluewake-ww-fixture/fp.report`, SHA-256
+  `54a7b87037a4b552b8fb437789943d8db482ffb993c6c224662e0d8f38eb44c6`.
+- Delivery proof folder: `authorized-pair-29ba2aff8a3740ad862cc7b9eab3d46d/`; `case-observations.json`
+  records all 71 individual cases and the 15 mismatches; `observations.json` records timing/cleanup.
+- That folder's `manifest.json`: SHA-256
+  `2d78c5276856e27a158a72bc58ffb57255cda8fe9765cc630d06787d920b4353`, 33 verified entries.
+
+Launcher 76023 and owned leaders 76027/76063 were waited and absent; both groups were empty, with
+zero unreadable process stats. PID-namespace teardown contained descendants. Runtime/assets,
+libraries, firmware, pins, original VPK, previous proofs and integration `a6ea2e9` stayed unchanged.
+These are past cleanup records, not PIDs to signal.
+
+### Final documentation-only delivery
+
+The explicit revised acceptance completes **delivery of the negative diagnostic**, while the runner
+remains 125 / INCOMPLETE and all 15 FAILs remain visible. It authorizes 04 after integration; it neither
+establishes execution PASS/GO nor makes a game, physical-Vita or FPS claim. Source/Boost and firmware
+PUP/version provenance remain UNVERIFIED. The two-process campaign is exhausted; no fresh run is needed
+or authorized for this documentation-only finalization.
+
+The final commit changes only this file relative to `bc888b2`: implementation, tests, protocol,
+oracles, canonical template and pins have an empty diff. Verification uses the TDD documentation
+exception (check facts/bindings and rerun existing tests, no artificial new test or claimed red/green).
+The final SHA is built and checked using the copied tools and new output paths in the runbook above:
+86 fixture tests, 71 host FP cases, 53 baseline tests, CTest 1+5+3, host corpus/contract and all three
+VPK cross-builds, audit and attribution. `final-delivery.json` in the final 03 output records the exact
+commit, commands, results, code-equivalence proof and artifact hashes. Any unexpected failure is a
+stop, not permission for additional implementation work.
+
+Rebuilding embeds the final documentation commit's SHA, producing a **new unexecuted VPK**. Its hash
+and final source binding are build evidence only. The old `bc888b2` report and VPK are preserved and
+accepted for the unchanged implementation; they are never relabeled as execution of the final SHA.
