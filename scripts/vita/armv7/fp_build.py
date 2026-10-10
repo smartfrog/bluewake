@@ -10,7 +10,7 @@ import shutil
 import subprocess
 import uuid
 
-from build import Campaign, PINS, ROOT, build_directory, verify_source
+from build import Campaign, PINS, ROOT, build_directory, checked_sources, verify_source
 from fp_report import validate
 from fp_vectors import cases, write_header
 from prepare import prepare
@@ -37,15 +37,7 @@ def main():
     if not args.ninja:
         parser.error("Ninja not found")
     campaign = Campaign(args.out)
-    sources = {name: ROOT / "ref/vita-ww-01" / directory
-               for name, directory in (("recompcore", "RecompCore"), ("dolrecomp", "DolRecomp"))}
-    lock = json.loads((ROOT / "config/dependencies.lock.json").read_text())
-    locked = {entry["id"]: entry for entry in lock["dependencies"]}
-    profile = (ROOT / "scripts/builder/profiles/bluewake.sh").read_text()
-    for name, path in sources.items():
-        if locked[name]["sha"] != PINS[name] or PINS[name] not in profile:
-            raise ValueError("product pin changed; review required")
-        verify_source(path, PINS[name])
+    sources = checked_sources()
     source = campaign.run("source-sha", ["git", "rev-parse", "HEAD"]).strip()
     generator = campaign.configure("fp-generator", ROOT / "vita/feasibility/armv7/generator", args,
                                    [f"-DCMAKE_C_COMPILER={args.cc}", f"-DDOLRECOMP_DIR={sources['dolrecomp']}"])

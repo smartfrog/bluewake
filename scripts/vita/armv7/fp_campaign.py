@@ -18,9 +18,10 @@ def stage_campaign(root, plan, args, vpk):
 
     phases = root / "phases"
     phases.mkdir(mode=0o700)
+    title = "BWWM00004" if plan.get("diagnostic") == "mem" else "BWWF00003"
     commands = {
         "install": plan["command"],
-        "guest": sandbox_command(root, "Vita3K", ["--backend-renderer", "OpenGL", "--installed-path", "BWWF00003"],
+        "guest": sandbox_command(root, "Vita3K", ["--backend-renderer", "OpenGL", "--installed-path", title],
                                  args.libraries, wayland_socket=args.wayland_socket),
     }
     plan.update(process_budget=2, request_policy="fresh guest token only after verified preparation",
@@ -57,8 +58,10 @@ def runtime_inputs(executable):
 def verify_inputs(root, plan):
     from fp_launch import verify_package
 
-    verify_package(Path(plan["source_vpk"]), plan["vpk_sha256"])
-    verify_package(root / "runtime/fp.vpk", plan["vpk_sha256"])
+    memory = plan.get("diagnostic") == "mem"
+    options = {"memory": True} if memory else {}
+    verify_package(Path(plan["source_vpk"]), plan["vpk_sha256"], **options)
+    verify_package(root / ("runtime/mem.vpk" if memory else "runtime/fp.vpk"), plan["vpk_sha256"], **options)
     if runtime_inputs(Path(plan["runtime_input"])) != plan["runtime_inputs"]:
         raise ValueError("runtime source/assets changed")
     if library_identity(root / "runtime", allow_symlinks=False) != plan["staged_runtime"]:
@@ -83,19 +86,21 @@ def verify_stopped(process):
             raise ValueError("owned process group still populated")
 
 
-def verify_installed(root, package):
+def verify_installed(root, package, memory=False):
     from fp_launch import verify_package
 
-    verify_package(root / "runtime/fp.vpk", package)
+    filename = "mem.vpk" if memory else "fp.vpk"
+    title_id = "BWWM00004" if memory else "BWWF00003"
+    verify_package(root / "runtime" / filename, package, **({"memory": True} if memory else {}))
     apps = root / "data/Vita3K/Vita3K/ux0/app"
-    title = apps / "BWWF00003"
-    for directory, names in ((apps, {"BWWF00003"}), (title, {"eboot.bin", "sce_sys"}),
+    title = apps / title_id
+    for directory, names in ((apps, {title_id}), (title, {"eboot.bin", "sce_sys"}),
                              (title / "sce_sys", {"param.sfo"})):
         with directory_fd(directory) as descriptor:
             if os.fstat(descriptor).st_uid != os.getuid() or set(os.listdir(descriptor)) != names:
                 raise ValueError("unexpected installed title entries or owner")
     payload = {}
-    with zipfile.ZipFile(root / "runtime/fp.vpk") as archive:
+    with zipfile.ZipFile(root / "runtime" / filename) as archive:
         for name, limit in (("eboot.bin", 16 * 1024 * 1024), ("sce_sys/param.sfo", 65536)):
             if archive.getinfo(name).file_size > limit:
                 raise ValueError("installed diagnostic exceeds payload size limit")
@@ -143,7 +148,7 @@ def restore_config(root, canonical):
     checked_config(root / CONFIG_PATH)
 
 
-def fresh_request(root, source, package):
+def fresh_request(root, source, package, memory=False):
     from fp_launch import REPORT_DIRECTORY
 
     directory = root
@@ -158,10 +163,11 @@ def fresh_request(root, source, package):
             if os.fstat(descriptor).st_uid != os.getuid():
                 raise ValueError("report directory must be privately owned")
     token = uuid.uuid4().hex
+    prefix = "mem" if memory else "fp"
     with directory_fd(directory) as parent:
-        if set(os.listdir(parent)) & {"fp.partial", "fp.report", "fp.request"}:
+        if set(os.listdir(parent)) & {prefix + suffix for suffix in (".partial", ".report", ".request")}:
             raise ValueError("preexisting diagnostic output/request; refusing to delete or reuse it")
-        descriptor = os.open("fp.request", os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW | os.O_CLOEXEC,
+        descriptor = os.open(prefix + ".request", os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW | os.O_CLOEXEC,
                              0o600, dir_fd=parent)
         with os.fdopen(descriptor, "w") as stream:
             stream.write(f"{token} {source} {package}\n")
@@ -172,6 +178,7 @@ def execute_campaign(root, plan):
     from fp_launch import collect_result, evidence_file, run_owned
 
     install = plan["phases"]["install"]
+    options = {"memory": True} if plan.get("diagnostic") == "mem" else {}
     guest = plan["phases"]["guest"]
     install_root, guest_root = Path(install["evidence_root"]), Path(guest["evidence_root"])
     verify_inputs(root, plan)
@@ -189,9 +196,9 @@ def execute_campaign(root, plan):
             raise ValueError("unexpected installer disposition")
         verify_phase_logs(root, install_root)
         verify_inputs(root, plan)
-        preparation["payload"] = verify_installed(root, plan["vpk_sha256"])
+        preparation["payload"] = verify_installed(root, plan["vpk_sha256"], **options)
         restore_config(root, canonical)
-        token = fresh_request(root, plan["source"], plan["vpk_sha256"])
+        token = fresh_request(root, plan["source"], plan["vpk_sha256"], **options)
         preparation.update(readiness="VERIFIED", guest_token=token, config=config_identity(root))
     except (OSError, ValueError) as error:
         preparation["error"] = str(error)
@@ -202,7 +209,7 @@ def execute_campaign(root, plan):
     with evidence_file(guest_root, "request.json") as stream:
         stream.write(json.dumps({"token": token, "source": plan["source"], "vpk_sha256": plan["vpk_sha256"]}) + "\n")
     identity = (token, plan["source"], plan["vpk_sha256"])
-    status = run_owned(guest["command"], root, guest["timeout_seconds"], report_identity=identity, evidence_root=guest_root)
+    status = run_owned(guest["command"], root, guest["timeout_seconds"], report_identity=identity, evidence_root=guest_root, **options)
     process = json.loads((guest_root / "evidence/process.json").read_text())
     error = None
     try:
@@ -210,7 +217,7 @@ def execute_campaign(root, plan):
         emitted_config(root, guest_root)
         verify_phase_logs(root, guest_root)
         verify_inputs(root, plan)
-        verify_installed(root, plan["vpk_sha256"])
+        verify_installed(root, plan["vpk_sha256"], **options)
     except (OSError, ValueError) as failure:
         error = str(failure)
-    return collect_result(root, *identity, status, error, process, evidence_root=guest_root)
+    return collect_result(root, *identity, status, error, process, evidence_root=guest_root, **options)

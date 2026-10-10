@@ -99,7 +99,7 @@ def sandbox_command(root, executable, arguments, libraries=None, wayland_socket=
     return [*command, "/stack/vita3k/" + executable, *arguments]
 
 
-def run_owned(command, root, timeout, report_identity=None, evidence_root=None):
+def run_owned(command, root, timeout, report_identity=None, evidence_root=None, memory=False):
     if not math.isfinite(timeout) or timeout <= 0:
         raise ValueError("timeout must be finite and positive")
     if resource.getrlimit(resource.RLIMIT_FSIZE) != (resource.RLIM_INFINITY, resource.RLIM_INFINITY):
@@ -129,7 +129,7 @@ def run_owned(command, root, timeout, report_identity=None, evidence_root=None):
                         if status is not None:
                             break
                         try:
-                            content = read_report(root)
+                            content = read_report(root, memory=True) if memory else read_report(root)
                         except FileNotFoundError:
                             pass
                         except (OSError, ValueError) as error:
@@ -138,7 +138,11 @@ def run_owned(command, root, timeout, report_identity=None, evidence_root=None):
                             break
                         else:
                             try:
-                                validate(content.decode("utf-8"), *report_identity, cases())
+                                if memory:
+                                    from mem_report import validate as validate_memory
+                                    validate_memory(content.decode("utf-8"), *report_identity, expected_platform="VITA")
+                                else:
+                                    validate(content.decode("utf-8"), *report_identity, cases())
                             except ValueError as error:
                                 record.update(stop_reason="invalid_report", report_error=str(error))
                                 status = 2
@@ -204,14 +208,16 @@ def stage_runtime(root, executable, expected_hash):
             for path in sorted(destination.rglob("*")) if path.is_file()}
 
 
-def read_report(root):
+def read_report(root, memory=False):
     with directory_fd(root / REPORT_DIRECTORY) as parent:
-        descriptor = os.open("fp.report", os.O_RDONLY | os.O_NONBLOCK | os.O_NOFOLLOW | os.O_CLOEXEC,
+        descriptor = os.open("mem.report" if memory else "fp.report", os.O_RDONLY | os.O_NONBLOCK | os.O_NOFOLLOW | os.O_CLOEXEC,
                              dir_fd=parent)
     with os.fdopen(descriptor, "rb") as stream:
         info = os.fstat(stream.fileno())
         if not stat.S_ISREG(info.st_mode):
             raise ValueError("report must be a regular file")
+        if memory and (info.st_uid != os.getuid() or info.st_nlink != 1):
+            raise ValueError("memory report must have one private owner/link")
         if info.st_size > MAX_REPORT_BYTES:
             raise ValueError("report exceeds size limit")
         content = stream.read(MAX_REPORT_BYTES + 1)
@@ -222,7 +228,7 @@ def read_report(root):
         return content
 
 
-def collect_result(root, token, source, package, process_status, identity_error=None, process=None, evidence_root=None):
+def collect_result(root, token, source, package, process_status, identity_error=None, process=None, evidence_root=None, memory=False):
     record = {"process_exit": process["exit"] if process else process_status,
               "completion": "INCOMPLETE", "semantic": "UNAVAILABLE"}
     if process:
@@ -230,8 +236,12 @@ def collect_result(root, token, source, package, process_status, identity_error=
     if identity_error:
         record["identity_error"] = identity_error
     try:
-        content = read_report(root)
-        semantic = validate(content.decode("utf-8"), token, source, package, cases())
+        content = read_report(root, memory=True) if memory else read_report(root)
+        if memory:
+            from mem_report import validate as validate_memory
+            semantic = validate_memory(content.decode("utf-8"), token, source, package, expected_platform="VITA")
+        else:
+            semantic = validate(content.decode("utf-8"), token, source, package, cases())
         report_hash = hashlib.sha256(content).hexdigest()
         if process and process.get("report_sha256_at_stop", report_hash) != report_hash:
             raise ValueError("report changed after completion observation")
@@ -250,19 +260,23 @@ def collect_result(root, token, source, package, process_status, identity_error=
     return status
 
 
-def verify_package(path, expected_hash):
+def verify_package(path, expected_hash, memory=False):
     reject_symlinks(path)
     if sha256(path) != expected_hash:
         raise ValueError("VPK no longer matches build evidence")
     with zipfile.ZipFile(path) as archive:
         if sorted(archive.namelist()) != ["eboot.bin", "sce_sys/param.sfo"] or archive.testzip():
             raise ValueError("unexpected VPK content")
-        if b"BWWF00003\0" not in archive.read("sce_sys/param.sfo"):
+        if memory:
+            from mem_package import verify_contents
+            verify_contents(archive)
+        elif b"BWWF00003\0" not in archive.read("sce_sys/param.sfo"):
             raise ValueError("not the FP diagnostic title")
 
 
-def main():
-    parser = argparse.ArgumentParser(description=__doc__)
+def main(memory=False):
+    description = "Isolated VITA-WW-04 memory launcher; defaults to stage only." if memory else __doc__
+    parser = argparse.ArgumentParser(description=description)
     parser.add_argument("--runtime", type=Path, required=True, help="installed ELF; never a wrapper")
     parser.add_argument("--runtime-sha256", required=True)
     parser.add_argument("--runtime-source-revision", required=True,
@@ -270,13 +284,15 @@ def main():
     parser.add_argument("--libraries", type=Path, required=True, help="read-only public runtime libraries")
     parser.add_argument("--firmware", type=Path, help="copy only installed public system vs0/sa0 into the new profile")
     parser.add_argument("--wayland-socket", type=Path, help="explicitly authorized display socket only; no session bus")
-    parser.add_argument("--build-evidence", type=Path, default=ROOT / "build-vita-ww-03/fp-evidence.json")
-    parser.add_argument("--out", type=Path, default=ROOT / "build-vita-ww-03")
+    parser.add_argument("--build-evidence", type=Path, default=ROOT / ("build-vita-ww-04/mem-evidence.json" if memory else "build-vita-ww-03/fp-evidence.json"))
+    parser.add_argument("--out", type=Path, default=ROOT / ("build-vita-ww-04" if memory else "build-vita-ww-03"))
     parser.add_argument("--timeout", type=float, default=30)
     parser.add_argument("--two-phase", action="store_true", help="install, verify, then run the installed title")
     parser.add_argument("--execute-reviewed", action="store_true",
                         help="ONLY after independent review and coordinator authorization; default stages only")
     args = parser.parse_args()
+    if memory:
+        args.two_phase = True
     if args.two_phase and not args.firmware:
         parser.error("two-phase execution requires verified private firmware and configuration")
     if not math.isfinite(args.timeout) or not 0 < args.timeout <= 30:
@@ -284,20 +300,25 @@ def main():
     parent = build_directory(reject_symlinks(args.out))
     evidence = json.loads(args.build_evidence.read_text())
     source = evidence["source"]
+    diagnostic = "mem" if memory else "fp"
+    if memory and (evidence.get("method"), evidence.get("title")) != ("bounded-v1", "BWWM00004"):
+        raise ValueError("unexpected memory build method/title")
     artifacts = [(Path(name), entry["sha256"]) for name, entry in evidence["artifacts"].items()
-                 if name.endswith("/vita-fp/ww_fp.vpk")]
+                 if name.endswith(f"/vita-{diagnostic}/ww_{diagnostic}.vpk")]
     if len(artifacts) != 1:
-        raise ValueError("expected exactly one FP VPK in build evidence")
+        raise ValueError("expected exactly one memory VPK in build evidence" if memory else
+                         "expected exactly one FP VPK in build evidence")
     vpk, package = artifacts[0]
-    verify_package(vpk, package)
+    package_options = {"memory": True} if memory else {}
+    verify_package(vpk, package, **package_options)
     token = uuid.uuid4().hex
     root = parent / ("vita3k-run-" + token)
     create_run(root)
     assets = stage_runtime(root, args.runtime, args.runtime_sha256)
-    staged_vpk = root / "runtime/fp.vpk"
+    staged_vpk = root / f"runtime/{diagnostic}.vpk"
     with vpk.open("rb") as source_file, staged_vpk.open("xb") as destination:
         shutil.copyfileobj(source_file, destination)
-    verify_package(staged_vpk, package)
+    verify_package(staged_vpk, package, **package_options)
     firmware = stage_firmware(root, reject_symlinks(args.firmware)) if args.firmware else {}
     private_config = config_identity(root) if firmware else None
     if not args.two_phase:
@@ -306,7 +327,7 @@ def main():
         (directory / "fp.request").write_text(f"{token} {source} {package}\n")
     display = {"wayland_socket": args.wayland_socket} if args.wayland_socket else {}
     command = sandbox_command(root, "Vita3K", ["--console", "--backend-renderer", "OpenGL",
-                                                "fp.vpk"], args.libraries, **display)
+                                                f"{diagnostic}.vpk"], args.libraries, **display)
     libraries_before = library_identity(args.libraries)
     with evidence_file(root, "libraries-before.json") as stream:
         stream.write(json.dumps(libraries_before, indent=2) + "\n")
@@ -324,6 +345,8 @@ def main():
             "report_poll_seconds": .05, "report_exit_grace_seconds": .25,
             "RLIMIT_FSIZE": resource.getrlimit(resource.RLIMIT_FSIZE),
             "timeout_seconds": args.timeout, "real_execution": args.execute_reviewed}
+    if memory:
+        plan.update(diagnostic="mem", method="bounded-v1", title="BWWM00004", process_budget_used=0)
     if args.two_phase:
         from fp_campaign import stage_campaign
         stage_campaign(root, plan, args, vpk)

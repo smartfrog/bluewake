@@ -28,6 +28,19 @@ def verify_source(path, sha):
         raise ValueError(f"source must be pristine at {sha}: {path}")
 
 
+def checked_sources():
+    locked = {entry["id"]: entry for entry in
+              json.loads((ROOT / "config/dependencies.lock.json").read_text())["dependencies"]}
+    profile = (ROOT / "scripts/builder/profiles/bluewake.sh").read_text()
+    sources = {name: ROOT / "ref/vita-ww-01" / directory
+               for name, directory in (("recompcore", "RecompCore"), ("dolrecomp", "DolRecomp"))}
+    for name, path in sources.items():
+        if locked[name]["sha"] != PINS[name] or PINS[name] not in profile:
+            raise ValueError("product pin changed; review required")
+        verify_source(path, PINS[name])
+    return sources
+
+
 def build_directory(path):
     path = path.resolve()
     if path.parent != ROOT or not path.name.startswith("build-"):
