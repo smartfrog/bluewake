@@ -40,6 +40,31 @@ static int check_close(FILE* proof, int expect_failure) {
 }
 
 int main(int argc, char** argv) {
+    if (argc == 4 && (strcmp(argv[1], "publish-close") == 0 ||
+                      strcmp(argv[1], "publish-healthy") == 0)) {
+        FILE* report = fopen(argv[2], "a");
+        if (!report)
+            return 2;
+        bool failure = strcmp(argv[1], "publish-close") == 0;
+        if (failure && close(fileno(report)) != 0)
+            return 2;
+        int status = fixture_publish_report(report, argv[2], argv[3]);
+        fprintf(stderr, "PUBLISH %s status=%d\n", argv[1], status);
+        return (status != 0) != failure;
+    }
+    if (argc == 4 && strcmp(argv[1], "publish-write") == 0) {
+        FILE* report = fopen("/dev/full", "w");
+        if (!report || setvbuf(report, NULL, _IONBF, 0) != 0)
+            return 2;
+        if (fprintf(report, "lost case\n") >= 0 || !ferror(report))
+            return 2;
+        int recovered = open("/dev/null", O_WRONLY);
+        if (recovered < 0 || dup2(recovered, fileno(report)) < 0 || close(recovered) != 0)
+            return 2;
+        int status = fixture_publish_report(report, argv[2], argv[3]);
+        fprintf(stderr, "PUBLISH failed-write status=%d\n", status);
+        return status == 0;
+    }
     if (argc != 2)
         return 2;
     if (strcmp(argv[1], "healthy") == 0)

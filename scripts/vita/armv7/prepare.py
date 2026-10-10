@@ -41,13 +41,22 @@ def corpus_inline_header(source):
     return '#include "core/cpu.h"\n' + "\n\n".join(helpers) + "\n"
 
 
-def prepare(root, dolrecomp, corpus, extra, output):
+def prepare(root, dolrecomp, corpus, extra, output, fp=None):
     header, chunks = split_corpus(corpus.read_text())
     extra_source = extra.read_text()
     extra_address = 0x80006000
     if not extra_source.startswith(f"void func_{extra_address:08X}(CPUState* ctx) {{"):
         raise ValueError("stack fixture function layout changed")
     chunks.append((extra_address, extra_source))
+    if fp is not None:
+        _, fp_chunks = split_corpus(fp.read_text() + "#define DOLRECOMP_ENTRY_POINT\n")
+        chunks.extend(fp_chunks)
+        header = header.replace("#define DOLRECOMP_ENTRY_POINT",
+                                "".join(f"void func_{address:08X}(CPUState* ctx);\n"
+                                        for address, _ in fp_chunks) +
+                                "static inline int fixture_fp_range(u32 address) {\n"
+                                "    return address >= 0x80007000u && address < 0x80007134u;\n"
+                                "}\n#define DOLRECOMP_ENTRY_POINT", 1)
     header = header.replace("#define DOLRECOMP_ENTRY_POINT",
                             f"void func_{extra_address:08X}(CPUState* ctx);\n"
                             f"static inline int fixture_extra_range(u32 address) {{\n"
@@ -60,10 +69,11 @@ def prepare(root, dolrecomp, corpus, extra, output):
     for address, body in chunks:
         (dol / "chunks" / f"chunk_{address:08X}.c").write_text('#include "../generated.h"\n' + body)
 
-    synthetic = bytearray(0x100 + 0x3030)
+    text_size = 0x4134 if fp is not None else 0x3030
+    synthetic = bytearray(0x100 + text_size)
     struct.pack_into(">I", synthetic, 0, 0x100)
     struct.pack_into(">I", synthetic, 0x48, 0x80003000)
-    struct.pack_into(">I", synthetic, 0x90, 0x3030)
+    struct.pack_into(">I", synthetic, 0x90, text_size)
     main_dol = output / "synthetic.dol"
     main_dol.write_bytes(synthetic)
     for directory in ("rels", "rels-bin"):

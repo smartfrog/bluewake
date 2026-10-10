@@ -2,6 +2,7 @@
 #define WW_ARMV7_FIXTURE_H
 
 #include "core/cpu.h"
+#include <stdio.h>
 
 typedef struct FixtureAbi {
     u32 pointer_bytes;
@@ -15,5 +16,6 @@ extern const FixtureAbi fixture_abi;
 void fixture_print_abi(void);
 int fixture_log_open(const char* name);
 int fixture_log_close(void);
+int fixture_publish_report(FILE* report, const char* partial, const char* complete);
 
 #endif

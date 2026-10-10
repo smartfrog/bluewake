@@ -2,6 +2,7 @@ import os
 from pathlib import Path
 import shlex
 import subprocess
+import tempfile
 import unittest
 
 ROOT = Path(__file__).resolve().parents[3]
@@ -47,6 +48,37 @@ class VitaLoggingTest(unittest.TestCase):
 
     def test_memory_query_failure_remains_fatal(self):
         self.run_probe("query-error")
+
+    def test_report_is_not_published_after_failed_write(self):
+        with tempfile.TemporaryDirectory(dir=self.binary.parent) as directory:
+            partial = Path(directory) / "partial"
+            complete = Path(directory) / "complete"
+            partial.write_text("incomplete")
+            result = subprocess.run([self.binary, "publish-write", partial, complete],
+                                    capture_output=True, text=True)
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertFalse(complete.exists())
+
+    def test_report_publication_checks_close(self):
+        with tempfile.TemporaryDirectory(dir=self.binary.parent) as directory:
+            partial = Path(directory) / "partial"
+            complete = Path(directory) / "complete"
+            partial.write_text("report")
+            result = subprocess.run([self.binary, "publish-close", partial, complete],
+                                    capture_output=True, text=True)
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertFalse(complete.exists())
+
+    def test_successfully_closed_report_is_published(self):
+        with tempfile.TemporaryDirectory(dir=self.binary.parent) as directory:
+            partial = Path(directory) / "partial"
+            complete = Path(directory) / "complete"
+            partial.write_text("report")
+            result = subprocess.run([self.binary, "publish-healthy", partial, complete],
+                                    capture_output=True, text=True)
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertEqual(complete.read_text(), "report")
+            self.assertFalse(partial.exists())
 
 
 if __name__ == "__main__":

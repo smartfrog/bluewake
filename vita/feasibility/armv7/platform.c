@@ -36,7 +36,8 @@ int fixture_log_open(const char* name) {
         return 1;
     if (fclose(reset) != 0 || freopen(path, "a", stdout) == NULL || freopen(path, "a", stderr) == NULL)
         return 1;
-    setvbuf(stdout, NULL, _IONBF, 0);
+    if (setvbuf(stdout, NULL, _IONBF, 0) != 0)
+        return 1;
     return print_free_memory();
 #else
     (void)name;
@@ -87,15 +88,25 @@ int main(int argc, char** argv) {
 #endif
 }
 
+static int flush_checked(FILE* stream) {
+    int flushed = fflush(stream);
+    int error = ferror(stream);
+    return flushed != 0 || error;
+}
+
 int fixture_log_close(void) {
 #ifdef __vita__
     int result = print_free_memory();
-    int stdout_flush = fflush(stdout);
-    int stderr_flush = fflush(stderr);
-    int stdout_error = ferror(stdout);
-    int stderr_error = ferror(stderr);
-    return result || stdout_flush != 0 || stderr_flush != 0 || stdout_error || stderr_error;
+    int stdout_error = flush_checked(stdout);
+    int stderr_error = flush_checked(stderr);
+    return result || stdout_error || stderr_error;
 #else
     return 0;
 #endif
+}
+
+int fixture_publish_report(FILE* report, const char* partial, const char* complete) {
+    int error = flush_checked(report);
+    int closed = fclose(report);
+    return error || closed != 0 || rename(partial, complete) != 0;
 }
