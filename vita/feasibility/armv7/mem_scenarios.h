@@ -32,9 +32,10 @@ typedef struct MemReal {
 typedef struct MemSdkApi {
     int (*allocate)(unsigned pool, u32 bytes);
     int (*base)(int uid, void** base);
-    int (*info)(void* base, u32* mapped, u32* access, u32* type);
+    int (*info)(void* base, u32* mapped, u32* access, u32* type, u32* returned_size);
     int (*release)(int uid);
     MemSnapshot (*snapshot)(void);
+    u32 info_size_required;
 } MemSdkApi;
 
 typedef struct MemSdkBlock {
@@ -42,6 +43,8 @@ typedef struct MemSdkBlock {
     int uid;
     int base_result;
     int info_result;
+    u32 info_size;
+    u32 info_required;
     int free_result;
     int pattern;
     u32 access;

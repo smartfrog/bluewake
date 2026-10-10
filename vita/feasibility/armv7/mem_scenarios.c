@@ -140,11 +140,12 @@ int mem_sdk(MemSdk* result, const MemSdkApi* api) {
         result->blocks[i].owner.requested = sizes[i];
         result->blocks[i].uid = -1;
         result->blocks[i].base_result = result->blocks[i].info_result = -1;
+        result->blocks[i].info_required = api ? api->info_size_required : 0;
         result->blocks[i].free_result = -1;
     }
     if (!api)
         return 0;
-    if (!api->allocate || !api->base || !api->info || !api->release || !api->snapshot)
+    if (!api->allocate || !api->base || !api->info || !api->release || !api->snapshot || !api->info_size_required)
         return 1;
     result->available = 1;
     int error = 0;
@@ -164,8 +165,8 @@ int mem_sdk(MemSdk* result, const MemSdkApi* api) {
             if (block->base_result < 0 || !base || (uintptr_t)base % sizes[i] != 0) {
                 error = 1;
             } else {
-                block->info_result = api->info(base, &block->owner.mapped, &block->access, &block->type);
-                if (block->info_result < 0 || block->owner.mapped != sizes[i] ||
+                block->info_result = api->info(base, &block->owner.mapped, &block->access, &block->type, &block->info_size);
+                if (block->info_result < 0 || block->info_size != block->info_required || block->owner.mapped != sizes[i] ||
                     (block->access & 6u) != 6u || block->type != types[i]) {
                     error = 1;
                 } else {

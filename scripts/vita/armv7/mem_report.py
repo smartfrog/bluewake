@@ -7,6 +7,7 @@ SDK_SIZES = dict(user=4096, cdram=262144, phycont=1048576)
 SDK_TYPES = dict(user=0x0C20D060, cdram=0x09408060, phycont=0x0C80D060)
 UNKNOWN = "UNKNOWN native_highwater largest_block physical_limits residency game_peak"
 VITA_ABI = (4, 3496, 6, 3428, 3436)
+MEMBLOCK_INFO_SIZE = 0x18
 
 
 def touched_bytes(size):
@@ -24,7 +25,7 @@ def validate(text, token, source, package, expected_platform=None):
 
     if not text.endswith("\n"):
         raise ValueError("truncated memory report")
-    platform, = match(re.escape(f"MEM {token} {source} {package} method=bounded-v1 phase=guest platform=") + r"(HOST|VITA)")
+    platform, = match(re.escape(f"MEM {token} {source} {package} method=bounded-v2 phase=guest platform=") + r"(HOST|VITA)")
     if expected_platform and platform != expected_platform:
         raise ValueError("memory report platform mismatch")
     pointer, cpu, version, ram, external = map(int, match(
@@ -71,22 +72,24 @@ def validate(text, token, source, package, expected_platform=None):
         raise ValueError("dishonest real scenario verdict")
     blocks = []
     for name, expected in SDK_SIZES.items():
-        size, mapped, touched, views, available, uid, base, info, freed, access, block_type, pattern, verdict = match(
+        size, mapped, touched, views, available, uid, base, info, info_size, info_required, freed, access, block_type, pattern, verdict = match(
             rf"BLOCK {name} requested=(\d+) mapped=(\d+) touched=(\d+) views=([01]) available=([01]) "
-            r"uid=(UNKNOWN|-?\d+) base=(UNKNOWN|-?\d+) info=(UNKNOWN|-?\d+) free=(UNKNOWN|-?\d+) access=(UNKNOWN|\d+) type=(UNKNOWN|\d+) pattern=([01]) (PASS|FAIL|SKIP)")
+            r"uid=(UNKNOWN|-?\d+) base=(UNKNOWN|-?\d+) info=(UNKNOWN|-?\d+) info_size=(UNKNOWN|\d+) info_required=(UNKNOWN|\d+) free=(UNKNOWN|-?\d+) access=(UNKNOWN|\d+) type=(UNKNOWN|\d+) pattern=([01]) (PASS|FAIL|SKIP)")
         size, mapped, touched = int(size), int(mapped), int(touched)
         if size != expected or mapped > 0xffffffff or touched > touched_bytes(expected) or touched % 64:
             raise ValueError("invalid SDK ledger")
         observations = [snapshot(name + "-" + phase) for phase in ("before", "live", "after")]
         if available == "0":
-            if (mapped, touched, views, uid, base, info, freed, access, block_type, pattern, verdict) != (0, 0, "0", "UNKNOWN", "UNKNOWN", "UNKNOWN", "UNKNOWN", "UNKNOWN", "UNKNOWN", "0", "SKIP") or platform != "HOST":
+            if (mapped, touched, views, uid, base, info, info_size, info_required, freed, access, block_type, pattern, verdict) != (0, 0, "0", "UNKNOWN", "UNKNOWN", "UNKNOWN", "UNKNOWN", "UNKNOWN", "UNKNOWN", "UNKNOWN", "UNKNOWN", "0", "SKIP") or platform != "HOST":
                 raise ValueError("dishonest SDK skip")
             blocks.append((True, 0, 0))
             continue
-        if platform != "VITA" or "UNKNOWN" in (uid, base, info, freed, access, block_type):
+        if platform != "VITA" or "UNKNOWN" in (uid, base, info, info_size, info_required, freed, access, block_type):
             raise ValueError("invalid SDK target identity")
+        if int(info_required) != MEMBLOCK_INFO_SIZE or int(info_size) > 0xffffffff:
+            raise ValueError("invalid SDK block-info structure size")
         uid, base, info, freed = map(int, (uid, base, info, freed))
-        ok = uid >= 0 and min(base, info, freed) >= 0 and mapped == expected and touched == touched_bytes(expected) and views == pattern == "1" and int(access) & 6 == 6 and int(block_type) == SDK_TYPES[name] and all(observations)
+        ok = uid >= 0 and min(base, info, freed) >= 0 and int(info_size) == MEMBLOCK_INFO_SIZE and mapped == expected and touched == touched_bytes(expected) and views == pattern == "1" and int(access) & 6 == 6 and int(block_type) == SDK_TYPES[name] and all(observations)
         if verdict != ("PASS" if ok else "FAIL"):
             raise ValueError("dishonest SDK block verdict")
         blocks.append((ok, expected if uid >= 0 else 0, expected if uid >= 0 and freed < 0 else 0))

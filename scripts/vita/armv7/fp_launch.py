@@ -301,7 +301,7 @@ def main(memory=False):
     evidence = json.loads(args.build_evidence.read_text())
     source = evidence["source"]
     diagnostic = "mem" if memory else "fp"
-    if memory and (evidence.get("method"), evidence.get("title")) != ("bounded-v1", "BWWM00004"):
+    if memory and (evidence.get("method"), evidence.get("title")) != ("bounded-v2", "BWWM00004"):
         raise ValueError("unexpected memory build method/title")
     artifacts = [(Path(name), entry["sha256"]) for name, entry in evidence["artifacts"].items()
                  if name.endswith(f"/vita-{diagnostic}/ww_{diagnostic}.vpk")]
@@ -346,7 +346,7 @@ def main(memory=False):
             "RLIMIT_FSIZE": resource.getrlimit(resource.RLIMIT_FSIZE),
             "timeout_seconds": args.timeout, "real_execution": args.execute_reviewed}
     if memory:
-        plan.update(diagnostic="mem", method="bounded-v1", title="BWWM00004", process_budget_used=0)
+        plan.update(diagnostic="mem", method="bounded-v2", title="BWWM00004", process_budget_used=0)
     if args.two_phase:
         from fp_campaign import stage_campaign
         stage_campaign(root, plan, args, vpk)

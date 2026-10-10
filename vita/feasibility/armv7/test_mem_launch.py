@@ -29,7 +29,7 @@ class MemoryLauncherTest(unittest.TestCase):
             archive.writestr("eboot.bin", b"SCE\0synthetic test SELF")
             archive.writestr("sce_sys/param.sfo", sfo())
         (self.output / "build.json").write_text(json.dumps({"source": "a" * 40,
-            "method": "bounded-v1", "title": "BWWM00004", "artifacts": {
+            "method": "bounded-v2", "title": "BWWM00004", "artifacts": {
                 str(self.vpk): {"sha256": launch.sha256(self.vpk)}}}))
 
     def stage(self):
@@ -73,7 +73,7 @@ class MemoryLauncherTest(unittest.TestCase):
                   " except OSError: pass\n"
                   " else: raise AssertionError('phase plan writable')\n"
                   " token,source,package=(directory/'mem.request').read_text().split()\n"
-                  f" text='MEM '+token+' '+source+' '+package+' method=bounded-v1 phase=guest platform=VITA\\n'+{body!r}\n"
+                  f" text='MEM '+token+' '+source+' '+package+' method=bounded-v2 phase=guest platform=VITA\\n'+{body!r}\n"
                   " (directory/'mem.partial').write_text(text); (directory/'mem.partial').rename(directory/'mem.report')\n" +
                   " " + (guest or "sys.exit(0)") + "\n")
         original_stage, sandbox, owned = launch.stage_runtime, launch.sandbox_command, launch.run_owned

@@ -17,10 +17,11 @@ static int allocate(unsigned pool, u32 bytes) {
     return sceKernelAllocMemBlock(names[pool], types[pool], bytes, NULL);
 }
 
-static int info(void* base, u32* mapped, u32* access, u32* type) {
+static int info(void* base, u32* mapped, u32* access, u32* type, u32* returned_size) {
     SceKernelMemBlockInfo info = {.size = sizeof info};
     int result = sceKernelGetMemBlockInfoByAddr(base, &info);
-    if (result >= 0) {
+    *returned_size = info.size;
+    if (result >= 0 && info.size == sizeof info) {
         *mapped = info.mappedSize;
         *access = info.access;
         *type = info.type;
@@ -30,7 +31,7 @@ static int info(void* base, u32* mapped, u32* access, u32* type) {
 
 const MemSdkApi* mem_sdk_api(void) {
     static const MemSdkApi api = {allocate, sceKernelGetMemBlockBase, info,
-                                  sceKernelFreeMemBlock, mem_snapshot};
+                                  sceKernelFreeMemBlock, mem_snapshot, sizeof(SceKernelMemBlockInfo)};
     return &api;
 }
 #else

@@ -13,7 +13,7 @@ from mem_report import validate
 class MemoryIoTest(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
-        output = ROOT / "build-vita-ww-04/io-probe"
+        output = ROOT / "build-vita-ww-04-rework1-tests/io-probe"
         output.mkdir(parents=True, exist_ok=True)
         (output / "mem_identity.h").write_text('#define WW_MEM_SOURCE "' + "b" * 40 + '"\n')
         cls.binary = output / "mem_io_probe"

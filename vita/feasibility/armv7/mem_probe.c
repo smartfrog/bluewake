@@ -40,10 +40,11 @@ static int base(int uid, void** pointer) {
     return 0;
 }
 
-static int info(void* pointer, u32* mapped, u32* access, u32* type) {
+static int info(void* pointer, u32* mapped, u32* access, u32* type, u32* returned_size) {
     if (pointer != sdk_backing || fails("info"))
         return -45;
     *mapped = sdk_size;
+    *returned_size = 0x18u;
     *access = 6;
     const u32 types[] = {0x0C20D060u, 0x09408060u, 0x0C80D060u};
     *type = types[pool_index];
@@ -85,7 +86,7 @@ int main(int argc, char** argv) {
         return 1;
     scenario = argv[1];
     if (strncmp(scenario, "sdk-", 4) == 0) {
-        const MemSdkApi api = {allocate, base, info, release, snapshot};
+        const MemSdkApi api = {allocate, base, info, release, snapshot, 0x18u};
         MemSdk result;
         int error = mem_sdk(&result, &api);
         if (strcmp(scenario, "sdk-healthy") == 0)

@@ -59,7 +59,7 @@ int fixture_run(int argc, char** argv) {
     FILE* report = fopen(partial, "wx");
     if (!report)
         return 1;
-    int error = fprintf(report, "MEM %s %s %s method=bounded-v1 phase=guest platform=%s\n",
+    int error = fprintf(report, "MEM %s %s %s method=bounded-v2 phase=guest platform=%s\n",
                         token, source, package, MEM_PLATFORM) < 0;
     error |= fprintf(report, "ABI pointer=%u cpu=%u version=%u ram_offset=%u external_offset=%u\n",
                      fixture_abi.pointer_bytes, fixture_abi.cpu_bytes, fixture_abi.cpu_abi,
@@ -86,16 +86,17 @@ int fixture_run(int argc, char** argv) {
     for (unsigned i = 0; i < 3; ++i) {
         MemSdkBlock* block = &sdk.blocks[i];
         if (!sdk.available) {
-            error |= fprintf(report, "BLOCK %s requested=%u mapped=0 touched=0 views=0 available=0 uid=UNKNOWN base=UNKNOWN info=UNKNOWN free=UNKNOWN access=UNKNOWN type=UNKNOWN pattern=0 SKIP\n",
+            error |= fprintf(report, "BLOCK %s requested=%u mapped=0 touched=0 views=0 available=0 uid=UNKNOWN base=UNKNOWN info=UNKNOWN info_size=UNKNOWN info_required=UNKNOWN free=UNKNOWN access=UNKNOWN type=UNKNOWN pattern=0 SKIP\n",
                              sdk_names[i], block->owner.requested) < 0;
         } else {
             bool ok = block->uid >= 0 && block->base_result >= 0 && block->info_result >= 0 &&
-                      block->free_result >= 0 && block->pattern;
+                      block->info_size == block->info_required && block->free_result >= 0 && block->pattern;
             for (unsigned j = 0; j < 3; ++j)
                 ok = ok && block->snapshots[j].available && mem_snapshot_valid(block->snapshots[j]);
-            error |= fprintf(report, "BLOCK %s requested=%u mapped=%u touched=%u views=%u available=1 uid=%d base=%d info=%d free=%d access=%u type=%u pattern=%d %s\n",
+            error |= fprintf(report, "BLOCK %s requested=%u mapped=%u touched=%u views=%u available=1 uid=%d base=%d info=%d info_size=%u info_required=%u free=%d access=%u type=%u pattern=%d %s\n",
                              sdk_names[i], block->owner.requested, block->owner.mapped, block->owner.touched,
                              block->owner.views, block->uid, block->base_result, block->info_result,
+                             block->info_size, block->info_required,
                              block->free_result, block->access, block->type, block->pattern, ok ? "PASS" : "FAIL") < 0;
         }
         for (unsigned j = 0; j < 3; ++j)

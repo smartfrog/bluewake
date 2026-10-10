@@ -36,7 +36,7 @@ def main():
     fixture = args.out / "mem-fixture"
     fixture.mkdir(exist_ok=True)
     (fixture / "mem_identity.h").write_text(f'#define WW_MEM_SOURCE "{source}"\n')
-    evidence = {"source": source, "pins": PINS, "method": "bounded-v1", "title": "BWWM00004",
+    evidence = {"source": source, "pins": PINS, "method": "bounded-v2", "title": "BWWM00004",
                 "artifacts": {}, "vita3k": "NOT RUN", "physical_vita": "NOT RUN"}
     semantic_status = 0
     for platform in (("host", "vita") if args.vita else ("host",)):

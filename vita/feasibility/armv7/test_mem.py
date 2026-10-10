@@ -27,7 +27,7 @@ def compile_probe(binary, sources, options=()):
 class MemoryProbeTest(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
-        output = ROOT / "build-vita-ww-04/probe"
+        output = ROOT / "build-vita-ww-04-rework1-tests/probe"
         output.mkdir(parents=True, exist_ok=True)
         cls.binary = output / "mem_probe"
         compile_probe(cls.binary, ["mem_probe.c"], ["-Wl,--wrap=calloc", "-Wl,--wrap=free"])

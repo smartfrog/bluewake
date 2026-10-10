@@ -1,6 +1,9 @@
 # VITA-WW-04 — bounded memory diagnostic
 
 **Checkpoint: implementation and host/build evidence only; target observations NOT RUN.**
+Review rework 1 corrects the block-info structure-size blocker. The old `24d044b` package/pair is
+**not eligible**. Its proofs are preserved; the corrected checkpoint uses the incompatible, strict
+`bounded-v2` report method and newly source-bound packages/plans. Actual MEM process budget remains **0/2**.
 This is neither Wind Waker nor an FP repair. The 03 guest diagnostic remains **56 PASS / 15 FAIL**
 (11 rounding, four NI), status **125 / INCOMPLETE**, reported semantic **FAIL**. Its accepted negative
 delivery is not an execution PASS or a platform GO. 08 owns FP attribution/repair; game, renderer,
@@ -48,11 +51,20 @@ Scenario 2 runs **sequentially after scenario 1 has released its owners**. It al
 SDK block at a time: `ww04-user` 4,096 bytes, `ww04-cdram` 262,144 bytes, and `ww04-phycont`
 1,048,576 bytes. Thus at most **one** SDK block is live (below the approved maximum of two),
 and the sampled requested SDK maximum is 1,048,576 bytes. This is not an exhaustion/stress test.
-UID, base-return status, base alignment, mapped size, read/write access bits, block type,
+UID, base-return status, base alignment, returned block-info structure size, mapped size, read/write access bits, block type,
 write/read pattern and free-return status are checked. All raw return values, mapped sizes and
 flags are reported. Base/info failure still frees the acquired UID; allocation failure never frees
 an unowned UID. Failed free retains the live owner in the report, returns failure and stops further
 allocation; it does not pretend cleanup succeeded or retry an unknown disposition.
+
+The native adapter initializes `SceKernelMemBlockInfo.size`, preserves the **raw API result** and
+**returned size** separately, and requires `sizeof(SceKernelMemBlockInfo)` before reading its mapping
+fields or allowing a pattern write. The scenario checks the returned size against that SDK-derived
+requirement too. A successful API result `0` with an incorrect size is a semantic failure, not a
+fabricated negative API code: the acquired UID is freed normally, subsequent allocations stop, and
+the closed report has terminal FAIL/nonzero. `BLOCK` records expose `info`, `info_size` and
+`info_required`; host SDK SKIP retains UNKNOWN for all three. The copied VitaSDK header asserts
+the target structure is **0x18 / 24 bytes** at `sysmem.h:38–46`, which the target parser requires.
 
 Host runs report SDK blocks as **SKIP**, and unavailable pool observations as **UNKNOWN**, never
 as zero-byte Vita measurements. The SDK failure-injection adapter is test-only; it is not an emulator
@@ -109,11 +121,13 @@ execution/performance figures are not evidence for this diagnostic.
 ## Closed report and protected paired lifecycle
 
 The distinct 26-line `MEM` schema binds the fresh token, compiled source SHA, package SHA-256,
-`method=bounded-v1`, `phase=guest` and platform. Ordered ABI/reservation/UNKNOWN, four OWNER,
+`method=bounded-v2`, `phase=guest` and platform. Ordered ABI/reservation/UNKNOWN, four OWNER,
 twelve SNAP, REAL, three BLOCK, SDK and terminal END records are mandatory. Literal owner sizes,
 target ABI, touched bounds, types, raw-snapshot validity, live/peak totals and terminal verdicts are
 independently checked. HOST reports cannot certify a VITA guest. Truncated, stale, excessive,
 out-of-order or dishonest evidence is rejected.
+Returned block-info size must equal the public SDK's 24-byte target requirement before a BLOCK/SDK
+can claim PASS. The previous method is rejected, rather than accepted without these observations.
 
 `mem_main.c` rejects preexisting completed/partial files without deleting them, exclusively creates
 `mem.partial`, checks every report write, then reuses 03's sticky-error/flush/close/rename publication.
@@ -172,26 +186,44 @@ The IO fixture initially lacked its standalone import path; that fixture issue w
 the genuine dangling-symlink behavior red. Fake paired processes test namespace/ownership and
 conditional process count only; their reports are never claimed as ARM guest execution.
 
-The code checkpoint is the commit adding this file. Final checks are rerun at that immutable SHA
-into new ignored `build-vita-ww-04-final`, `build-vita-ww-03-ww04-final` and
-`build-vita-ww-01-ww04-final` directories. Their JSON evidence records the exact source, artifact
+The corrective code checkpoint is the latest commit changing this file. Final checks are rerun at
+that immutable SHA into new ignored `build-vita-ww-04-rework1-final`,
+`build-vita-ww-03-ww04-rework1-final` and `build-vita-ww-01-ww04-rework1-final` directories.
+The old `24d044b` final directories/packages/plans are not overwritten. New JSON evidence records the exact source, artifact
 sizes/hashes, compiled ELF/ABI/stack evidence and actual host reports; the handoff supplies those
 identities. No earlier package is presented as the checkpoint package.
+
+Rework 1's genuine focused red used the copied native compiler and copied SDK with
+`python3 -B -m unittest discover -s vita/feasibility/armv7 -p test_mem_info.py`. The real native
+adapter was compiled into a host-only fault probe: SDK success `0`, incorrect returned structure
+size, otherwise valid mapping/access/type. Old code returned semantic success, allocated/freed all
+three blocks and wrote **20,671 changed bytes**. On this AArch64 host the SDK structure has a native
+pointer, so `sizeof` is 32 and the injected returned size was 31; this is not an ARM/Vita measurement
+or an arbitrary substitute ABI. The ARM target's public SDK type remains 24 bytes.
+The same test became green: one allocation/free, no writes, live zero, raw API result still `0`.
+A separate publication regression verifies closed terminal FAIL/nonzero, both size observations,
+no partial publication and no later allocations. Its injected host SDK report is only fault-test
+evidence, never accepted as actual HOST/VITA execution evidence. Parser red/green used
+`PYTHONPATH=vita/feasibility/armv7 python3 -B -m unittest
+test_mem_report.MemoryReportTest.test_target_info_size_observation_is_required`; the old parser
+rejected the new required observation contract, then the strict v2 parser accepted it. Additional
+parser regressions reject a claimed SDK PASS with bad size and preserve raw success `0` in an honest
+terminal FAIL. Existing allocation/base/info/free failure tests remain unchanged in behavior.
 
 ```sh
 STACK=/home/fred/projects/zeldaWWHDRecomp/build-vita-tools/local-stack
 CC="$STACK/bin/aarch64-conda-linux-gnu-gcc" VITASDK="$STACK/vitasdk" \
   PATH="$STACK/bin:/usr/bin:/bin" PYTHONDONTWRITEBYTECODE=1 \
   python3 -B -m unittest discover -s vita/feasibility/armv7 -p 'test_*.py'
-python3 -B scripts/vita/armv7/mem_build.py --vita --out build-vita-ww-04-final \
+python3 -B scripts/vita/armv7/mem_build.py --vita --out build-vita-ww-04-rework1-final \
   --cc "$STACK/bin/aarch64-conda-linux-gnu-gcc" --cmake "$STACK/bin/cmake" \
   --ninja "$STACK/bin/ninja" --vitasdk "$STACK/vitasdk" --jobs 2
-python3 -B scripts/vita/armv7/fp_build.py --vita --out build-vita-ww-03-ww04-final \
+python3 -B scripts/vita/armv7/fp_build.py --vita --out build-vita-ww-03-ww04-rework1-final \
   --cc "$STACK/bin/aarch64-conda-linux-gnu-gcc" --cmake "$STACK/bin/cmake" \
   --ninja "$STACK/bin/ninja" --vitasdk "$STACK/vitasdk" --jobs 2
 CC="$STACK/bin/aarch64-conda-linux-gnu-gcc" VITASDK="$STACK/vitasdk" \
   PATH="$STACK/bin:/usr/bin:/bin" PYTHONDONTWRITEBYTECODE=1 \
-  python3 -B scripts/vita/armv7/build.py --vita --out build-vita-ww-01-ww04-final \
+  python3 -B scripts/vita/armv7/build.py --vita --out build-vita-ww-01-ww04-rework1-final \
   --cc "$STACK/bin/aarch64-conda-linux-gnu-gcc" --cmake "$STACK/bin/cmake" \
   --ninja "$STACK/bin/ninja" --vitasdk "$STACK/vitasdk" --jobs 2
 bash scripts/audit_repo.sh
