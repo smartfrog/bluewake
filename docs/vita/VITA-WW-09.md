@@ -1,15 +1,15 @@
 # VITA-WW-09 — comparison of Vita3K with cpu-opt: false
 
-2026-10-10 · [ticket](https://trello.com/c/utl27kIR) · **prepared: plan staged, VPK built, NOT executed**
+2026-10-10 · [ticket](https://trello.com/c/utl27kIR) · **executed once: negative comparison, identical to baseline08**
 
 One bounded configuration comparison against the negative VITA-WW-08 baseline. The single intended
 difference is `cpu-opt: false`; the fixture is unchanged (32 independent scalar-VFP oracles + 71 pristine
 runtime cases, method `scalar-vfp-v1`, title **BWWA00008**). The hypothesis is weak and
 corrective-uncertain: the candidate `cpu-opt: false` path routes Dynarmic to `no_optimizations` and turns
 fast-memory paths off — a **global** behavioral comparison, not strict-FP attribution, and not a runtime
-repair. No emulator rebuild and no runtime patch are involved. The authorized pair of real processes runs
-only after the coordinator supplies the exact `ARM09` authorization and the independently reviewed plan
-SHA-256; this document is not authorization and nothing here is a result.
+repair. No emulator rebuild and no runtime patch are involved. The authorized pair of real processes ran
+once on 2026-10-10, after the coordinator's exact `ARM09` authorization and independently reviewed plan
+SHA-256; the closed result is recorded below.
 
 ## Inputs and scope
 
@@ -108,11 +108,53 @@ minimal Wayland socket, no network/GPU device/session bus/console.
   unchanged 08 generator outputs, and the new VPK differs only in the embedded source SHA and package
   hashes.
 
+## Executed result — identical to baseline08, no attribution
+
+Executed exactly once from clean delivery source `2d8eaec6e4dac2c433beb08c6250e544eb8c5d23` with the
+prepared plan (sha256 `0d8b272ff4bd3c19d22042f996f1f7c685cef245a9b75100de4cf13a5a9838e6`), full
+authorization `ARM09:2d8eaec…:46090f7c…:cpu-opt-off:1,2`, in the reserved run
+`build-ww09/vita3k-run-46090f7c0fd04f41b9da120a328b6028` of the `/home` verification worktree
+(the ROOT that owns the permanent reservation `build-ww09/campaign-reservation.json`).
+
+Installer process 1 (pid 136812) reached its 30 s deadline: status **124**, raw exit **-15**, waited,
+duration **30.001 s**. Preparation was independently **VERIFIED**, not process PASS: installed
+`eboot.bin` (146 551 bytes, sha `d461d135…`) and `sce_sys/param.sfo` (912 bytes, sha `52b86eed…`,
+byte-identical to baseline08), both phases' emitted configuration was the alternate bytes serialized with
+`user-id: 00` (`246274b1…`), and only then was the fresh guest request created
+(token `fc329e90b00c474c8a25e81dca0b1a5e`). Guest process 2 (pid 136836) produced a closed
+**20 305-byte / 107-line** report (sha `7e845f6187f8f5a3636f3e17633962f86f5a4ffbd8b34ec441ec58f95f510173`)
+and was stopped after the natural-exit grace: status **125**, raw exit **-15**, duration **0.867 s**.
+`arm_report.analyze` on those exact bytes: **status 1 / STOP_CONTROL** (controls FAIL, runtime FAIL,
+restore PASS); protected result **INCOMPLETE**, semantic **UNAVAILABLE**, `reported_semantic` FAIL.
+
+Compared case by case with baseline08 (`18eef287…`, fd66/`84f4f51e…`):
+
+| Observation | baseline08 (cpu-opt: true) | VITA-WW-09 (cpu-opt: false) |
+| --- | --- | --- |
+| Controls | 20 PASS / 12 FAIL | **20 PASS / 12 FAIL — same cases, same bits** |
+| Runtime | 56 PASS / 15 FAIL, 71/71 path 1 | **56 PASS / 15 FAIL — same cases, same bits** |
+| FPSCR readback / restore | 32/32 / PASS | **32/32 / PASS — identical words** |
+| Report body (lines 2–107) | — | **byte-identical; only the identity header differs** |
+
+The 12 control failures are the same directed-RN/FZ literals (`vadd-positive-rn2-fz0`,
+`vadd-negative-rn3-fz0`, six `vcvt` even/odd RN1/RN2/RN3, four `vmul` FZ-on input/output pairs) with the
+same expected/actual bit pairs. The 15 runtime failures are the same two add, six `frsp`, three
+direct/indirect/host-boundary and four double-NI cases. Every runtime `before`/`updated`/`restored` word
+stayed `00000000`, `operated` status bits varied identically in both (71/71). Emitted configuration in
+both phases was the alternate schema with `user-id: 00`; the final canonical file was restored exactly
+(`b9cc0c63…`, 4 285 bytes). Both leaders were waited/reaped and their groups are absent.
+
+**Decision.** Controls remain unchanged-wrong even on the globally different `cpu-opt: false` path, so by
+the accepted interpretation rule this is **STOP / options: no runtime attribution and no runtime patch**.
+This bounded diagnostic does not support the hypothesis that the global `cpu-opt: false`
+(`no_optimizations` + fast-memory off) path changes these observations, and it does not isolate the 08
+control failures to strict-FP handling. The permanent reservation `a023aaab…` and the plan
+`0d8b272f…` stayed unchanged; 03/04/08 evidence and the 08 reservation
+(`8bdc0fa3…`, `/tmp/opencode/ww08`) are untouched (mtimes pre-date this campaign). No process from this
+campaign remains, and nothing here authorizes another execution.
+
 ## Boundaries
 
-This is a global configuration comparison. Different 09 observations would show that the configuration
-changes these diagnostics; identical observations would show this global setting alone does not reproduce
-or resolve the 08 control failures. Either outcome is data for a review decision: a negative diagnostic is
-acceptable, no runtime patch follows automatically, and no CPU GO, game boot, FPS, physical-Vita or
-high-water/pool result is claimed. The real pair runs once, on this machine's copied Vita3K, under the
-coordinator's authorization; nothing here authorizes any other execution.
+This was a global configuration comparison and it changed no observed bit. No CPU GO, game boot, FPS,
+physical-Vita or high-water/pool result is claimed, and a negative diagnostic is acceptable. Any repair
+of the ARM mode/rounding behavior requires a separate objective, scope and budget with its own review.
