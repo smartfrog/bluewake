@@ -2,10 +2,12 @@
 """Execute only a coordinator-authorized saved ARM08 baseline pair, once, without retry."""
 
 import argparse
+import hashlib
 import json
 import math
 import os
 from pathlib import Path
+import re
 import subprocess
 
 from build import ROOT, checked_sources
@@ -28,9 +30,14 @@ def reserve_pair(path, plan):
         os.fsync(stream.fileno())
 
 
-def execute(path, authorization):
+def execute(path, authorization, expected_plan_sha256):
+    if not isinstance(expected_plan_sha256, str) or re.fullmatch(r"[0-9a-f]{64}", expected_plan_sha256) is None:
+        raise ValueError("expected reviewed plan SHA-256 must be 64 lowercase hexadecimal characters")
     path = reject_symlinks(path)
-    plan = json.loads(read_profile_file(path, 1024 * 1024, owned=True))
+    content = read_profile_file(path, 1024 * 1024, owned=True)
+    if hashlib.sha256(content).hexdigest() != expected_plan_sha256:
+        raise ValueError("saved plan bytes differ from coordinator-reviewed plan SHA-256")
+    plan = json.loads(content)
     if authorization != plan.get("authorization"):
         raise ValueError("exact coordinator baseline pair authorization does not match saved plan")
     root = path.parent.parent
@@ -69,8 +76,10 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--plan", type=Path, required=True)
     parser.add_argument("--authorize-pair", required=True, help="exact coordinator authorization after material-risk review")
+    parser.add_argument("--expected-plan-sha256", required=True,
+                        help="root plan byte hash supplied independently by the coordinator, not from the plan itself")
     args = parser.parse_args()
-    return execute(args.plan, args.authorize_pair)
+    return execute(args.plan, args.authorize_pair, args.expected_plan_sha256)
 
 
 if __name__ == "__main__":

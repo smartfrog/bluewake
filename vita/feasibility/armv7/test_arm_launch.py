@@ -1,4 +1,6 @@
 import json
+import socket
+import subprocess
 from pathlib import Path
 import sys
 import unittest
@@ -41,7 +43,7 @@ class ArmLauncherTest(unittest.TestCase):
         self.assertFalse((root / launch.REPORT_DIRECTORY / "arm.request").exists())
         self.assertFalse(list(root.rglob("process.log")))
 
-    def fake_campaign(self, installer="sys.exit(0)", guest="sys.exit(0)", stale=False):
+    def fake_campaign(self, installer="sys.exit(0)", guest="sys.exit(0)", stale=False, execute=None):
         body = report(runtime_failure=True).split("\n", 1)[1]
         script = ("#!/usr/bin/python3\nimport sys,time,zipfile\nfrom pathlib import Path\n"
                   "root=Path('/run/ww03')\n"
@@ -84,8 +86,104 @@ class ArmLauncherTest(unittest.TestCase):
             root, plan = self.stage()
         from fp_campaign import execute_campaign
         with mock.patch.object(launch, "run_owned", side_effect=run_owned):
-            status = execute_campaign(root, plan)
+            status = (execute or execute_campaign)(root, plan)
         return status, root, calls
+
+    def source_checkpoint(self):
+        (self.output / ".gitignore").write_text("*\n!.gitignore\n!checkpoint.txt\n")
+        (self.output / "checkpoint.txt").write_text("Fake-only coordinator checkpoint\n")
+        for arguments in (("init",), ("add", ".gitignore", "checkpoint.txt"),
+                          ("-c", "user.name=Fred", "-c", "user.email=297854+fdematos@users.noreply.github.com",
+                           "commit", "-m", "Create isolated launch test checkpoint")):
+            subprocess.run(["git", "-C", self.output, *arguments], check=True, capture_output=True)
+        source = subprocess.check_output(["git", "-C", self.output, "rev-parse", "HEAD"], text=True).strip()
+        evidence = self.output / "build.json"
+        build = json.loads(evidence.read_text())
+        build["source"] = source
+        evidence.write_text(json.dumps(build))
+        self.assertEqual(subprocess.check_output(["git", "-C", self.output, "status", "--porcelain"], text=True), "")
+
+    def test_coherent_socket_and_three_plan_tamper_is_rejected_before_reservation_or_subprocess(self):
+        import arm_execute as executor
+        self.source_checkpoint()
+        display = socket.socket(socket.AF_UNIX)
+        self.addCleanup(display.close)
+        display_path = self.output / "display"
+        display.bind(str(display_path))
+        sandbox = launch.sandbox_command
+
+        def execute(root, plan):
+            path = root / "evidence/plan.json"
+            reviewed_hash = launch.sha256(path)
+            authorization = plan["authorization"]
+            plan["wayland_socket"] = str(display_path)
+            for name, arguments in (("install", ["--console", "--backend-renderer", "OpenGL", "arm.vpk"]),
+                                    ("guest", ["--backend-renderer", "OpenGL", "--installed-path", "BWWA00008"])):
+                phase = plan["phases"][name]
+                phase["command"] = sandbox(root, "Fake", arguments, self.libraries, wayland_socket=display_path)
+                (root / "phases" / name / "evidence/plan.json").write_text(json.dumps(phase) + "\n")
+            plan["command"] = plan["phases"]["install"]["command"]
+            path.write_text(json.dumps(plan) + "\n")
+            self.assertNotEqual(launch.sha256(path), reviewed_hash)
+            with mock.patch.object(executor, "ROOT", self.output), \
+                    mock.patch.object(executor, "sandbox_command", side_effect=lambda root, exe, argv, libs, **kw:
+                                      sandbox(root, "Fake", argv, libs, **kw)), \
+                    mock.patch.object(executor, "reserve_pair", wraps=executor.reserve_pair) as reservation, \
+                    mock.patch.object(executor.subprocess, "Popen", wraps=subprocess.Popen) as processes:
+                with self.assertRaisesRegex(ValueError, "reviewed plan"):
+                    executor.execute(path, authorization, reviewed_hash)
+                reservation.assert_not_called()
+                processes.assert_not_called()
+                self.assertFalse((self.output / "build-ww08-baseline-reservation.json").exists())
+            return 0
+
+        self.fake_campaign(execute=execute)
+
+    def test_unchanged_plan_and_external_hash_pass_all_guards_to_fake_pair(self):
+        import arm_execute as executor
+        self.source_checkpoint()
+        sandbox = launch.sandbox_command
+
+        def execute(root, plan):
+            path = root / "evidence/plan.json"
+            reviewed_hash = launch.sha256(path)
+            with mock.patch.object(executor, "ROOT", self.output), \
+                    mock.patch.object(executor, "sandbox_command", side_effect=lambda root, exe, argv, libs, **kw:
+                                      sandbox(root, "Fake", argv, libs, **kw)), \
+                    mock.patch.object(executor, "read_profile_file", wraps=executor.read_profile_file) as reads:
+                status = executor.execute(path, plan["authorization"], reviewed_hash)
+            self.assertEqual(sum(call.args[0] == path for call in reads.call_args_list), 1)
+            self.assertTrue((self.output / "build-ww08-baseline-reservation.json").is_file())
+            return status
+
+        status, _, calls = self.fake_campaign(execute=execute)
+        self.assertEqual((status, len(calls)), (1, 2))
+
+    def test_invalid_external_hash_is_rejected_before_read_reservation_or_subprocess(self):
+        import arm_execute as executor
+        for value in (None, "", "a" * 63, "a" * 65, "g" * 64, "A" * 64, "a" * 64 + "\n"):
+            with self.subTest(value=value), \
+                    mock.patch.object(executor, "read_profile_file") as reads, \
+                    mock.patch.object(executor, "reserve_pair") as reservation, \
+                    mock.patch.object(executor.subprocess, "Popen") as processes:
+                with self.assertRaisesRegex(ValueError, "reviewed plan SHA-256"):
+                    executor.execute(self.output / "missing-plan.json", "old-authorization", value)
+                reads.assert_not_called()
+                reservation.assert_not_called()
+                processes.assert_not_called()
+                self.assertFalse((self.output / "build-ww08-baseline-reservation.json").exists())
+
+    def test_cli_requires_independently_supplied_root_plan_hash(self):
+        import arm_execute as executor
+        with mock.patch.object(sys, "argv", ["arm_execute", "--plan", str(self.output / "plan.json"),
+                                            "--authorize-pair", "old-authorization"]), \
+                mock.patch.object(executor, "reserve_pair") as reservation, \
+                mock.patch.object(executor.subprocess, "Popen") as processes:
+            with self.assertRaises(SystemExit) as result:
+                executor.main()
+            self.assertEqual(result.exception.code, 2)
+            reservation.assert_not_called()
+            processes.assert_not_called()
 
     def test_valid_runtime_failure_is_complete_and_distinct_from_control(self):
         status, root, calls = self.fake_campaign()
@@ -121,7 +219,8 @@ class ArmLauncherTest(unittest.TestCase):
         root, _ = self.stage()
         with mock.patch.object(launch.subprocess, "Popen", side_effect=AssertionError("unexpected process")), \
                 self.assertRaisesRegex(ValueError, "authorization"):
-            execute(root / "evidence/plan.json", "wrong")
+            path = root / "evidence/plan.json"
+            execute(path, "wrong", launch.sha256(path))
 
     def test_exact_pair_reservation_cannot_be_repeated(self):
         from arm_execute import reserve_pair

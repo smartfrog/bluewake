@@ -108,7 +108,11 @@ measurements; report-I/O failure tests verify their final environment restoratio
 **BWWA00008** has just SELF and SFO. Both phase plans/evidence are host-protected, read-only in the
 guest namespace. `--execute-reviewed` cannot stage and immediately execute a new 08 pair.
 The separate `arm_execute.py` requires the exact saved plan and its coordinator-authorized
-`ARM08:<source>:<run>:baseline:1,2` string. It rechecks clean checkpoint/pins, commands, deadlines,
+`ARM08:<source>:<run>:baseline:1,2` string **and** independently supplied `--expected-plan-sha256`.
+It reads the bounded, no-follow, privately owned root plan once, hashes those exact bytes against
+the coordinator's external hash before reservation or subprocess creation, and parses the same bytes.
+The expected hash is never derived from the parsed plan or an embedded self-hash.
+It rechecks clean checkpoint/pins, commands, deadlines,
 protected plans, source/staged package, runtime/assets/libraries and canonical configuration.
 An exclusive ignored baseline reservation prevents a second baseline authorization/retry.
 The conditional 3/4 pair is not implemented or authorized by this stage-1 entry point.
@@ -146,7 +150,7 @@ green loops then passed. No full baseline rerun preceded the first red loop.
 
 Checks are repeated after the checkpoint commit (`git log -1 --format=%H -- docs/vita/VITA-WW-08.md`):
 
-- **151/151** fixture tests: unchanged 125 plus 26 focused control/report/I/O/paired-launch tests.
+- **155/155** fixture tests: previous 151 plus four focused reviewed-plan binding regressions.
 - Real HOST FP **71/71** in both 03 and 08; 08 independent ARM **32 SKIP**.
 - Existing eight host drivers **53/53**; CTest corpus 1, contracts 5, runtime 3, memory 1,
   new fake-control guard 4. HOST real memory PASS, SDK SKIP.
@@ -180,3 +184,24 @@ pins stay untouched. A fixed confirmation needs separate review/exact authorizat
 processes **3/4**, at most 30 seconds each, with no retry. Permanent upstream adoption must follow
 project policy; no external pull request/action is authorized. Useful bounded results still do not
 establish native playability or a balanced physical game/renderer/memory budget.
+
+## Review rework 1/2 — blocker 1
+
+`ab8e3b2f5c1b37927b29616fcc280363ef1c6e99` and its staged baseline are **not eligible** for execution.
+Its VPK, plans, proof manifest and recorded quota failures are preserved unchanged.
+The authorization string alone permitted a caller to change the display socket and coherently
+rebuild both phase commands/plans and the root plan. The fake-only red regression reproduced
+acceptance through the complete fake pair. With the required external root-plan byte hash, the
+same coherent mutation and old authorization/hash fail before any reservation or subprocess.
+The unchanged reviewed plan reaches the fake pair; invalid hashes and omission of the CLI hash
+fail closed. All prior source/pin, argv, phase-plan, ownership, package/input and configuration
+guards remain intact. Native FP code, 32 ARM oracles and 71 runtime cases are unchanged.
+
+The new human checkpoint is validated from an isolated, detached verification worktree at
+`/home/fred/projects/zeldaWWHDRecomp/build-r1`, avoiding the known tmpfs UID quota. The sole writing
+branch/session stays at `/tmp/opencode/ww08`; no primary worktree is moved and no old proof is rewritten.
+New copied-tool builds and the fresh **stage-only** pair live in that verification worktree's ignored
+`build-{01,03,04,08}` trees; exact commands, hashes and regressions are in `build-proof/checkpoint.json`
+and its proof manifest. The new root-plan SHA-256 and intended command containing it are recorded
+there for coordinator review only: a locally computed digest is **not authorization**. Actual target
+usage remains **0/4**, with no real Vita3K invocation or native-playability result.
