@@ -20,15 +20,19 @@ def sha256(path):
     return hashlib.sha256(Path(path).read_bytes()).hexdigest()
 
 
-def main():
-    parser = argparse.ArgumentParser(description=__doc__)
+def main(control=False):
+    diagnostic = "arm" if control else "fp"
+    if control:
+        from arm_report import validate as validate_control
+        from arm_vectors import METHOD, PROVENANCE, TITLE, cases as control_cases, write_header as write_control_header
+    parser = argparse.ArgumentParser(description="Build independent scalar VFP/runtime comparison; never launches Vita3K." if control else __doc__)
     parser.add_argument("--vita", action="store_true")
     parser.add_argument("--cc", default=os.environ.get("CC", "gcc"))
     parser.add_argument("--cmake", default="cmake")
     parser.add_argument("--ninja", default="ninja")
     parser.add_argument("--jobs", type=int, default=2)
     parser.add_argument("--vitasdk", type=Path, default=Path("~/vitasdk").expanduser())
-    parser.add_argument("--out", type=Path, default=ROOT / "build-vita-ww-03")
+    parser.add_argument("--out", type=Path, default=ROOT / ("build-ww08" if control else "build-vita-ww-03"))
     args = parser.parse_args()
     if args.jobs < 1:
         parser.error("--jobs must be positive")
@@ -51,6 +55,11 @@ def main():
     write_header(fixture / "fp_vectors.h")
     (fixture / "fp_identity.h").write_text(f'#define WW_FP_SOURCE "{source}"\n')
     evidence = {"source": source, "pins": PINS, "cases": cases(), "artifacts": {}, "vita3k": "NOT RUN"}
+    if control:
+        write_control_header(fixture / "arm_vectors.h")
+        (fixture / "arm_identity.h").write_text(f'#define WW_ARM_SOURCE "{source}"\n')
+        evidence.update(method=METHOD, title=TITLE, control_cases=control_cases(),
+                        control_oracle=PROVENANCE, runtime_oracle="unchanged VITA-WW-03 Gekko literals")
     semantic_status = 0
     for platform in (("host", "vita") if args.vita else ("host",)):
         compiler = args.cc
@@ -59,32 +68,38 @@ def main():
             os.environ["VITASDK"] = str(args.vitasdk.resolve())
             compiler = str(args.vitasdk / "bin/arm-vita-eabi-gcc")
             options = [f"-DCMAKE_TOOLCHAIN_FILE={args.vitasdk}/share/vita.toolchain.cmake"]
-        build = campaign.configure(f"{platform}-fp", ROOT / "vita/feasibility/armv7", args,
+        build = campaign.configure(f"{platform}-{diagnostic}", ROOT / "vita/feasibility/armv7", args,
                                    [*options, f"-DRECOMPCORE_DIR={sources['recompcore']}",
-                                    f"-DFIXTURE_DIR={fixture}", "-DWW_MODE=fp"])
-        campaign.compile(f"{platform}-fp", build, args)
-        evidence[platform] = campaign.evidence(f"{platform}-fp", build, compiler)
-        for name in (("ww_fixture", "eboot.bin", "ww_fp.vpk") if platform == "vita" else ("ww_fixture",)):
+                                     f"-DFIXTURE_DIR={fixture}", f"-DWW_MODE={diagnostic}"])
+        campaign.compile(f"{platform}-{diagnostic}", build, args)
+        evidence[platform] = campaign.evidence(f"{platform}-{diagnostic}", build, compiler)
+        for name in (("ww_fixture", "eboot.bin", f"ww_{diagnostic}.vpk") if platform == "vita" else ("ww_fixture",)):
             artifact = build / name
             evidence["artifacts"][str(artifact)] = {"sha256": sha256(artifact), "bytes": artifact.stat().st_size}
         if platform == "host":
+            if control:
+                ctest = str(Path(shutil.which(args.cmake) or args.cmake).with_name("ctest"))
+                campaign.run("host-arm-tests", [ctest, "--test-dir", build, "--output-on-failure"])
             token = uuid.uuid4().hex
             run = args.out / ("host-run-" + token)
             run.mkdir(mode=0o700)
             package = sha256(build / "ww_fixture")
-            (run / "fp.request").write_text(f"{token} {source} {package}\n")
+            (run / f"{diagnostic}.request").write_text(f"{token} {source} {package}\n")
             result = subprocess.run([build / "ww_fixture"], cwd=run, capture_output=True, text=True)
             (run / "process.log").write_text(result.stdout + result.stderr)
-            status = validate((run / "fp.report").read_text(), token, source, package, cases())
+            text = (run / f"{diagnostic}.report").read_text()
+            status = validate_control(text, token, source, package, expected_platform="HOST") if control else validate(text, token, source, package, cases())
             if result.returncode != status:
                 raise RuntimeError(f"host report/process status disagreement: {run}")
             semantic_status = status
             evidence["host_run"] = {"directory": str(run), "exit": result.returncode,
                                     "semantic": "FAIL" if status else "PASS"}
+            if control:
+                evidence["host_run"].update(control_measurement="SKIP", runtime_cases=len(cases()))
             print(f"HOST SEMANTIC {'FAIL' if status else 'PASS'}: {run}", flush=True)
     for name, path in sources.items():
         verify_source(path, PINS[name])
-    (args.out / "fp-evidence.json").write_text(json.dumps(evidence, indent=2) + "\n")
+    (args.out / f"{diagnostic}-evidence.json").write_text(json.dumps(evidence, indent=2) + "\n")
     return semantic_status
 
 

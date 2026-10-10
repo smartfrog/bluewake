@@ -1,10 +1,7 @@
 #define _POSIX_C_SOURCE 200809L
 #include "mem_scenarios.h"
 #include "mem_identity.h"
-#include <ctype.h>
-#include <errno.h>
-#include <string.h>
-#include <sys/stat.h>
+#include "diagnostic_io.h"
 
 #ifdef __vita__
 #define MEM_DIRECTORY "ux0:data/bluewake-ww-fixture/"
@@ -13,33 +10,6 @@
 #define MEM_DIRECTORY ""
 #define MEM_PLATFORM "HOST"
 #endif
-
-static bool hex(const char* text, size_t length) {
-    if (strlen(text) != length)
-        return false;
-    for (size_t i = 0; i < length; ++i)
-        if (!isxdigit((unsigned char)text[i]))
-            return false;
-    return true;
-}
-
-static int request(char* token, char* source, char* package) {
-    FILE* stream = fopen(MEM_DIRECTORY "mem.request", "r");
-    if (!stream)
-        return 1;
-    int fields = fscanf(stream, "%32s %40s %64s", token, source, package);
-    char extra;
-    int trailing = fscanf(stream, " %c", &extra);
-    int error = ferror(stream);
-    int closed = fclose(stream);
-    return fields != 3 || trailing != EOF || error || closed != 0 ||
-           !hex(token, 32) || !hex(source, 40) || !hex(package, 64) || strcmp(source, WW_MEM_SOURCE) != 0;
-}
-
-static bool absent(const char* path) {
-    struct stat info;
-    return lstat(path, &info) < 0 && errno == ENOENT;
-}
 
 static int snapshot(FILE* stream, const char* name, const char* phase, MemSnapshot value) {
     if (!value.available)
@@ -54,7 +24,8 @@ int fixture_run(int argc, char** argv) {
     char token[33], source[41], package[65];
     const char* partial = MEM_DIRECTORY "mem.partial";
     const char* complete = MEM_DIRECTORY "mem.report";
-    if (argc > 1 || request(token, source, package) || !absent(partial) || !absent(complete))
+    if (argc > 1 || diagnostic_request(MEM_DIRECTORY "mem.request", WW_MEM_SOURCE, token, source, package) ||
+        !diagnostic_absent(partial) || !diagnostic_absent(complete))
         return 1;
     FILE* report = fopen(partial, "wx");
     if (!report)

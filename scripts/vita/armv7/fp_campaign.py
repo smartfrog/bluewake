@@ -18,7 +18,7 @@ def stage_campaign(root, plan, args, vpk):
 
     phases = root / "phases"
     phases.mkdir(mode=0o700)
-    title = "BWWM00004" if plan.get("diagnostic") == "mem" else "BWWF00003"
+    title = plan.get("title", "BWWF00003")
     commands = {
         "install": plan["command"],
         "guest": sandbox_command(root, "Vita3K", ["--backend-renderer", "OpenGL", "--installed-path", title],
@@ -59,9 +59,10 @@ def verify_inputs(root, plan):
     from fp_launch import verify_package
 
     memory = plan.get("diagnostic") == "mem"
-    options = {"memory": True} if memory else {}
+    control = plan.get("diagnostic") == "arm"
+    options = {"control": True} if control else {"memory": True} if memory else {}
     verify_package(Path(plan["source_vpk"]), plan["vpk_sha256"], **options)
-    verify_package(root / ("runtime/mem.vpk" if memory else "runtime/fp.vpk"), plan["vpk_sha256"], **options)
+    verify_package(root / ("runtime/arm.vpk" if control else "runtime/mem.vpk" if memory else "runtime/fp.vpk"), plan["vpk_sha256"], **options)
     if runtime_inputs(Path(plan["runtime_input"])) != plan["runtime_inputs"]:
         raise ValueError("runtime source/assets changed")
     if library_identity(root / "runtime", allow_symlinks=False) != plan["staged_runtime"]:
@@ -86,12 +87,12 @@ def verify_stopped(process):
             raise ValueError("owned process group still populated")
 
 
-def verify_installed(root, package, memory=False):
+def verify_installed(root, package, memory=False, control=False):
     from fp_launch import verify_package
 
-    filename = "mem.vpk" if memory else "fp.vpk"
-    title_id = "BWWM00004" if memory else "BWWF00003"
-    verify_package(root / "runtime" / filename, package, **({"memory": True} if memory else {}))
+    filename = "arm.vpk" if control else "mem.vpk" if memory else "fp.vpk"
+    title_id = "BWWA00008" if control else "BWWM00004" if memory else "BWWF00003"
+    verify_package(root / "runtime" / filename, package, **({"control": True} if control else {"memory": True} if memory else {}))
     apps = root / "data/Vita3K/Vita3K/ux0/app"
     title = apps / title_id
     for directory, names in ((apps, {title_id}), (title, {"eboot.bin", "sce_sys"}),
@@ -148,7 +149,7 @@ def restore_config(root, canonical):
     checked_config(root / CONFIG_PATH)
 
 
-def fresh_request(root, source, package, memory=False):
+def fresh_request(root, source, package, memory=False, control=False):
     from fp_launch import REPORT_DIRECTORY
 
     directory = root
@@ -163,7 +164,7 @@ def fresh_request(root, source, package, memory=False):
             if os.fstat(descriptor).st_uid != os.getuid():
                 raise ValueError("report directory must be privately owned")
     token = uuid.uuid4().hex
-    prefix = "mem" if memory else "fp"
+    prefix = "arm" if control else "mem" if memory else "fp"
     with directory_fd(directory) as parent:
         if set(os.listdir(parent)) & {prefix + suffix for suffix in (".partial", ".report", ".request")}:
             raise ValueError("preexisting diagnostic output/request; refusing to delete or reuse it")
@@ -178,7 +179,8 @@ def execute_campaign(root, plan):
     from fp_launch import collect_result, evidence_file, run_owned
 
     install = plan["phases"]["install"]
-    options = {"memory": True} if plan.get("diagnostic") == "mem" else {}
+    control = plan.get("diagnostic") == "arm"
+    options = {"control": True} if control else {"memory": True} if plan.get("diagnostic") == "mem" else {}
     guest = plan["phases"]["guest"]
     install_root, guest_root = Path(install["evidence_root"]), Path(guest["evidence_root"])
     verify_inputs(root, plan)
@@ -190,6 +192,8 @@ def execute_campaign(root, plan):
     try:
         verify_stopped(process)
         canonical = emitted_config(root, install_root)
+        if control:
+            restore_config(root, canonical)
         if not ((status == 0 and process["stop_reason"] == "exit" and process["exit"] == 0) or
                 (status == 124 and process["stop_reason"] == "timeout" and
                  process["exit"] in (0, -signal.SIGTERM, -signal.SIGKILL))):
@@ -197,7 +201,8 @@ def execute_campaign(root, plan):
         verify_phase_logs(root, install_root)
         verify_inputs(root, plan)
         preparation["payload"] = verify_installed(root, plan["vpk_sha256"], **options)
-        restore_config(root, canonical)
+        if not control:
+            restore_config(root, canonical)
         token = fresh_request(root, plan["source"], plan["vpk_sha256"], **options)
         preparation.update(readiness="VERIFIED", guest_token=token, config=config_identity(root))
     except (OSError, ValueError) as error:
@@ -212,12 +217,19 @@ def execute_campaign(root, plan):
     status = run_owned(guest["command"], root, guest["timeout_seconds"], report_identity=identity, evidence_root=guest_root, **options)
     process = json.loads((guest_root / "evidence/process.json").read_text())
     error = None
+    canonical = None
     try:
         verify_stopped(process)
-        emitted_config(root, guest_root)
+        canonical = emitted_config(root, guest_root)
         verify_phase_logs(root, guest_root)
         verify_inputs(root, plan)
         verify_installed(root, plan["vpk_sha256"], **options)
     except (OSError, ValueError) as failure:
         error = str(failure)
+    finally:
+        if control and canonical is not None:
+            try:
+                restore_config(root, canonical)
+            except (OSError, ValueError) as failure:
+                error = f"canonical restoration failed: {failure}; preceding error: {error}"
     return collect_result(root, *identity, status, error, process, evidence_root=guest_root, **options)

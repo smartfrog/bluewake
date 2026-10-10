@@ -3,6 +3,13 @@
 #include <stdlib.h>
 #include <string.h>
 
+#ifndef DIAGNOSTIC_PREFIX
+#define DIAGNOSTIC_PREFIX "mem"
+#endif
+#ifndef DIAGNOSTIC_IO_ENV
+#define DIAGNOSTIC_IO_ENV "MEM_IO_FAILURE"
+#endif
+
 FILE* __real_fopen(const char* path, const char* mode);
 int __real_fflush(FILE* stream);
 int __real_fclose(FILE* stream);
@@ -10,15 +17,15 @@ int __real_rename(const char* source, const char* destination);
 static FILE* report;
 
 static int fails(const char* operation) {
-    const char* scenario = getenv("MEM_IO_FAILURE");
+    const char* scenario = getenv(DIAGNOSTIC_IO_ENV);
     return scenario && strcmp(scenario, operation) == 0;
 }
 
 FILE* __wrap_fopen(const char* path, const char* mode) {
-    if (strcmp(path, "mem.partial") == 0 && fails("open"))
+    if (strcmp(path, DIAGNOSTIC_PREFIX ".partial") == 0 && fails("open"))
         return NULL;
     FILE* stream = __real_fopen(path, mode);
-    if (strcmp(path, "mem.partial") == 0)
+    if (strcmp(path, DIAGNOSTIC_PREFIX ".partial") == 0)
         report = stream;
     return stream;
 }
@@ -39,8 +46,11 @@ int __wrap_fflush(FILE* stream) {
 }
 
 int __wrap_fclose(FILE* stream) {
-    int failed = stream == report && fails("close");
+    int is_report = stream == report;
+    int failed = is_report && fails("close");
     int result = __real_fclose(stream);
+    if (is_report)
+        report = NULL;
     return failed ? -1 : result;
 }
 

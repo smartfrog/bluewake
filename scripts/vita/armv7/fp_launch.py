@@ -99,7 +99,7 @@ def sandbox_command(root, executable, arguments, libraries=None, wayland_socket=
     return [*command, "/stack/vita3k/" + executable, *arguments]
 
 
-def run_owned(command, root, timeout, report_identity=None, evidence_root=None, memory=False):
+def run_owned(command, root, timeout, report_identity=None, evidence_root=None, memory=False, control=False):
     if not math.isfinite(timeout) or timeout <= 0:
         raise ValueError("timeout must be finite and positive")
     if resource.getrlimit(resource.RLIMIT_FSIZE) != (resource.RLIM_INFINITY, resource.RLIM_INFINITY):
@@ -129,7 +129,7 @@ def run_owned(command, root, timeout, report_identity=None, evidence_root=None, 
                         if status is not None:
                             break
                         try:
-                            content = read_report(root, memory=True) if memory else read_report(root)
+                            content = read_report(root, control=True) if control else read_report(root, memory=True) if memory else read_report(root)
                         except FileNotFoundError:
                             pass
                         except (OSError, ValueError) as error:
@@ -138,7 +138,10 @@ def run_owned(command, root, timeout, report_identity=None, evidence_root=None, 
                             break
                         else:
                             try:
-                                if memory:
+                                if control:
+                                    from arm_report import validate as validate_control
+                                    validate_control(content.decode("utf-8"), *report_identity)
+                                elif memory:
                                     from mem_report import validate as validate_memory
                                     validate_memory(content.decode("utf-8"), *report_identity, expected_platform="VITA")
                                 else:
@@ -208,16 +211,17 @@ def stage_runtime(root, executable, expected_hash):
             for path in sorted(destination.rglob("*")) if path.is_file()}
 
 
-def read_report(root, memory=False):
+def read_report(root, memory=False, control=False):
     with directory_fd(root / REPORT_DIRECTORY) as parent:
-        descriptor = os.open("mem.report" if memory else "fp.report", os.O_RDONLY | os.O_NONBLOCK | os.O_NOFOLLOW | os.O_CLOEXEC,
+        descriptor = os.open("arm.report" if control else "mem.report" if memory else "fp.report", os.O_RDONLY | os.O_NONBLOCK | os.O_NOFOLLOW | os.O_CLOEXEC,
                              dir_fd=parent)
     with os.fdopen(descriptor, "rb") as stream:
         info = os.fstat(stream.fileno())
         if not stat.S_ISREG(info.st_mode):
             raise ValueError("report must be a regular file")
-        if memory and (info.st_uid != os.getuid() or info.st_nlink != 1):
-            raise ValueError("memory report must have one private owner/link")
+        if (memory or control) and (info.st_uid != os.getuid() or info.st_nlink != 1):
+            raise ValueError("ARM08 report must have one private owner/link" if control else
+                             "memory report must have one private owner/link")
         if info.st_size > MAX_REPORT_BYTES:
             raise ValueError("report exceeds size limit")
         content = stream.read(MAX_REPORT_BYTES + 1)
@@ -228,7 +232,7 @@ def read_report(root, memory=False):
         return content
 
 
-def collect_result(root, token, source, package, process_status, identity_error=None, process=None, evidence_root=None, memory=False):
+def collect_result(root, token, source, package, process_status, identity_error=None, process=None, evidence_root=None, memory=False, control=False):
     record = {"process_exit": process["exit"] if process else process_status,
               "completion": "INCOMPLETE", "semantic": "UNAVAILABLE"}
     if process:
@@ -236,8 +240,14 @@ def collect_result(root, token, source, package, process_status, identity_error=
     if identity_error:
         record["identity_error"] = identity_error
     try:
-        content = read_report(root, memory=True) if memory else read_report(root)
-        if memory:
+        content = read_report(root, control=True) if control else read_report(root, memory=True) if memory else read_report(root)
+        if control:
+            from arm_report import analyze
+            analysis = analyze(content.decode("utf-8"), token, source, package)
+            semantic = analysis["status"]
+            record.update(reported_controls=analysis["controls"], reported_runtime=analysis["runtime"],
+                          reported_restore=analysis["restore"], attribution=analysis["attribution"])
+        elif memory:
             from mem_report import validate as validate_memory
             semantic = validate_memory(content.decode("utf-8"), token, source, package, expected_platform="VITA")
         else:
@@ -260,22 +270,25 @@ def collect_result(root, token, source, package, process_status, identity_error=
     return status
 
 
-def verify_package(path, expected_hash, memory=False):
+def verify_package(path, expected_hash, memory=False, control=False):
     reject_symlinks(path)
     if sha256(path) != expected_hash:
         raise ValueError("VPK no longer matches build evidence")
     with zipfile.ZipFile(path) as archive:
         if sorted(archive.namelist()) != ["eboot.bin", "sce_sys/param.sfo"] or archive.testzip():
             raise ValueError("unexpected VPK content")
-        if memory:
+        if control:
+            from mem_package import verify_contents
+            verify_contents(archive, title=b"BWWA00008\0")
+        elif memory:
             from mem_package import verify_contents
             verify_contents(archive)
         elif b"BWWF00003\0" not in archive.read("sce_sys/param.sfo"):
             raise ValueError("not the FP diagnostic title")
 
 
-def main(memory=False):
-    description = "Isolated VITA-WW-04 memory launcher; defaults to stage only." if memory else __doc__
+def main(memory=False, control=False):
+    description = "Stage VITA-WW-08 baseline pair only; exact saved-plan authorization required later." if control else "Isolated VITA-WW-04 memory launcher; defaults to stage only." if memory else __doc__
     parser = argparse.ArgumentParser(description=description)
     parser.add_argument("--runtime", type=Path, required=True, help="installed ELF; never a wrapper")
     parser.add_argument("--runtime-sha256", required=True)
@@ -284,14 +297,16 @@ def main(memory=False):
     parser.add_argument("--libraries", type=Path, required=True, help="read-only public runtime libraries")
     parser.add_argument("--firmware", type=Path, help="copy only installed public system vs0/sa0 into the new profile")
     parser.add_argument("--wayland-socket", type=Path, help="explicitly authorized display socket only; no session bus")
-    parser.add_argument("--build-evidence", type=Path, default=ROOT / ("build-vita-ww-04/mem-evidence.json" if memory else "build-vita-ww-03/fp-evidence.json"))
-    parser.add_argument("--out", type=Path, default=ROOT / ("build-vita-ww-04" if memory else "build-vita-ww-03"))
+    parser.add_argument("--build-evidence", type=Path, default=ROOT / ("build-ww08/arm-evidence.json" if control else "build-vita-ww-04/mem-evidence.json" if memory else "build-vita-ww-03/fp-evidence.json"))
+    parser.add_argument("--out", type=Path, default=ROOT / ("build-ww08" if control else "build-vita-ww-04" if memory else "build-vita-ww-03"))
     parser.add_argument("--timeout", type=float, default=30)
     parser.add_argument("--two-phase", action="store_true", help="install, verify, then run the installed title")
     parser.add_argument("--execute-reviewed", action="store_true",
                         help="ONLY after independent review and coordinator authorization; default stages only")
     args = parser.parse_args()
-    if memory:
+    if control and args.execute_reviewed:
+        parser.error("ARM08 execution requires the exact saved plan and coordinator pair authorization")
+    if memory or control:
         args.two_phase = True
     if args.two_phase and not args.firmware:
         parser.error("two-phase execution requires verified private firmware and configuration")
@@ -300,16 +315,19 @@ def main(memory=False):
     parent = build_directory(reject_symlinks(args.out))
     evidence = json.loads(args.build_evidence.read_text())
     source = evidence["source"]
-    diagnostic = "mem" if memory else "fp"
+    diagnostic = "arm" if control else "mem" if memory else "fp"
+    if control and (evidence.get("method"), evidence.get("title")) != ("scalar-vfp-v1", "BWWA00008"):
+        raise ValueError("unexpected ARM08 build method/title")
     if memory and (evidence.get("method"), evidence.get("title")) != ("bounded-v2", "BWWM00004"):
         raise ValueError("unexpected memory build method/title")
     artifacts = [(Path(name), entry["sha256"]) for name, entry in evidence["artifacts"].items()
                  if name.endswith(f"/vita-{diagnostic}/ww_{diagnostic}.vpk")]
     if len(artifacts) != 1:
-        raise ValueError("expected exactly one memory VPK in build evidence" if memory else
+        raise ValueError("expected exactly one ARM08 VPK in build evidence" if control else
+                         "expected exactly one memory VPK in build evidence" if memory else
                          "expected exactly one FP VPK in build evidence")
     vpk, package = artifacts[0]
-    package_options = {"memory": True} if memory else {}
+    package_options = {"control": True} if control else {"memory": True} if memory else {}
     verify_package(vpk, package, **package_options)
     token = uuid.uuid4().hex
     root = parent / ("vita3k-run-" + token)
@@ -347,6 +365,10 @@ def main(memory=False):
             "timeout_seconds": args.timeout, "real_execution": args.execute_reviewed}
     if memory:
         plan.update(diagnostic="mem", method="bounded-v2", title="BWWM00004", process_budget_used=0)
+    if control:
+        plan.update(diagnostic="arm", method="scalar-vfp-v1", title="BWWA00008", process_budget_used=0,
+                    ticket_process_budget=4, comparison="pristine-baseline", real_execution=False,
+                    authorization=f"ARM08:{source}:{token}:baseline:1,2")
     if args.two_phase:
         from fp_campaign import stage_campaign
         stage_campaign(root, plan, args, vpk)
