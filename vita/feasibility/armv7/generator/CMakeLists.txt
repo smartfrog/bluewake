@@ -1,0 +1,6 @@
+cmake_minimum_required(VERSION 3.16)
+project(ww_armv7_generator C)
+set(DOLRECOMP_ENABLE_LLVM OFF CACHE BOOL "" FORCE)
+add_subdirectory("${DOLRECOMP_DIR}" dolrecomp EXCLUDE_FROM_ALL)
+add_executable(ww_stack_emit stack_emit.c)
+target_link_libraries(ww_stack_emit PRIVATE dr_backend)
