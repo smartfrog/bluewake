@@ -302,5 +302,90 @@ class CampaignTest(unittest.TestCase):
         self.assertEqual(record["completion"], "INCOMPLETE")
 
 
+class AltProfileCampaignTest(unittest.TestCase):
+    def setUp(self):
+        self.temporary = tempfile.TemporaryDirectory(prefix="build-fp-alt-", dir=ROOT)
+        self.addCleanup(self.temporary.cleanup)
+        self.output = Path(self.temporary.name)
+        self.root = self.output / "run"
+        launch.create_run(self.root)
+        self.source = self.output / "firmware"
+        for name in ("vs0", "sa0"):
+            (self.source / name).mkdir(parents=True)
+            (self.source / name / "system.bin").write_bytes(name.encode())
+        from fp_profile import checked_config, stage_firmware
+        stage_firmware(self.root, self.source, alt=True)
+        self.baseline = checked_config(CONFIG_TEMPLATE)
+        self.alt = (self.root / CONFIG_PATH).read_bytes()
+
+    def phase(self, name):
+        directory = self.root / ("phase-" + name)
+        directory.mkdir(mode=0o700)
+        (directory / "evidence").mkdir(mode=0o700)
+        return directory
+
+    def test_alt_emitted_configuration_accepts_exact_alt_and_user_id_only(self):
+        from fp_campaign import emitted_config
+        canonical = emitted_config(self.root, self.phase("exact"), alt=True)
+        self.assertEqual(canonical, self.alt)
+        self.assertEqual((self.root / "phase-exact/evidence/config-emitted.yml").read_bytes(), self.alt)
+        config = self.root / CONFIG_PATH
+        config.write_bytes(self.alt.replace(b'user-id: ""\n', b"user-id: 00\n"))
+        self.assertEqual(emitted_config(self.root, self.phase("user-id"), alt=True), self.alt)
+        for name, content in {"baseline": self.baseline,
+                              "second-change": self.alt.replace(b"show-welcome: false", b"show-welcome: true"),
+                              "oversized": self.alt + b"\n"}.items():
+            with self.subTest(name=name):
+                config.write_bytes(content)
+                with self.assertRaises(ValueError):
+                    emitted_config(self.root, self.phase(name), alt=True)
+        config.write_bytes(self.alt)
+        with self.assertRaises(ValueError):
+            emitted_config(self.root, self.phase("baseline-mode"))
+
+    def test_alt_restore_verifies_alternate_bytes_and_rejects_baseline(self):
+        from fp_campaign import restore_config
+        from fp_profile import checked_alt_config
+        config = self.root / CONFIG_PATH
+        config.write_bytes(self.alt.replace(b'user-id: ""\n', b"user-id: 00\n"))
+        restore_config(self.root, self.alt, alt=True)
+        self.assertEqual(config.read_bytes(), self.alt)
+        self.assertEqual(checked_alt_config(config), self.alt)
+        with self.assertRaises(ValueError):
+            restore_config(self.root, self.baseline, alt=True)
+        self.assertEqual(config.read_bytes(), self.baseline)
+        restore_config(self.root, self.alt, alt=True)
+
+    def test_permanent_campaign_reservation_is_exclusive_uuid_free_and_complete(self):
+        from fp_campaign import reservation_path, reserve_campaign, verify_campaign_reservation
+        run = self.root / ("vita3k-run-" + "a" * 32)
+        plan = {"authorization": f"ARM09:{'b' * 40}:{run.name.removeprefix('vita3k-run-')}:cpu-opt-off:1,2",
+                "source": "b" * 40, "run": "a" * 32}
+        self.assertEqual(reservation_path(self.root),
+                         self.root / "build-ww09/campaign-reservation.json")
+        (self.root / "build-ww09").mkdir()
+        with self.assertRaises(OSError):
+            reserve_campaign(self.root / "missing", plan)
+        reserve_campaign(self.root, plan)
+        path = reservation_path(self.root)
+        first = path.read_bytes()
+        record = json.loads(first)
+        self.assertEqual((record["authorization"], record["source"], record["run"]),
+                         (plan["authorization"], plan["source"], plan["run"]))
+        self.assertEqual((record["reserved_process_numbers"], record["retry"]), ([1, 2], "FORBIDDEN"))
+        self.assertIn("NOT AUTHORIZED", record["conditional_pair_3_4"])
+        with self.assertRaises(FileExistsError):
+            reserve_campaign(self.root, plan)
+        self.assertEqual(path.read_bytes(), first)
+        self.assertEqual(verify_campaign_reservation(self.root, plan)["run"], plan["run"])
+        for key, value in (("authorization", "other"), ("source", "d" * 40), ("run", "c" * 32)):
+            with self.subTest(key=key):
+                with self.assertRaises(ValueError):
+                    verify_campaign_reservation(self.root, dict(plan, **{key: value}))
+        path.write_text("{}\n")
+        with self.assertRaises(ValueError):
+            verify_campaign_reservation(self.root, plan)
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -12,6 +12,9 @@ FIRMWARE_DIRECTORY = Path("data/Vita3K/Vita3K")
 CONFIG_PATH = Path("config/Vita3K/config.yml")
 CONFIG_TEMPLATE = Path(__file__).with_name("fp_config.yml")
 CONFIG_SHA256 = "c11fa8feaa4240186f652672643ee1c8d4cbdecbc09b62ac841a936272b67f25"
+CONFIG_ALT_SHA256 = "b9cc0c63d791d0add83db669a6d340b46b839be7ee23c31285e270993364a079"
+CONFIG_ALT_BYTES = 4285
+CPU_OPT_LINES = (b"cpu-opt: true\n", b"cpu-opt: false\n")
 SOURCE_CONFIG_SHA256 = "9e64e723c8286e77e7cd57ffb6049d3cdcf202615062a503348c3170a18edff7"
 SOURCE_CONFIG_RECORD = "local-adoption-fbfae8841e53439db2d5d034b00a4c89/evidence/config-after.yml"
 CONFIG_CHANGES = {"backend-renderer": {"from": "Vulkan", "to": "OpenGL"},
@@ -44,21 +47,49 @@ def checked_config(path):
     return content
 
 
+def alt_config(baseline):
+    if baseline.count(CPU_OPT_LINES[0]) != 1:
+        raise ValueError("baseline configuration does not contain exactly one cpu-opt line")
+    alt = baseline.replace(CPU_OPT_LINES[0], CPU_OPT_LINES[1], 1)
+    keys = [line.split(b":", 1)[0] for line in alt.splitlines() if b":" in line and not line.startswith(b" ")]
+    if len(keys) != 154 or len(set(keys)) != 154:
+        raise ValueError("cpu-opt-off configuration must keep 154 unique keys")
+    if alt.replace(CPU_OPT_LINES[1], CPU_OPT_LINES[0], 1) != baseline:
+        raise ValueError("cpu-opt-off configuration changed bytes outside the cpu-opt line")
+    if hashlib.sha256(alt).hexdigest() != CONFIG_ALT_SHA256:
+        raise ValueError("cpu-opt-off configuration differs from the approved alternate schema")
+    return alt
+
+
+def checked_alt_config(path):
+    content = read_profile_file(path, CONFIG_ALT_BYTES)
+    if hashlib.sha256(content).hexdigest() != CONFIG_ALT_SHA256:
+        raise ValueError("configuration differs from the approved cpu-opt-off schema")
+    if content != alt_config(checked_config(CONFIG_TEMPLATE)):
+        raise ValueError("cpu-opt-off configuration is not the single approved baseline mutation")
+    return content
+
+
 def verify_config_log(root):
     content = read_profile_file(root / "evidence/process.log", 1024 * 1024)
     if b"Config file can't be loaded:" in content:
         raise ValueError("runtime reported configuration parse failure; see evidence/process.log")
 
 
-def config_identity(root):
-    content = checked_config(root / CONFIG_PATH)
-    return {"path": str(CONFIG_PATH), "bytes": len(content), "sha256": CONFIG_SHA256,
-            "template": CONFIG_TEMPLATE.name, "source_record": SOURCE_CONFIG_RECORD,
-            "source_sha256": SOURCE_CONFIG_SHA256, "sanitization": CONFIG_CHANGES}
+def config_identity(root, alt=False):
+    content = checked_alt_config(root / CONFIG_PATH) if alt else checked_config(root / CONFIG_PATH)
+    identity = {"path": str(CONFIG_PATH), "bytes": len(content),
+                "sha256": CONFIG_ALT_SHA256 if alt else CONFIG_SHA256,
+                "template": CONFIG_TEMPLATE.name, "source_record": SOURCE_CONFIG_RECORD,
+                "source_sha256": SOURCE_CONFIG_SHA256, "sanitization": CONFIG_CHANGES}
+    if alt:
+        identity["cpu_opt_off"] = {"baseline_sha256": CONFIG_SHA256, "alternate_sha256": CONFIG_ALT_SHA256,
+                                   "change": "cpu-opt: true -> cpu-opt: false"}
+    return identity
 
 
-def stage_firmware(root, source):
-    config = checked_config(CONFIG_TEMPLATE)
+def stage_firmware(root, source, alt=False):
+    config = alt_config(checked_config(CONFIG_TEMPLATE)) if alt else checked_config(CONFIG_TEMPLATE)
     sources = {name: library_identity(source / name, allow_symlinks=False) for name in ("vs0", "sa0")}
     for name, identity in sources.items():
         if not any(entry["type"] == "file" for entry in identity["entries"].values()):

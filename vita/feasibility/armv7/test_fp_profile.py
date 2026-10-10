@@ -1,3 +1,4 @@
+import hashlib
 import importlib.util
 import os
 from pathlib import Path
@@ -64,6 +65,58 @@ class ProfileTest(unittest.TestCase):
         self.assertFalse((self.root / FIRMWARE_DIRECTORY / "ux0").exists())
         self.assertEqual(profile.config_identity(self.root)["sha256"],
                          "c11fa8feaa4240186f652672643ee1c8d4cbdecbc09b62ac841a936272b67f25")
+
+    def test_cpu_opt_off_profile_is_derived_from_the_approved_baseline(self):
+        baseline = profile.checked_config(profile.CONFIG_TEMPLATE)
+        self.assertEqual(hashlib.sha256(baseline).hexdigest(),
+                         "c11fa8feaa4240186f652672643ee1c8d4cbdecbc09b62ac841a936272b67f25")
+        alt = profile.alt_config(baseline)
+        self.assertEqual(alt, baseline.replace(b"cpu-opt: true\n", b"cpu-opt: false\n"))
+        self.assertEqual(len(alt), 4285)
+        self.assertEqual(hashlib.sha256(alt).hexdigest(), profile.CONFIG_ALT_SHA256)
+        keys = [line.split(b":", 1)[0] for line in alt.splitlines() if b":" in line and not line.startswith(b" ")]
+        self.assertEqual((len(keys), len(set(keys))), (154, 154))
+
+    def test_cpu_opt_off_staging_binds_the_alternate_schema(self):
+        stage_firmware(self.root, self.source, alt=True)
+        config = self.root / "config/Vita3K/config.yml"
+        self.assertEqual(config.read_bytes(), profile.alt_config(profile.checked_config(profile.CONFIG_TEMPLATE)))
+        identity = profile.config_identity(self.root, alt=True)
+        self.assertEqual(identity["sha256"], profile.CONFIG_ALT_SHA256)
+        self.assertEqual(identity["bytes"], 4285)
+        self.assertEqual(identity["cpu_opt_off"], {
+            "baseline_sha256": profile.CONFIG_SHA256, "alternate_sha256": profile.CONFIG_ALT_SHA256,
+            "change": "cpu-opt: true -> cpu-opt: false"})
+        with self.assertRaises(ValueError):
+            profile.checked_config(config)
+
+    def test_alternate_schema_rejects_unknown_or_additional_mutations(self):
+        baseline = profile.checked_config(profile.CONFIG_TEMPLATE)
+        alt = profile.alt_config(baseline)
+        mutations = {
+            "second-change": alt.replace(b"show-welcome: false", b"show-welcome: true"),
+            "unknown-key": alt.replace(b"cpu-opt: false\n", b"cpu-opt: false\nextra-unknown: 1\n"),
+            "baseline-fallback": baseline,
+            "runtime-user-id": alt.replace(b'user-id: ""\n', b"user-id: 00\n"),
+            "oversized": alt + b"\n",
+        }
+        for name, content in mutations.items():
+            with self.subTest(name=name):
+                path = self.output / (name + ".yml")
+                path.write_bytes(content)
+                with self.assertRaises(ValueError):
+                    profile.checked_alt_config(path)
+
+    def test_alternate_derivation_rejects_tampered_baselines(self):
+        baseline = profile.checked_config(profile.CONFIG_TEMPLATE)
+        for name, content in {
+            "second-change": baseline.replace(b"show-welcome: false", b"show-welcome: true"),
+            "duplicate-cpu-opt": baseline.replace(b"cpu-opt: true\n", b"cpu-opt: true\ncpu-opt: true\n"),
+            "missing-cpu-opt": baseline.replace(b"cpu-opt: true\n", b""),
+            "oversized": baseline + b"\n",
+        }.items():
+            with self.subTest(name=name), self.assertRaises(ValueError):
+                profile.alt_config(content)
 
     def test_polluted_template_is_rejected_before_config_creation(self):
         template = (ROOT / "scripts/vita/armv7/fp_config.yml").read_text()

@@ -287,8 +287,11 @@ def verify_package(path, expected_hash, memory=False, control=False):
             raise ValueError("not the FP diagnostic title")
 
 
-def main(memory=False, control=False):
-    description = "Stage VITA-WW-08 baseline pair only; exact saved-plan authorization required later." if control else "Isolated VITA-WW-04 memory launcher; defaults to stage only." if memory else __doc__
+def main(memory=False, control=False, cpu_opt_off=False):
+    description = ("Stage VITA-WW-09 cpu-opt-off pair only; exact saved-plan authorization required later."
+                   if cpu_opt_off else
+                   "Stage VITA-WW-08 baseline pair only; exact saved-plan authorization required later." if control
+                   else "Isolated VITA-WW-04 memory launcher; defaults to stage only." if memory else __doc__)
     parser = argparse.ArgumentParser(description=description)
     parser.add_argument("--runtime", type=Path, required=True, help="installed ELF; never a wrapper")
     parser.add_argument("--runtime-sha256", required=True)
@@ -304,14 +307,24 @@ def main(memory=False, control=False):
     parser.add_argument("--execute-reviewed", action="store_true",
                         help="ONLY after independent review and coordinator authorization; default stages only")
     args = parser.parse_args()
+    if cpu_opt_off and not control:
+        parser.error("cpu-opt-off staging is the ARM09 control profile only")
     if control and args.execute_reviewed:
-        parser.error("ARM08 execution requires the exact saved plan and coordinator pair authorization")
+        parser.error(("ARM09" if cpu_opt_off else "ARM08") +
+                     " execution requires the exact saved plan and coordinator pair authorization")
     if memory or control:
         args.two_phase = True
     if args.two_phase and not args.firmware:
         parser.error("two-phase execution requires verified private firmware and configuration")
     if not math.isfinite(args.timeout) or not 0 < args.timeout <= 30:
         parser.error("timeout must be finite, positive and at most 30 seconds")
+    if cpu_opt_off:
+        from fp_campaign import reservation_path
+        reserved = reservation_path(ROOT)
+        if args.out.resolve() != reserved.parent.resolve():
+            parser.error(f"cpu-opt-off staging must use the ignored output directory {reserved.parent}")
+        if reserved.exists() or reserved.is_symlink():
+            raise ValueError("VITA-WW-09 campaign is already reserved; a second run must not be staged")
     parent = build_directory(reject_symlinks(args.out))
     evidence = json.loads(args.build_evidence.read_text())
     source = evidence["source"]
@@ -337,8 +350,8 @@ def main(memory=False, control=False):
     with vpk.open("rb") as source_file, staged_vpk.open("xb") as destination:
         shutil.copyfileobj(source_file, destination)
     verify_package(staged_vpk, package, **package_options)
-    firmware = stage_firmware(root, reject_symlinks(args.firmware)) if args.firmware else {}
-    private_config = config_identity(root) if firmware else None
+    firmware = stage_firmware(root, reject_symlinks(args.firmware), alt=cpu_opt_off) if args.firmware else {}
+    private_config = config_identity(root, alt=cpu_opt_off) if firmware else None
     if not args.two_phase:
         directory = root / REPORT_DIRECTORY
         directory.mkdir(parents=True)
@@ -367,13 +380,18 @@ def main(memory=False, control=False):
         plan.update(diagnostic="mem", method="bounded-v2", title="BWWM00004", process_budget_used=0)
     if control:
         plan.update(diagnostic="arm", method="scalar-vfp-v1", title="BWWA00008", process_budget_used=0,
-                    ticket_process_budget=4, comparison="pristine-baseline", real_execution=False,
-                    authorization=f"ARM08:{source}:{token}:baseline:1,2")
+                    ticket_process_budget=2 if cpu_opt_off else 4, real_execution=False,
+                    comparison="cpu-opt-off" if cpu_opt_off else "pristine-baseline",
+                    authorization=(f"ARM09:{source}:{token}:cpu-opt-off:1,2" if cpu_opt_off else
+                                   f"ARM08:{source}:{token}:baseline:1,2"))
     if args.two_phase:
         from fp_campaign import stage_campaign
         stage_campaign(root, plan, args, vpk)
     with evidence_file(root, "plan.json") as stream:
         stream.write(json.dumps(plan, indent=2) + "\n")
+    if cpu_opt_off:
+        from fp_campaign import reserve_campaign
+        reserve_campaign(ROOT, plan)
     print(root, flush=True)
     if not args.execute_reviewed:
         print("STAGED ONLY: real Vita3K NOT RUN; review gate still required")
@@ -382,7 +400,7 @@ def main(memory=False, control=False):
         from fp_campaign import execute_campaign
         return execute_campaign(root, plan)
     verify_firmware(firmware)
-    if private_config and config_identity(root) != private_config:
+    if private_config and config_identity(root, alt=cpu_opt_off) != private_config:
         raise ValueError("staged configuration changed before execution")
     status = run_owned(command, root, args.timeout, report_identity=(token, source, package))
     process = json.loads((root / "evidence/process.json").read_text())

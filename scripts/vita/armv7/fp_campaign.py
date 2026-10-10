@@ -9,8 +9,37 @@ import uuid
 import zipfile
 
 from fp_libraries import directory_fd, file_identity, library_identity
-from fp_profile import (CONFIG_PATH, CONFIG_TEMPLATE, checked_config, config_identity,
-                        read_profile_file, verify_config_log, verify_firmware)
+from fp_profile import (CONFIG_ALT_BYTES, CONFIG_PATH, CONFIG_TEMPLATE, alt_config, checked_alt_config,
+                        checked_config, config_identity, read_profile_file, verify_config_log, verify_firmware)
+
+RESERVATION = Path("build-ww09") / "campaign-reservation.json"
+
+
+def reservation_path(root):
+    return Path(root) / RESERVATION
+
+
+def reserve_campaign(root, plan):
+    path = reservation_path(root)
+    with directory_fd(path.parent) as parent:
+        descriptor = os.open(path.name, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW | os.O_CLOEXEC,
+                             0o600, dir_fd=parent)
+    with os.fdopen(descriptor, "w") as stream:
+        json.dump({"authorization": plan["authorization"], "source": plan["source"], "run": plan["run"],
+                   "reserved_process_numbers": [1, 2], "retry": "FORBIDDEN",
+                   "conditional_pair_3_4": "NOT AUTHORIZED; VITA-WW-09 defines no conditional pair"}, stream)
+        stream.write("\n")
+        stream.flush()
+        os.fsync(stream.fileno())
+
+
+def verify_campaign_reservation(root, plan):
+    record = json.loads(read_profile_file(reservation_path(root), 65536, owned=True))
+    if (record.get("authorization"), record.get("source"), record.get("run"),
+            record.get("reserved_process_numbers"), record.get("retry")) != (
+            plan["authorization"], plan["source"], plan["run"], [1, 2], "FORBIDDEN"):
+        raise ValueError("permanent campaign reservation does not match the saved plan")
+    return record
 
 
 def stage_campaign(root, plan, args, vpk):
@@ -113,13 +142,13 @@ def verify_installed(root, package, memory=False, control=False):
     return payload
 
 
-def emitted_config(root, phase):
+def emitted_config(root, phase, alt=False):
     from fp_launch import evidence_file
 
-    content = read_profile_file(root / CONFIG_PATH, 4284, owned=True)
+    content = read_profile_file(root / CONFIG_PATH, CONFIG_ALT_BYTES if alt else 4284, owned=True)
     with evidence_file(phase, "config-emitted.yml") as stream:
         stream.write(content.decode("utf-8"))
-    canonical = checked_config(CONFIG_TEMPLATE)
+    canonical = alt_config(checked_config(CONFIG_TEMPLATE)) if alt else checked_config(CONFIG_TEMPLATE)
     if content not in (canonical, canonical.replace(b'user-id: ""\n', b'user-id: 00\n')):
         raise ValueError("unexpected runtime configuration mutation")
     return canonical
@@ -139,14 +168,17 @@ def verify_phase_logs(root, phase):
         raise ValueError("runtime cache reported configuration parse failure")
 
 
-def restore_config(root, canonical):
+def restore_config(root, canonical, alt=False):
     with directory_fd((root / CONFIG_PATH).parent) as parent:
         descriptor = os.open("config.restore.yml", os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW | os.O_CLOEXEC,
                              0o600, dir_fd=parent)
         with os.fdopen(descriptor, "wb") as stream:
             stream.write(canonical)
         os.replace("config.restore.yml", "config.yml", src_dir_fd=parent, dst_dir_fd=parent)
-    checked_config(root / CONFIG_PATH)
+    if alt:
+        checked_alt_config(root / CONFIG_PATH)
+    else:
+        checked_config(root / CONFIG_PATH)
 
 
 def fresh_request(root, source, package, memory=False, control=False):
@@ -180,20 +212,34 @@ def execute_campaign(root, plan):
 
     install = plan["phases"]["install"]
     control = plan.get("diagnostic") == "arm"
+    alt = plan.get("comparison") == "cpu-opt-off"
     options = {"control": True} if control else {"memory": True} if plan.get("diagnostic") == "mem" else {}
     guest = plan["phases"]["guest"]
     install_root, guest_root = Path(install["evidence_root"]), Path(guest["evidence_root"])
     verify_inputs(root, plan)
-    if config_identity(root) != plan["private_config"]:
+    if config_identity(root, alt=alt) != plan["private_config"]:
         raise ValueError("configuration changed before installation")
     status = run_owned(install["command"], root, install["timeout_seconds"], evidence_root=install_root)
     process = json.loads((install_root / "evidence/process.json").read_text())
     preparation = {"readiness": "REJECTED", "process_status": status, "process": process}
     try:
         verify_stopped(process)
-        canonical = emitted_config(root, install_root)
-        if control:
-            restore_config(root, canonical)
+        if alt:
+            canonical = alt_config(checked_config(CONFIG_TEMPLATE))
+            try:
+                emitted_config(root, install_root, alt=True)
+            except (OSError, ValueError) as rejection:
+                try:
+                    restore_config(root, canonical, alt=True)
+                except (OSError, ValueError) as failure:
+                    raise ValueError(f"emitted configuration rejected: {rejection}; "
+                                     f"canonical restoration failed: {failure}") from rejection
+                raise
+            restore_config(root, canonical, alt=True)
+        else:
+            canonical = emitted_config(root, install_root)
+            if control:
+                restore_config(root, canonical)
         if not ((status == 0 and process["stop_reason"] == "exit" and process["exit"] == 0) or
                 (status == 124 and process["stop_reason"] == "timeout" and
                  process["exit"] in (0, -signal.SIGTERM, -signal.SIGKILL))):
@@ -204,7 +250,7 @@ def execute_campaign(root, plan):
         if not control:
             restore_config(root, canonical)
         token = fresh_request(root, plan["source"], plan["vpk_sha256"], **options)
-        preparation.update(readiness="VERIFIED", guest_token=token, config=config_identity(root))
+        preparation.update(readiness="VERIFIED", guest_token=token, config=config_identity(root, alt=alt))
     except (OSError, ValueError) as error:
         preparation["error"] = str(error)
     with evidence_file(install_root, "preparation.json") as stream:
@@ -217,19 +263,22 @@ def execute_campaign(root, plan):
     status = run_owned(guest["command"], root, guest["timeout_seconds"], report_identity=identity, evidence_root=guest_root, **options)
     process = json.loads((guest_root / "evidence/process.json").read_text())
     error = None
-    canonical = None
+    canonical = alt_config(checked_config(CONFIG_TEMPLATE)) if alt else None
+    stopped = False
     try:
         verify_stopped(process)
-        canonical = emitted_config(root, guest_root)
+        stopped = True
+        canonical = emitted_config(root, guest_root, alt=alt)
         verify_phase_logs(root, guest_root)
         verify_inputs(root, plan)
         verify_installed(root, plan["vpk_sha256"], **options)
     except (OSError, ValueError) as failure:
         error = str(failure)
     finally:
-        if control and canonical is not None:
+        restore = stopped if alt else control and canonical is not None
+        if restore:
             try:
-                restore_config(root, canonical)
+                restore_config(root, canonical, alt=alt)
             except (OSError, ValueError) as failure:
                 error = f"canonical restoration failed: {failure}; preceding error: {error}"
     return collect_result(root, *identity, status, error, process, evidence_root=guest_root, **options)
