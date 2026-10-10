@@ -59,12 +59,13 @@ int fixture_run(int argc, char** argv) {
         ww_host_fail(host, "CPU/VM/cache allocation failed", 0u, 0u);
     error |= fprintf(report, "ABI pointer=%u cpu=%u version=%u\n", fixture_abi.pointer_bytes,
                      fixture_abi.cpu_bytes, fixture_abi.cpu_abi) < 0;
-    error |= fprintf(report, "ALLOC host=%u mem1=%u vm=%u cache=%u aliases=%llu alias_count=%u owned_live=%llu\n",
+    error |= fprintf(report, "ALLOC host=%u mem1=%u vm=%u cache=%u code_snapshot=%llu aliases=%llu alias_count=%u owned_live=%llu\n",
                      (unsigned)sizeof(*host), host->cpu.ram != NULL ? host->cpu.ram_size : 0u,
                      host->memory.vm != NULL ? host->memory.config.vm_size : 0u,
-                     host->memory.locked_cache != NULL ? host->memory.config.locked_cache_size : 0u,
+                      host->memory.locked_cache != NULL ? host->memory.config.locked_cache_size : 0u,
+                      (unsigned long long)host->code_guard.bytes,
                      (unsigned long long)host->alias_bytes, host->alias_count,
-                     (unsigned long long)(sizeof(*host) + host->backing_bytes + host->alias_bytes)) < 0;
+                      (unsigned long long)(sizeof(*host) + host->backing_bytes + host->code_guard.bytes + host->alias_bytes)) < 0;
     error |= fprintf(report, "UNKNOWN residency native_stack_highwater pool_peak GPU\n") < 0;
     bluewake_set_edge_service(ww_host_edge, host);
     while (loaded && !error && host->error == NULL && !host->edge_stopped) {

@@ -61,6 +61,17 @@ class StartupHostTest(unittest.TestCase):
     def test_unknown_host_service_still_fails(self):
         subprocess.run([str(OUT / 'host_probe'), 'unknown-host-call'], cwd=OUT, check=True)
 
+    def test_instruction_cache_invalidation_accepts_unchanged_compiled_text(self):
+        for alias in ('cached', 'physical', 'uncached'):
+            with self.subTest(alias=alias):
+                subprocess.run([str(OUT / 'host_probe'), 'icbi-text-' + alias], cwd=OUT, check=True)
+
+    def test_instruction_cache_invalidation_accepts_data(self):
+        subprocess.run([str(OUT / 'host_probe'), 'icbi-data'], cwd=OUT, check=True)
+
+    def test_instruction_cache_invalidation_refuses_changed_compiled_code(self):
+        subprocess.run([str(OUT / 'host_probe'), 'icbi-modified-text'], cwd=OUT, check=True)
+
     def test_unknown_mmio_write_fails(self):
         subprocess.run([str(OUT / 'host_probe'), 'unknown-write'], check=True)
 
@@ -77,6 +88,9 @@ class StartupHostTest(unittest.TestCase):
 
     def test_alias_allocation_failure_is_propagated(self):
         subprocess.run([str(OUT / 'host_probe'), 'alias-failure'], cwd=OUT, check=True)
+
+    def test_partial_code_snapshot_allocation_is_released_on_failure(self):
+        subprocess.run([str(OUT / 'host_probe'), 'code-copy-failure'], cwd=OUT, check=True)
 
 
 if __name__ == '__main__':

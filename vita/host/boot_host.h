@@ -4,6 +4,7 @@
 #include "module_exports.h"
 #include "module_cpu_contract.h"
 #include "gx_checkpoint.h"
+#include "code_guard.h"
 #include "cycle_domain.h"
 #include "gxruntime/di.h"
 #include "gxruntime/exi.h"
@@ -22,6 +23,7 @@ typedef struct WwHost {
     DolSiDevice si;
     const StaticRecompModuleDesc* module;
     u32 l2cr;
+    WwCodeGuard code_guard;
     const char* error;
     u32 error_address;
     u32 error_pc;

@@ -21,6 +21,14 @@ static WwHost* owner(CPUState* cpu) {
     return cpu->external_user_data;
 }
 
+static u32 canonical_dispatch_address(const CPUState* cpu, u32 address) {
+    if (address < cpu->ram_size)
+        return address | GC_RAM_BASE;
+    if (address >= 0xC0000000u && address < 0xC0400000u)
+        return address & ~0x40000000u;
+    return address;
+}
+
 static void advance(CPUState* cpu, u64 cycles, void* user) {
     WwHost* host = user;
     const u64 total = cycles + host->clock_remainder;
@@ -86,6 +94,16 @@ static void cache_control(CPUState* cpu, u8 operation, u32 ea, u32 cia) {
         dol_guest_memory_dirty_mark(ea & ~31u, 32u);
         return;
     }
+    if (operation == PPC_CACHE_ICBI) {
+        WwHost* host = owner(cpu);
+        const u32 address = canonical_dispatch_address(cpu, ea);
+        if (host->module == NULL || !ww_code_guard_matches(&host->code_guard, cpu, address)) {
+            ww_host_fail(host, "instruction cache invalidation requires unmodified mapped DOL code", address, cia);
+            return;
+        }
+        ppc_memory_fence();
+        return;
+    }
     ww_host_fail(owner(cpu), "unsupported cache operation", operation, cia);
 }
 
@@ -96,6 +114,15 @@ static void fallback(CPUState* cpu, u32 raw, u32 cia) {
         const u32 xo = (raw >> 1) & 0x3FFu;
         const u16 spr = (u16)(((raw >> 16) & 31u) | ((raw >> 6) & 0x3E0u));
         const u8 reg = (u8)((raw >> 21) & 31u);
+        if (xo == 982u) {
+            const u32 ra = (raw >> 16) & 31u;
+            const u32 rb = (raw >> 11) & 31u;
+            const u32 ea = (ra == 0u ? 0u : cpu->gpr[ra]) + cpu->gpr[rb];
+            ppc_cache_control(cpu, PPC_CACHE_ICBI, ea, cia);
+            if (!cpu->exception)
+                cpu->pc = cia + 4u;
+            return;
+        }
         if (xo == 339u || xo == 467u) {
             if (xo == 339u)
                 cpu->gpr[reg] = ppc_mfspr(cpu, spr, cia);
@@ -111,11 +138,7 @@ static void fallback(CPUState* cpu, u32 raw, u32 cia) {
 
 static bool host_call(CPUState* cpu, u32 service) {
     WwHost* host = owner(cpu);
-    u32 address = service;
-    if (address < cpu->ram_size)
-        address |= GC_RAM_BASE;
-    else if (address >= 0xC0000000u && address < 0xC0400000u)
-        address &= ~0x40000000u;
+    const u32 address = canonical_dispatch_address(cpu, service);
     if (host->module != NULL && (address & 3u) == 0u) {
         for (u32 index = 0u; index < host->module->num_code_ranges; ++index) {
             const StaticRecompRange* range = &host->module->code_ranges[index];
@@ -261,6 +284,7 @@ bool ww_host_init(WwHost* host) {
 
 void ww_host_shutdown(WwHost* host) {
     host->module = NULL;
+    ww_code_guard_free(&host->code_guard);
     ppc_guest_alias_clear();
     host->alias_bytes = 0u;
     host->alias_count = 0u;
@@ -292,6 +316,10 @@ bool ww_host_load(WwHost* host, const StaticRecompModuleDesc* module,
     DolLayout layout;
     if (!dol_load_into_ram(&host->cpu, dol, &layout) || layout.entry_point != module->entry_point) {
         ww_host_fail(host, "DOL load/descriptor entry mismatch", module->entry_point, 0u);
+        return false;
+    }
+    if (!ww_code_guard_init(&host->code_guard, &host->cpu, &layout)) {
+        ww_host_fail(host, "DOL code snapshot allocation/range failure", 0u, 0u);
         return false;
     }
     for (u32 i = 0u; i < count; ++i) {

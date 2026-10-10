@@ -47,6 +47,16 @@ END frontier=PASS live=0 rendered=0
         content = content.replace('frontier=PASS', 'frontier=FAIL')
         self.assertEqual(self.validate(content, TOKEN, SOURCE, PACKAGE), 'FAIL')
 
+    def test_code_snapshot_owner_is_included_in_the_allocation_ledger(self):
+        content = self.content.replace('cache=16384 aliases=', 'cache=16384 code_snapshot=4 aliases=')
+        content = content.replace('owned_live=59536652', 'owned_live=59536656')
+        self.assertEqual(self.validate(content, TOKEN, SOURCE, PACKAGE), 'PASS')
+
+    def test_code_snapshot_owner_cannot_be_omitted_from_owned_live(self):
+        content = self.content.replace('cache=16384 aliases=', 'cache=16384 code_snapshot=4 aliases=')
+        with self.assertRaisesRegex(ValueError, 'ledger'):
+            self.validate(content, TOKEN, SOURCE, PACKAGE)
+
 
 if __name__ == '__main__':
     unittest.main()

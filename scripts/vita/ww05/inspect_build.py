@@ -4,6 +4,7 @@ import json
 from pathlib import Path
 import re
 import subprocess
+import struct
 
 from game_build import OUTPUT, STACK, sha256
 
@@ -42,12 +43,16 @@ def inspect(build):
     data = (OUTPUT / 'composite/rel_data.inc').read_text()
     rows = re.findall(r'\{(\d+)u, (\d+)u, (0x[0-9A-Fa-f]+)u, (0x[0-9A-Fa-f]+|\d+)u, ([^}]+)\}', data)
     alias_estimate = sum(int(row[3], 0) for row in rows if not (row[0] == '336' and row[1] == '6'))
+    with (OUTPUT / 'private/main.dol').open('rb') as stream:
+        header = stream.read(256)
+    text_snapshot_bytes = sum(struct.unpack_from('>7I', header, 0x90))
     result = {'elf_sha256': sha256(elf), 'elf_bytes': elf.stat().st_size,
               'PT_LOAD': segments, 'PT_LOAD_memory_bytes': sum(entry['memory_bytes'] for entry in segments),
               'sections': sections, 'largest_compiled_frame': stacks[0], 'stack_frames': stacks,
               'worker_reserved_bytes': 262144, 'newlib_heap_container_bytes': 100663296,
               'estimated_backings_inside_heap': {'mem1': 25165824, 'vm': 33554432, 'locked_cache': 16384,
-                                                'exported_rel_aliases': alias_estimate},
+                                                'exported_rel_aliases': alias_estimate,
+                                                'compiled_text_snapshot': text_snapshot_bytes},
               'dol_loader_transient_requested_bytes': (OUTPUT / 'private/main.dol').stat().st_size,
                'actual_guest_allocations': 'NOT OBSERVED by offline inspection; see individual startup reports',
               'unknown': ['native stack high-water', 'physical residency', 'allocator overhead',
