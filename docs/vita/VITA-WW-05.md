@@ -48,6 +48,11 @@ owners are released on terminal success/failure. Alias allocation failure propag
 The original OS boot globals/SP and architectural FP enable policy are retained. Cycle-domain
 observations charge guest time exactly once, with the host's 12 cycles/time-base tick convention.
 The PVR remains `0x00083214`; supported SPR and dirty-cache writes use the existing runtime seams.
+The runtime offers ordinary guest PCs to the optional host-call hook before trying compiled code.
+An aligned address in the loaded descriptor's code ranges (including the dispatcher's physical/
+uncached aliases) is declined without changing PC or exceptions, so the original guest code runs.
+An address outside those declared ranges, including an unsupported native-query selector, still
+fails explicitly. This classification does not implement or skip a guest service.
 Known PI/VI/PE/DI/EXI/SI register operations use the pinned C models with width/range guards.
 An unimplemented register, SPR, cache operation, instruction, host call, desktop interception,
 interrupt delivery, DVD command or EXI/SI transfer stops with reason/address/PC. There is no
@@ -200,7 +205,7 @@ a lingering process. Its short red/green loops are in `logs/private-{launch,gues
 The parent-symlink loop reproduced creation outside an owned fake profile, then prevented it with the
 existing no-follow directory-descriptor pattern. No real/shared profile was involved.
 
-The WW05 host suite currently has **44 tests**. Source-bound logs retain exact counts/commands for these,
+The WW05 host suite currently has **46 tests**. Source-bound logs retain exact counts/commands for these,
 native runtime CTest, 71 native FP cases and the eight direct baseline files. Audit, attribution,
 pin/scope/diff and clean-worktree checks accompany delivery. The pre-launch `1ba507c` checkpoint passed
 35 WW05 tests, 177 unchanged tests, 53 direct baseline tests, 71 native FP cases and 3/1/5 runtime/corpus/
@@ -209,3 +214,29 @@ failed two fake socket binds with `AF_UNIX path too long`; that record is retain
 passed at the requested worktree path and unchanged native helpers passed the remaining checks.
 Physical Vita, Windows CI, a rendered scene and game performance remain **NOT RUN**. Actual WW05
 startup is established only by an individual real-run record, never by compilation or synthetic tests.
+
+## First real startup evidence and correction
+
+The clean `ad0fdd7a82e4ea536a6581a807696a61f89824b9` ARM build completed in 5,211.096 s.
+Its retained private snapshot is `build-f5/ww05/artifacts-53407ecdb5304b1dabef2caac5772160/`.
+ELF PT_LOAD memory totals 351,467,732 bytes; adding the distinct 96 MiB heap container and
+256 KiB worker reservation gives a nominal 452,393,172 bytes, before unmeasured costs. This large
+mapping is a physical-platform blocker/risk, not a balanced Vita budget. The largest generated
+frame is 192 bytes; 25 such frames contribute a conservative 4,800 bytes, not native high-water.
+Estimated initial requested owners plus DOL-loader transient inside the heap were 64,847,652 bytes.
+
+Run `904f64c1ece94edc8b67daa87eb3b995` installed verified SELF/SFO/DOL bytes, then ran the
+real title in its new network-isolated profile. Both Qt processes reached their 60-second deadlines,
+were stopped/reaped, and remain 124/INCOMPLETE. The guest nevertheless closed its report in about
+two seconds: frontier **FAIL**, zero FIFO bytes, zero guest cycles, entry/PC `80003140`, and
+`STOP reason=unsupported host call address=80003140 pc=80003140`. Report SHA-256 is
+`03ea53f190624b4d7504fcc0c624d364502dfe46afba0486bdb811ff205c4343`; its plan/result, raw runtime
+log, request, exact argv, emitted config, preparation and follow-up review are retained under that run.
+The emulator logged native module segments `81000000..95EBCB74` and `95EC0000..95F3320C`.
+These are observed emulator mapping ranges, not physical residency or physical Vita viability.
+
+The failure exposed a host protocol bug, not an FP defect: an optional interception offer was
+misclassified as a mandatory service before the entry instruction ran. `logs/guest-offer-{red,green}.log`
+reproduces then corrects this for cached, physical and uncached compiled-code PCs. A separate test
+retains explicit rejection of unknown host selectors. Later attempts must bind their own clean source
+and preserved artifact bytes; this first negative record is neither deleted nor called GX success.

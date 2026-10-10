@@ -20,7 +20,7 @@ static int dispatch(CPUState* cpu, u32 address) {
 }
 
 static StaticRecompModuleDesc synthetic_module(void) {
-    static StaticRecompRange ranges[] = {{0xC0401000u, 0xC0401100u}};
+    static StaticRecompRange ranges[] = {{0x80001000u, 0x80001004u}, {0xC0401000u, 0xC0401100u}};
     static StaticRecompRelSection sections[] = {
         {.module_id = 1u, .section_index = 1u, .linked_start = 0xC0401000u, .size = 256u},
         {.module_id = 1u, .section_index = 2u, .linked_start = 0xC0403000u, .size = 8u},
@@ -30,7 +30,7 @@ static StaticRecompModuleDesc synthetic_module(void) {
     StaticRecompModuleDesc module = {.abi_version = STATICRECOMP_ABI_VERSION,
         .cpu_abi_version = GXRUNTIME_CPU_ABI_VERSION, .cpu_state_size = sizeof(CPUState),
         .game_id = "GZLE01", .entry_point = 0x80001000u, .dispatch = dispatch,
-        .code_ranges = ranges, .num_code_ranges = 1u, .rel_modules = rel, .num_rel_modules = 1u};
+        .code_ranges = ranges, .num_code_ranges = 2u, .rel_modules = rel, .num_rel_modules = 1u};
     return module;
 }
 
@@ -108,6 +108,23 @@ int main(int argc, char** argv) {
         assert(!ww_host_load(host, &module, &data, 0u, "not-opened.dol"));
         assert(strstr(host->error, "ABI") != NULL);
         assert(host->alias_count == 0u);
+    } else if (strncmp(argv[1], "guest-offer-", 12u) == 0 || strcmp(argv[1], "unknown-host-call") == 0) {
+        synthetic_dol();
+        StaticRecompModuleDesc module = synthetic_module();
+        BlueWakeRelData data = {0};
+        assert(ww_host_load(host, &module, &data, 0u, "synthetic.dol"));
+        const u32 address = strcmp(argv[1], "guest-offer-physical") == 0 ? 0x1000u :
+                            strcmp(argv[1], "guest-offer-uncached") == 0 ? 0xC0001000u : 0x80001000u;
+        if (strcmp(argv[1], "unknown-host-call") == 0) {
+            assert(ppc_host_call(&host->cpu, PPC_HOST_CALL_NATIVE_REGION_QUERY));
+            assert(host->error != NULL);
+            assert(host->error_address == PPC_HOST_CALL_NATIVE_REGION_QUERY);
+        } else {
+            assert(!ppc_host_call(&host->cpu, address));
+            assert(host->cpu.pc == module.entry_point);
+            assert(host->error == NULL);
+            assert(host->cpu.exception == 0u);
+        }
     } else if (strcmp(argv[1], "aliases") == 0 || strcmp(argv[1], "alias-failure") == 0) {
         synthetic_dol();
         StaticRecompModuleDesc module = synthetic_module();

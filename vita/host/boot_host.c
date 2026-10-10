@@ -98,7 +98,20 @@ static void fallback(CPUState* cpu, u32 raw, u32 cia) {
 }
 
 static bool host_call(CPUState* cpu, u32 service) {
-    ww_host_fail(owner(cpu), "unsupported host call", service, cpu->pc);
+    WwHost* host = owner(cpu);
+    u32 address = service;
+    if (address < cpu->ram_size)
+        address |= GC_RAM_BASE;
+    else if (address >= 0xC0000000u && address < 0xC0400000u)
+        address &= ~0x40000000u;
+    if (host->module != NULL && (address & 3u) == 0u) {
+        for (u32 index = 0u; index < host->module->num_code_ranges; ++index) {
+            const StaticRecompRange* range = &host->module->code_ranges[index];
+            if (address >= range->start && address < range->end)
+                return false;
+        }
+    }
+    ww_host_fail(host, "unsupported host call", service, cpu->pc);
     return true;
 }
 
@@ -235,6 +248,7 @@ bool ww_host_init(WwHost* host) {
 }
 
 void ww_host_shutdown(WwHost* host) {
+    host->module = NULL;
     ppc_guest_alias_clear();
     host->alias_bytes = 0u;
     host->alias_count = 0u;
@@ -258,8 +272,9 @@ bool ww_host_load(WwHost* host, const StaticRecompModuleDesc* module,
                    const BlueWakeRelData* data, u32 count, const char* dol) {
     BlueWakeModuleStorage storage;
     const char* error = bw_module_select_storage(module, NULL, NULL, &host->cpu, &storage);
-    if (error != NULL || data == NULL || module->abi_version != STATICRECOMP_ABI_VERSION) {
-        ww_host_fail(host, error != NULL ? error : "static host requires ordinary CPU ABI and REL export", 0u, 0u);
+    if (error != NULL || data == NULL || module->abi_version != STATICRECOMP_ABI_VERSION ||
+        module->code_ranges == NULL || module->num_code_ranges == 0u) {
+        ww_host_fail(host, error != NULL ? error : "static host requires ordinary CPU ABI, code ranges and REL export", 0u, 0u);
         return false;
     }
     DolLayout layout;
@@ -295,6 +310,7 @@ bool ww_host_load(WwHost* host, const StaticRecompModuleDesc* module,
         }
     }
     boot_setup_os_globals(&host->cpu, &layout);
+    host->module = module;
     host->cpu.pc = module->entry_point;
     ppc_lazy_fp_set_enabled(true);
     return true;

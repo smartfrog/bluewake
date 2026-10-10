@@ -38,6 +38,14 @@ class StartupHostTest(unittest.TestCase):
     def test_unknown_instruction_is_not_skipped(self):
         subprocess.run([str(OUT / 'host_probe'), 'instruction'], check=True)
 
+    def test_compiled_guest_offers_are_not_host_services(self):
+        for alias in ('cached', 'physical', 'uncached'):
+            with self.subTest(alias=alias):
+                subprocess.run([str(OUT / 'host_probe'), 'guest-offer-' + alias], cwd=OUT, check=True)
+
+    def test_unknown_host_service_still_fails(self):
+        subprocess.run([str(OUT / 'host_probe'), 'unknown-host-call'], cwd=OUT, check=True)
+
     def test_unknown_mmio_write_fails(self):
         subprocess.run([str(OUT / 'host_probe'), 'unknown-write'], check=True)
 

@@ -20,6 +20,7 @@ typedef struct WwHost {
     DolDi di;
     DolExi exi;
     DolSiDevice si;
+    const StaticRecompModuleDesc* module;
     const char* error;
     u32 error_address;
     u32 error_pc;

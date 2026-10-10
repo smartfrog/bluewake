@@ -19,10 +19,11 @@ static int dispatch(CPUState* cpu, u32 address) {
 }
 
 const StaticRecompModuleDesc* staticrecomp_get_module(void) {
+    static const StaticRecompRange ranges[] = {{0x80001000u, 0x80001008u}};
     static const StaticRecompModuleDesc module = {
         .abi_version = STATICRECOMP_ABI_VERSION, .cpu_abi_version = GXRUNTIME_CPU_ABI_VERSION,
         .cpu_state_size = sizeof(CPUState), .game_id = "GZLE01", .entry_point = 0x80001000u,
-        .dispatch = dispatch};
+        .dispatch = dispatch, .code_ranges = ranges, .num_code_ranges = 1u};
     return &module;
 }
 
