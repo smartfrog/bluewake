@@ -1,4 +1,4 @@
-"""Byte and symlink identities for the public tree exposed at /runtime-libs."""
+"""Byte and symlink identities for exposed public runtime trees."""
 
 import hashlib
 import json
@@ -24,7 +24,7 @@ def file_identity(path):
                 "sha256": digest.hexdigest()}
 
 
-def library_identity(root):
+def library_identity(root, allow_symlinks=True):
     root = Path(root).absolute()
     if root.resolve(strict=True) != root or not root.is_dir():
         raise ValueError("library root must be a real directory without symlink ancestors")
@@ -33,6 +33,8 @@ def library_identity(root):
         name = str(path.relative_to(root))
         info = path.lstat()
         if stat.S_ISLNK(info.st_mode):
+            if not allow_symlinks:
+                raise ValueError(f"unexpected symlink: {path}")
             target = path.resolve(strict=True)
             if not target.is_relative_to(root):
                 raise ValueError(f"library symlink escapes exposed tree: {path}")

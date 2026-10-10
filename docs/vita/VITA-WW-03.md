@@ -2,7 +2,7 @@
 
 2026-10-10 · [ticket](https://trello.com/c/DcwHCjuc) · game-free, opt-in
 
-## Pre-launch checkpoint: REVISE, execution gate pending
+## Relaunch correction checkpoint: REVISE, exact-launch authorization pending
 
 The AArch64 Linux diagnostic passes **71/71** independently specified result-bit cases. The same
 emitted synthetic PowerPC functions and pristine RecompCore CPU build into a Vita ARMv7 VPK.
@@ -10,15 +10,21 @@ The corrected launcher passes fake-process tests, including protected host evide
 bounded report collection, staged-package/library identity, network/filesystem isolation, detached
 descendant cleanup and preserving semantic failure when the emulator process exits zero.
 
-**Real Vita3K: NOT RUN**, including `--help` and `--version`. Physical Vita/VitaShell: NOT RUN.
-Independent review and coordinator authorization are mandatory before the original worker launches
-the emulator. This is a checkpoint, not completion of 03 or a GO recommendation. Runtime correction
-must be scoped after reproduction. VITA-WW-04 remains separate.
+**No ARMv7 FP case has been observed.** Two prior diagnostic startups were INCOMPLETE: the original
+60-second attempt timed out, and temporary tracing imposed an inherited file-size limit which killed
+PulseAudio's 64 MiB memfd allocation. Subsequent isolated GUI-only runs reached Welcome (confirmed by
+the user) and the main window with the copied stack. GUI startup is not FP execution.
 
-Round 1 deliberately replaces the earlier proposed clean-source provenance hold: the coordinator
-accepted the exact installed runtime hash below for a **bounded, noncertifying diagnostic**. Source
-and Boost mapping remain UNVERIFIED. This disposition does not authorize execution; corrected
-fixture/sandbox/process review must pass and the coordinator must separately authorize the exact launch.
+This correction pass is code, fake-process tests, builds and a checkpoint commit only. Renewed real
+Vita3K execution is **NOT RUN** and requires coordinator risk review and exact-launch authorization.
+The approved later budget is at most two 30-second attempts by this original worker. Physical Vita,
+Windows hardware and gameplay remain NOT RUN. This is not completion of 03 or a GO recommendation;
+runtime repair follows a reproduced defect. VITA-WW-04 and the native game/renderer work remain separate.
+
+Round 1 replaced the proposed clean-source provenance hold with an accepted opaque runtime hash.
+The current copied ELF has an explicitly accepted RPATH-only relocation and a **different hash**,
+recorded below. Source and Boost mapping remain UNVERIFIED. This bounded, noncertifying disposition
+does not authorize a launch by itself.
 
 There is no supported working BlueWake game host here. These results establish neither game boot,
 memory/stack/pool sufficiency nor physical 30 FPS/normal speed. Confidence is high in the bounded
@@ -36,7 +42,8 @@ actual Vita3K/ARMv7 correctness. Physical tests follow useful emulator results.
 The checkpoint revision is `git log -1 --format=%H -- docs/vita/VITA-WW-03.md`. After committing,
 the complete commands below are repeated at that immutable revision. The resulting exact source
 SHA, ELF/SELF/VPK SHA-256 values, sizes and host run directory are in
-`build-vita-ww-03/fp-evidence.json`; 01 evidence is in `build-vita-ww-01/evidence.json`.
+the new `build-vita-ww-03-relaunch-fae48ad887c6463c8a6f9bf7068536c6/fp-evidence.json`;
+01 evidence is in `build-vita-ww-01-relaunch-fae48ad887c6463c8a6f9bf7068536c6/evidence.json`.
 Do not identify a package by filename alone. Rebuilding embeds the source revision and changes
 hashes; SELF/VPK packaging can also vary. The handoff includes that revision's artifact hashes.
 
@@ -45,27 +52,36 @@ with `git clone --no-hardlinks` from the integration tree's pinned references. B
 the product lock/profile and verify dependency SHA and clean status before and after building.
 No dependency, runtime pin, default platform build or game data is modified.
 
-Commands actually used on AArch64 Linux (`7.1.13-402.asahi.fc44.aarch64+16k`):
+Checkpoint commands on AArch64 Linux (`7.1.13-402.asahi.fc44.aarch64+16k`), repeated after committing:
 
 ```sh
-python3 scripts/vita/armv7/fp_build.py --vita \
-  --cc /home/fred/cloudpunk-vita/tools/env/bin/aarch64-conda-linux-gnu-gcc \
-  --cmake /home/fred/.local/bin/cmake --ninja /home/fred/.local/bin/ninja --jobs 2
-python3 scripts/vita/armv7/build.py --vita \
-  --cc /home/fred/cloudpunk-vita/tools/env/bin/aarch64-conda-linux-gnu-gcc \
-  --cmake /home/fred/.local/bin/cmake --ninja /home/fred/.local/bin/ninja --jobs 2
-CC=/home/fred/cloudpunk-vita/tools/env/bin/aarch64-conda-linux-gnu-gcc \
-  python3 -m unittest discover -s vita/feasibility/armv7 -p 'test_*.py' -v
+STACK=/home/fred/projects/zeldaWWHDRecomp/build-vita-tools/local-stack
+OUT="$PWD/build-vita-ww-03-relaunch-fae48ad887c6463c8a6f9bf7068536c6"
+BASELINE_OUT="$PWD/build-vita-ww-01-relaunch-fae48ad887c6463c8a6f9bf7068536c6"
+PYTHONDONTWRITEBYTECODE=1 VITASDK="$STACK/vitasdk" PATH="$STACK/bin:/usr/bin:/bin" \
+  python3 -B scripts/vita/armv7/fp_build.py --vita --out "$OUT" \
+  --vitasdk "$STACK/vitasdk" --cc "$STACK/bin/aarch64-conda-linux-gnu-gcc" \
+  --cmake "$STACK/bin/cmake" --ninja "$STACK/bin/ninja" --jobs 2
+PYTHONDONTWRITEBYTECODE=1 VITASDK="$STACK/vitasdk" PATH="$STACK/bin:/usr/bin:/bin" \
+  python3 -B scripts/vita/armv7/build.py --vita --out "$BASELINE_OUT" \
+  --vitasdk "$STACK/vitasdk" --cc "$STACK/bin/aarch64-conda-linux-gnu-gcc" \
+  --cmake "$STACK/bin/cmake" --ninja "$STACK/bin/ninja" --jobs 2
+CC="$STACK/bin/aarch64-conda-linux-gnu-gcc" VITASDK="$STACK/vitasdk" \
+  PATH="$STACK/bin:/usr/bin:/bin" PYTHONDONTWRITEBYTECODE=1 \
+  python3 -B -m unittest discover -s vita/feasibility/armv7 -p 'test_*.py' -v
 bash scripts/audit_repo.sh
 ```
 
 Also run each of `tests/test_{composite,direct_calls,inline_gpr,guest_checkpoints,frame_tail,
 signing_entitlements,sample_owners,one_game_guard}.py` directly with Python. These are 53 tests;
-the composite file has its own driver. `gh pr list` was attempted but `gh` is unavailable.
-The remote-branch check showed only `origin/main` and its HEAD alias. No public action was taken.
+the composite file has its own driver. The coordinator's fresh API PR check found no overlapping Vita
+work; `gh` is unavailable. The remote-branch check showed only `origin/main` and its HEAD alias.
+No public action was taken. Historical builds using the original tool paths remain in their original
+output roots; no old package hash is reused as the new checkpoint's artifact identity.
 
 Tool versions: native GCC 16.2.0, Vita GCC 15.2.0, CMake 4.4.3, Ninja
-1.13.2.git.kitware.jobserver-pipe-1, Python 3.14.8. No installation was needed.
+1.13.2.git.kitware.jobserver-pipe-1, Python 3.14.8. This pass uses only the completed copied compiler,
+SDK, CMake/CTest and Ninja; it installs nothing and does not mutate the tool stack.
 
 ## Independent expected bits
 
@@ -169,6 +185,14 @@ FIFO, symlink, oversized, missing or malformed output is INCOMPLETE. Timeout (12
 nonzero emulator exits also remain INCOMPLETE, even if a valid report exists; `reported_semantic`
 preserves its diagnostic content without accepting it as PASS/FAIL. An emulator exit of zero with
 a valid semantic FAIL still returns 1. Infrastructure/report/identity failure returns nonzero separately.
+The runner now observes closed publications every 50 ms. A fully validated report gets at most 250 ms
+of natural-exit grace within the deadline. If Qt remains alive, only the owned group is terminated and
+waited, with a 2-second TERM-to-KILL cleanup bound. This is explicitly `stop_reason: validated_report`,
+**status 125 / INCOMPLETE**, not an emulator PASS. Both reported PASS and FAIL bits remain available as
+`reported_semantic`; actual process exit, PID, wait and duration are separate in `process.json` and
+`result.json`. Report bytes must match the hash captured before shutdown. Timeout remains 124,
+invalid publication 2, and spontaneous nonzero process exits remain failures. Nothing in this policy
+relaxes the requirement for natural emulator exit 0 before an accepted COMPLETE semantic verdict.
 `fp_build.py` records host semantic status even while finishing cross-build evidence and ultimately
 returns that failure; successful packaging never relabels a semantic mismatch as PASS.
 
@@ -180,9 +204,46 @@ post-close publication rather than an unchecked exit marker. Xenogears'
 from hardware evidence. No donor packaging, BIOS, renderer, MIPS CPU or fiber code was copied.
 Their performance figures are not Wind Waker evidence.
 
-## Static Vita3K inspection and isolation contract
+## Historical executions and current runtime identity
 
-Read-only inspected candidate:
+At source `3876626a6a4c63990e84904afc21f009caa66704`:
+
+- First diagnostic attempt: 60-second timeout, status 124, no report/installed app, 0/71 cases observed.
+  Original cause remains UNESTABLISHED. Evidence is in
+  `build-vita-ww-03/{first-real-launch-3959eb8615944b77819dc976291c029e,vita3k-run-d653caeb1c604fa190fee0c8316e33b5}/`.
+- One traced diagnostic attempt: status 153 after 2.268 seconds. Trace lines 20080–20082 show
+  `memfd_create("pulseaudio")`, `ftruncate(...,67108864) = -1 EFBIG`, and `SIGXFSZ`. The temporary
+  observer's inherited 20 MiB RLIMIT_FSIZE caused this failure. It does not explain the first timeout.
+  VPK appeared only in argv; no package file open or FP report was observed. Evidence is in
+  `build-vita-ww-03/traced-startup-e6cdc633d81a4da9ba27ef9979462cc1/`.
+- Separate GUI-only setup used new private project profiles and authorized installed system firmware.
+  The user confirmed Welcome. The relocated runtime reached its main window in 0.803 seconds;
+  Wayland surface configuration, buffer attach/commit and frame callback were recorded. Actual process
+  mappings matched the copied runtime/Qt/Wayland inodes. All 1,493 firmware files were visible in its
+  actual namespace. No firmware OPEN/ACCESS was observed in that empty-GUI startup, so this was **not**
+  an exercised firmware-state API or guest boot. Its 900-second owned watchdog expired and waited.
+  Read-only evidence: `/home/fred/projects/zeldaWWHDRecomp/build-vita-tools/vita3k/gui-runs/6aa76e5c788e4e1caa8f275dcfde3981/local-adoption-fbfae8841e53439db2d5d034b00a4c89/`.
+
+Current accepted local stack:
+`/home/fred/projects/zeldaWWHDRecomp/build-vita-tools/local-stack`.
+
+| Input | SHA-256 |
+| --- | --- |
+| Completed stack `manifest.json` | `d31bd0c2f332b93b312cf1e5f79d1978dcd23e5bb755cab4cbcdd6aa75c67282` |
+| Copied `vita3k/Vita3K` | `cea2b91f05d9d03bb577b9c414e0da54d3b234f97dc4b23537561e800b1fbf30` |
+| Copied `vita3k-env` tree identity | `db1e7575006de88916d3b16fe62c435fbfccdfec168bf4b8f9643862c65582e2` |
+| Installed `firmware/vs0`, 1,473 files | `e9c61115e5444b1d8167d3dc40306f0f5d3f28f0df8bd579ca01bdedc2599fad` |
+| Installed `firmware/sa0`, 20 files | `7880fabe7d6d23edfaf9f641ce82cba93b31be6a110dc011603919f5a79b29d8` |
+
+The copy owner's `USAGE.md:101–120` and `checks/relocation/changes.json` record the accepted DT_RPATH
+change from `$ORIGIN:/home/fred/projects/xgr-tools/vita3k-env/lib` to
+`$ORIGIN:$ORIGIN/../vita3k-env/lib`. The original before-image is preserved. This is a new executable
+identity, not a claim of identical bytes or certified source/Boost provenance. Installed firmware
+version and PUP provenance remain UNVERIFIED; no `version.txt` was found and none is fabricated.
+
+### Historical source inspection
+
+Original read-only inspected candidate (superseded for future launches by the copied ELF above):
 `/home/fred/projects/xgr-tools/vita3k-dev/bin/Vita3K`.
 SHA-256 **`fc87e31f385bd40830677fbb6b8cd22f303e6711d362060120ada812cc0c3f9c`**.
 It is byte-identical to `vita3k-src/build/linux-ninja-gcc/bin/Vita3K`. `strings` and the build's generated
@@ -207,13 +268,14 @@ Static source references (same contents at both revisions):
 - `main.cpp:257–265` still creates a Qt main window. Offscreen operation and process exit after
   guest completion remain unverified; a timeout must not become success.
 
-The coordinator accepted the architect's recommendation to reuse exactly
+The coordinator originally accepted the architect's recommendation to reuse exactly
 `fc87e31f385bd40830677fbb6b8cd22f303e6711d362060120ada812cc0c3f9c`, consciously superseding this
 report's original proposal to block on complete clean-source mapping. The source/Boost mapping above
 remains **UNVERIFIED**; no claim is made about which renderer fix is embedded. A result means
 “this fixture on this runtime hash and recorded libraries/settings”, not certification of an upstream
 commit, physical Vita or gameplay speed. OS containment must protect host state independently of the
-binary matching inspected source. No emulator rebuild/install is required or authorized.
+binary matching inspected source. No emulator rebuild is required by this checkpoint; the subsequently
+accepted copied-stack relocation is recorded above.
 
 `fp_launch.py` still defaults to **stage only**. `--execute-reviewed` is an explicit operator gate,
 not permission granted by documentation or passing tests. Required gates are corrected fixture,
@@ -221,11 +283,18 @@ sandbox and process review PASS; recorded exposed identities/settings and fresh 
 coordinator authorization for the **exact launch**. The plan explicitly records
 `runtime_source_mapping: UNVERIFIED`; the source-revision argument is an observed label only.
 
-The launcher uses a new `build-vita-ww-03/vita3k-run-<uuid>/` with mode-0700 children:
+## Corrected isolation and proposed launch
+
+The launcher uses a new `<out>/vita3k-run-<uuid>/` with mode-0700 children:
 `home`, `config`, `cache`, `data`, `state`, `work`, `evidence`, `runtime`, `xdg-runtime`,
 `config-system`, `data-system`. Existing roots or symlink ancestors are rejected; nothing is deleted.
 It copies the verified ELF and only its public `data`, `icons`, `shaders-builtin`, `translations`
-asset directories, rejecting asset symlinks. Existing profiles/configs/firmware/apps/saves are not staged.
+asset directories, rejecting asset symlinks. With `--firmware`, only the explicitly supplied installed
+`vs0` and `sa0` trees are copied. Empty trees, symlinks, unsupported file types and existing targets are
+rejected; modes and every source/staged file identity are checked. No parent profile, `ux0`, config,
+app, save or key is copied. After verified firmware staging only, the new private config selects the
+private VitaFS, completes Welcome, retains `warn-missing-firmware: true`, and disables network update
+checks. Source and staged firmware identities are checked again after execution.
 
 The generated sandbox command uses installed `/usr/bin/bwrap`:
 
@@ -235,8 +304,8 @@ The generated sandbox command uses installed `/usr/bin/bwrap`:
 --symlink usr/lib /lib --symlink usr/lib64 /lib64
 --proc /proc --dev /dev --tmpfs /tmp
 --ro-bind <owned-run-root> /run/ww03
---ro-bind <owned-run-root>/runtime /runtime
---chdir /run/ww03/work --clearenv
+--ro-bind <owned-run-root>/runtime /stack/vita3k
+--chdir /stack/vita3k --clearenv
 --bind <owned-run-root>/home /run/ww03/home
 --bind <owned-run-root>/config /run/ww03/config
 --bind <owned-run-root>/cache /run/ww03/cache
@@ -244,23 +313,36 @@ The generated sandbox command uses installed `/usr/bin/bwrap`:
 --bind <owned-run-root>/state /run/ww03/state
 --bind <owned-run-root>/work /run/ww03/work
 --bind <owned-run-root>/xdg-runtime /run/ww03/xdg-runtime
---ro-bind <public-vita3k-env> /runtime-libs
+--ro-bind <copied-vita3k-env> /stack/vita3k-env
+--ro-bind <owned-run-root>/data/Vita3K/Vita3K/vs0 /run/ww03/data/Vita3K/Vita3K/vs0
+--ro-bind <owned-run-root>/data/Vita3K/Vita3K/sa0 /run/ww03/data/Vita3K/Vita3K/sa0
+--ro-bind /run/user/1000/wayland-0 /run/ww03/xdg-runtime/wayland-0
 ```
 
 Explicit environment (each passed with `--setenv`): HOME=`/run/ww03/home`, PATH=`/usr/bin`,
 LANG=`C.UTF-8`; XDG_CONFIG_HOME/CACHE_HOME/DATA_HOME/STATE_HOME point to corresponding private
 children, XDG_RUNTIME_DIR to `xdg-runtime`, XDG_CONFIG_DIRS to `config-system`, XDG_DATA_DIRS to
-`data-system`. LD_LIBRARY_PATH=`/runtime-libs/lib`, QT_PLUGIN_PATH=`/runtime-libs/lib/qt6/plugins`,
-QT_QPA_PLATFORM=`offscreen`, SDL_VIDEODRIVER=`offscreen`, SDL_AUDIODRIVER=`dummy`,
-LIBGL_ALWAYS_SOFTWARE=`1`. No APPIMAGE, APPDIR, session bus, display socket, shared home or physical
-device tree is inherited. Network and PID namespaces are private. Only the seven named private
+`data-system`. LD_LIBRARY_PATH=`/stack/vita3k-env/lib`, QT_PLUGIN_PATH=`/stack/vita3k-env/lib/qt6/plugins`,
+SDL_AUDIODRIVER=`dummy`, LIBGL_ALWAYS_SOFTWARE=`1`, FONTCONFIG_FILE=`/etc/fonts/fonts.conf`.
+Without a display argument, QT_QPA_PLATFORM and SDL_VIDEODRIVER are `offscreen`. The proposed launch
+explicitly selects the authorized Wayland socket: QT_QPA_PLATFORM=`wayland`, WAYLAND_DISPLAY=`wayland-0`,
+SDL_VIDEODRIVER unset. The socket must be a real Unix socket owned by the current user; no whole
+runtime directory, display-session bus, shared home, APPIMAGE/APPDIR or physical device tree is
+inherited. This display connection is a separate authorized permission, not a claim of unchanged
+headless isolation. Network and PID namespaces remain private. Only the seven named private
 profile/work children are writable host storage; both runtime aliases and the evidence directory are
 read-only in the sandbox. Parent directories cannot be replaced from writable children. The executable
-is a copied file at `/runtime/Vita3K`,
+is a copied file at `/stack/vita3k/Vita3K`,
 not a symlink into a shared writable installation. Portable mode cannot select an existing shared
 directory. Unavailable namespaces fail closed; there is no unsandboxed fallback.
 
-The proposed guest command is `/runtime/Vita3K --console --backend-renderer OpenGL /runtime/fp.vpk`.
+The proposed guest command is `/stack/vita3k/Vita3K --console --backend-renderer OpenGL fp.vpk`,
+with the protected `/stack/vita3k` cwd. The package argument is a fixed basename: no absolute slash,
+traversal or writable-directory lookup. This also preserves the relocated ELF's sibling-library RPATH.
+Inspected `config.cpp:331–346` enables CLI11 Windows-style options and extras before defining the
+positional content path. Absolute `/runtime/fp.vpk` being parsed as an option remains a **hypothesis**
+for the first attempt; relative argv avoids that ambiguity without claiming to have reproduced the
+parser defect on the opaque binary.
 Its `plan.json` records every argument, timeout, source/package/runtime identity and staged asset hash.
 The child receives stdin from `DEVNULL`. Its preopened stdout/stderr log descriptor intentionally
 remains writable; it cannot alter `plan.json` or create/redirect `result.json` through the filesystem.
@@ -268,12 +350,30 @@ Host evidence creation uses directory-descriptor traversal without symlinks and 
 file creation, including plan, process log and result. Existing evidence destinations are rejected.
 `process.log` and `result.json` remain private. Timeout handling signals only the Popen-owned process
 group; the PID namespace and `--die-with-parent` contain descendants, including a fake detached child.
-No global process kill, existing-profile deletion, console access or network operation is used.
+No global process kill, existing-profile deletion, console access or Internet access is used.
+The runner rejects inherited finite RLIMIT_FSIZE and never sets a file-size limit or runs a tracer.
+Its CLI deadline is finite, positive and at most 30 seconds. The process record separates actual exit
+from timeout, malformed-report and validated-report shutdown reasons.
+
+Proposed command, **not executed in this correction pass** (variables defined in the build runbook):
+
+```sh
+PYTHONDONTWRITEBYTECODE=1 python3 -B scripts/vita/armv7/fp_launch.py \
+  --runtime "$STACK/vita3k/Vita3K" \
+  --runtime-sha256 cea2b91f05d9d03bb577b9c414e0da54d3b234f97dc4b23537561e800b1fbf30 \
+  --runtime-source-revision 'observed-banner:bbd5c36;local-RPATH-relocation;mapping:UNVERIFIED' \
+  --libraries "$STACK/vita3k-env" --firmware "$STACK/firmware" \
+  --wayland-socket /run/user/1000/wayland-0 \
+  --build-evidence "$OUT/fp-evidence.json" --out "$OUT" --timeout 30 --execute-reviewed
+```
+
+Omitting `--execute-reviewed` stages and records the plan only; it does not invoke the runtime.
+Every real attempt creates its own UUID and must use the checkpoint's fresh artifact identities.
 
 ### Exposed public-library identity
 
-The entire public `/home/fred/projects/xgr-tools/vita3k-env` tree is exposed read-only at
-`/runtime-libs`. `fp_libraries.py` inventories every file's bytes/hash and mode, directory mode,
+The entire copied public `$STACK/vita3k-env` tree is exposed read-only at
+`/stack/vita3k-env`. `fp_libraries.py` inventories every file's bytes/hash and mode, directory mode,
 symlink text, resolved in-tree target/type and target-file hash. Escaping or dangling links and
 unsupported file types fail closed. File metadata changes during hashing are rejected. Canonical
 JSON of these entries determines the tree identity. `libraries-before.json` is recorded immediately
@@ -281,7 +381,7 @@ before execution and referenced by the protected plan; `libraries-after.json` is
 A mutation or failed verification makes the run INCOMPLETE and nonzero, regardless of a passing
 report. Fake tests mutate only their own public-library stand-in.
 
-Read-only inventory performed in this rework, **without staging or executing real Vita3K**:
+Historical pre-copy read-only inventory (not the current relocated tree identity):
 
 - Tree SHA-256: `07910a2b4c1a18a5c07ae2f808b5a6220061c8021461105b7b29139abda1ae8c`.
 - 50,628 regular files, 3,769 directories including the root, 2,611 in-tree symlinks.
@@ -291,8 +391,8 @@ Read-only inventory performed in this rework, **without staging or executing rea
 This is before/after verification of a live read-only-mounted tree, not a frozen filesystem snapshot;
 transient host-side modifications restored between checks cannot be ruled out. `/usr` and `/etc`
 remain live read-only system mounts and are not included in this library-tree digest. Thus neither
-the tree digest nor executable hash certifies every host OS dependency. No profiles, firmware, game
-or player files were inventoried or copied. Actual execution must record its own fresh before/after
+the tree digest nor executable hash certifies every host OS dependency. System firmware has its own
+explicit, narrow identity/copy protocol; no player files are inspected. Actual execution records fresh before/after
 identities rather than reuse this inspection's inventory as execution evidence.
 
 ## Verification and checkpoint artifacts
@@ -301,11 +401,13 @@ identities rather than reuse this inspection's inventory as execution evidence.
 | --- | --- |
 | AArch64 FP diagnostic | 71/71 PASS; actual bits equal the table-generated literal expectations; all path checks pass |
 | FP ARMv7 ELF/SELF/VPK | Build PASS, title BWWF00003; exactly `eboot.bin` and `sce_sys/param.sfo` |
-| Fixture Python regressions | 37/37 PASS, including existing logger faults and new publication/validator/fake-launcher tests |
+| Fixture Python regressions | 50/50 PASS with copied native GCC, including prior 37 tests and 13 launch/profile regressions |
 | 01 corpus / contract / pinned GXRuntime CTest | 1/1, 5/5, 3/3 PASS |
 | 01 complete host executables and both VPKs | PASS |
 | Repo audit and eight direct baseline files | PASS; 53 baseline tests |
-| Real Vita3K / physical Vita / Windows CI / full game | NOT RUN |
+| Prior real diagnostic startups | INCOMPLETE, 0/71 observed; timeout and instrumentation-induced SIGXFSZ documented above |
+| Copied-stack GUI-only startup | Main window verified; no guest execution or exercised firmware-state API |
+| Renewed diagnostic / physical Vita / Windows CI / full game | NOT RUN |
 
 Genuine short red/green observations, saved under `build-vita-ww-03/logs/`:
 
@@ -355,9 +457,37 @@ their meaningful checks, rather than tests that reproduce the implementation. In
 seams needed the lock's non-git entries handled and the FP code range declared to the existing
 composite generator; these were harness corrections, not runtime semantic fixes.
 
-Exact artifact locations: `build-vita-ww-03/{host-fp,vita-fp}/ww_fixture`,
-`build-vita-ww-03/vita-fp/{eboot.bin,ww_fp.vpk}`. Host run records are fresh
-`build-vita-ww-03/host-run-<uuid>/{fp.request,fp.report,process.log}`. Baseline artifacts and evidence
-stay in `build-vita-ww-01/`. An accepted runtime diagnostic FAIL would support REVISE and a narrowly
-scoped reproduction-driven correction; it can never support GO. Missing emulator execution remains
-an explicit checkpoint blocker, not acceptable ARMv7 correctness evidence.
+### Copied-stack relaunch correction
+
+Evidence root: `build-vita-ww-03-relaunch-fae48ad887c6463c8a6f9bf7068536c6/`.
+Its read-only `fp_launch-3876626.py` was obtained with `git show`; history, existing evidence and GUI
+profiles were not rewritten. Logs record the commands and actual failures/successes:
+
+- `logs/relative-package-{red,green}.log`: the old fake invocation received `/runtime/fp.vpk` and failed
+  its argv assertion. Corrected execution receives exactly `fp.vpk` in protected `/stack/vita3k`, reads
+  the verified package, resolves a sibling public-library marker and cannot write into the package cwd.
+- `logs/completion-{red,green}.log`: a complete fake report followed by a lingering process formerly
+  reached timeout 124. The corrected monitor stops it as status 125 with explicit incomplete process
+  disposition. The frozen-code adapter merely accepts and ignores the new report-identity argument;
+  the old runner itself actually runs and times out. No import/signature error is counted as this red.
+- `logs/file-limit-{red,green}.log`: the old runner started an owned marker-writing process under a
+  finite inherited file-size limit. The corrected runner rejects that condition before spawning.
+  An unlimited fake also successfully creates a 64 MiB memfd.
+- Firmware and display feature tests first reported missing CLI/API support (not emulator defects),
+  then passed actual staging and fake Unix-socket execution. Only `vs0`/`sa0` are copied, checked and
+  read-only mounted; unrelated owned `ux0` input is excluded. Invalid/empty/FIFO/symlink firmware cannot
+  disable Welcome; existing files remain untouched and mutations invalidate identity. The fake display
+  client reaches only its selected socket with private XDG, without the neighboring sentinel/session bus.
+- Expanded tests preserve lingering semantic FAIL, detect changed report bytes after shutdown, and
+  prove completion cleanup stops a detached owned child's heartbeat while a separate owned witness
+  remains alive. All prior stale/FIFO/report/logging/security/semantic regressions remain in the suite.
+
+The compiler/CPU/oracle/emitted PPC sources and pinned references are unchanged. The tests exercise
+launcher behavior using owned fake processes, not an emulator substitute claiming ARM FP results.
+The exact-commit build/check logs and artifact manifests are the current handoff authority.
+
+Current artifact locations: `$OUT/{host-fp,vita-fp}/ww_fixture`, `$OUT/vita-fp/{eboot.bin,ww_fp.vpk}`.
+Host run records are fresh `$OUT/host-run-<uuid>/{fp.request,fp.report,process.log}`. The full 01
+campaign is rebuilt in `$BASELINE_OUT`; earlier 01/03 evidence remains preserved at its original paths.
+An accepted runtime diagnostic FAIL supports REVISE and a narrowly scoped reproduction-driven repair,
+never GO. Neither GUI setup nor the failed prior startups establish ARMv7 correctness.

@@ -5,18 +5,22 @@ import argparse
 from contextlib import contextmanager
 import hashlib
 import json
+import math
 import os
 from pathlib import Path
+import resource
 import shutil
 import signal
 import stat
 import subprocess
+import time
 import uuid
 import zipfile
 
 from build import ROOT, build_directory
 from fp_build import sha256
 from fp_libraries import library_identity
+from fp_profile import FIRMWARE_DIRECTORY, stage_firmware, verify_firmware
 from fp_report import validate
 from fp_vectors import cases
 
@@ -63,7 +67,7 @@ def evidence_file(root, name):
         yield stream
 
 
-def sandbox_command(root, executable, arguments, libraries=None):
+def sandbox_command(root, executable, arguments, libraries=None, wayland_socket=None):
     root = reject_symlinks(root)
     if Path(executable).name != executable:
         raise ValueError("executable must be a basename")
@@ -72,10 +76,15 @@ def sandbox_command(root, executable, arguments, libraries=None):
                "--symlink", "usr/lib", "/lib", "--symlink", "usr/lib64", "/lib64",
                "--proc", "/proc", "--dev", "/dev", "--tmpfs", "/tmp",
                "--ro-bind", str(root), "/run/ww03",
-               "--ro-bind", str(root / "runtime"), "/runtime",
-               "--chdir", "/run/ww03/work", "--clearenv"]
+               "--ro-bind", str(root / "runtime"), "/stack/vita3k",
+               "--chdir", "/stack/vita3k", "--clearenv"]
     for name in WRITABLE_DIRECTORIES:
         command.extend(["--bind", str(root / name), "/run/ww03/" + name])
+    for name in ("vs0", "sa0"):
+        firmware = root / FIRMWARE_DIRECTORY / name
+        if firmware.exists():
+            reject_symlinks(firmware)
+            command.extend(["--ro-bind", str(firmware), "/run/ww03/" + str(FIRMWARE_DIRECTORY / name)])
     environment = {"PATH": "/usr/bin", "LANG": "C.UTF-8", "HOME": "/run/ww03/home",
                    "XDG_CONFIG_HOME": "/run/ww03/config", "XDG_CACHE_HOME": "/run/ww03/cache",
                    "XDG_DATA_HOME": "/run/ww03/data", "XDG_STATE_HOME": "/run/ww03/state",
@@ -83,38 +92,94 @@ def sandbox_command(root, executable, arguments, libraries=None):
                    "XDG_CONFIG_DIRS": "/run/ww03/config-system",
                    "XDG_DATA_DIRS": "/run/ww03/data-system",
                    "QT_QPA_PLATFORM": "offscreen", "SDL_VIDEODRIVER": "offscreen",
-                   "SDL_AUDIODRIVER": "dummy", "LIBGL_ALWAYS_SOFTWARE": "1"}
+                   "SDL_AUDIODRIVER": "dummy", "LIBGL_ALWAYS_SOFTWARE": "1",
+                   "FONTCONFIG_FILE": "/etc/fonts/fonts.conf"}
     if libraries is not None:
         libraries = reject_symlinks(libraries)
-        command.extend(["--ro-bind", str(libraries), "/runtime-libs"])
-        environment["LD_LIBRARY_PATH"] = "/runtime-libs/lib"
-        environment["QT_PLUGIN_PATH"] = "/runtime-libs/lib/qt6/plugins"
+        command.extend(["--ro-bind", str(libraries), "/stack/vita3k-env"])
+        environment["LD_LIBRARY_PATH"] = "/stack/vita3k-env/lib"
+        environment["QT_PLUGIN_PATH"] = "/stack/vita3k-env/lib/qt6/plugins"
+    if wayland_socket is not None:
+        wayland_socket = reject_symlinks(wayland_socket)
+        info = wayland_socket.stat()
+        if not stat.S_ISSOCK(info.st_mode) or info.st_uid != os.getuid():
+            raise ValueError("display must be an existing Unix socket owned by the current user")
+        command.extend(["--ro-bind", str(wayland_socket), "/run/ww03/xdg-runtime/wayland-0"])
+        environment["QT_QPA_PLATFORM"] = "wayland"
+        environment["WAYLAND_DISPLAY"] = "wayland-0"
+        del environment["SDL_VIDEODRIVER"]
     for name, value in environment.items():
         command.extend(["--setenv", name, value])
-    return [*command, "/runtime/" + executable, *arguments]
+    return [*command, "/stack/vita3k/" + executable, *arguments]
 
 
-def run_owned(command, root, timeout):
-    if timeout <= 0:
-        raise ValueError("timeout must be positive")
+def run_owned(command, root, timeout, report_identity=None):
+    if not math.isfinite(timeout) or timeout <= 0:
+        raise ValueError("timeout must be finite and positive")
+    if resource.getrlimit(resource.RLIMIT_FSIZE) != (resource.RLIM_INFINITY, resource.RLIM_INFINITY):
+        raise ValueError("RLIMIT_FSIZE must be unlimited; inherited limits can break runtime memfd allocation")
+    started = time.monotonic()
+    record = {"stop_reason": "exit"}
     with evidence_file(root, "process.log") as log:
         with subprocess.Popen(command, cwd=root / "work", stdin=subprocess.DEVNULL, stdout=log, stderr=log,
                               env={"PATH": "/usr/bin", "LANG": "C.UTF-8"},
                               start_new_session=True) as process:
             try:
-                return process.wait(timeout=timeout)
+                if report_identity is None:
+                    status = process.wait(timeout=timeout)
+                else:
+                    while True:
+                        status = process.poll()
+                        if status is not None:
+                            break
+                        remaining = timeout - (time.monotonic() - started)
+                        if remaining <= 0:
+                            raise subprocess.TimeoutExpired(command, timeout)
+                        try:
+                            content = read_report(root)
+                        except FileNotFoundError:
+                            pass
+                        except (OSError, ValueError) as error:
+                            record.update(stop_reason="invalid_report", report_error=str(error))
+                            status = 2
+                            break
+                        else:
+                            try:
+                                validate(content.decode("utf-8"), *report_identity, cases())
+                            except ValueError as error:
+                                record.update(stop_reason="invalid_report", report_error=str(error))
+                                status = 2
+                            else:
+                                record["report_sha256_at_stop"] = hashlib.sha256(content).hexdigest()
+                                try:
+                                    status = process.wait(timeout=min(.25, remaining))
+                                except subprocess.TimeoutExpired:
+                                    record["stop_reason"] = "validated_report"
+                                    status = 125
+                            break
+                        time.sleep(min(.05, remaining))
             except subprocess.TimeoutExpired:
-                os.killpg(process.pid, signal.SIGTERM)
-                try:
-                    process.wait(timeout=2)
-                except subprocess.TimeoutExpired:
-                    os.killpg(process.pid, signal.SIGKILL)
-                    process.wait()
-                return 124
+                record["stop_reason"] = "timeout"
+                status = 124
             except BaseException:
-                os.killpg(process.pid, signal.SIGKILL)
-                process.wait()
+                record["stop_reason"] = "observer_error"
                 raise
+            finally:
+                if process.poll() is None:
+                    try:
+                        os.killpg(process.pid, signal.SIGTERM)
+                    except ProcessLookupError:
+                        pass
+                    try:
+                        process.wait(timeout=2)
+                    except subprocess.TimeoutExpired:
+                        os.killpg(process.pid, signal.SIGKILL)
+                        process.wait()
+                record.update(pid=process.pid, exit=process.returncode, waited=True,
+                              duration_seconds=time.monotonic() - started)
+                with evidence_file(root, "process.json") as stream:
+                    stream.write(json.dumps(record, indent=2) + "\n")
+            return status
 
 
 def stage_runtime(root, executable, expected_hash):
@@ -162,15 +227,21 @@ def read_report(root):
         return content
 
 
-def collect_result(root, token, source, package, process_status, identity_error=None):
-    record = {"process_exit": process_status, "completion": "INCOMPLETE", "semantic": "UNAVAILABLE"}
+def collect_result(root, token, source, package, process_status, identity_error=None, process=None):
+    record = {"process_exit": process["exit"] if process else process_status,
+              "completion": "INCOMPLETE", "semantic": "UNAVAILABLE"}
+    if process:
+        record["process"] = process
     if identity_error:
         record["identity_error"] = identity_error
     try:
         content = read_report(root)
         semantic = validate(content.decode("utf-8"), token, source, package, cases())
+        report_hash = hashlib.sha256(content).hexdigest()
+        if process and process.get("report_sha256_at_stop", report_hash) != report_hash:
+            raise ValueError("report changed after completion observation")
         record["reported_semantic"] = "FAIL" if semantic else "PASS"
-        record["report_sha256"] = hashlib.sha256(content).hexdigest()
+        record["report_sha256"] = report_hash
         if process_status == 0 and not identity_error:
             record["completion"] = "COMPLETE"
             record["semantic"] = record["reported_semantic"]
@@ -202,14 +273,16 @@ def main():
     parser.add_argument("--runtime-source-revision", required=True,
                         help="observed source label only; executable source mapping remains UNVERIFIED")
     parser.add_argument("--libraries", type=Path, required=True, help="read-only public runtime libraries")
+    parser.add_argument("--firmware", type=Path, help="copy only installed public system vs0/sa0 into the new profile")
+    parser.add_argument("--wayland-socket", type=Path, help="explicitly authorized display socket only; no session bus")
     parser.add_argument("--build-evidence", type=Path, default=ROOT / "build-vita-ww-03/fp-evidence.json")
     parser.add_argument("--out", type=Path, default=ROOT / "build-vita-ww-03")
-    parser.add_argument("--timeout", type=float, default=60)
+    parser.add_argument("--timeout", type=float, default=30)
     parser.add_argument("--execute-reviewed", action="store_true",
                         help="ONLY after independent review and coordinator authorization; default stages only")
     args = parser.parse_args()
-    if args.timeout <= 0:
-        parser.error("timeout must be positive")
+    if not math.isfinite(args.timeout) or not 0 < args.timeout <= 30:
+        parser.error("timeout must be finite, positive and at most 30 seconds")
     parent = build_directory(reject_symlinks(args.out))
     evidence = json.loads(args.build_evidence.read_text())
     source = evidence["source"]
@@ -227,21 +300,28 @@ def main():
     with vpk.open("rb") as source_file, staged_vpk.open("xb") as destination:
         shutil.copyfileobj(source_file, destination)
     verify_package(staged_vpk, package)
+    firmware = stage_firmware(root, reject_symlinks(args.firmware)) if args.firmware else {}
     directory = root / REPORT_DIRECTORY
     directory.mkdir(parents=True)
     (directory / "fp.request").write_text(f"{token} {source} {package}\n")
+    display = {"wayland_socket": args.wayland_socket} if args.wayland_socket else {}
     command = sandbox_command(root, "Vita3K", ["--console", "--backend-renderer", "OpenGL",
-                                                "/runtime/fp.vpk"], args.libraries)
+                                                "fp.vpk"], args.libraries, **display)
     libraries_before = library_identity(args.libraries)
     with evidence_file(root, "libraries-before.json") as stream:
         stream.write(json.dumps(libraries_before, indent=2) + "\n")
     plan = {"run": token, "source": source, "vpk_sha256": package,
             "runtime_sha256": args.runtime_sha256, "runtime_source": args.runtime_source_revision,
             "runtime_source_mapping": "UNVERIFIED",
+            "wayland_socket": str(args.wayland_socket) if args.wayland_socket else None,
+            "firmware": firmware, "firmware_provenance": "installed system trees; version/PUP UNVERIFIED",
             "runtime_assets": assets,
             "runtime_libraries": {"root": libraries_before["root"], "sha256": libraries_before["sha256"],
                                   "manifest": "libraries-before.json"},
             "command": command, "cwd": str(root / "work"),
+            "sandbox_cwd": "/stack/vita3k", "completion_policy": "forced shutdown remains INCOMPLETE/status 125",
+            "report_poll_seconds": .05, "report_exit_grace_seconds": .25,
+            "RLIMIT_FSIZE": resource.getrlimit(resource.RLIMIT_FSIZE),
             "timeout_seconds": args.timeout, "real_execution": args.execute_reviewed}
     with evidence_file(root, "plan.json") as stream:
         stream.write(json.dumps(plan, indent=2) + "\n")
@@ -249,7 +329,8 @@ def main():
     if not args.execute_reviewed:
         print("STAGED ONLY: real Vita3K NOT RUN; review gate still required")
         return 0
-    status = run_owned(command, root, args.timeout)
+    status = run_owned(command, root, args.timeout, report_identity=(token, source, package))
+    process = json.loads((root / "evidence/process.json").read_text())
     identity_error = None
     try:
         libraries_after = library_identity(args.libraries)
@@ -257,9 +338,10 @@ def main():
             stream.write(json.dumps(libraries_after, indent=2) + "\n")
         if libraries_after != libraries_before:
             identity_error = "public library tree changed during execution"
+        verify_firmware(firmware)
     except (OSError, ValueError) as error:
-        identity_error = f"cannot verify public library tree after execution: {error}"
-    return collect_result(root, token, source, package, status, identity_error)
+        identity_error = f"cannot verify runtime inputs after execution: {error}"
+    return collect_result(root, token, source, package, status, identity_error, process)
 
 
 if __name__ == "__main__":

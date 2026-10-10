@@ -3,9 +3,11 @@ import json
 import os
 from pathlib import Path
 import shutil
+import socket
 import subprocess
 import sys
 import tempfile
+import time
 import unittest
 from unittest import mock
 import zipfile
@@ -131,6 +133,165 @@ class LauncherReviewTest(unittest.TestCase):
         run, = self.output.glob("vita3k-run-*")
         self.assertFalse((run / launch.REPORT_DIRECTORY / "fp.request").exists())
 
+    def test_relative_package_from_protected_cwd_with_adjacent_libraries(self):
+        runtime, vpk, argv = self.fake_inputs()
+        (runtime / "public-marker").write_text("copied libraries")
+        with mock.patch.object(sys, "argv", argv), \
+                mock.patch.object(launch, "build_directory", return_value=self.output):
+            self.assertEqual(launch.main(), 0)
+        run, = self.output.glob("vita3k-run-*")
+        plan = json.loads((run / "evidence/plan.json").read_text())
+        fake = run / "runtime/Vita3K"
+        fake.chmod(0o700)
+        fake.write_text("#!/usr/bin/python3\nimport sys,hashlib\nfrom pathlib import Path\n"
+                        "assert sys.argv[1:] == ['--console','--backend-renderer','OpenGL','fp.vpk'], sys.argv\n"
+                        "assert Path.cwd() == Path('/stack/vita3k'), Path.cwd()\n"
+                        f"assert hashlib.sha256(Path('fp.vpk').read_bytes()).hexdigest() == {launch.sha256(vpk)!r}\n"
+                        "assert Path('../vita3k-env/public-marker').read_text() == 'copied libraries'\n"
+                        "try: Path('writable-package-fallback').write_text('bad')\n"
+                        "except OSError: pass\nelse: raise AssertionError('package cwd writable')\n")
+        status = launch.run_owned(plan["command"], run, 5)
+        self.assertEqual(status, 0, (run / "evidence/process.log").read_text())
+
+    def test_stage_only_copies_system_firmware_and_completes_private_welcome(self):
+        _, _, argv = self.fake_inputs()
+        firmware = self.output / "firmware"
+        for name in ("vs0", "sa0", "ux0"):
+            (firmware / name).mkdir(parents=True)
+            (firmware / name / "fixture.bin").write_bytes(name.encode())
+        (firmware / "sa0/fixture.bin").chmod(0o640)
+        with mock.patch.object(sys, "argv", [*argv, "--firmware", str(firmware)]), \
+                mock.patch.object(launch, "build_directory", return_value=self.output):
+            self.assertEqual(launch.main(), 0)
+        run, = self.output.glob("vita3k-run-*")
+        data = run / "data/Vita3K/Vita3K"
+        self.assertEqual((data / "vs0/fixture.bin").read_bytes(), b"vs0")
+        self.assertEqual((data / "sa0/fixture.bin").stat().st_mode & 0o777, 0o640)
+        self.assertFalse((data / "ux0/fixture.bin").exists())
+        config = (run / "config/Vita3K/config.yml").read_text()
+        self.assertIn("show-welcome: false\n", config)
+        self.assertIn("warn-missing-firmware: true\n", config)
+        plan = json.loads((run / "evidence/plan.json").read_text())
+        self.assertEqual(plan["firmware"]["vs0"]["source"]["sha256"],
+                         plan["firmware"]["vs0"]["staged"]["sha256"])
+        self.assertFalse((run / "evidence/process.log").exists())
+
+    def run_lingering_report(self, failure=False):
+        from fp_vectors import cases
+        lines = ["RUN run source package"]
+        for index, case in enumerate(cases()):
+            actual = "0000000000000000" if failure and index == 0 else case["expected"]
+            verdict = "FAIL" if actual != case["expected"] else "PASS"
+            lines.append(f"CASE {case['id']} mode={case['mode']} expected={case['expected']} "
+                         f"actual={actual} path=1 {verdict}")
+        lines.append(f"END {'FAIL' if failure else 'PASS'} cases={len(cases())} failures={int(failure)}")
+        directory = self.root / launch.REPORT_DIRECTORY
+        directory.mkdir(parents=True)
+        command = self.fake("import os,time\nfrom pathlib import Path\n"
+                            "heartbeat=Path('/run/ww03/data/heartbeat')\n"
+                            "if os.fork() == 0:\n os.setsid()\n while True:\n"
+                            "  heartbeat.write_text(str(time.time_ns()))\n  time.sleep(.01)\n"
+                            "while not heartbeat.exists(): time.sleep(.01)\n"
+                            f"p=Path('/run/ww03/{launch.REPORT_DIRECTORY}')\n"
+                            f"(p/'fp.partial').write_text({chr(10).join(lines) + chr(10)!r})\n"
+                            "(p/'fp.partial').rename(p/'fp.report')\n"
+                            "time.sleep(60)\n")
+        started = time.monotonic()
+        with subprocess.Popen(["/usr/bin/sleep", "30"], start_new_session=True) as witness:
+            try:
+                status = launch.run_owned(command, self.root, 3, report_identity=("run", "source", "package"))
+                self.assertIsNone(witness.poll())
+            finally:
+                witness.terminate()
+                witness.wait()
+        self.assertEqual(status, 125)
+        self.assertLess(time.monotonic() - started, 2)
+        heartbeat = (self.root / "data/heartbeat").read_text()
+        time.sleep(.1)
+        self.assertEqual((self.root / "data/heartbeat").read_text(), heartbeat)
+        observed = json.loads((self.root / "evidence/process.json").read_text())
+        self.assertEqual(observed["stop_reason"], "validated_report")
+        self.assertNotEqual(observed["exit"], 0)
+        return status, observed
+
+    def test_published_report_stops_lingering_owned_process_without_claiming_pass(self):
+        status, observed = self.run_lingering_report()
+        self.assertEqual(launch.collect_result(self.root, "run", "source", "package", status,
+                                              process=observed), 125)
+        result = json.loads((self.root / "evidence/result.json").read_text())
+        self.assertEqual(result["completion"], "INCOMPLETE")
+        self.assertEqual(result["reported_semantic"], "PASS")
+        self.assertEqual(result["semantic"], "UNAVAILABLE")
+
+    def test_lingering_semantic_failure_is_preserved_as_nonzero(self):
+        status, observed = self.run_lingering_report(failure=True)
+        self.assertEqual(launch.collect_result(self.root, "run", "source", "package", status,
+                                              process=observed), 125)
+        result = json.loads((self.root / "evidence/result.json").read_text())
+        self.assertEqual(result["reported_semantic"], "FAIL")
+        self.assertEqual(result["completion"], "INCOMPLETE")
+
+    def test_report_bytes_changed_after_shutdown_are_rejected(self):
+        status, observed = self.run_lingering_report()
+        report = self.root / launch.REPORT_DIRECTORY / "fp.report"
+        report.write_bytes(report.read_bytes().replace(b"\n", b"\r\n"))
+        self.assertEqual(launch.collect_result(self.root, "run", "source", "package", status,
+                                              process=observed), 125)
+        result = json.loads((self.root / "evidence/result.json").read_text())
+        self.assertIn("changed after completion observation", result["report_error"])
+
+    def test_unlimited_fake_can_allocate_64_mib_memfd(self):
+        command = self.fake("import os\nfd=os.memfd_create('owned-public-fixture')\n"
+                            "os.ftruncate(fd,64*1024*1024)\n"
+                            "assert os.fstat(fd).st_size == 64*1024*1024\nos.close(fd)\n")
+        self.assertEqual(launch.run_owned(command, self.root, 5), 0)
+
+    def test_inherited_file_size_limit_is_rejected_before_process_start(self):
+        marker = self.root / "data/started"
+        script = ("import resource,sys\nfrom pathlib import Path\n"
+                  f"sys.path.insert(0, {str(ROOT / 'scripts/vita/armv7')!r})\n"
+                  "from fp_launch import run_owned\n"
+                  "resource.setrlimit(resource.RLIMIT_FSIZE, (20*1024*1024, resource.RLIM_INFINITY))\n"
+                  "try:\n"
+                  f" run_owned(['/usr/bin/touch', {str(marker)!r}], Path({str(self.root)!r}), 1)\n"
+                  "except ValueError as error:\n assert 'RLIMIT_FSIZE' in str(error)\n"
+                  "else: raise AssertionError('launcher started a child with limiting RLIMIT_FSIZE')\n")
+        result = subprocess.run([sys.executable, "-B", "-c", script], capture_output=True, text=True)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertFalse(marker.exists())
+
+    def test_display_access_exposes_only_selected_owned_unix_socket(self):
+        endpoint = self.output / "display.socket"
+        private = self.output / "unexposed-sentinel"
+        private.write_text("private")
+        with socket.socket(socket.AF_UNIX) as server:
+            server.bind(str(endpoint))
+            server.listen(1)
+            fake = self.root / "runtime/Fake"
+            fake.write_text("#!/usr/bin/python3\nimport os,socket\nfrom pathlib import Path\n"
+                            "assert os.environ['QT_QPA_PLATFORM'] == 'wayland'\n"
+                            "assert 'SDL_VIDEODRIVER' not in os.environ\n"
+                            "assert 'DBUS_SESSION_BUS_ADDRESS' not in os.environ\n"
+                            f"assert not Path({str(private)!r}).exists()\n"
+                            "with socket.socket(socket.AF_UNIX) as client:\n"
+                            " client.connect(os.environ['XDG_RUNTIME_DIR']+'/'+os.environ['WAYLAND_DISPLAY'])\n"
+                            " client.sendall(b'owned display connection')\n")
+            fake.chmod(0o700)
+            command = launch.sandbox_command(self.root, "Fake", [], wayland_socket=endpoint)
+            status = launch.run_owned(command, self.root, 5)
+            self.assertEqual(status, 0, (self.root / "evidence/process.log").read_text())
+            server.settimeout(1)
+            client, _ = server.accept()
+            with client:
+                self.assertEqual(client.recv(64), b"owned display connection")
+        self.assertEqual(private.read_text(), "private")
+
+    def test_display_access_rejects_a_regular_file(self):
+        file = self.output / "not-a-socket"
+        file.write_text("owned fixture")
+        with self.assertRaisesRegex(ValueError, "socket"):
+            launch.sandbox_command(self.root, "Fake", [], wayland_socket=file)
+
     def run_fake_library_case(self, mutate):
         from fp_vectors import cases
         runtime, _, argv = self.fake_inputs()
@@ -155,8 +316,8 @@ class LauncherReviewTest(unittest.TestCase):
             script.chmod(0o700)
             return assets
 
-        def finish_with_mutation(*args):
-            status = run_owned(*args)
+        def finish_with_mutation(*args, **kwargs):
+            status = run_owned(*args, **kwargs)
             self.assertEqual(status, 0)
             if mutate:
                 library.write_bytes(b"changed library")
