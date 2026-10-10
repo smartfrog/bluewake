@@ -49,7 +49,7 @@ def inspect(build):
               'estimated_backings_inside_heap': {'mem1': 25165824, 'vm': 33554432, 'locked_cache': 16384,
                                                 'exported_rel_aliases': alias_estimate},
               'dol_loader_transient_requested_bytes': (OUTPUT / 'private/main.dol').stat().st_size,
-              'actual_guest_allocations': 'NOT OBSERVED — no game execution authorized',
+               'actual_guest_allocations': 'NOT OBSERVED by offline inspection; see individual startup reports',
               'unknown': ['native stack high-water', 'physical residency', 'allocator overhead',
                           'physical Vita limits', 'SDK pool peak', 'largest contiguous block', 'GPU resources'],
               'accounting': 'heap backings are inside 96 MiB, not added twice; CPU/GX state are inside host allocation; '

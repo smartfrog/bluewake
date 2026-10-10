@@ -50,7 +50,7 @@ else()
         endif()
     endforeach()
     set(BLUEWAKE_STATIC_MODULE ON CACHE BOOL "" FORCE)
-    set(COMPOSITE_OPTIMIZATION_LEVEL 2 CACHE STRING "" FORCE)
+    set(COMPOSITE_OPTIMIZATION_LEVEL 1 CACHE STRING "" FORCE)
     add_subdirectory("${BLUEWAKE_ROOT}/cmake/composite" composite)
     target_compile_options(gGZLE01_recomp PRIVATE -fno-fast-math -fstack-usage)
     add_executable(ww05_host main.c "${BLUEWAKE_ROOT}/vita/feasibility/armv7/platform.c"

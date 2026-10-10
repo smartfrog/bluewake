@@ -150,7 +150,7 @@ def main():
     (output / 'build-evidence.json').write_text(json.dumps({'source': source, 'pins': PINS,
         'composite_digest': digest, 'title': 'BWWG00005', 'method': 'startup-gx-v1',
         'artifacts': artifacts, 'config': {'static_module': True, 'aurora': False, 'aurora_recomp': False,
-        'optimization': 2, 'fp_patch': None}, 'footprint_sha256': sha256(output / 'footprint.json')}, indent=2) + '\n')
+        'optimization': 1, 'fp_patch': None}, 'footprint_sha256': sha256(output / 'footprint.json')}, indent=2) + '\n')
     checked_sources()
     print('PRIVATE BUILD ONLY; Vita3K NOT RUN')
     return 0

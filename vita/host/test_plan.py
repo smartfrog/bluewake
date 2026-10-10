@@ -45,7 +45,9 @@ class PlanTest(unittest.TestCase):
             args = SimpleNamespace(libraries=None, wayland_socket=None, timeout=60)
             with patch('subprocess.Popen', side_effect=AssertionError('preparation must not launch')):
                 plan = module.make_plan(root, args, 'a' * 40, 'b' * 64, 'c' * 32)
-            self.assertEqual(plan['process_budget'], 2)
+            self.assertNotIn('process_budget', plan)
+            self.assertNotIn('authorization', plan)
+            self.assertEqual(plan['retry'], 'fresh private profile for every attempt')
             self.assertFalse(plan['real_execution'])
             self.assertEqual(plan['phases']['install']['command'][-5:],
                              ['/stack/vita3k/Vita3K', '--console', '--backend-renderer', 'OpenGL', 'ww05.vpk'])
