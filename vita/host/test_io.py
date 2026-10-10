@@ -1,0 +1,72 @@
+from pathlib import Path
+import os
+import struct
+import subprocess
+import tempfile
+import unittest
+
+import test_host
+
+OUT = test_host.OUT
+
+
+class MainIoTest(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        test_host.StartupHostTest.setUpClass()
+
+    def run_fixture(self, failure='', stale=False):
+        with tempfile.TemporaryDirectory(dir=OUT, prefix='io-') as directory:
+            root = Path(directory)
+            data = bytearray(260)
+            for offset, value in ((0, 256), (0x48, 0x80001000), (0x90, 4),
+                                  (0xD8, 0x80002000), (0xDC, 256), (0xE0, 0x80001000)):
+                struct.pack_into('>I', data, offset, value)
+            (root / 'synthetic.dol').write_bytes(data)
+            (root / 'ww05.request').write_text(f'{"c" * 32} {"a" * 40} {"b" * 64}\n')
+            if stale:
+                (root / 'ww05.report').write_text('preserve me')
+            result = subprocess.run([str(OUT / 'io_probe')], cwd=root,
+                                    env=dict(os.environ, WW05_IO_FAILURE=failure), capture_output=True)
+            report = (root / 'ww05.report').read_text() if (root / 'ww05.report').exists() else None
+            return result.returncode, report
+
+    def test_synthetic_host_fixture_publishes_closed_report(self):
+        status, report = self.run_fixture()
+        self.assertEqual(status, 0)
+        self.assertIn('platform=HOST', report)
+        self.assertTrue(report.endswith('END frontier=PASS live=0 rendered=0\n'))
+
+    def test_write_failure_is_not_published(self):
+        status, report = self.run_fixture('write')
+        self.assertNotEqual(status, 0)
+        self.assertIsNone(report)
+
+    def test_flush_failure_is_not_published(self):
+        status, report = self.run_fixture('flush')
+        self.assertNotEqual(status, 0)
+        self.assertIsNone(report)
+
+    def test_close_failure_is_not_published(self):
+        status, report = self.run_fixture('close')
+        self.assertNotEqual(status, 0)
+        self.assertIsNone(report)
+
+    def test_rename_failure_is_not_published(self):
+        status, report = self.run_fixture('rename')
+        self.assertNotEqual(status, 0)
+        self.assertIsNone(report)
+
+    def test_log_close_failure_is_not_published(self):
+        status, report = self.run_fixture('log-close')
+        self.assertNotEqual(status, 0)
+        self.assertIsNone(report)
+
+    def test_preexisting_report_is_preserved(self):
+        status, report = self.run_fixture(stale=True)
+        self.assertNotEqual(status, 0)
+        self.assertEqual(report, 'preserve me')
+
+
+if __name__ == '__main__':
+    unittest.main()

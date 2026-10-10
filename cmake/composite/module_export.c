@@ -5,6 +5,7 @@
 #include "StaticRecompABI.h"
 #include "module_cpu_contract.h"
 #include "dispatch_loop.h"
+#include "module_exports.h"
 
 extern void ppc_set_mem_write_journal(PPCMemWriteJournal fn, void* user);
 
@@ -121,19 +122,6 @@ static void chassis_on_state_loaded(CPUState* ctx)
 
 #include "module_tables.inc"
 #include "rel_modules.inc"
-typedef struct BlueWakeRelData
-{
-    u32 module_id;
-    u32 section_index;
-    u32 linked_start;
-    u32 size;
-    const u8* bytes;
-} BlueWakeRelData;
-typedef struct BlueWakeRelLifecycle
-{
-    u32 module_id;
-    u32 prolog_address;
-} BlueWakeRelLifecycle;
 #include "rel_data.inc"
 
 static const StaticRecompModuleDesc s_desc = {

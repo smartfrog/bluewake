@@ -10,6 +10,7 @@ set(GAME_ID "GZLE01" CACHE STRING "Six-character disc ID")
 set(COMPOSITE_DIR "" CACHE PATH "Composite output dir (generated.h, module_tables.inc, rel_modules.inc)")
 set(GXRUNTIME_DIR "" CACHE PATH "GXRuntime checkout")
 set(ABI_DIR "" CACHE PATH "Directory containing StaticRecompABI.h")
+option(BLUEWAKE_STATIC_MODULE "Link translated chunks into a host-owned CPU/runtime" OFF)
 option(BLUEWAKE_INLINE_FP "Use explicitly prepared inline floating-point chunks" OFF)
 option(BLUEWAKE_GATHER_PIPE "Use explicitly prepared gather/inline-memory chunks" OFF)
 option(BLUEWAKE_NATIVE_J3D "Use certified native J3D matrix functions" OFF)
@@ -71,16 +72,19 @@ list(APPEND CHUNK_INPUTS ${DOL_CHUNK_OBJECTS})
 list(LENGTH CHUNK_INPUTS NUM_CHUNKS)
 message(STATUS "${NUM_CHUNKS} chunk translation units")
 
-add_library(${MODULE_NAME} SHARED
-  module_export.c
-  dispatch_loop.c
+set(COMPOSITE_CPU_SOURCES
   ${GXRUNTIME_DIR}/src/core/cpu.c
   ${GXRUNTIME_DIR}/src/core/cpu_exception.c
   ${GXRUNTIME_DIR}/src/core/cpu_interpreter.c
   ${GXRUNTIME_DIR}/src/core/cpu_interpreter_table.c
   ${GXRUNTIME_DIR}/src/core/cpu_interpreter_float.c
-  ${GXRUNTIME_DIR}/src/core/cpu_interpreter_integer.c
-  ${CHUNK_INPUTS})
+  ${GXRUNTIME_DIR}/src/core/cpu_interpreter_integer.c)
+if(BLUEWAKE_STATIC_MODULE)
+  add_library(${MODULE_NAME} STATIC module_export.c dispatch_loop.c ${CHUNK_INPUTS})
+else()
+  add_library(${MODULE_NAME} SHARED
+    module_export.c dispatch_loop.c ${COMPOSITE_CPU_SOURCES} ${CHUNK_INPUTS})
+endif()
 
 if(BLUEWAKE_INLINE_FP)
   foreach(CHUNK_SOURCE IN LISTS CHUNK_INPUTS)
