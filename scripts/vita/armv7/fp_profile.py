@@ -18,7 +18,7 @@ CONFIG_CHANGES = {"backend-renderer": {"from": "Vulkan", "to": "OpenGL"},
                   "user-id": {"from": "00", "to": ""}}
 
 
-def read_profile_file(path, limit):
+def read_profile_file(path, limit, owned=False):
     with directory_fd(path.parent) as parent:
         descriptor = os.open(path.name, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK | os.O_CLOEXEC,
                              dir_fd=parent)
@@ -26,8 +26,13 @@ def read_profile_file(path, limit):
         info = os.fstat(stream.fileno())
         if not stat.S_ISREG(info.st_mode) or info.st_size > limit:
             raise ValueError("profile input must be a bounded regular file")
+        if owned and (info.st_uid != os.getuid() or info.st_nlink != 1):
+            raise ValueError("private profile file must be owned and unshared")
         content = stream.read(limit + 1)
-        if len(content) > limit or len(content) != info.st_size:
+        after = os.fstat(stream.fileno())
+        if (len(content) > limit or len(content) != info.st_size or
+                any(getattr(info, field) != getattr(after, field)
+                    for field in ("st_size", "st_mtime_ns", "st_ctime_ns"))):
             raise ValueError("profile input size changed during read")
     return content
 

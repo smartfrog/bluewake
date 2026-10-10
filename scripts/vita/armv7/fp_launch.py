@@ -99,7 +99,7 @@ def sandbox_command(root, executable, arguments, libraries=None, wayland_socket=
     return [*command, "/stack/vita3k/" + executable, *arguments]
 
 
-def run_owned(command, root, timeout, report_identity=None):
+def run_owned(command, root, timeout, report_identity=None, evidence_root=None):
     if not math.isfinite(timeout) or timeout <= 0:
         raise ValueError("timeout must be finite and positive")
     if resource.getrlimit(resource.RLIMIT_FSIZE) != (resource.RLIM_INFINITY, resource.RLIM_INFINITY):
@@ -114,7 +114,7 @@ def run_owned(command, root, timeout, report_identity=None):
         return remaining
 
     record = {"stop_reason": "exit"}
-    with evidence_file(root, "process.log") as log:
+    with evidence_file(evidence_root or root, "process.log") as log:
         with subprocess.Popen(command, cwd=root / "work", stdin=subprocess.DEVNULL, stdout=log, stderr=log,
                               env={"PATH": "/usr/bin", "LANG": "C.UTF-8"},
                               start_new_session=True) as process:
@@ -172,7 +172,7 @@ def run_owned(command, root, timeout, report_identity=None):
                         process.wait()
                 record.update(pid=process.pid, exit=process.returncode, waited=True,
                               duration_seconds=time.monotonic() - started)
-                with evidence_file(root, "process.json") as stream:
+                with evidence_file(evidence_root or root, "process.json") as stream:
                     stream.write(json.dumps(record, indent=2) + "\n")
             return status
 
@@ -222,7 +222,7 @@ def read_report(root):
         return content
 
 
-def collect_result(root, token, source, package, process_status, identity_error=None, process=None):
+def collect_result(root, token, source, package, process_status, identity_error=None, process=None, evidence_root=None):
     record = {"process_exit": process["exit"] if process else process_status,
               "completion": "INCOMPLETE", "semantic": "UNAVAILABLE"}
     if process:
@@ -245,7 +245,7 @@ def collect_result(root, token, source, package, process_status, identity_error=
         record["report_error"] = str(error)
         status = process_status or 2
     record["status"] = status
-    with evidence_file(root, "result.json") as stream:
+    with evidence_file(evidence_root or root, "result.json") as stream:
         stream.write(json.dumps(record, indent=2) + "\n")
     return status
 
@@ -273,9 +273,12 @@ def main():
     parser.add_argument("--build-evidence", type=Path, default=ROOT / "build-vita-ww-03/fp-evidence.json")
     parser.add_argument("--out", type=Path, default=ROOT / "build-vita-ww-03")
     parser.add_argument("--timeout", type=float, default=30)
+    parser.add_argument("--two-phase", action="store_true", help="install, verify, then run the installed title")
     parser.add_argument("--execute-reviewed", action="store_true",
                         help="ONLY after independent review and coordinator authorization; default stages only")
     args = parser.parse_args()
+    if args.two_phase and not args.firmware:
+        parser.error("two-phase execution requires verified private firmware and configuration")
     if not math.isfinite(args.timeout) or not 0 < args.timeout <= 30:
         parser.error("timeout must be finite, positive and at most 30 seconds")
     parent = build_directory(reject_symlinks(args.out))
@@ -297,9 +300,10 @@ def main():
     verify_package(staged_vpk, package)
     firmware = stage_firmware(root, reject_symlinks(args.firmware)) if args.firmware else {}
     private_config = config_identity(root) if firmware else None
-    directory = root / REPORT_DIRECTORY
-    directory.mkdir(parents=True)
-    (directory / "fp.request").write_text(f"{token} {source} {package}\n")
+    if not args.two_phase:
+        directory = root / REPORT_DIRECTORY
+        directory.mkdir(parents=True)
+        (directory / "fp.request").write_text(f"{token} {source} {package}\n")
     display = {"wayland_socket": args.wayland_socket} if args.wayland_socket else {}
     command = sandbox_command(root, "Vita3K", ["--console", "--backend-renderer", "OpenGL",
                                                 "fp.vpk"], args.libraries, **display)
@@ -320,12 +324,18 @@ def main():
             "report_poll_seconds": .05, "report_exit_grace_seconds": .25,
             "RLIMIT_FSIZE": resource.getrlimit(resource.RLIMIT_FSIZE),
             "timeout_seconds": args.timeout, "real_execution": args.execute_reviewed}
+    if args.two_phase:
+        from fp_campaign import stage_campaign
+        stage_campaign(root, plan, args, vpk)
     with evidence_file(root, "plan.json") as stream:
         stream.write(json.dumps(plan, indent=2) + "\n")
     print(root, flush=True)
     if not args.execute_reviewed:
         print("STAGED ONLY: real Vita3K NOT RUN; review gate still required")
         return 0
+    if args.two_phase:
+        from fp_campaign import execute_campaign
+        return execute_campaign(root, plan)
     verify_firmware(firmware)
     if private_config and config_identity(root) != private_config:
         raise ValueError("staged configuration changed before execution")

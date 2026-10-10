@@ -1,0 +1,216 @@
+"""Sequential installation and installed-title execution in one owned private profile."""
+
+import hashlib
+import json
+import os
+from pathlib import Path
+import signal
+import uuid
+import zipfile
+
+from fp_libraries import directory_fd, file_identity, library_identity
+from fp_profile import (CONFIG_PATH, CONFIG_TEMPLATE, checked_config, config_identity,
+                        read_profile_file, verify_config_log, verify_firmware)
+
+
+def stage_campaign(root, plan, args, vpk):
+    from fp_launch import evidence_file, sandbox_command
+
+    phases = root / "phases"
+    phases.mkdir(mode=0o700)
+    commands = {
+        "install": plan["command"],
+        "guest": sandbox_command(root, "Vita3K", ["--backend-renderer", "OpenGL", "--installed-path", "BWWF00003"],
+                                 args.libraries, wayland_socket=args.wayland_socket),
+    }
+    plan.update(process_budget=2, request_policy="fresh guest token only after verified preparation",
+                phases={}, source_vpk=str(vpk),
+                runtime_input=str(args.runtime), runtime_inputs=runtime_inputs(args.runtime),
+                staged_runtime=library_identity(root / "runtime", allow_symlinks=False))
+    if plan["runtime_inputs"]["executable"]["sha256"] != plan["runtime_sha256"]:
+        raise ValueError("runtime source changed while staging campaign")
+    for name, identity in plan["runtime_inputs"]["assets"].items():
+        if library_identity(root / "runtime" / name, allow_symlinks=False)["entries"] != identity["entries"]:
+            raise ValueError("runtime assets changed while staging campaign")
+    for name, command in commands.items():
+        phase = phases / name
+        phase.mkdir(mode=0o700)
+        (phase / "evidence").mkdir(mode=0o700)
+        entry = {"command": command, "timeout_seconds": args.timeout, "evidence_root": str(phase),
+                 "process_number": 1 if name == "install" else 2, "sandbox_cwd": "/stack/vita3k",
+                 "source": plan["source"], "vpk_sha256": plan["vpk_sha256"],
+                 "config_sha256": plan["private_config"]["sha256"], "runtime_sha256": plan["runtime_sha256"],
+                 "requires": "fresh profile" if name == "install" else "installer reaped and verified preparation"}
+        plan["phases"][name] = entry
+        with evidence_file(phase, "plan.json") as stream:
+            stream.write(json.dumps(entry, indent=2) + "\n")
+
+
+def runtime_inputs(executable):
+    from fp_launch import reject_symlinks
+
+    return {"executable": file_identity(reject_symlinks(executable)),
+            "assets": {name: library_identity(executable.parent / name, allow_symlinks=False)
+                       for name in ("data", "icons", "shaders-builtin", "translations")}}
+
+
+def verify_inputs(root, plan):
+    from fp_launch import verify_package
+
+    verify_package(Path(plan["source_vpk"]), plan["vpk_sha256"])
+    verify_package(root / "runtime/fp.vpk", plan["vpk_sha256"])
+    if runtime_inputs(Path(plan["runtime_input"])) != plan["runtime_inputs"]:
+        raise ValueError("runtime source/assets changed")
+    if library_identity(root / "runtime", allow_symlinks=False) != plan["staged_runtime"]:
+        raise ValueError("staged runtime/assets/package changed")
+    before = json.loads((root / "evidence/libraries-before.json").read_text())
+    if library_identity(Path(plan["runtime_libraries"]["root"])) != before:
+        raise ValueError("public library tree changed")
+    verify_firmware(plan["firmware"])
+
+
+def verify_stopped(process):
+    if not process.get("waited") or Path("/proc", str(process["pid"])).exists():
+        raise ValueError("owned process has not been reaped")
+    for entry in Path("/proc").iterdir():
+        if not entry.name.isdigit():
+            continue
+        try:
+            fields = (entry / "stat").read_text().rsplit(") ", 1)[1].split()
+        except FileNotFoundError:
+            continue
+        if int(fields[2]) == process["pid"]:
+            raise ValueError("owned process group still populated")
+
+
+def verify_installed(root, package):
+    from fp_launch import verify_package
+
+    verify_package(root / "runtime/fp.vpk", package)
+    apps = root / "data/Vita3K/Vita3K/ux0/app"
+    title = apps / "BWWF00003"
+    for directory, names in ((apps, {"BWWF00003"}), (title, {"eboot.bin", "sce_sys"}),
+                             (title / "sce_sys", {"param.sfo"})):
+        with directory_fd(directory) as descriptor:
+            if os.fstat(descriptor).st_uid != os.getuid() or set(os.listdir(descriptor)) != names:
+                raise ValueError("unexpected installed title entries or owner")
+    payload = {}
+    with zipfile.ZipFile(root / "runtime/fp.vpk") as archive:
+        for name, limit in (("eboot.bin", 16 * 1024 * 1024), ("sce_sys/param.sfo", 65536)):
+            if archive.getinfo(name).file_size > limit:
+                raise ValueError("installed diagnostic exceeds payload size limit")
+            expected = archive.read(name)
+            content = read_profile_file(title / name, len(expected), owned=True)
+            if content != expected:
+                raise ValueError(f"installed payload mismatch: {name}")
+            payload[name] = {"bytes": len(content), "sha256": hashlib.sha256(content).hexdigest()}
+    return payload
+
+
+def emitted_config(root, phase):
+    from fp_launch import evidence_file
+
+    content = read_profile_file(root / CONFIG_PATH, 4284, owned=True)
+    with evidence_file(phase, "config-emitted.yml") as stream:
+        stream.write(content.decode("utf-8"))
+    canonical = checked_config(CONFIG_TEMPLATE)
+    if content not in (canonical, canonical.replace(b'user-id: ""\n', b'user-id: 00\n')):
+        raise ValueError("unexpected runtime configuration mutation")
+    return canonical
+
+
+def verify_phase_logs(root, phase):
+    from fp_launch import evidence_file
+
+    verify_config_log(phase)
+    try:
+        content = read_profile_file(root / "cache/Vita3K/vita3k.log", 1024 * 1024, owned=True)
+    except FileNotFoundError:
+        return
+    with evidence_file(phase, "runtime-cache.log") as stream:
+        stream.write(content.decode("utf-8"))
+    if b"Config file can't be loaded:" in content:
+        raise ValueError("runtime cache reported configuration parse failure")
+
+
+def restore_config(root, canonical):
+    with directory_fd((root / CONFIG_PATH).parent) as parent:
+        descriptor = os.open("config.restore.yml", os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW | os.O_CLOEXEC,
+                             0o600, dir_fd=parent)
+        with os.fdopen(descriptor, "wb") as stream:
+            stream.write(canonical)
+        os.replace("config.restore.yml", "config.yml", src_dir_fd=parent, dst_dir_fd=parent)
+    checked_config(root / CONFIG_PATH)
+
+
+def fresh_request(root, source, package):
+    from fp_launch import REPORT_DIRECTORY
+
+    directory = root
+    for part in REPORT_DIRECTORY.parts:
+        with directory_fd(directory) as parent:
+            try:
+                os.mkdir(part, mode=0o700, dir_fd=parent)
+            except FileExistsError:
+                pass
+        directory = directory / part
+        with directory_fd(directory) as descriptor:
+            if os.fstat(descriptor).st_uid != os.getuid():
+                raise ValueError("report directory must be privately owned")
+    token = uuid.uuid4().hex
+    with directory_fd(directory) as parent:
+        if set(os.listdir(parent)) & {"fp.partial", "fp.report", "fp.request"}:
+            raise ValueError("preexisting diagnostic output/request; refusing to delete or reuse it")
+        descriptor = os.open("fp.request", os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW | os.O_CLOEXEC,
+                             0o600, dir_fd=parent)
+        with os.fdopen(descriptor, "w") as stream:
+            stream.write(f"{token} {source} {package}\n")
+    return token
+
+
+def execute_campaign(root, plan):
+    from fp_launch import collect_result, evidence_file, run_owned
+
+    install = plan["phases"]["install"]
+    guest = plan["phases"]["guest"]
+    install_root, guest_root = Path(install["evidence_root"]), Path(guest["evidence_root"])
+    verify_inputs(root, plan)
+    if config_identity(root) != plan["private_config"]:
+        raise ValueError("configuration changed before installation")
+    status = run_owned(install["command"], root, install["timeout_seconds"], evidence_root=install_root)
+    process = json.loads((install_root / "evidence/process.json").read_text())
+    preparation = {"readiness": "REJECTED", "process_status": status, "process": process}
+    try:
+        verify_stopped(process)
+        canonical = emitted_config(root, install_root)
+        if not ((status == 0 and process["stop_reason"] == "exit" and process["exit"] == 0) or
+                (status == 124 and process["stop_reason"] == "timeout" and
+                 process["exit"] in (0, -signal.SIGTERM, -signal.SIGKILL))):
+            raise ValueError("unexpected installer disposition")
+        verify_phase_logs(root, install_root)
+        verify_inputs(root, plan)
+        preparation["payload"] = verify_installed(root, plan["vpk_sha256"])
+        restore_config(root, canonical)
+        token = fresh_request(root, plan["source"], plan["vpk_sha256"])
+        preparation.update(readiness="VERIFIED", guest_token=token, config=config_identity(root))
+    except (OSError, ValueError) as error:
+        preparation["error"] = str(error)
+    with evidence_file(install_root, "preparation.json") as stream:
+        stream.write(json.dumps(preparation, indent=2) + "\n")
+    if preparation["readiness"] != "VERIFIED":
+        return status or 2
+    with evidence_file(guest_root, "request.json") as stream:
+        stream.write(json.dumps({"token": token, "source": plan["source"], "vpk_sha256": plan["vpk_sha256"]}) + "\n")
+    identity = (token, plan["source"], plan["vpk_sha256"])
+    status = run_owned(guest["command"], root, guest["timeout_seconds"], report_identity=identity, evidence_root=guest_root)
+    process = json.loads((guest_root / "evidence/process.json").read_text())
+    error = None
+    try:
+        verify_stopped(process)
+        emitted_config(root, guest_root)
+        verify_phase_logs(root, guest_root)
+        verify_inputs(root, plan)
+        verify_installed(root, plan["vpk_sha256"])
+    except (OSError, ValueError) as failure:
+        error = str(failure)
+    return collect_result(root, *identity, status, error, process, evidence_root=guest_root)

@@ -2,7 +2,7 @@
 
 2026-10-10 · [ticket](https://trello.com/c/DcwHCjuc) · game-free, opt-in
 
-## Private configuration checkpoint: REVISE, final-trial authorization pending
+## Two-phase checkpoint: REVISE, code-risk review and exact authorization pending
 
 The AArch64 Linux diagnostic passes **71/71** independently specified result-bit cases. The same
 emitted synthetic PowerPC functions and pristine RecompCore CPU build into a Vita ARMv7 VPK.
@@ -17,9 +17,11 @@ the user) and the main window with the copied stack. GUI startup is not FP execu
 
 The first renewed 30-second attempt at `53cc609` also timed out without an FP report. It installed
 BWWF00003, but logged a configuration parse error and reset Welcome to true. The full record is below.
-**Renewed budget: 1/2 used; ARMv7 FP cases observed: 0/71.** This localized configuration pass is
-code, fake-process tests, builds and a checkpoint commit only. The remaining real trial is **NOT RUN**
-and requires follow-up review and exact-launch authorization. Physical Vita,
+The second renewed attempt at `d55440b` also timed out after installation, with the prior config error
+absent and Welcome still false. Both earlier attempts are preserved. **New two-phase campaign: 0/2
+actual processes used; ARMv7 FP cases observed: 0/71.** This pass implements and tests installation
+followed by an installed-title launch in the same private profile. Neither real phase has run; both
+require code-risk review and exact conditional authorization. Physical Vita,
 Windows hardware and gameplay remain NOT RUN. This is not completion of 03 or a GO recommendation;
 runtime repair follows a reproduced defect. VITA-WW-04 and the native game/renderer work remain separate.
 
@@ -44,8 +46,8 @@ actual Vita3K/ARMv7 correctness. Physical tests follow useful emulator results.
 The checkpoint revision is `git log -1 --format=%H -- docs/vita/VITA-WW-03.md`. After committing,
 the complete commands below are repeated at that immutable revision. The resulting exact source
 SHA, ELF/SELF/VPK SHA-256 values, sizes and host run directory are in
-the new `build-vita-ww-03-config-45114f8e04de4707851fe8afb9b13fe2/fp-evidence.json`;
-01 evidence is in `build-vita-ww-01-config-45114f8e04de4707851fe8afb9b13fe2/evidence.json`.
+the new `build-vita-ww-03-phases-7e70bb2b97d945a3866aed90d3535a63/fp-evidence.json`;
+01 evidence is in `build-vita-ww-01-phases-7e70bb2b97d945a3866aed90d3535a63/evidence.json`.
 Do not identify a package by filename alone. Rebuilding embeds the source revision and changes
 hashes; SELF/VPK packaging can also vary. The handoff includes that revision's artifact hashes.
 
@@ -58,8 +60,8 @@ Checkpoint commands on AArch64 Linux (`7.1.13-402.asahi.fc44.aarch64+16k`), repe
 
 ```sh
 STACK=/home/fred/projects/zeldaWWHDRecomp/build-vita-tools/local-stack
-OUT="$PWD/build-vita-ww-03-config-45114f8e04de4707851fe8afb9b13fe2"
-BASELINE_OUT="$PWD/build-vita-ww-01-config-45114f8e04de4707851fe8afb9b13fe2"
+OUT="$PWD/build-vita-ww-03-phases-7e70bb2b97d945a3866aed90d3535a63"
+BASELINE_OUT="$PWD/build-vita-ww-01-phases-7e70bb2b97d945a3866aed90d3535a63"
 PYTHONDONTWRITEBYTECODE=1 VITASDK="$STACK/vitasdk" PATH="$STACK/bin:/usr/bin:/bin" \
   python3 -B scripts/vita/armv7/fp_build.py --vita --out "$OUT" \
   --vitasdk "$STACK/vitasdk" --cc "$STACK/bin/aarch64-conda-linux-gnu-gcc" \
@@ -371,7 +373,7 @@ The runner rejects inherited finite RLIMIT_FSIZE and never sets a file-size limi
 Its CLI deadline is finite, positive and at most 30 seconds. The process record separates actual exit
 from timeout, malformed-report and validated-report shutdown reasons.
 
-Proposed command, **not executed in this correction pass** (variables defined in the build runbook):
+Stage-only command (variables defined in the build runbook):
 
 ```sh
 PYTHONDONTWRITEBYTECODE=1 python3 -B scripts/vita/armv7/fp_launch.py \
@@ -380,11 +382,15 @@ PYTHONDONTWRITEBYTECODE=1 python3 -B scripts/vita/armv7/fp_launch.py \
   --runtime-source-revision 'observed-banner:bbd5c36;local-RPATH-relocation;mapping:UNVERIFIED' \
   --libraries "$STACK/vita3k-env" --firmware "$STACK/firmware" \
   --wayland-socket /run/user/1000/wayland-0 \
-  --build-evidence "$OUT/fp-evidence.json" --out "$OUT" --timeout 30 --execute-reviewed
+  --build-evidence "$OUT/fp-evidence.json" --out "$OUT" --timeout 30 --two-phase
 ```
 
-Omitting `--execute-reviewed` stages and records the plan only; it does not invoke the runtime.
-Every real attempt creates its own UUID and must use the checkpoint's fresh artifact identities.
+This stages both protected phase plans without starting a process or creating a guest request.
+Only after review and exact conditional authorization may `--execute-reviewed` be appended. That
+invocation consumes up to TWO runtime processes, sequentially in one new UUID/profile: install then
+guest. Failed preparation withholds the guest. Neither retry nor extra probe is present. A stage-only
+profile is not reused for execution. The historical single-process route remains available for its
+existing regressions; it is not the proposed campaign.
 
 ### Exposed public-library identity
 
@@ -417,14 +423,15 @@ identities rather than reuse this inspection's inventory as execution evidence.
 | --- | --- |
 | AArch64 FP diagnostic | 71/71 PASS; actual bits equal the table-generated literal expectations; all path checks pass |
 | FP ARMv7 ELF/SELF/VPK | Build PASS, title BWWF00003; exactly `eboot.bin` and `sce_sys/param.sfo` |
-| Fixture Python regressions | 69/69 PASS with copied native GCC: prior 57 plus twelve profile/schema regressions |
+| Fixture Python regressions | 86/86 PASS with copied native GCC: prior 69 plus seventeen two-phase regressions |
 | 01 corpus / contract / pinned GXRuntime CTest | 1/1, 5/5, 3/3 PASS |
 | 01 complete host executables and both VPKs | PASS |
 | Repo audit and eight direct baseline files | PASS; 53 baseline tests |
 | Prior real diagnostic startups | INCOMPLETE, 0/71 observed; timeout and instrumentation-induced SIGXFSZ documented above |
 | Copied-stack GUI-only startup | Main window verified; no guest execution or exercised firmware-state API |
 | First renewed diagnostic | Timeout 124 / INCOMPLETE; BWWF00003 installed, config parse error, 0/71 observed |
-| Remaining diagnostic / physical Vita / Windows CI / full game | NOT RUN |
+| Second renewed diagnostic | Timeout 124 / INCOMPLETE; exact installed payload, old config error absent, 0/71 observed |
+| New two-phase campaign / physical Vita / Windows CI / full game | NOT RUN |
 
 Genuine short red/green observations, saved under `build-vita-ww-03/logs/`:
 
@@ -609,6 +616,74 @@ unchanged. New source-bound build artifacts and a fresh stage-only plan replace 
 new evidence; all original failed-run/config records remain intact. **1/2 renewed trials used; 0/71
 ARMv7 cases observed.** The remaining trial awaits review and exact authorization. A loadable profile
 does not establish a guest OpenGL context or game boot; the GUI baseline certified neither.
+
+### Second renewed result and two-phase repair
+
+At `d55440b66af24ed7c1b9bdd46acd3d0d2e9bbef3`, the last previously authorized single-process trial
+used VPK `0f2f88f947e8b2a6b9c291d57809a70e8e4670db8978a15c8f827c9af23a403d`. Its result was
+124 / INCOMPLETE, process -15, waited, 30.002 seconds execution/owned cleanup. No report or partial
+report and no observed ARMv7 cases. Both installed files matched the VPK. The prior configuration
+error was absent, Welcome false/OpenGL/update-off persisted, and only the private user became `00`.
+Qt signal-connection warnings and a PulseAudio connection warning do not establish timeout causality.
+Evidence remains in `build-vita-ww-03-config-45114f8e04de4707851fe8afb9b13fe2/` under
+`vita3k-run-f5702c142b614256992cfbae14c29d0c/` and
+`renewed-last-347cfafe33454561abba7eca61138a9b/manifest.json` (SHA-256
+`c684109dd8f1a0b340e43213b5a808d39725adcf31ef13909973d6d0038a240d`). That campaign is exhausted.
+
+The accepted independent analysis of the candidate source identifies a concrete handoff mismatch:
+`main.cpp:200` copies configuration into `emuenv.cfg`; positional installation at 227–249 later
+changes the local `cfg.run_app_path`, while GUI auto-boot at 582–587 reads the independent copy.
+`--installed-path BWWF00003` is validated before installation, so it requires an already installed
+title in the SAME private profile. Source/build/Boost mapping to the opaque binary remains UNVERIFIED;
+this is a supported next experiment, not proof of the actual runtime's cause.
+
+`fp_campaign.py` implements the opt-in `--two-phase` path using the existing sandbox and owned runner:
+
+1. Fresh exclusive profile, immutable input identities and two protected phase plans. No guest
+   request exists yet. Process 1 uses `/stack/vita3k/Vita3K --console --backend-renderer OpenGL fp.vpk`.
+2. Reap the installer and verify its process group is empty. Namespace teardown contains detached
+   descendants. Preserve its actual exit/reason and emitted config. Natural zero exit or an owned
+   timeout ending in zero/SIGTERM/SIGKILL may qualify for **preparation readiness only**. Unexpected
+   exit/crash, parser failure, input mutation or unverifiable cleanup blocks process 2.
+3. Verify the exact installed directory whitelist and both bounded regular, owned, single-link files
+   against the frozen staged VPK bytes: `eboot.bin` and `sce_sys/param.sfo`, title BWWF00003. Symlinks,
+   unexpected titles/entries/types, missing files and mismatches are rejected. Source/staged runtime,
+   assets, VPK, libraries and both firmware trees are checked before and after process execution.
+4. Accept only the canonical config or its known empty-user-to-`00` rewrite. Save it in protected
+   phase evidence and restore the canonical template using exclusive no-follow creation and a
+   same-directory replacement after cleanup. Private user data stays intact. No arbitrary config
+   rewrite, user import, shared path, warning suppression or permission expansion is accepted.
+5. Reject existing `fp.partial`, `fp.report` or `fp.request` without deleting them. Only after verified
+   preparation create a fresh guest UUID request bound to source and VPK. Process 2 uses
+   `/stack/vita3k/Vita3K --backend-renderer OpenGL --installed-path BWWF00003`, without `--console` so
+   SDL initialization and the normal stdout log sink are not skipped in the inspected source.
+
+Both processes use the unchanged sandbox, `/stack/vita3k` cwd, adjacent copied library tree,
+cleared private HOME/XDG environment, network/PID isolation, the one authorized Wayland socket,
+DEVNULL stdin and unlimited RLIMIT_FSIZE. Each has its own absolute deadline of at most 30 seconds.
+Protected outputs live separately at `phases/{install,guest}/evidence/`; `run_owned` and
+`collect_result` gain only an optional evidence destination. Their timing and acceptance logic is
+unchanged. The exact-byte template and public GUI lineage hashes above remain unchanged.
+
+Preparation's `VERIFIED` means only ready to try process 2, never semantic PASS. The guest's complete
+71-case bits can be useful even if Qt remains open after guest exit: **forced report shutdown is still
+125 / INCOMPLETE**, timeout is 124 / INCOMPLETE, and `reported_semantic` stays separate. Only the
+existing natural-zero-exit and valid-report condition can yield COMPLETE; a semantic FAIL stays
+nonzero. No new shutdown IPC, desktop automation, runtime patch or acceptance exception is added.
+
+New proofs live in `build-vita-ww-03-phases-7e70bb2b97d945a3866aed90d3535a63/`. Short fake-only
+red/green loops cover unavailable two-phase staging/execution, source-asset mutation previously
+reaching process 2, and a cache-only config error previously accepting valid bits. A link fixture's
+cross-mount rename failure was corrected before exercising the no-follow rejection. The 17 new
+tests count actual Popen calls (at most two), verify detached-installer cleanup before guest start,
+payload/type/identity gates, config preservation/restoration, stale-output preservation and guest
+125/FAIL/error dispositions. All prior 69 tests, including seven deadline regressions, remain green.
+
+New source-bound artifacts and `proposed-launch.json` identify the immutable checkpoint and both
+phase plans. **New budget 0/2 consumed; observed ARMv7 cases still 0/71.** Full corrective-code risk
+review and exact named-process authorization remain pending. This step targets diagnostic guest
+progress toward Wind Waker; it certifies neither CPU/firmware behavior, GPU context, game boot nor
+physical performance and does not complete 03 or unblock 04.
 
 Current artifact locations: `$OUT/{host-fp,vita-fp}/ww_fixture`, `$OUT/vita-fp/{eboot.bin,ww_fp.vpk}`.
 Host run records are fresh `$OUT/host-run-<uuid>/{fp.request,fp.report,process.log}`. The full 01
