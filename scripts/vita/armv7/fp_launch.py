@@ -119,6 +119,14 @@ def run_owned(command, root, timeout, report_identity=None):
     if resource.getrlimit(resource.RLIMIT_FSIZE) != (resource.RLIM_INFINITY, resource.RLIM_INFINITY):
         raise ValueError("RLIMIT_FSIZE must be unlimited; inherited limits can break runtime memfd allocation")
     started = time.monotonic()
+    deadline = started + timeout
+
+    def remaining_time():
+        remaining = deadline - time.monotonic()
+        if remaining <= 0:
+            raise subprocess.TimeoutExpired(command, timeout)
+        return remaining
+
     record = {"stop_reason": "exit"}
     with evidence_file(root, "process.log") as log:
         with subprocess.Popen(command, cwd=root / "work", stdin=subprocess.DEVNULL, stdout=log, stderr=log,
@@ -126,15 +134,14 @@ def run_owned(command, root, timeout, report_identity=None):
                               start_new_session=True) as process:
             try:
                 if report_identity is None:
-                    status = process.wait(timeout=timeout)
+                    status = process.wait(timeout=remaining_time())
                 else:
                     while True:
+                        remaining_time()
                         status = process.poll()
+                        remaining_time()
                         if status is not None:
                             break
-                        remaining = timeout - (time.monotonic() - started)
-                        if remaining <= 0:
-                            raise subprocess.TimeoutExpired(command, timeout)
                         try:
                             content = read_report(root)
                         except FileNotFoundError:
@@ -151,13 +158,15 @@ def run_owned(command, root, timeout, report_identity=None):
                                 status = 2
                             else:
                                 record["report_sha256_at_stop"] = hashlib.sha256(content).hexdigest()
+                                grace = min(.25, remaining_time())
                                 try:
-                                    status = process.wait(timeout=min(.25, remaining))
+                                    status = process.wait(timeout=grace)
                                 except subprocess.TimeoutExpired:
                                     record["stop_reason"] = "validated_report"
                                     status = 125
                             break
-                        time.sleep(min(.05, remaining))
+                        time.sleep(min(.05, remaining_time()))
+                remaining_time()
             except subprocess.TimeoutExpired:
                 record["stop_reason"] = "timeout"
                 status = 124

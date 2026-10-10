@@ -2,7 +2,7 @@
 
 2026-10-10 · [ticket](https://trello.com/c/DcwHCjuc) · game-free, opt-in
 
-## Relaunch correction checkpoint: REVISE, exact-launch authorization pending
+## Deadline correction checkpoint: REVISE, exact-launch authorization pending
 
 The AArch64 Linux diagnostic passes **71/71** independently specified result-bit cases. The same
 emitted synthetic PowerPC functions and pristine RecompCore CPU build into a Vita ARMv7 VPK.
@@ -42,8 +42,8 @@ actual Vita3K/ARMv7 correctness. Physical tests follow useful emulator results.
 The checkpoint revision is `git log -1 --format=%H -- docs/vita/VITA-WW-03.md`. After committing,
 the complete commands below are repeated at that immutable revision. The resulting exact source
 SHA, ELF/SELF/VPK SHA-256 values, sizes and host run directory are in
-the new `build-vita-ww-03-relaunch-fae48ad887c6463c8a6f9bf7068536c6/fp-evidence.json`;
-01 evidence is in `build-vita-ww-01-relaunch-fae48ad887c6463c8a6f9bf7068536c6/evidence.json`.
+the new `build-vita-ww-03-deadline-c6f417fb8b79483a9165b0d6273bfde1/fp-evidence.json`;
+01 evidence is in `build-vita-ww-01-deadline-c6f417fb8b79483a9165b0d6273bfde1/evidence.json`.
 Do not identify a package by filename alone. Rebuilding embeds the source revision and changes
 hashes; SELF/VPK packaging can also vary. The handoff includes that revision's artifact hashes.
 
@@ -56,8 +56,8 @@ Checkpoint commands on AArch64 Linux (`7.1.13-402.asahi.fc44.aarch64+16k`), repe
 
 ```sh
 STACK=/home/fred/projects/zeldaWWHDRecomp/build-vita-tools/local-stack
-OUT="$PWD/build-vita-ww-03-relaunch-fae48ad887c6463c8a6f9bf7068536c6"
-BASELINE_OUT="$PWD/build-vita-ww-01-relaunch-fae48ad887c6463c8a6f9bf7068536c6"
+OUT="$PWD/build-vita-ww-03-deadline-c6f417fb8b79483a9165b0d6273bfde1"
+BASELINE_OUT="$PWD/build-vita-ww-01-deadline-c6f417fb8b79483a9165b0d6273bfde1"
 PYTHONDONTWRITEBYTECODE=1 VITASDK="$STACK/vitasdk" PATH="$STACK/bin:/usr/bin:/bin" \
   python3 -B scripts/vita/armv7/fp_build.py --vita --out "$OUT" \
   --vitasdk "$STACK/vitasdk" --cc "$STACK/bin/aarch64-conda-linux-gnu-gcc" \
@@ -193,6 +193,14 @@ waited, with a 2-second TERM-to-KILL cleanup bound. This is explicitly `stop_rea
 `result.json`. Report bytes must match the hash captured before shutdown. Timeout remains 124,
 invalid publication 2, and spontaneous nonzero process exits remain failures. Nothing in this policy
 relaxes the requirement for natural emulator exit 0 before an accepted COMPLETE semantic verdict.
+One absolute monotonic deadline starts before process creation. The observer checks it before polling,
+after polling but before accepting an exit, after report validation when calculating the remaining
+exit grace, and after any wait/decision before accepting its status. Both monitored and unmonitored
+waits use the remaining budget; report polling sleeps also recalculate it. Reaching the deadline,
+including exactly at the boundary, returns **124 / INCOMPLETE**, even when a delayed observation
+finds exit 0 and a valid PASS report. Only early report-driven shutdown retains 125. Cleanup still
+has its separate owned TERM-to-KILL bound; post-exit report/identity collection does not extend guest
+execution. An exit that cannot be established before the deadline is conservatively rejected.
 `fp_build.py` records host semantic status even while finishing cross-build evidence and ultimately
 returns that failure; successful packaging never relabels a semantic mismatch as PASS.
 
@@ -401,7 +409,7 @@ identities rather than reuse this inspection's inventory as execution evidence.
 | --- | --- |
 | AArch64 FP diagnostic | 71/71 PASS; actual bits equal the table-generated literal expectations; all path checks pass |
 | FP ARMv7 ELF/SELF/VPK | Build PASS, title BWWF00003; exactly `eboot.bin` and `sce_sys/param.sfo` |
-| Fixture Python regressions | 50/50 PASS with copied native GCC, including prior 37 tests and 13 launch/profile regressions |
+| Fixture Python regressions | 57/57 PASS with copied native GCC: prior 50 plus seven deterministic deadline regressions |
 | 01 corpus / contract / pinned GXRuntime CTest | 1/1, 5/5, 3/3 PASS |
 | 01 complete host executables and both VPKs | PASS |
 | Repo audit and eight direct baseline files | PASS; 53 baseline tests |
@@ -484,7 +492,44 @@ profiles were not rewritten. Logs record the commands and actual failures/succes
 
 The compiler/CPU/oracle/emitted PPC sources and pinned references are unchanged. The tests exercise
 launcher behavior using owned fake processes, not an emulator substitute claiming ARM FP results.
-The exact-commit build/check logs and artifact manifests are the current handoff authority.
+The `6edf104` build/check logs remain historical evidence. Review blocked that launch plan on the
+deadline race below; it was never used for renewed real execution.
+
+### Review round 2: absolute launch deadline
+
+Evidence root: `build-vita-ww-03-deadline-c6f417fb8b79483a9165b0d6273bfde1/`.
+The sole consolidated blocker at `6edf10434cd2313eae091b68c5ba4e8b78b7b160` was acceptance after
+the launch deadline: `poll()` could return a late zero exit, or report validation could consume the
+remaining budget before a wait used its stale value. Both paths could become COMPLETE/PASS.
+
+Only the launch deadline, its regression tests and this report change. `remaining_time()` checks one
+absolute deadline at every acceptance boundary, recalculates every execution wait and throws into
+the existing timeout disposition. The collector keeps the valid report's diagnostic bits while
+status 124 prevents COMPLETE/PASS. Report-driven shutdown before expiry remains 125, and all existing
+process ownership, PID namespace, stdin, evidence, input and publication safeguards remain intact.
+
+The seven new tests use a controlled monotonic clock and a `Popen` test double; no real-time sleeps,
+emulator invocation or live PID signalling occur in these tests. They publish a regular, closed
+71-case report and use the actual validator/collector. Frozen `fp_launch-6edf104.py` came from
+`git show`, without an API adapter:
+
+- `logs/observer-red.log`: report/exit at simulated 30.02 s, observer wake at 30.06 s produced
+  COMPLETE/PASS. `observer-green.log` rejects the same conditions as 124/INCOMPLETE.
+- `logs/validation-red-frozen.log` and `validation-red-poll-fix.log`: validation crossing to 30.02 s
+  while the child exits zero still produced COMPLETE/PASS, including after the first localized poll
+  fix. `validation-green.log` records the second short loop's correction.
+- `logs/deadline-suite-red-frozen.log`: all seven assertions fail against the frozen checkpoint for
+  their intended behaviors. Further cases cover late natural waits with/without report monitoring,
+  deadline expiry during exit grace, grace reduced by validation time, and an exit observed exactly
+  at the deadline. `wait-red-partial.log` preserves the remaining three failures before the final guard.
+- `logs/deadline-suite-green.log`: all seven pass. The full suite also retains early successful exit,
+  semantic FAIL, early lingering-report 125, detached owned-child cleanup and unrelated witness survival.
+
+New exact-commit manifests, logs and `proposed-launch.json` supersede the prior plan as new artifacts;
+the prior plan, builds and evidence are preserved. The new source-bound ELF/SELF/VPK must be used.
+**Renewed real launches: 0/2. Observed ARMv7 FP cases: 0/71.** Follow-up review and exact-launch
+authorization are still required. Opaque runtime/source/Boost and firmware provenance limitations
+are unchanged; this correction supplies no emulator, game, renderer or physical performance result.
 
 Current artifact locations: `$OUT/{host-fp,vita-fp}/ww_fixture`, `$OUT/vita-fp/{eboot.bin,ww_fp.vpk}`.
 Host run records are fresh `$OUT/host-run-<uuid>/{fp.request,fp.report,process.log}`. The full 01
