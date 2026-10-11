@@ -61,9 +61,16 @@ static u64 deadline(const CPUState* cpu, void* user) {
     return expiry < remaining ? expiry : remaining;
 }
 
+static void close_spent_quantum(WwHost* host, CPUState* cpu) {
+    // Zero remaining allowance makes emitted budget guards yield without manufacturing a cycle charge.
+    if (host->cycles.dispatch_cycles >= (u64)host->cycles.cap)
+        cpu->cycle_budget = 0;
+}
+
 static void observe(CPUState* cpu) {
     WwHost* host = owner(cpu);
     bluewake_cycle_domain_observe(&host->cycles, cpu, cpu->cycle_observation_suffix);
+    close_spent_quantum(host, cpu);
 }
 
 static u32 spr_read(CPUState* cpu, u16 spr, u32 cia) {
@@ -109,6 +116,7 @@ static void spr_write(CPUState* cpu, u16 spr, u32 value, u32 cia) {
     } else {
         ww_host_fail(host, "unsupported SPR write", spr, cia);
     }
+    close_spent_quantum(host, cpu);
 }
 
 static void cache_control(CPUState* cpu, u8 operation, u32 ea, u32 cia) {
@@ -256,6 +264,7 @@ static void refresh(WwHost* host) {
                                        .si = dol_si_interrupt_pending(&host->si)};
     bluewake_interrupt_sources_refresh(&host->interrupts, &host->cycles, &host->cpu, &sources);
     dol_interrupts_set_source(&host->interrupts, DOL_PI_CAUSE_EXI, dol_exi_interrupt_pending(&host->exi));
+    close_spent_quantum(host, &host->cpu);
 }
 
 static u64 mmio_read(CPUState* cpu, u32 address, u8 size) {

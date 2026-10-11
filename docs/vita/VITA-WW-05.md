@@ -230,7 +230,7 @@ a lingering process. Its short red/green loops are in `logs/private-{launch,gues
 The parent-symlink loop reproduced creation outside an owned fake profile, then prevented it with the
 existing no-follow directory-descriptor pattern. No real/shared profile was involved.
 
-The WW05 host suite currently has **132 tests**. Source-bound logs retain exact counts/commands for these,
+The WW05 host suite currently has **135 tests**. Source-bound logs retain exact counts/commands for these,
 native runtime CTest, 71 native FP cases and the eight direct baseline files. Audit, attribution,
 pin/scope/diff and clean-worktree checks accompany delivery. The pre-launch `1ba507c` checkpoint passed
 35 WW05 tests, 177 unchanged tests, 53 direct baseline tests, 71 native FP cases and 3/1/5 runtime/corpus/
@@ -707,3 +707,73 @@ diagnostic-open failure; `logs/dispatch-discriminant-regressions.log` passes 132
 including marker open/write/flush/close failures, stale-journal refusal and L-only formatted-log
 failure. A fresh isolated real trial will decide what the discriminant establishes. No DSP
 response or speculative DSP register service has been added ahead of an observed blocker.
+
+Run `f74e101761474c09a88fa45152b6c985` tested `53fced512602f590125b49c98bb5028c40877c3c`,
+VPK SHA-256 `a52bf7860a352a2298daea2f7070f26191c91151eb617a5f386dfd7fd5466221`.
+The closed journal contains **LE**, no R. Crucially, the guest trace records `mthid0` at
+`803077D8` entering with `CA08` and returning at `803077DC`, then the edge there; the restored
+`mthid0` enters at `803077E4` with `CA00` and returns at `803077E8`, then that edge. Thus both
+HID0 writes and both intervening barriers finish. It is not a hang in the initial ORI/HID0
+block. The last formatted outer snapshot did not identify the actual running guest PC.
+The static game archive before/after the host-only rebuild is byte-identical, SHA-256
+`9d1c59238cea4b83798f1c16b0549950d41ec0011a89e95591d5a307718aea08`.
+At this exact SHA 132 host tests, 177 ARMv7 tests, native CTest 3/1/5, audit and attribution
+passed on Linux AArch64. No network/push/CI or physical Vita test occurred.
+Both real phases still TERM/reaped at 180 seconds, no report, UNAVAILABLE/124/INCOMPLETE.
+Result SHA-256: `9308962500775c20b338bfda3f17236dd00f9fcfecc71b3a99fa2f840b97adad`;
+guest-log SHA-256: `b367614520c221b31f0f89e8773a551238d04f2be76b4c92aeb565c4f4daf49b`;
+closed-journal SHA-256: `4c85226bf4430ba6d64181ba5423e872465d0b4632eddc92d7656b3485921545`.
+
+The suggested power/invalidation explanation does not match the host or the compiled ELF:
+HID0 writes store and return; the L2 path is a distinct SPR 1017 branch. The local pinned
+`PPCArch.h:149-165` names DOZE/NAP/SLEEP as `00800000/00400000/00200000`, whereas `8` is ABE.
+`CA08` enables none of those sleep modes. `ppc_memory_fence` disassembles as `dmb ish; bx lr`.
+The RFI helper likewise has only privilege/state operations and a return, no wait loop.
+Private static disassemblies are retained as `handler-barrier-static-0dffdab.log`,
+`rfi-static-53fced5.log` and `compiled-handler-53fced5.log`; no binary change was made.
+
+## Actual inner loop and exhausted-quantum return
+
+A same-SHA native inspection retry `ec644ae77e2140fabf166acf0caf0d76` preserves the same
+package and LE/handler-edge trace. Its owned observer paused/detached only the verified
+unique WW worker three times. Native A32 state layout is inferred from this pinned binary's
+`Jit::Run` (Impl+180 state argument), `Jit::Regs` (Impl+198 registers) and the observed x27/x28
+difference `624` (Impl+7A4 halt flag). The relation and readable mappings were checked before
+capturing the bounded saved state/native code. Saved ARM registers can lag live JIT registers;
+they are not mislabeled as PowerPC registers. No emulator, backend or guest memory was written.
+
+Round 0's saved ARM PC `94D4231E` symbolizes against the exact package's ELF as
+`loop_80302ED4+74`. Other captures are in `mmio_read` (`9564AF5C`, `9564AF10`), with actual
+`CC00500A` arguments and PPC-address values in their saved ARM operands. The generated source
+for `loop_80302ED4` reads a halfword through r31, masks bit `20` and loops while it is clear.
+This is a guest DSP-status poll reached beyond the syscall handler, not a native HID0 write
+wait or evidence that guest execution remained at D4. The next persisted edge need not appear
+because execution is inside a generated loop that has not returned to the chassis.
+Result remains UNAVAILABLE/124/INCOMPLETE; result SHA-256:
+`08acda113f5d6e513f616eeb382e1c3a2a3af8540aea72958c649cea9aa8acdf`.
+Native capture SHA-256: `530e32c5443fb9d62b0c36afa8ce456c4584510917915e293aa5951df17f0e4c`.
+The private observer/captures are retained; this intrusive trial is not a performance result.
+
+The source/compiled poll precharges **1** for its load. MMIO observation credits that charge,
+zeros downcount, and refresh rebudgets. Once dispatch_cycles reaches the cap, the initial
+remaining-quantum callback still supplies a minimum allowance of **1**. The next precharged
+load is again allowed and observed; its prepaid mask/branch do not restore a spent charge.
+Consequently the generated budget guard keeps seeing 0 > -1 and this single generated loop
+need never return. The chassis's nine-zero-successor rule cannot bound a call still executing
+inside that loop. This is a host budgeting seam defect, not missing DEC or a sleep instruction.
+
+The WW05-only fix exposes **zero remaining cycle allowance** once already credited dispatch
+cycles reach the cap, after in-block observations, device-refresh rebudgeting and SPR writes.
+The emitted guard then yields at its next budget boundary; no fake negative downcount,
+extra cycle, counter fast-forward, guest instruction skip or DSP completion is introduced.
+The next ordinary begin/prepare turn restores its positive quantum. The shared cycle-domain,
+generated code, module archive and pinned/emulator sources remain untouched.
+
+`logs/mmio-quantum-red.log` reproduces a 257th one-cycle read and a renewed positive budget
+after 256 already credited cycles. The first correction still failed because device refresh
+overwrote it; `logs/mmio-quantum-green.log` retains that failure. Enforcement after refresh
+passes `logs/mmio-quantum-refresh-green.log` (134 tests). The final game-free fixture uses the
+real chassis header around the same one-cycle poll, yields after exactly 256 credited cycles,
+then resumes a fresh dispatch without crediting those cycles twice. All 135 host tests pass
+in `logs/mmio-quantum-chassis-green.log`. These tests establish host return/accounting only;
+a new real trial must reveal the DSP operation/error and cannot certify a synthetic frontier.

@@ -1,4 +1,5 @@
 #include "module_exports.h"
+#include "dispatch_loop.h"
 #include "gxruntime/interrupts.h"
 #include "gxruntime/si.h"
 #include <assert.h>
@@ -11,7 +12,25 @@
 static BluewakeEdgeServiceFn edge;
 static void* edge_user;
 
+static int mmio_poll(CPUState* cpu, u32 address) {
+    u32 reads = 0u;
+    while (cpu->downcount > -cpu->cycle_budget) {
+        cpu->pc = address;
+        cpu->cycle_observation_suffix = 0u;
+        cpu->downcount -= 1;
+        assert(cpu->external_read(cpu, 0xCC00500Au, 2u) == 0x0804u);
+        assert(++reads <= 256u);
+    }
+    assert(reads == 256u && cpu->cycle_budget == 0 && cpu->downcount == 0);
+    return 1;
+}
+
 static int dispatch(CPUState* cpu, u32 address) {
+    static bool polled;
+    if (getenv("WW05_IO_MMIO_POLL") != NULL && !polled) {
+        polled = true;
+        return bluewake_chassis_dispatch_loop(cpu, address, mmio_poll, edge, edge_user);
+    }
     const char* syscall = getenv("WW05_IO_SYSCALL");
     if (syscall != NULL && address == 0x80001000u) {
         u8* source = cpu->ram + (0x803077D0u - GC_RAM_BASE);

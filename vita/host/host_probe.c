@@ -158,6 +158,30 @@ static void probe_decrementer(WwHost* host, const char* scenario) {
         assert(host->cycles.dispatch_cycles == 120u && cpu->downcount == 0);
         assert(cpu->cycle_budget == 136);
         assert(bluewake_cycle_domain_end_turn(&host->cycles, cpu) == 0u);
+    } else if (strcmp(scenario, "dec-mmio-quantum") == 0) {
+        bluewake_cycle_domain_begin_turn(&host->cycles, cpu);
+        bluewake_cycle_domain_prepare_dispatch(&host->cycles, cpu);
+        u32 reads = 0u;
+        while (cpu->downcount > -cpu->cycle_budget) {
+            cpu->downcount -= 1;
+            cpu->cycle_observation_suffix = 0u;
+            assert(cpu->external_read(cpu, 0xCC00500Au, 2u) == 0x0804u);
+            assert(++reads <= 256u);
+        }
+        assert(reads == 256u && cpu->cycle_budget == 0 && cpu->downcount == 0);
+        assert(host->cycles.absolute_cycles == 256u && cpu->timebase == 21u);
+        assert(bluewake_cycle_domain_end_turn(&host->cycles, cpu) == 0u);
+    } else if (strcmp(scenario, "dec-mmio-next-turn") == 0) {
+        bluewake_cycle_domain_begin_turn(&host->cycles, cpu);
+        bluewake_cycle_domain_prepare_dispatch(&host->cycles, cpu);
+        cpu->downcount = -256;
+        assert(cpu->external_read(cpu, 0xCC00500Au, 2u) == 0x0804u);
+        assert(cpu->cycle_budget == 0);
+        assert(bluewake_cycle_domain_end_turn(&host->cycles, cpu) == 0u);
+        bluewake_cycle_domain_begin_turn(&host->cycles, cpu);
+        bluewake_cycle_domain_prepare_dispatch(&host->cycles, cpu);
+        assert(cpu->cycle_budget == 256 && cpu->downcount == 0);
+        assert(host->cycles.absolute_cycles == 256u && host->cycles.dispatch_cycles == 0u);
     } else if (strcmp(scenario, "dec-rfi") == 0) {
         const u32 msr = PPC_MSR_EE | PPC_MSR_FP | PPC_MSR_IR | PPC_MSR_DR | PPC_MSR_RI;
         const u32 pi_cause = host->interrupts.pi_cause;

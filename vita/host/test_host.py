@@ -83,6 +83,12 @@ class StartupHostTest(unittest.TestCase):
     def test_edge_clock_observation_preserves_the_remaining_dispatch_quantum(self):
         subprocess.run([str(OUT / 'host_probe'), 'dec-turn-credit'], check=True)
 
+    def test_single_cycle_mmio_poll_cannot_renew_an_exhausted_dispatch_quantum(self):
+        subprocess.run([str(OUT / 'host_probe'), 'dec-mmio-quantum'], check=True)
+
+    def test_exhausted_mmio_quantum_allows_a_fresh_turn_without_duplicate_cycle_credit(self):
+        subprocess.run([str(OUT / 'host_probe'), 'dec-mmio-next-turn'], check=True)
+
     def test_edge_progress_exposes_timer_state_without_an_outer_dispatch_return(self):
         result = subprocess.run([str(OUT / 'host_probe'), 'dec-disabled'], check=True, capture_output=True, text=True)
         self.assertIn('[edge-progress]', result.stderr)
