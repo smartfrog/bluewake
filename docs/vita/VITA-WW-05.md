@@ -2043,3 +2043,45 @@ Static WPTR, DVD/CMake integration, Windows ARAM verification and final test-cou
 remain tracked above. Strict GX validation, pins, ABI, `BlueWakeRelData` and static archive
 are unchanged. Physical Vita, Windows CI, rendering, FPS, runtime REL and actual guest
 disc/file access remain unverified.
+
+## Real empty-distance continuation and observed CP write-pointer low
+
+Run `e35110cd6cc44b7890d2f463fd12963c`, source
+`f1166126230311193ee64d2ba0f3bb2be8bc183f`, passes the empty low-distance initialization
+and reaches **`CC000034 = 9F60`**, halfword PC **`80320FA4`**. The closed guest **FAIL**
+has **64,248 edges, 7,140,042 cycles**, zero FIFO bytes, `GX_FRONTIER complete=0`,
+`live=0`, `rendered=0`. Build status zero in 123.931 s; archive unchanged. Both owned
+phases timeout at 60 s, TERM/exit -15, `waited=true`; process **124/INCOMPLETE** remains
+separate. Bindings and LER are rechecked in
+`logs/cp-fifo-distance-low-evidence-f116612.json`. SHA-256:
+
+- VPK: `e576234387719e342ce86fc056f51b728bcaf5a183ec306295f7e69d659f7335`;
+- report: `5336ed42089ead2f31fc7685e076c94403d83bc05d8654dc9dd3369bf18f2995`;
+- result: `002e8fca73df49bc53140bb0c12cb96d00e1bdbef4924848376f1beaeffc15c6`;
+- log: `e53c5af186f23140c23810e0dd46dfbad9baa2e8b8124233c165a3eafcb1c81d`;
+- LER: `169da8b7a0e0d3067e984a0701130bdf9916ce1c09ccf887d9004ec9f413b079`.
+
+The pin identifies **CP_FIFO_WRITE_POINTER_LO** at offset `34`
+(`VideoCommon/CommandProcessor.h:74`), resets CPWritePointer to zero
+(`CommandProcessor.cpp:35-48`) and directly maps its low halfword with **`FFE0`**
+(`130,152,159-163`). WW05 adds only that observed halfword to the existing scalar FIFO
+register selector. Its independent host-owned configuration retains `9F60` unchanged;
+there is no CP enable, FIFO copy, parser feed, pointer advancement or interrupt side effect.
+The known progress limit now explicitly covers this CP write pointer too: authentic linked
+gather bursts advance it in the pin (`CommandProcessor.cpp:339-386`). This is not implemented
+by scalar reads or configuration stores and must accompany the genuine gather/FIFO seam.
+
+The tests reuse existing parameterizations and one shared data-only register descriptor in
+`probe_support.h`, replacing duplicated address/value/width selections in host and main-loop
+fixtures. This test-only table is not runtime dispatch, does not skip guest code and is never
+packaged as game data. `logs/cp-fifo-wptr-low-red.log` reproduces write-pointer-low refusal
+while earlier configuration cases still pass. `logs/cp-fifo-wptr-low-host-green.log` passes
+**318 host tests** on Linux AArch64, with extended register cases for reset, actual guest
+halfword hooks, masks, invalid-width retained-state preservation, independent values and
+credited-cycle/spent-quantum behavior. Synthetic main-loop PASS is not authentic GX evidence.
+
+Unobserved CP accesses/enables and reset remain refused. Strict GX validation, pins, ABI,
+`BlueWakeRelData` alignment and static archive are unchanged. Authentic continuation awaits
+the clean source-bound build/trial. DVD/CMake and Windows ARAM verification remain tracked;
+physical Vita, Windows CI, rendering, FPS, runtime REL and actual guest disc/file access
+remain unverified.

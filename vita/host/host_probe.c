@@ -262,6 +262,8 @@ int main(int argc, char** argv) {
         return 0;
     }
     assert(ww_host_init(host));
+    const char* fifo_scenario;
+    const WwFifoProbeRegister* fifo_probe = ww_probe_fifo_register(argv[1], &fifo_scenario);
     if (strcmp(argv[1], "unknown-mmio") == 0) {
         host->cpu.pc = 0x80001000u;
         host->cpu.external_read(&host->cpu, 0xCC007000u, 4u);
@@ -467,19 +469,13 @@ int main(int argc, char** argv) {
         host->cpu.external_read(&host->cpu, 0xC0u, 4u);
         assert(host->error != NULL && host->error_address == 0xC0u);
         assert(read_be32(host->cpu.ram + 0xC0u) == 0u);
-    } else if (strncmp(argv[1], "pi-fifo-base-", 13u) == 0 || strncmp(argv[1], "pi-fifo-end-", 12u) == 0 ||
-               strncmp(argv[1], "pi-fifo-wptr-", 13u) == 0 || strncmp(argv[1], "cp-fifo-base-low-", 17u) == 0 ||
-               strncmp(argv[1], "cp-fifo-end-low-", 16u) == 0) {
+    } else if (fifo_probe != NULL) {
         const DolInterrupts before = host->interrupts;
-        const bool end = strncmp(argv[1], "pi-fifo-end-", 12u) == 0;
-        const bool wptr = strncmp(argv[1], "pi-fifo-wptr-", 13u) == 0;
-        const bool cp_end = strncmp(argv[1], "cp-fifo-end-low-", 16u) == 0;
-        const bool cp = cp_end || strncmp(argv[1], "cp-fifo-base-low-", 17u) == 0;
-        const char* scenario = argv[1] + (cp_end ? 16u : cp ? 17u : end ? 12u : 13u);
-        const u32 address = cp_end ? 0xCC000024u : cp ? 0xCC000020u : end ? 0xCC003010u : wptr ? 0xCC003014u : 0xCC00300Cu;
-        const u32 pc = cp_end ? 0x80320F8Cu : cp ? 0x80320F80u : end ? 0x80320F08u : wptr ? 0x80320F1Cu : 0x80320EF8u;
-        const u8 supported_width = cp ? 2u : 4u;
-        const u32 mask = cp ? 0xFFE0u : 0xFFFFFFE0u;
+        const char* scenario = fifo_scenario;
+        const u32 address = fifo_probe->address;
+        const u32 pc = fifo_probe->pc;
+        const u8 supported_width = fifo_probe->width;
+        const u32 mask = fifo_probe->mask;
         host->cpu.pc = pc;
         const bool reset = strcmp(scenario, "reset") == 0;
         const bool store = strcmp(scenario, "store") == 0;
@@ -487,7 +483,7 @@ int main(int argc, char** argv) {
         const bool bad_write = strncmp(scenario, "write-width-", 12u) == 0;
         const bool bad_read = strncmp(scenario, "read-width-", 11u) == 0;
         const bool masked = strncmp(scenario, "mask-", 5u) == 0;
-        const u64 value = masked ? strtoul(scenario + 5u, NULL, 0) : cp_end ? 0x9F5Cu : cp ? 0x9F60u : end ? 0x004C9F5Cu : 0x00429F60u;
+        const u64 value = masked ? strtoul(scenario + 5u, NULL, 0) : fifo_probe->value;
         const u8 width = bad_write ? (u8)strtoul(scenario + 12u, NULL, 0) :
                          bad_read ? (u8)strtoul(scenario + 11u, NULL, 0) : supported_width;
         if (credit) {
@@ -496,12 +492,13 @@ int main(int argc, char** argv) {
             host->cpu.downcount -= 256;
         }
         if (store) {
-            host->cpu.gpr[3] = cp ? 0xCC000000u : 0xCC003000u;
+            host->cpu.gpr[3] = address & 0xFFFFF000u;
             host->cpu.gpr[0] = (u32)value;
-            if (cp)
-                mem_write16(&host->cpu, host->cpu.gpr[3] + (cp_end ? 36u : 32u), (u16)host->cpu.gpr[0]);
+            const u32 offset = address & 0xFFFu;
+            if (supported_width == 2u)
+                mem_write16(&host->cpu, host->cpu.gpr[3] + offset, (u16)host->cpu.gpr[0]);
             else
-                mem_write32(&host->cpu, host->cpu.gpr[3] + (end ? 16u : wptr ? 20u : 12u), host->cpu.gpr[0]);
+                mem_write32(&host->cpu, host->cpu.gpr[3] + offset, host->cpu.gpr[0]);
         } else if (!reset) {
             host->cpu.external_write(&host->cpu, address, value, bad_write ? width : supported_width);
         }
@@ -532,12 +529,14 @@ int main(int argc, char** argv) {
         host->cpu.external_write(&host->cpu, 0xCC003014u, 0x00429FA0u, 4u);
         host->cpu.external_write(&host->cpu, 0xCC000020u, 0xABDFu, 2u);
         host->cpu.external_write(&host->cpu, 0xCC000024u, 0xCDEFu, 2u);
+        host->cpu.external_write(&host->cpu, 0xCC000034u, 0xEF5Fu, 2u);
         assert(host->error == NULL);
         assert(host->cpu.external_read(&host->cpu, 0xCC00300Cu, 4u) == 0x00429F60u);
         assert(host->cpu.external_read(&host->cpu, 0xCC003010u, 4u) == 0x004C9F40u);
         assert(host->cpu.external_read(&host->cpu, 0xCC003014u, 4u) == 0x00429FA0u);
         assert(host->cpu.external_read(&host->cpu, 0xCC000020u, 2u) == 0xABC0u);
         assert(host->cpu.external_read(&host->cpu, 0xCC000024u, 2u) == 0xCDE0u);
+        assert(host->cpu.external_read(&host->cpu, 0xCC000034u, 2u) == 0xEF40u);
     } else if (strncmp(argv[1], "cp-control-", 11u) == 0 || strncmp(argv[1], "cp-distance-low-", 16u) == 0) {
         const DolInterrupts before = host->interrupts;
         const bool distance = strncmp(argv[1], "cp-distance-low-", 16u) == 0;

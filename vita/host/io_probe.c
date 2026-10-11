@@ -3,7 +3,7 @@
 #include "gxruntime/interrupts.h"
 #include "gxruntime/si.h"
 #include "gxruntime/exi.h"
-#include "boot_host.h"
+#include "probe_support.h"
 #include "external_vector.h"
 #include <assert.h>
 #include <errno.h>
@@ -34,20 +34,13 @@ static int dispatch(CPUState* cpu, u32 address) {
     static bool init_started;
     const char* fifo = getenv("WW05_IO_FIFO");
     if (fifo != NULL) {
-        assert(strcmp(fifo, "base") == 0 || strcmp(fifo, "end") == 0 || strcmp(fifo, "wptr") == 0 ||
-               strcmp(fifo, "cp-base-low") == 0 || strcmp(fifo, "cp-end-low") == 0);
-        const bool end = strcmp(fifo, "end") == 0;
-        const bool wptr = strcmp(fifo, "wptr") == 0;
-        const bool cp_end = strcmp(fifo, "cp-end-low") == 0;
-        const bool cp = cp_end || strcmp(fifo, "cp-base-low") == 0;
-        const u32 address = cp_end ? 0xCC000024u : cp ? 0xCC000020u : end ? 0xCC003010u : wptr ? 0xCC003014u : 0xCC00300Cu;
-        const u32 value = cp_end ? 0x9F5Cu : cp ? 0x9F60u : end ? 0x004C9F5Cu : 0x00429F60u;
-        const u8 width = cp ? 2u : 4u;
-        const u32 mask = cp ? 0xFFE0u : 0xFFFFFFE0u;
-        cpu->external_write(cpu, address, value, width);
+        const char* scenario;
+        const WwFifoProbeRegister* reg = ww_probe_fifo_register(fifo, &scenario);
+        assert(reg != NULL && *scenario == '\0');
+        cpu->external_write(cpu, reg->address, reg->value, reg->width);
         if (cpu->exception != 0u)
             return 1;
-        assert(cpu->external_read(cpu, address, width) == (value & mask));
+        assert(cpu->external_read(cpu, reg->address, reg->width) == (reg->value & reg->mask));
     }
     const char* cp_control = getenv("WW05_IO_CP_CONTROL");
     if (cp_control != NULL) {
