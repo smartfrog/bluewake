@@ -15,7 +15,8 @@ class MainIoTest(unittest.TestCase):
     def setUpClass(cls):
         test_host.StartupHostTest.setUpClass()
 
-    def run_fixture(self, failure='', stale=False, interrupt=None, exception=False, syscall=None, progress=False):
+    def run_fixture(self, failure='', stale=False, interrupt=None, exception=False, syscall=None, progress=False,
+                    dispatch_trace=None, stale_dispatch=False):
         with tempfile.TemporaryDirectory(dir=OUT, prefix='io-') as directory:
             root = Path(directory)
             data = bytearray(260)
@@ -30,6 +31,8 @@ class MainIoTest(unittest.TestCase):
             (root / 'ww05.request').write_text(f'{"c" * 32} {"a" * 40} {"b" * 64}\n')
             if stale:
                 (root / 'ww05.report').write_text('preserve me')
+            if stale_dispatch:
+                (root / 'ww05.dispatch').write_text('preserve trace')
             environment = dict(os.environ, WW05_IO_FAILURE=failure)
             if interrupt is not None:
                 environment['WW05_IO_IRQ'] = interrupt
@@ -48,7 +51,7 @@ class MainIoTest(unittest.TestCase):
             if syscall == 'trace-window':
                 self.assertIn('[dispatch] stage=enter turn=2 pc=803077D0', result.stderr.decode())
                 self.assertIn('[dispatch] stage=return turn=2 pc=80001004', result.stderr.decode())
-            if syscall == 'yielding-handler':
+            if syscall == 'yielding-handler' and not failure and not stale_dispatch:
                 for stage in ('returned', 'checked', 'edge-enter', 'edge-return', 'turn-enter',
                               'turn-begun', 'dispatch-ready'):
                     self.assertIn(f'[handler-boundary] stage={stage} pc=803077D4', result.stderr.decode())
@@ -58,6 +61,13 @@ class MainIoTest(unittest.TestCase):
                 self.assertIn('[exception-vector] address=00000C00', log)
             if interrupt == 'decrementer':
                 self.assertIn('[decrementer] stage=delivered vector=00000900', result.stderr.decode())
+            if dispatch_trace is not None:
+                path = root / 'ww05.dispatch'
+                self.assertEqual(path.read_text() if path.exists() else None, dispatch_trace)
+            if syscall == 'yielding-handler' and not failure and not stale_dispatch:
+                self.assertIn('[edge] pc=803077DC', result.stderr.decode())
+                self.assertIn('[spr-fallback] stage=enter pc=803077D8 spr=1008', result.stderr.decode())
+                self.assertIn('[spr-fallback] stage=return pc=803077DC spr=1008', result.stderr.decode())
             return result.returncode, report
 
     def test_synthetic_host_fixture_publishes_closed_report(self):
@@ -107,6 +117,42 @@ class MainIoTest(unittest.TestCase):
         self.assertEqual(status, 0)
         self.assertIn('pc=80001004', report)
         self.assertIn('END frontier=PASS', report)
+
+    def test_dispatch_discriminant_closes_markers_before_log_entry_and_after_return(self):
+        status, report = self.run_fixture(syscall='yielding-handler', dispatch_trace='LER')
+        self.assertEqual(status, 0)
+        self.assertEqual(len(report.splitlines()), 8)
+        self.assertIn('END frontier=PASS', report)
+
+    def test_dispatch_marker_open_failure_prevents_report_publication(self):
+        status, report = self.run_fixture(failure='dispatch-open', syscall='yielding-handler', dispatch_trace=None)
+        self.assertNotEqual(status, 0)
+        self.assertIsNone(report)
+
+    def test_dispatch_marker_write_failure_prevents_report_publication(self):
+        status, report = self.run_fixture(failure='dispatch-write', syscall='yielding-handler', dispatch_trace='')
+        self.assertNotEqual(status, 0)
+        self.assertIsNone(report)
+
+    def test_dispatch_marker_flush_failure_prevents_report_publication(self):
+        status, report = self.run_fixture(failure='dispatch-flush', syscall='yielding-handler', dispatch_trace='L')
+        self.assertNotEqual(status, 0)
+        self.assertIsNone(report)
+
+    def test_dispatch_marker_close_failure_prevents_report_publication(self):
+        status, report = self.run_fixture(failure='dispatch-close', syscall='yielding-handler', dispatch_trace='L')
+        self.assertNotEqual(status, 0)
+        self.assertIsNone(report)
+
+    def test_dispatch_entry_log_failure_leaves_only_the_pre_log_marker(self):
+        status, report = self.run_fixture(failure='dispatch-entry-log', syscall='yielding-handler', dispatch_trace='L')
+        self.assertNotEqual(status, 0)
+        self.assertIsNone(report)
+
+    def test_preexisting_dispatch_trace_is_preserved(self):
+        status, report = self.run_fixture(stale_dispatch=True, syscall='yielding-handler', dispatch_trace='preserve trace')
+        self.assertNotEqual(status, 0)
+        self.assertIsNone(report)
 
     def test_changed_syscall_source_is_not_executed_using_stale_compiled_code(self):
         status, report = self.run_fixture(syscall='source-changed')

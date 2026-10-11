@@ -230,7 +230,7 @@ a lingering process. Its short red/green loops are in `logs/private-{launch,gues
 The parent-symlink loop reproduced creation outside an owned fake profile, then prevented it with the
 existing no-follow directory-descriptor pattern. No real/shared profile was involved.
 
-The WW05 host suite currently has **125 tests**. Source-bound logs retain exact counts/commands for these,
+The WW05 host suite currently has **132 tests**. Source-bound logs retain exact counts/commands for these,
 native runtime CTest, 71 native FP cases and the eight direct baseline files. Audit, attribution,
 pin/scope/diff and clean-worktree checks accompany delivery. The pre-launch `1ba507c` checkpoint passed
 35 WW05 tests, 177 unchanged tests, 53 direct baseline tests, 71 native FP cases and 3/1/5 runtime/corpus/
@@ -664,3 +664,46 @@ external priority, prior-fault preservation, OEA state/RFI, unchanged PI state, 
 zero-charge behavior, edge credit, deadline/quantum and synthetic main-loop continuation.
 The synthetic vector/RFI fixture is characterization, not real OS-handler evidence. A fresh
 source-bound game trial is still required for the timer hypothesis and GX acceptance.
+
+Run `2dcc1efe30f0486ea43d07321461f976` tested the clean DEC checkpoint
+`0dffdab549fa3cb2ce81459fb08207b28f9f6a4e`, VPK SHA-256
+`fc59a2f54979ec08072d732a2de3ea39acc53f6ffa64598ff554c82ae0c71bb4`.
+The observed frontier is still UNAVAILABLE, process 124/INCOMPLETE; both private phases were
+TERM/reaped at 180 seconds. There is no closed report. The last persisted handler line is
+dispatch-ready at `803077D4`, cycles 143,814, TB 11,984, DEC `FFFFD12F`, pending 0, EE 0,
+downcount 0, budget 256. Thus adding DEC did not remove this observed stall, and no timer
+expiration is demonstrated at this boundary. Result SHA-256:
+`9f2e3812c86caaadec872f9ddded4df810bb0da76f25b0189b1688265ce9abd2`;
+guest-log SHA-256: `a163fb2a027f233102cd9ba5a731f6295f260df60aebca361db60ddb8d3c7426`.
+At that exact SHA, 125 host tests, 177 unchanged ARMv7 tests, audit and attribution passed;
+the checkpoint logs are retained. Compilation and these tests do not prove real timer-handler
+or RFI execution. Physical Vita and Windows CI remain untested.
+
+## Closed dispatch discriminant
+
+The coordinator's independent analysis prioritizes the first dispatch from `803077D4`, its
+`mthid0` fallback and distinguishing dispatch execution from the missing formatted log write.
+It correctly excludes a DEC read/OS idle instruction in the copied syscall handler. Absence
+of further persisted log lines alone does not establish a native hang or its exact location.
+
+Only the WW05 host is instrumented; the generated module, dispatcher, pins and emulator remain
+unchanged. The first dispatch from `803077D4` emits single-byte markers into `ww05.dispatch`:
+**L** before the existing dispatch-entry log, **E** immediately before `module->dispatch`,
+**R** immediately after its return, before cycle accounting or return logs. Every marker is
+flushed, checked and its file closed; every error prevents publication. A preexisting journal
+is refused. This independent journal keeps the strict eight-record GX report unchanged, and
+closing addresses the known empty-partial-file observation without asserting that fflush was
+durable in the emulator. Only L localizes failure before the call (formatted logging or opening/
+writing the next marker); LE establishes entry into the dispatch interval, not a specific JIT
+defect; LER proves that call returned. Any more precise claim requires edge/fallback evidence.
+
+The host traces at most the first 16 edge callbacks inside this dispatch, before their clock/
+device work, and HID0 fallback entry/return while that narrow trace is armed. The diagnostic
+does not skip an instruction or change guest registers, counters, interrupts or dispatch budgets.
+The synthetic yielding-handler fixture now executes the actual ORI value and `mthid0` fallback
+before its synthetic edge/RFI. This is still game-free characterization, not a real handler run.
+`logs/dispatch-discriminant-red.log` reproduces missing markers/edge/fallback traces and ignored
+diagnostic-open failure; `logs/dispatch-discriminant-regressions.log` passes 132 host tests,
+including marker open/write/flush/close failures, stale-journal refusal and L-only formatted-log
+failure. A fresh isolated real trial will decide what the discriminant establishes. No DSP
+response or speculative DSP register service has been added ahead of an observed blocker.

@@ -151,12 +151,22 @@ static void fallback(CPUState* cpu, u32 raw, u32 cia) {
             return;
         }
         if (xo == 339u || xo == 467u) {
+            WwHost* host = owner(cpu);
+            const bool trace = host->dispatch_trace_remaining != 0u && spr == 1008u;
+            if (trace && fprintf(stderr, "[spr-fallback] stage=enter pc=%08X spr=%u value=%08X\n",
+                                 cia, spr, cpu->gpr[reg]) < 0) {
+                ww_host_fail(host, "SPR fallback trace write failed", spr, cia);
+                return;
+            }
             if (xo == 339u)
                 cpu->gpr[reg] = ppc_mfspr(cpu, spr, cia);
             else
                 ppc_mtspr(cpu, spr, cpu->gpr[reg], cia);
             if (!cpu->exception)
                 cpu->pc = cia + 4u;
+            if (trace && fprintf(stderr, "[spr-fallback] stage=return pc=%08X spr=%u hid0=%08X exception=%08X\n",
+                                 cpu->pc, spr, host->hid0, cpu->exception) < 0)
+                ww_host_fail(host, "SPR fallback trace write failed", spr, cia);
             return;
         }
     }
@@ -334,6 +344,15 @@ static void mmio_write(CPUState* cpu, u32 address, u64 value, u8 size) {
 bool ww_host_edge(void* user, CPUState* cpu, u32 address) {
     WwHost* host = user;
     host->edges++;
+    if (host->dispatch_trace_remaining != 0u) {
+        --host->dispatch_trace_remaining;
+        if (fprintf(stderr, "[edge] pc=%08X downcount=%lld budget=%lld exception=%08X\n",
+                    address, (long long)cpu->downcount, (long long)cpu->cycle_budget, cpu->exception) < 0) {
+            ww_host_fail(host, "dispatch edge trace write failed", address, cpu->pc);
+            host->edge_stopped = true;
+            return true;
+        }
+    }
     if (host->frontier.complete || host->error != NULL) {
         host->edge_stopped = true;
         return true;

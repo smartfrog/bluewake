@@ -44,7 +44,11 @@ static int dispatch(CPUState* cpu, u32 address) {
     if (syscall != NULL && strcmp(syscall, "yielding-handler") == 0 && address == 0x803077D4u) {
         assert(cpu->exception == 0u && cpu->msr == 0u);
         assert(cpu->srr0 == 0x80001004u && cpu->srr1 == PPC_MSR_RI);
-        ppc_rfi(cpu, address);
+        cpu->gpr[10] = cpu->gpr[9] | 8u;
+        ppc_fallback_instruction(cpu, 0x7D50FBA6u, 0x803077D8u);
+        assert(cpu->pc == 0x803077DCu);
+        assert(!edge(edge_user, cpu, cpu->pc));
+        ppc_rfi(cpu, 0x803077E8u);
         cpu->downcount -= 12;
         return 1;
     }
@@ -110,6 +114,7 @@ void bluewake_set_edge_service(BluewakeEdgeServiceFn callback, void* user) {
 }
 
 static FILE* report;
+static FILE* dispatch_trace;
 static bool failure(const char* name) {
     const char* selected = getenv("WW05_IO_FAILURE");
     return selected != NULL && strcmp(selected, name) == 0;
@@ -122,14 +127,26 @@ int __wrap_setvbuf(FILE* stream, char* buffer, int mode, size_t size) {
 
 FILE* __real_fopen(const char* path, const char* mode);
 FILE* __wrap_fopen(const char* path, const char* mode) {
+    if (strcmp(path, "ww05.dispatch") == 0 && failure("dispatch-open")) {
+        errno = EIO;
+        return NULL;
+    }
     FILE* stream = __real_fopen(path, mode);
     if (strcmp(path, "ww05.partial") == 0)
         report = stream;
+    if (strcmp(path, "ww05.dispatch") == 0)
+        dispatch_trace = stream;
     return stream;
 }
 
 int __wrap_fprintf(FILE* stream, const char* format, ...) {
-    if (stream == report && failure("write")) {
+    if (stream == stderr && strncmp(format, "[dispatch] stage=enter", 22u) == 0 &&
+        failure("dispatch-entry-log")) {
+        errno = EIO;
+        return -1;
+    }
+    if ((stream == report && failure("write")) ||
+        (stream == dispatch_trace && failure("dispatch-write"))) {
         errno = ENOSPC;
         return -1;
     }
@@ -143,12 +160,16 @@ int __wrap_fprintf(FILE* stream, const char* format, ...) {
 int __real_fflush(FILE* stream);
 int __wrap_fflush(FILE* stream) {
     int result = __real_fflush(stream);
-    return stream == report && failure("flush") ? EOF : result;
+    return ((stream == report && failure("flush")) ||
+            (stream == dispatch_trace && failure("dispatch-flush"))) ? EOF : result;
 }
 
 int __real_fclose(FILE* stream);
 int __wrap_fclose(FILE* stream) {
-    bool fail = stream == report && failure("close");
+    bool fail = (stream == report && failure("close")) ||
+                (stream == dispatch_trace && failure("dispatch-close"));
+    if (stream == dispatch_trace)
+        dispatch_trace = NULL;
     int result = __real_fclose(stream);
     return fail ? EOF : result;
 }

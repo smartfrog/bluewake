@@ -43,6 +43,7 @@ typedef struct WwHost {
     u32 alias_count;
     u64 edges;
     u64 next_edge_progress;
+    u32 dispatch_trace_remaining;
     bool edge_stopped;
     bool decrementer_valid;
     bool decrementer_pending;

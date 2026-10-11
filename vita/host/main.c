@@ -29,6 +29,16 @@ static bool log_handler_boundary(const WwHost* host, const char* stage) {
                    (unsigned long long)host->cpu.timebase) < 0;
 }
 
+static int dispatch_marker(char marker) {
+    FILE* stream = fopen(WW05_DIRECTORY "ww05.dispatch", marker == 'L' ? "wx" : "a");
+    if (stream == NULL)
+        return 1;
+    int error = fprintf(stream, "%c", marker) < 0;
+    error |= fflush(stream) != 0 || ferror(stream) != 0;
+    error |= fclose(stream) != 0;
+    return error;
+}
+
 int fixture_run(int argc, char** argv) {
     (void)argv;
     char token[33], source[41], package[65];
@@ -36,7 +46,8 @@ int fixture_run(int argc, char** argv) {
     const char* complete = WW05_DIRECTORY "ww05.report";
     if (argc > 1 || diagnostic_request(WW05_DIRECTORY "ww05.request", WW05_SOURCE, token, source, package) ||
         !diagnostic_absent(partial) || !diagnostic_absent(complete) ||
-        !diagnostic_absent(WW05_DIRECTORY "ww05.log"))
+        !diagnostic_absent(WW05_DIRECTORY "ww05.log") ||
+        !diagnostic_absent(WW05_DIRECTORY "ww05.dispatch"))
         return 1;
     if (fixture_log_open("ww05"))
         return 1;
@@ -88,6 +99,7 @@ int fixture_run(int argc, char** argv) {
     bluewake_set_edge_service(ww_host_edge, host);
     u64 turns = 0u;
     u64 next_progress = 0u;
+    bool traced_dispatch = false;
     while (loaded && !error && host->error == NULL && !host->edge_stopped) {
         if (log_handler_boundary(host, "edge-enter")) {
             error = 1;
@@ -117,15 +129,35 @@ int fixture_run(int argc, char** argv) {
             error = 1;
             break;
         }
-        const bool trace_dispatch = host->cycles.absolute_cycles >= 131072u &&
-                                    host->cycles.absolute_cycles < 196608u && turns < 1024u;
+        const bool probe_dispatch = !traced_dispatch && host->cpu.pc == 0x803077D4u;
+        if (probe_dispatch && dispatch_marker('L')) {
+            error = 1;
+            break;
+        }
+        const bool trace_dispatch = probe_dispatch || (host->cycles.absolute_cycles >= 131072u &&
+                                     host->cycles.absolute_cycles < 196608u && turns < 1024u);
         if (trace_dispatch && fprintf(stderr, "[dispatch] stage=enter turn=%llu pc=%08X cycles=%llu\n",
                                       (unsigned long long)(turns + 1u), host->cpu.pc,
                                       (unsigned long long)host->cycles.absolute_cycles) < 0) {
             error = 1;
             break;
         }
+        if (probe_dispatch) {
+            if (dispatch_marker('E')) {
+                error = 1;
+                break;
+            }
+            traced_dispatch = true;
+            host->dispatch_trace_remaining = 16u;
+        }
         const int dispatched = module->dispatch(&host->cpu, host->cpu.pc);
+        if (probe_dispatch) {
+            host->dispatch_trace_remaining = 0u;
+            if (dispatch_marker('R')) {
+                error = 1;
+                break;
+            }
+        }
         bluewake_cycle_domain_end_turn(&host->cycles, &host->cpu);
         ++turns;
         if (trace_dispatch)
