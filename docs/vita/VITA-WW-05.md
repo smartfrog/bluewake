@@ -237,7 +237,7 @@ a lingering process. Its short red/green loops are in `logs/private-{launch,gues
 The parent-symlink loop reproduced creation outside an owned fake profile, then prevented it with the
 existing no-follow directory-descriptor pattern. No real/shared profile was involved.
 
-The WW05 host suite currently has **284 tests**. Source-bound logs retain exact counts/commands for these,
+The WW05 host suite currently has **287 tests**. Source-bound logs retain exact counts/commands for these,
 native runtime CTest, 71 native FP cases and the eight direct baseline files. Audit, attribution,
 pin/scope/diff and clean-worktree checks accompany delivery. The pre-launch `1ba507c` checkpoint passed
 35 WW05 tests, 177 unchanged tests, 53 direct baseline tests, 71 native FP cases and 3/1/5 runtime/corpus/
@@ -1589,3 +1589,51 @@ attribution and native runtime CTest **3/3** pass on Linux AArch64. Capturing th
 expansion request still requires the next clean source-bound Vita build/trial. No physical
 Vita, Windows CI, GX acceptance, rendering, FPS, runtime REL event or guest disc access is
 claimed. The DVD seam and mandatory integration rebase remain before the first actual read.
+
+## Captured 32-byte expansion read and bounded absent-HSP completion
+
+Run `9f1b9ffc1ae14ed7b32675aee2d42d54`, source `32795cba4d673c9641a4d5ce7d0cfddc3cf3057e`,
+retains the actual request at `803176AC`: main physical **`0040CD20`**, ARAM **`01000000`**,
+count **`80000020`** (read direction, **32 bytes**), AR_INFO=`0063`, DSP control=`0844`
+(HALT, ARAM interrupt mask enabled). The first expansion probe is exactly at the end of the
+real 16 MiB ARAM, not a permitted wrap into it. The closed report reproduces **63,005 edges,
+7,123,941 cycles**, **FAIL**, zero FIFO bytes, `GX_FRONTIER complete=0`, `live=0` and
+`rendered=0`. This time both owned phases timeout at 600 s, TERM/exit -15 and `waited=true`;
+process **124/INCOMPLETE** differs from the prior normal guest exit despite the same closed
+guest STOP. Build status zero, 125.112 s; static archive unchanged:
+`9d1c59238cea4b83798f1c16b0549950d41ec0011a89e95591d5a307718aea08`.
+Exact-source **284 host tests, 177 ARMv7 tests**, audit, attribution and native runtime CTest
+**3/3** pass on Linux AArch64. VPK SHA-256:
+`9f01414c3a33078e530169376aeedf787403167817b4a481cf278b2341679a3b`;
+report: `5b418173e4b955d7c38cbfdff941eaf42fe2226be073bdaa73fd274e2bbf0f90`;
+result: `579c768c5af7d862fbfe39d95905bc04e8fd69f3387592847837014e19115bef`;
+log: `7157333b139480febaadc8b30bcc2bb7f5f883f1fc977b7670df2445ffb3a320`;
+closed LER journal: `169da8b7a0e0d3067e984a0701130bdf9916ce1c09ccf887d9004ec9f413b079`.
+
+WW05 now accepts only that observed **32-byte read from `01000000` with AR_INFO=`0063`
+and DSP halted**, into a complete real MEM1 range. This selects the documented **absent
+HSP** device behavior at the unchanged pin (`HW/DSP.cpp:506-521`,
+`Config/MainSettings.cpp:239-240`, `HW/HSP/HSP_DeviceNull.cpp:9-15`). It leaves MEM1 and
+ARAM bytes **unchanged**, without zero fill, address wrapping, a fictional expansion
+allocation or a payload copied from another address. Unobserved lengths, addresses, writes,
+other layouts, running DSP, invalid MEM1 and unsupported requests remain explicit failures.
+The checked `[aram-hsp-absent]` record labels this buffer-preserving path separately from
+real flat-ARAM memory copies. No DSP mail, ucode execution or audio playback is introduced.
+
+The shared ARAM register helper provides an **explicit absent-HSP entry point** that reuses
+the same validation, transfer receipt and interrupt-pending bookkeeping without performing a
+memory copy. Its existing entry point and desktop behavior are unchanged, including their
+existing address-wrap contract. WW05 reuses its own established post-transfer address/count
+updates, 246 credited cycles for this one 32-byte block, busy latch, masked completion and
+acknowledgement. No new latency or frequency is invented; a preserved buffer is the reference's
+absent-device response, not a successful transfer from real ARAM.
+
+`logs/absent-hsp-read-red.log` reproduces the refused observed shape.
+`logs/absent-hsp-read-reviewed-host.log` passes **287 host tests**: nonzero MEM1 and ARAM
+sentinels remain untouched, word and halfword behavior remain bounded, invalid/unobserved
+requests fail, and busy/completion/acknowledgement and checked logging use existing paths.
+`logs/absent-hsp-shared-contract.log` compiles/runs the existing shared ARAM contract on
+Linux AArch64, including real copies and the unchanged legacy wrap. **177 ARMv7 tests**,
+audit, attribution and native runtime CTest **3/3** pass. Real absent-HSP probe continuation
+still needs the next clean Vita build/trial; no physical Vita, Windows CI, GX acceptance,
+rendering, FPS, runtime REL event or guest disc access is claimed.

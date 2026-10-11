@@ -36,6 +36,14 @@ class AramDmaTest(unittest.TestCase):
     def test_hsp_expansion_address_is_not_wrapped_into_real_aram(self):
         subprocess.run([str(test_host.OUT / 'aram_probe'), 'hsp'], check=True)
 
+    def test_observed_absent_hsp_read_preserves_buffers_and_uses_normal_busy_completion_and_acknowledgement(self):
+        subprocess.run([str(test_host.OUT / 'aram_probe'), 'absent-hsp-read'], check=True)
+
+    def test_unobserved_expansion_shapes_still_fail_before_changing_memory(self):
+        for shape in ('write', 'long', 'address', 'main'):
+            with self.subTest(shape=shape):
+                subprocess.run([str(test_host.OUT / 'aram_probe'), f'absent-hsp-{shape}'], check=True)
+
     def test_refused_expansion_dma_retains_the_actual_register_request_without_copying(self):
         for scenario, count in (('hsp', '00000020'), ('hsp-halfword', '80000020')):
             with self.subTest(scenario=scenario):

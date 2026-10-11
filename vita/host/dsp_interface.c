@@ -101,6 +101,7 @@ static bool aram_dma_write(WwDspInterface* dsp, CPUState* cpu, u32 address, u8 s
     const u64 mask = size == 4u ? ((u64)high_mask << 16u) | 0xFFE0u :
                      (index & 1u) != 0u ? 0xFFE0u : high_mask;
     const bool trigger = address + size == BLUEWAKE_ARAM_DMA_BASE + BLUEWAKE_ARAM_DMA_BYTES;
+    bool absent_hsp = false;
     if (trigger) {
         const u32 aram_address = ((u32)dsp->aram.regs[2] << 16u) | dsp->aram.regs[3];
         if (aram_buffer() == NULL)
@@ -114,12 +115,21 @@ static bool aram_dma_write(WwDspInterface* dsp, CPUState* cpu, u32 address, u8 s
             if (fprintf(stderr, "[aram-expansion-request] main=%08X aram=%08X count=%08X ar_info=%04X control=%04X pc=%08X\n",
                         main_address, aram_address, count, dsp->ar_info, dsp->control, cpu->pc) < 0)
                 return reject(dsp, "ARAM expansion request trace write failed");
-            return reject(dsp, "ARAM DMA expansion/HSP address not implemented");
+            if (aram_address != ARAM_SIZE || count != 0x80000020u || dsp->ar_info != 0x63u ||
+                !(dsp->control & DSP_HALT))
+                return reject(dsp, "ARAM DMA expansion/HSP address not implemented");
+            if (fprintf(stderr, "[aram-hsp-absent] main=%08X aram=%08X bytes=32 direction=1 buffer=preserved pc=%08X\n",
+                        main_address, aram_address, cpu->pc) < 0)
+                return reject(dsp, "ARAM absent HSP trace write failed");
+            absent_hsp = true;
         }
         if ((dsp->ar_info & 0xFu) == 4u)
             return reject(dsp, "ARAM DMA mirrored layout not implemented");
     }
-    if (!bluewake_aram_dma_write(&dsp->aram, cpu, address, size, value & mask))
+    const bool transferred = absent_hsp ?
+        bluewake_aram_dma_write_absent_hsp(&dsp->aram, cpu, address, size, value & mask) :
+        bluewake_aram_dma_write(&dsp->aram, cpu, address, size, value & mask);
+    if (!transferred)
         return reject(dsp, "ARAM DMA requires a nonzero mapped MEM1 range and acknowledged prior transfer");
     if (trigger) {
         const u32 main_end = dsp->aram.last_main_address - GC_RAM_BASE + dsp->aram.last_length;

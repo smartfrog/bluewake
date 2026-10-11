@@ -108,11 +108,13 @@ static int dispatch(CPUState* cpu, u32 address) {
     }
     if (getenv("WW05_IO_ARAM_DMA") != NULL && !polled) {
         polled = true;
-        cpu->external_write(cpu, 0xCC005012u, 0x43u, 2u);
+        const char* mode = getenv("WW05_IO_ARAM_DMA");
+        const bool absent_hsp = strcmp(mode, "absent-hsp") == 0;
+        cpu->external_write(cpu, 0xCC005012u, absent_hsp ? 0x63u : 0x43u, 2u);
         cpu->external_write(cpu, 0xCC005020u, 0x1000u, 4u);
         cpu->external_write(cpu, 0xCC005024u,
-                            strcmp(getenv("WW05_IO_ARAM_DMA"), "hsp") == 0 ? 0x01000000u : 0u, 4u);
-        cpu->external_write(cpu, 0xCC005028u, 32u, 4u);
+                            absent_hsp || strcmp(mode, "hsp") == 0 ? 0x01000000u : 0u, 4u);
+        cpu->external_write(cpu, 0xCC005028u, absent_hsp ? 0x80000020u : 32u, 4u);
         if (cpu->exception != 0u)
             return 1;
         u32 reads = 0u;
@@ -316,7 +318,8 @@ int __wrap_fprintf(FILE* stream, const char* format, ...) {
          (strncmp(format, "[exception-vector-dispatch]", 27u) == 0 && failure("external-dispatch-log")) ||
          (strncmp(format, "[exception-vector-return]", 25u) == 0 && failure("external-return-log")) ||
          (strncmp(format, "[fp-exception-resume]", 21u) == 0 && failure("fp-resume-log")) ||
-         (strncmp(format, "[aram-expansion-request]", 24u) == 0 && failure("aram-expansion-log")))) {
+         (strncmp(format, "[aram-expansion-request]", 24u) == 0 && failure("aram-expansion-log")) ||
+         (strncmp(format, "[aram-hsp-absent]", 17u) == 0 && failure("aram-absent-log")))) {
         errno = EIO;
         return -1;
     }
