@@ -237,7 +237,7 @@ a lingering process. Its short red/green loops are in `logs/private-{launch,gues
 The parent-symlink loop reproduced creation outside an owned fake profile, then prevented it with the
 existing no-follow directory-descriptor pattern. No real/shared profile was involved.
 
-The WW05 host suite currently has **210 tests**. Source-bound logs retain exact counts/commands for these,
+The WW05 host suite currently has **215 tests**. Source-bound logs retain exact counts/commands for these,
 native runtime CTest, 71 native FP cases and the eight direct baseline files. Audit, attribution,
 pin/scope/diff and clean-worktree checks accompany delivery. The pre-launch `1ba507c` checkpoint passed
 35 WW05 tests, 177 unchanged tests, 53 direct baseline tests, 71 native FP cases and 3/1/5 runtime/corpus/
@@ -1181,3 +1181,42 @@ unloads or non-advancing timestamps are acceptable. The cited `host_materialize_
 `host_rel_slot_is_live` paths currently exist in `runtime/host/src/main.c`, not `vita/host/main.c`.
 Wire the contract when this lane actually reaches runtime REL loading; do not count the
 startup static-alias preparation as load events, and do not add fake REL activity now.
+
+## Real MI continuation, then the PI cold-reset-code read
+
+Run `7fea2e51df6e4488927d25548323da4a`, source `44ececc8f491568535b025123f96f9419bca4782`,
+passes the actual MI initialization stores and continues to the SDK reset-code read.
+The strictly request/source/package-bound closed guest report is **FAIL**: 11,055 edges,
+274,382 credited cycles, no FIFO bytes, `GX_FRONTIER complete=0` and `live=0`. Actual STOP:
+`unsupported MMIO read address=CC003024 pc=803069E8`. The private generated instruction is
+`lwz r0,36(r3)` with r3=`CC003000`, a word read, followed by the SDK reset-code extraction.
+Both phases timeout after 600 seconds, TERM/exit -15 and `waited=true`; the emulator
+124/INCOMPLETE disposition does not replace the guest FAIL. Build status zero, 121.790 seconds;
+the static archive is still `9d1c59238cea4b83798f1c16b0549950d41ec0011a89e95591d5a307718aea08`.
+Exact-source checks pass **210 host tests, 177 ARMv7 tests**, audit and attribution on Linux
+AArch64, with precommit native runtime CTest **3/3**. VPK SHA-256:
+`216ca40a985fa88f3e8787e740c30399a8b3fe7c201bccbfddd8cbe9e5367e35`;
+report: `b9c04e2e46720643b5c668a73181196b3695ee4893078d020325ef23bbd3b8ec`;
+result: `7511fbad113f11570dc90cac230a1bb98843e8669bc62e05c122077e5b3d712e`;
+log: `f6c7276f89fee80ad9b170588e6c18dd468592b41506721d0983e21928e55d79`;
+closed LER journal: `169da8b7a0e0d3067e984a0701130bdf9916ce1c09ccf887d9004ec9f413b079`.
+
+Pinned `HW/ProcessorInterface.h:52-60` identifies **PI_RESET_CODE at 0024**; the revision
+register is **002C**, not 0024. The initial revision-register interpretation was corrected
+before any test or implementation. `ProcessorInterface.cpp:47-57` initializes reset code
+to zero for cold reset; `119-134` returns the stored code and shows why writes are not inert:
+they can reset the DVD drive. WW05 only boots cold and provides no drive-reset backend, so
+this increment supports just the observed **32-bit read returning the sourced cold-reset zero**.
+All reset writes remain explicit failures with address/PC/width/value, and unsupported read
+widths remain failures. It adds no mutable reset state, Flipper revision, fake reset switch,
+drive activity, PI interrupt, clock credit or instruction skip. Reads use the existing
+observation/quantum path, so executed cycles are credited once and cannot renew a spent turn.
+
+`logs/pi-cold-reset-red.log` reproduces the three missing supported-read behaviors. The green
+suite `logs/pi-cold-reset-green.log` passes **215 host tests**, adding stable cold-reset state,
+the actual generated memory-read expression, rejected reset writes, parameterized unsupported
+read widths and credit/quantum preservation. **177 ARMv7 tests**, audit, attribution and native
+runtime CTest **3/3** pass on Linux AArch64. This read has not yet been tested in the real guest;
+the next isolated source-bound trial is required. No physical Vita, Windows CI, rendered frame
+or FPS is claimed. FPS/REL markers remain deferred, and the integrated DVD seam remains the
+required dependency at the first real file open.

@@ -26,6 +26,23 @@ class StartupHostTest(unittest.TestCase):
     def test_runtime_pvr_is_preserved(self):
         subprocess.run([str(OUT / 'host_probe'), 'pvr'], check=True)
 
+    def test_pi_cold_reset_code_is_stable_without_events_or_time(self):
+        subprocess.run([str(OUT / 'host_probe'), 'pi-cold-reset'], check=True)
+
+    def test_actual_sdk_reset_code_load_reads_through_the_memory_hook(self):
+        subprocess.run([str(OUT / 'host_probe'), 'pi-reset-load'], check=True)
+
+    def test_pi_reset_write_fails_with_context_without_changing_the_cold_reset_code(self):
+        subprocess.run([str(OUT / 'host_probe'), 'pi-reset-write'], check=True)
+
+    def test_pi_reset_read_rejects_widths_outside_the_supported_word_read(self):
+        for size in (1, 2, 8):
+            with self.subTest(size=size):
+                subprocess.run([str(OUT / 'host_probe'), f'pi-reset-width-{size}'], check=True)
+
+    def test_pi_reset_read_credits_executed_cycles_without_renewing_the_quantum(self):
+        subprocess.run([str(OUT / 'host_probe'), 'pi-reset-credit'], check=True)
+
     def test_unknown_spr_fails(self):
         subprocess.run([str(OUT / 'host_probe'), 'unknown-spr'], check=True)
 

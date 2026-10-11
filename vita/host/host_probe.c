@@ -341,6 +341,42 @@ int main(int argc, char** argv) {
         host->cpu.external_write(&host->cpu, 0xCC00300Cu, 1u, 4u);
         assert(host->error != NULL);
         assert(host->error_address == 0xCC00300Cu);
+    } else if (strcmp(argv[1], "pi-cold-reset") == 0) {
+        const DolInterrupts before = host->interrupts;
+        host->cpu.pc = 0x803069E8u;
+        assert(host->cpu.external_read(&host->cpu, 0xCC003024u, 4u) == 0u);
+        assert(host->cpu.external_read(&host->cpu, 0xCC003024u, 4u) == 0u);
+        assert(host->error == NULL && host->cpu.exception == 0u);
+        assert(memcmp(&before, &host->interrupts, sizeof(before)) == 0);
+        assert(host->cycles.absolute_cycles == 0u && host->cpu.timebase == 0u);
+    } else if (strcmp(argv[1], "pi-reset-load") == 0) {
+        host->cpu.pc = 0x803069E8u;
+        host->cpu.gpr[3] = 0xCC003000u;
+        host->cpu.gpr[0] = 0xFFFFFFFFu;
+        host->cpu.gpr[0] = mem_read32(&host->cpu, host->cpu.gpr[3] + 36u);
+        assert(host->error == NULL && host->cpu.gpr[0] == 0u);
+        assert(host->cpu.pc == 0x803069E8u && host->cpu.exception == 0u);
+    } else if (strcmp(argv[1], "pi-reset-write") == 0) {
+        host->cpu.pc = 0x803069E8u;
+        host->cpu.external_write(&host->cpu, 0xCC003024u, 4u, 4u);
+        assert(host->error != NULL && host->error_address == 0xCC003024u);
+        assert(host->error_pc == 0x803069E8u && host->error_width == 4u && host->error_value == 4u);
+        assert(host->cpu.external_read(&host->cpu, 0xCC003024u, 4u) == 0u);
+    } else if (strncmp(argv[1], "pi-reset-width-", 15u) == 0) {
+        const u8 size = (u8)strtoul(argv[1] + 15u, NULL, 10);
+        assert(size == 1u || size == 2u || size == 8u);
+        host->cpu.pc = 0x803069E8u;
+        host->cpu.external_read(&host->cpu, 0xCC003024u, size);
+        assert(host->error != NULL && host->error_address == 0xCC003024u);
+        assert(host->error_pc == 0x803069E8u);
+    } else if (strcmp(argv[1], "pi-reset-credit") == 0) {
+        bluewake_cycle_domain_begin_turn(&host->cycles, &host->cpu);
+        bluewake_cycle_domain_prepare_dispatch(&host->cycles, &host->cpu);
+        host->cpu.downcount -= 256;
+        host->cpu.external_read(&host->cpu, 0xCC003024u, 4u);
+        assert(host->error == NULL && host->cycles.absolute_cycles == 256u);
+        assert(host->cpu.timebase == 21u && host->cpu.cycle_budget == 0);
+        assert(bluewake_cycle_domain_end_turn(&host->cycles, &host->cpu) == 0u);
     } else if (strcmp(argv[1], "mi-mask") == 0) {
         host->cpu.external_write(&host->cpu, 0xCC00401Cu, 0x15u, 2u);
         assert(host->error == NULL);

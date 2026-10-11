@@ -335,6 +335,8 @@ static u64 mmio_read(CPUState* cpu, u32 address, u8 size) {
         value = host->mi_unknown1;
     else if (address == 0xCC004010u && size == 2u)
         value = host->mi_protection;
+    else if (address == 0xCC003024u && size == 4u)
+        value = 0u; // Cold boot only; reset writes still require a drive-reset backend.
     else if (address == 0xCC006C00u && size == 4u)
         dol_audio_dma_ai_mmio_read(&host->audio, DOL_AUDIO_DMA_AI_CONTROL_OFF, size, &value);
     else if (interrupt_register(address, size, false))
