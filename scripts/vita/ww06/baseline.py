@@ -94,8 +94,11 @@ def render_summary(baseline: dict) -> str:
             f"errors={record['save_errors']} span={record['span_us']} us")
     for name, requirement in baseline["requirements"].items():
         observed = requirement["observed"]
-        state = "not measured" if observed is None else ("observed" if observed else "FAILED")
-        lines.append(f"{name:<17} {state}: {requirement['detail']}")
+        if observed is None:
+            lines.append(f"{name:<17} {requirement['detail']}")
+        else:
+            state = "observed" if observed else "FAILED"
+            lines.append(f"{name:<17} {state}: {requirement['detail']}")
     lines.append(f"verdict           {baseline['verdict']}")
     for caveat in baseline["caveats"]:
         lines.append(f"caveat            {caveat}")
