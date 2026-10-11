@@ -532,6 +532,7 @@ int main(int argc, char** argv) {
         host->cpu.external_write(&host->cpu, 0xCC000034u, 0xEF5Fu, 2u);
         host->cpu.external_write(&host->cpu, 0xCC000038u, 0xA19Fu, 2u);
         host->cpu.external_write(&host->cpu, 0xCC000028u, 0x321Fu, 2u);
+        host->cpu.external_write(&host->cpu, 0xCC00002Cu, 0x543Fu, 2u);
         assert(host->error == NULL);
         assert(host->cpu.external_read(&host->cpu, 0xCC00300Cu, 4u) == 0x00429F60u);
         assert(host->cpu.external_read(&host->cpu, 0xCC003010u, 4u) == 0x004C9F40u);
@@ -541,6 +542,7 @@ int main(int argc, char** argv) {
         assert(host->cpu.external_read(&host->cpu, 0xCC000034u, 2u) == 0xEF40u);
         assert(host->cpu.external_read(&host->cpu, 0xCC000038u, 2u) == 0xA180u);
         assert(host->cpu.external_read(&host->cpu, 0xCC000028u, 2u) == 0x3200u);
+        assert(host->cpu.external_read(&host->cpu, 0xCC00002Cu, 2u) == 0x5420u);
     } else if (strncmp(argv[1], "cp-control-", 11u) == 0 || strncmp(argv[1], "cp-distance-low-", 16u) == 0) {
         const DolInterrupts before = host->interrupts;
         const bool distance = strncmp(argv[1], "cp-distance-low-", 16u) == 0;

@@ -2165,3 +2165,39 @@ pins, ABI, `BlueWakeRelData` and static archive are unchanged. Dynamic FIFO poin
 DVD/CMake integration, Windows ARAM verification and final test-count confirmation remain
 tracked. Physical Vita, Windows CI, rendering, FPS, runtime REL and actual guest disc/file
 access remain unverified.
+
+## Real CP high-watermark-low continuation and observed low-watermark low
+
+Run `06e59112b1d842a8a1b90d7938651afa`, source
+`720b1b44f7c036954ffb15bfa09d7553ad966d4a`, passes CP high-watermark low and reaches
+**`CC00002C = 0000`**, halfword PC **`80320FC8`**. The closed guest **FAIL** has
+**64,248 edges, 7,140,042 cycles**, zero FIFO bytes, `GX_FRONTIER complete=0`, `live=0`,
+`rendered=0`. Build status zero in 123.148 s; archive unchanged. Both owned phases timeout
+at 60 s, TERM/exit -15, `waited=true`; process **124/INCOMPLETE** is separate. Bindings
+and LER are rechecked in `logs/cp-fifo-high-watermark-low-evidence-720b1b4.json`. SHA-256:
+
+- VPK: `de7af01924bed97f3aa2a968b614e8b44a68ebeed28e8a93582200b65a43f62c`;
+- report: `f6253f7a359c9278cb7146f2f927daecefe387eca0c061dd7e514eb0ace79506`;
+- result: `97e47633af8c4e9ff5482d0eae3afde050a9932e988474454ee7c938ce772911`;
+- log: `e53c5af186f23140c23810e0dd46dfbad9baa2e8b8124233c165a3eafcb1c81d`;
+- LER: `169da8b7a0e0d3067e984a0701130bdf9916ce1c09ccf887d9004ec9f413b079`.
+
+The pin identifies **CP_FIFO_LO_WATERMARK_LO** at offset `2C`
+(`VideoCommon/CommandProcessor.h:70`), resets CPLoWatermark to zero
+(`CommandProcessor.cpp:35-48`) and directly maps its low halfword with **`FFE0`**
+(`130,148,159-163`). WW05 adds only this observed register/halfword to the scalar selector,
+using independent low-watermark storage and the existing shared width/mask/cycle path.
+The guest zero leaves its reset configuration unchanged. No GP enable, fake underflow status,
+IRQ, FIFO distance, consumption, memory copy, parser input or pointer advancement is introduced.
+
+`logs/cp-fifo-low-watermark-low-red.log` reproduces this refusal while earlier configuration
+parameters pass. `logs/cp-fifo-low-watermark-low-host-green.log` passes **318 host tests**
+on Linux AArch64, extending shared reset/store/mask, actual halfword memory-hook,
+invalid-width retained-state, independence and credited-cycle/spent-quantum cases. Main-loop
+fixture PASS remains synthetic, not authentic game/GX evidence. The next clean source-bound
+build/trial checks real continuation.
+
+Other unobserved CP accesses/enables and FIFO reset remain refused. Strict GX validation,
+pins, ABI, `BlueWakeRelData` and static archive are unchanged. Dynamic FIFO pointers,
+DVD/CMake integration, Windows ARAM verification and final counts remain tracked. Physical
+Vita, Windows CI, rendering, FPS, runtime REL and actual guest disc/file access remain unverified.

@@ -358,6 +358,8 @@ static u32* fifo_register(WwHost* host, u32 address, u8 size) {
         return &host->cp_fifo_end;
     if (address == 0xCC000028u && size == 2u)
         return &host->cp_fifo_high_watermark;
+    if (address == 0xCC00002Cu && size == 2u)
+        return &host->cp_fifo_low_watermark;
     if (address == 0xCC000034u && size == 2u)
         return &host->cp_fifo_write_pointer;
     if (address == 0xCC000038u && size == 2u)

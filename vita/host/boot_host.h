@@ -40,6 +40,7 @@ typedef struct WwHost {
     u32 cp_fifo_write_pointer;
     u32 cp_fifo_read_pointer;
     u32 cp_fifo_high_watermark;
+    u32 cp_fifo_low_watermark;
     WwCodeGuard code_guard;
     const char* error;
     u32 error_address;
