@@ -142,5 +142,33 @@ class StateTriangleTest(unittest.TestCase):
         self.assertEqual(self.lines["plan"][0][:2], ["ok=1", "vertices=3"])
 
 
+class CelTexgenTest(unittest.TestCase):
+    """Two texgens, the second a Color0 toon source, with channel 0 lit."""
+
+    @classmethod
+    def setUpClass(cls):
+        if not find_replay().is_file():
+            raise unittest.SkipTest("gx_replay not built; run scripts/vita/gx/build.py")
+        cls.lines = parse_report(run_scenario("cel_triangle"))
+        cls.pipeline = dict(field.split("=", 1) for field in cls.lines["pipeline"][0])
+        cls.texgens = [dict(field.split("=", 1) for field in entry[1:])
+                       for entry in cls.lines["texgen"]]
+
+    def test_two_texgens(self):
+        self.assertEqual(self.pipeline["texgens"], "2")
+        self.assertEqual(len(self.texgens), 2)
+
+    def test_second_texgen_is_color0(self):
+        self.assertEqual(self.texgens[0]["type"], "0")  # Regular
+        self.assertEqual(self.texgens[1]["type"], "2")  # Color0
+        self.assertEqual(self.texgens[1]["enabled"], "1")
+
+    def test_channel_zero_is_lit(self):
+        self.assertEqual(self.pipeline["litchan0"], "1")
+
+    def test_plan_is_textured(self):
+        self.assertEqual(self.pipeline["textured"], "1")
+
+
 if __name__ == "__main__":
     unittest.main()

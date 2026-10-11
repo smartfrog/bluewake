@@ -228,6 +228,37 @@ std::vector<std::uint8_t> build_state_triangle() {
   return fifo;
 }
 
+// --- Scenario: cel-shading texgen setup -------------------------------------
+//
+// Two texgens: tex0 regular (the diffuse map) and tex1 a Color0 toon source
+// (XF 0x1041: texgentype bits 4-6 = 2), with channel 0 lit by light 0 (XF
+// 0x100E: enablelighting bit 1, light mask bits 2-5) so the Color0 texgen
+// reads the computed light colour.
+
+std::vector<std::uint8_t> build_cel_triangle() {
+  std::vector<std::uint8_t> fifo;
+  push_common_state(fifo);
+  push_xf_block(fifo, 0x103Fu, {2u});     // numTexGens = 2
+  push_xf_block(fifo, 0x1041u, {0x120u}); // texgen 1: type Color0
+  push_xf_block(fifo, 0x1009u, {1u});     // numChans = 1
+  push_xf_block(fifo, 0x100Eu, {0x06u});  // color ctrl 0: lit, light 0
+  push_xf_block(fifo, 0x100Au, {0xFFFFFFFFu}); // ambient 0
+  push_xf_block(fifo, 0x100Cu, {0xFFFFFFFFu}); // material 0
+  push_xf_block(fifo, 0x0600u,
+                {
+                    0u, 0u, 0u, 0xFFFFFFFFu,     // reserved, RGBA8 colour
+                    0x3F800000u, 0u, 0u, 0u,     // cosatt
+                    0u, 0u, 0u, 0u,              // distatt
+                    0u, 0u, 0u, 0u,              // pos
+                    0u, 0u, 0x3F800000u, 0u,     // dir
+                });
+  push_bp(fifo, DOL_GX_BP_REG_TX_SETIMAGE0,
+          tex_image0(kTextureWidth, kTextureHeight, 6u));
+  push_bp(fifo, DOL_GX_BP_REG_TX_SETIMAGE3, kTextureBase >> 5u);
+  push_triangle(fifo);
+  return fifo;
+}
+
 // --- Report -----------------------------------------------------------------
 
 void plan_observer(const gxc::DrawPlan& plan, void* user) {
@@ -267,15 +298,24 @@ void plan_observer(const gxc::DrawPlan& plan, void* user) {
   std::snprintf(line, sizeof line,
                 "pipeline textured=%u has_pos_mtx_idx=%u cull_mode=%u "
                 "depth_test=%u depth_func=%u depth_update=%u blend_enable=%u "
-                "src_factor=%u dst_factor=%u color_update=%u alpha_update=%u",
+                "src_factor=%u dst_factor=%u color_update=%u alpha_update=%u "
+                "texgens=%u litchan0=%u",
                 plan.pipeline.shader.textured,
                 plan.pipeline.shader.has_pos_mtx_idx,
                 plan.pipeline.cull_mode, plan.pipeline.depth_test,
                 plan.pipeline.depth_func, plan.pipeline.depth_update,
                 plan.pipeline.blend_enable, plan.pipeline.src_factor,
                 plan.pipeline.dst_factor, plan.pipeline.color_update,
-                plan.pipeline.alpha_update);
+                plan.pipeline.alpha_update,
+                plan.pipeline.shader.num_tex_gens,
+                plan.pipeline.shader.litchan[0].enablelighting);
   out->push_back(line);
+  for (std::uint32_t t = 0; t < plan.pipeline.shader.num_tex_gens; ++t) {
+    const gxc::TexGenKey& texgen = plan.pipeline.shader.tex_gens[t];
+    std::snprintf(line, sizeof line, "texgen %u type=%u sourcerow=%u enabled=%u",
+                  t, texgen.texgentype, texgen.sourcerow, texgen.enabled);
+    out->push_back(line);
+  }
   if (plan.has_texture) {
     std::snprintf(line, sizeof line, "texture format=%u width=%u height=%u",
                   plan.tex_format, plan.tex_width, plan.tex_height);
@@ -350,6 +390,8 @@ int main(int argc, char** argv) {
     return run(build_ci8_triangle());
   if (scenario == "state_triangle")
     return run(build_state_triangle());
+  if (scenario == "cel_triangle")
+    return run(build_cel_triangle());
   std::fprintf(stderr, "unknown scenario: %s\n", scenario.c_str());
   return 2;
 }
