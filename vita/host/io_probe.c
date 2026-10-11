@@ -3,6 +3,7 @@
 #include "gxruntime/interrupts.h"
 #include "gxruntime/si.h"
 #include "gxruntime/exi.h"
+#include "boot_host.h"
 #include "external_vector.h"
 #include <assert.h>
 #include <errno.h>
@@ -137,6 +138,11 @@ static int dispatch(CPUState* cpu, u32 address) {
         const char* mode = getenv("WW05_IO_ARAM_DMA");
         const bool absent_write = strcmp(mode, "absent-hsp-write") == 0;
         const bool absent_hsp = absent_write || strcmp(mode, "absent-hsp") == 0;
+        const char* prior_transfers = getenv("WW05_IO_PRIOR_ARAM_TRANSFERS");
+        if (prior_transfers != NULL) {
+            WwHost* host = cpu->external_user_data;
+            host->dsp.aram.transfer_count = strtoull(prior_transfers, NULL, 10);
+        }
         cpu->external_write(cpu, 0xCC005012u, absent_hsp ? 0x63u : 0x43u, 2u);
         cpu->external_write(cpu, 0xCC005020u, 0x1000u, 4u);
         cpu->external_write(cpu, 0xCC005024u,

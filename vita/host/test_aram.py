@@ -39,6 +39,30 @@ class AramDmaTest(unittest.TestCase):
     def test_observed_absent_hsp_read_preserves_buffers_and_uses_normal_busy_completion_and_acknowledgement(self):
         subprocess.run([str(test_host.OUT / 'aram_probe'), 'absent-hsp-read'], check=True)
 
+    def test_accepted_hsp_request_and_completion_records_share_the_aram_sampling_schedule(self):
+        result = subprocess.run([str(test_host.OUT / 'aram_probe'), 'hsp-trace-sampling'], check=True,
+                                capture_output=True, text=True)
+        lines = result.stderr.splitlines()
+        absent = [line for line in lines if line.startswith('[aram-hsp-absent]')]
+        requests = [line for line in lines if line.startswith('[aram-expansion-request]')]
+        counts = [int(line.split('transfer=')[1].split()[0]) for line in lines if line.startswith('[aram-dma]')]
+        self.assertEqual(len(absent), 9)
+        self.assertEqual(len(requests), 9)
+        self.assertEqual(sum(line.startswith('[aram-complete]') for line in lines), 9)
+        self.assertEqual(counts, [*range(1, 9), 1000])
+        self.assertIn('direction=0 buffer=preserved pc=80317758', absent[-1])
+
+    def test_refused_hsp_shape_is_still_logged_after_the_initial_sampling_window(self):
+        result = subprocess.run([str(test_host.OUT / 'aram_probe'), 'hsp-trace-refused'], check=True,
+                                capture_output=True, text=True)
+        self.assertIn('[aram-expansion-request] main=00001000 aram=01000000 count=80000040', result.stderr)
+        self.assertNotIn('[aram-hsp-absent]', result.stderr)
+
+    def test_transfer_counter_exhaustion_cannot_wrap_the_sampling_sequence_or_commit_dma(self):
+        for device in ('aram', 'hsp'):
+            with self.subTest(device=device):
+                subprocess.run([str(test_host.OUT / 'aram_probe'), f'{device}-counter-exhausted'], check=True)
+
     def test_observed_absent_hsp_write_preserves_source_and_aram_with_normal_dma_bookkeeping(self):
         for access in ('write', 'write-word'):
             with self.subTest(access=access):

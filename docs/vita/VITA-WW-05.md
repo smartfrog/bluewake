@@ -1880,3 +1880,55 @@ widths, retained-state isolation and credited-cycle/spent-quantum behavior. The 
 main-loop fixture covers each configuration register without claiming real GX acceptance.
 Authentic continuation awaits the next clean build/trial. No physical Vita, Windows CI,
 rendering, FPS, runtime REL event or actual guest disc access is claimed.
+
+## Delta review: bounded HSP traces and known GX/integration limits
+
+Run `da07158f060f4e79ac74d5596b78a180`, source
+`0f69a6cb140bd526303c7cddcca7045864c7335e`, passes all three PI FIFO configuration
+stores and reaches **`CC000020 = 9F60`**, halfword PC **`80320F80`**. The closed guest
+**FAIL** has **64,248 edges, 7,140,042 cycles**, zero FIFO bytes,
+`GX_FRONTIER complete=0`, `live=0`, `rendered=0`. Build status zero in 123.752 s; archive
+unchanged. Both owned phases timeout at 60 s, TERM/exit -15, `waited=true`; process
+**124/INCOMPLETE** is distinct. Bindings and LER are independently rechecked in
+`logs/pi-fifo-wptr-evidence-0f69a6c.json`. SHA-256:
+
+- VPK: `b3007d29050f2d7ae7a70ffdf5cb2d9068f2424346e6207d18e11b4587ba264d`;
+- report: `86e1b838479ad27bf4c066fbe20ba7ddb9dff3fc18e0c293866f9548542feffd`;
+- result: `f6c2bfa5307759992f092dfca66cf57e6784efb86714d77b6600388f435f2824`;
+- log: `e53c5af186f23140c23810e0dd46dfbad9baa2e8b8124233c165a3eafcb1c81d`;
+- LER: `169da8b7a0e0d3067e984a0701130bdf9916ce1c09ccf887d9004ec9f413b079`.
+
+The delta review confirms B1/B2 and flags an unbounded accepted-HSP trace. The single
+`ww_host_trace_transfer` predicate now lives in `trace_sampling.h`, shared by host ARAM/EXI
+and DSP HSP diagnostics. Accepted expansion-request and absent-device records use the same
+next-transfer ordinal: the first eight, then each thousandth. Refused expansion shapes
+remain visible regardless of sampling. Checked trace failures still stop before transfer
+commit/completion. WW05 rejects an exhausted transfer counter before increment, logging or
+DMA, rather than wrapping the sample ordinal; the desktop ARAM API is unchanged.
+
+`logs/hsp-trace-sampling-red.log` reproduces 1001 absent-device lines instead of nine and
+an attempted unsampled trace write. `logs/hsp-trace-counter-red.log` reproduces counter
+wrap. `logs/hsp-trace-sampling-host-final-green.log` passes **315 host tests** on Linux
+AArch64, including 1001 accepted device-helper transfers with alternating directions,
+exact request/absent/DMA/completion sample counts, preserved memory, retained refused
+requests, first/thousandth checked-write failure, skipped ninth trace and counter exhaustion.
+These are game-free device tests, not authentic boot/GX acceptance.
+
+Known limit to resolve with the GX seam: PI FIFO WPTR is currently retained configuration
+only. The pin's `HW/GPFifo.cpp:88-104` commits each real 32-byte gather block to guest FIFO
+memory, wraps at the end or advances WPTR by 32; a guest polling WW05 WPTR will not yet see
+that progress. Correct this with actual gather-block production and its backing-memory
+write, not on scalar MMIO reads, parser completion or invented consumption. No runtime FIFO
+progress is claimed. Strict opcode/bytes/PC/completion-PC validation remains the GX gate.
+
+Final integration debt, explicitly unverified:
+
+- Before genuine guest disc/file access, rebase onto DVD integration
+  `35f7c8a05e69648a5e57241ef8ed08b9093fb337`; wire its existing DVD seam into boot-host DI
+  routing and the host CMake aggregator rather than add a second disc implementation.
+- Verify shared `aram_dma.c` in the Windows build/host checks; Linux native tests are not
+  Windows CI or hardware evidence.
+- Confirm exact test counts on the final source SHA/build, independently of interim counts.
+
+No physical Vita, Windows CI, rendering, FPS, runtime REL event or actual guest disc access
+is claimed. The next observed boot unit remains CP FIFO base-low configuration.

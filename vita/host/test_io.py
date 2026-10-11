@@ -17,7 +17,7 @@ class MainIoTest(unittest.TestCase):
 
     def run_fixture(self, failure='', stale=False, interrupt=None, exception=False, syscall=None, progress=False,
                     dispatch_trace=None, stale_dispatch=False, mmio_poll=False, aram_dma=False, dsp_init=False,
-                    cpu_boundary=None, exi=False, cp_control=None, pi_fifo=None):
+                    cpu_boundary=None, exi=False, cp_control=None, pi_fifo=None, prior_aram_transfers=None):
         with tempfile.TemporaryDirectory(dir=OUT, prefix='io-') as directory:
             root = Path(directory)
             data = bytearray(260)
@@ -45,6 +45,8 @@ class MainIoTest(unittest.TestCase):
                 environment['WW05_IO_MMIO_POLL'] = '1'
             if aram_dma:
                 environment['WW05_IO_ARAM_DMA'] = aram_dma if isinstance(aram_dma, str) else '1'
+            if prior_aram_transfers is not None:
+                environment['WW05_IO_PRIOR_ARAM_TRANSFERS'] = str(prior_aram_transfers)
             if dsp_init:
                 environment['WW05_IO_DSP_INIT'] = '1'
             if cpu_boundary is not None:
@@ -161,6 +163,21 @@ class MainIoTest(unittest.TestCase):
         self.assertNotEqual(status, 0)
         self.assertIn('STOP reason=ARAM absent HSP trace write failed', report)
         self.assertTrue(report.endswith('END frontier=FAIL live=0 rendered=0\n'))
+
+    def test_thousandth_hsp_sample_failure_stops_before_transfer_and_fifo_acceptance(self):
+        status, report = self.run_fixture(aram_dma='absent-hsp', prior_aram_transfers=999,
+                                          failure='aram-absent-log')
+        self.assertNotEqual(status, 0)
+        self.assertIn('GX_FRONTIER complete=0', report)
+        self.assertIn('STOP reason=ARAM absent HSP trace write failed', report)
+        self.assertTrue(report.endswith('END frontier=FAIL live=0 rendered=0\n'))
+
+    def test_unsampled_hsp_transfer_does_not_attempt_the_injected_trace_write(self):
+        status, report = self.run_fixture(aram_dma='absent-hsp', prior_aram_transfers=8,
+                                          failure='aram-absent-log')
+        self.assertEqual(status, 0)
+        self.assertIn('cycles=258\n', report)
+        self.assertTrue(report.endswith('END frontier=PASS live=0 rendered=0\n'))
 
     def test_absent_hsp_write_continues_through_the_main_loop_only_after_credited_completion(self):
         status, report = self.run_fixture(aram_dma='absent-hsp-write')

@@ -56,7 +56,46 @@ int main(int argc, char** argv) {
             host->cpu.ram[0x1000u + index] = (u8)(index * 3u + 1u);
             aram[0x400u + index] = (u8)(255u - index);
         }
-        if (strncmp(argv[1], "absent-hsp-", 11u) == 0) {
+        if (strcmp(argv[1], "aram-counter-exhausted") == 0 || strcmp(argv[1], "hsp-counter-exhausted") == 0) {
+            const bool hsp = strcmp(argv[1], "hsp-counter-exhausted") == 0;
+            if (hsp)
+                write_register(host, WW_DSP_AR_INFO, 0x63u, 2u);
+            host->dsp.aram.transfer_count = UINT64_MAX;
+            start_dma(host, 0x1000u, hsp ? 0x01000000u : 0x400u, 32u, false);
+            assert(host->error != NULL && strcmp(host->error, "ARAM transfer counter exhausted") == 0);
+            assert(host->dsp.aram.transfer_count == UINT64_MAX && host->dsp.aram_cycles_remaining == 0u);
+            assert(!host->dsp.aram.interrupt_pending && host->dsp.aram.regs[5] == 0u);
+            for (u32 index = 0u; index < 64u; ++index) {
+                assert(host->cpu.ram[0x1000u + index] == (u8)(index * 3u + 1u));
+                assert(aram[0x400u + index] == (u8)(255u - index));
+            }
+        } else if (strcmp(argv[1], "hsp-trace-sampling") == 0 || strcmp(argv[1], "hsp-trace-refused") == 0) {
+            write_register(host, WW_DSP_AR_INFO, 0x63u, 2u);
+            write_register(host, WW_DSP_CONTROL, 0x0844u, 2u);
+            if (strcmp(argv[1], "hsp-trace-refused") == 0) {
+                host->dsp.aram.transfer_count = 8u;
+                host->cpu.pc = 0x803176ACu;
+                start_dma(host, 0x1000u, 0x01000000u, 64u, true);
+                assert(host->error != NULL && host->dsp.aram.transfer_count == 8u);
+                assert(host->dsp.aram_cycles_remaining == 0u);
+            } else {
+                for (u32 transfer = 1u; transfer <= 1001u; ++transfer) {
+                    const bool read = (transfer & 1u) != 0u;
+                    host->cpu.pc = read ? 0x803176ACu : 0x80317758u;
+                    start_dma(host, 0x1000u, 0x01000000u, 32u, read);
+                    assert(host->error == NULL && host->dsp.aram.transfer_count == transfer);
+                    assert(host->dsp.aram_cycles_remaining == 246u);
+                    charge_cycles(host, 246u);
+                    write_register(host, WW_DSP_CONTROL, 0x0864u, 2u);
+                    assert(host->error == NULL && !host->dsp.aram.interrupt_pending);
+                }
+                assert(host->cycles.absolute_cycles == 1001u * 246u);
+            }
+            for (u32 index = 0u; index < 64u; ++index) {
+                assert(host->cpu.ram[0x1000u + index] == (u8)(index * 3u + 1u));
+                assert(aram[0x400u + index] == (u8)(255u - index));
+            }
+        } else if (strncmp(argv[1], "absent-hsp-", 11u) == 0) {
             const bool word = strcmp(argv[1], "absent-hsp-write-word") == 0;
             const bool long_write = strcmp(argv[1], "absent-hsp-long-write") == 0;
             const bool write = strcmp(argv[1], "absent-hsp-write") == 0 || word || long_write;

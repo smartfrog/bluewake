@@ -9,6 +9,7 @@
 #include "ipl_sram.h"
 #include "dsp_interface.h"
 #include "bat_contract.h"
+#include "trace_sampling.h"
 #include "gxruntime/di.h"
 #include "gxruntime/exi.h"
 #include "gxruntime/interrupts.h"
@@ -63,10 +64,6 @@ typedef struct WwHost {
 
 static inline bool ww_host_trace_syscall(u64 resume) {
     return resume <= 1u || resume % 1000u == 0u;
-}
-
-static inline bool ww_host_trace_transfer(u64 transfer) {
-    return transfer <= 8u || transfer % 1000u == 0u;
 }
 
 bool ww_host_init(WwHost* host);
