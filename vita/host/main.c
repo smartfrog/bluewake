@@ -178,16 +178,17 @@ int fixture_run(int argc, char** argv) {
         }
         if (!dispatched)
             ww_host_fail(host, "dispatch rejected guest PC", host->cpu.pc, host->cpu.pc);
-        if (host->cpu.exception && host->error == NULL && !ww_host_resume_exception(host)) {
+        if (host->cpu.exception && (host->error != NULL || !ww_host_resume_exception(host))) {
             CPUState* cpu = &host->cpu;
-            error |= fprintf(stderr, "[exception] bits=%08X pc=%08X srr0=%08X srr1=%08X msr=%08X lr=%08X r0=%08X r3=%08X r4=%08X r12=%08X fpscr=%08X program=%08X\n",
-                             cpu->exception, cpu->pc, cpu->srr0, cpu->srr1, cpu->msr,
-                             cpu->lr, cpu->gpr[0], cpu->gpr[3], cpu->gpr[4], cpu->gpr[12],
-                             cpu->fpscr, cpu->program_exception) < 0;
+            error |= fprintf(stderr, "[exception] bits=%08X pc=%08X srr0=%08X srr1=%08X msr=%08X lr=%08X r0=%08X r3=%08X r4=%08X r12=%08X fpscr=%08X program=%08X pi_cause=%08X pi_mask=%08X\n",
+                              cpu->exception, cpu->pc, cpu->srr0, cpu->srr1, cpu->msr,
+                              cpu->lr, cpu->gpr[0], cpu->gpr[3], cpu->gpr[4], cpu->gpr[12],
+                              cpu->fpscr, cpu->program_exception,
+                              host->interrupts.pi_cause, host->interrupts.pi_mask) < 0;
             const u32 vector = cpu->pc >= GC_RAM_BASE ? cpu->pc - GC_RAM_BASE : cpu->pc;
-            if (vector <= cpu->ram_size && 64u <= cpu->ram_size - vector) {
-                error |= fprintf(stderr, "[exception-vector] address=%08X hex=", cpu->pc) < 0;
-                for (u32 offset = 0u; offset < 64u; ++offset)
+            if (vector <= cpu->ram_size && 256u <= cpu->ram_size - vector) {
+                error |= fprintf(stderr, "[exception-vector] address=%08X bytes=256 hex=", cpu->pc) < 0;
+                for (u32 offset = 0u; offset < 256u; ++offset)
                     error |= fprintf(stderr, "%02X", cpu->ram[vector + offset]) < 0;
                 error |= fprintf(stderr, "\n") < 0;
             }

@@ -237,7 +237,7 @@ a lingering process. Its short red/green loops are in `logs/private-{launch,gues
 The parent-symlink loop reproduced creation outside an owned fake profile, then prevented it with the
 existing no-follow directory-descriptor pattern. No real/shared profile was involved.
 
-The WW05 host suite currently has **215 tests**. Source-bound logs retain exact counts/commands for these,
+The WW05 host suite currently has **218 tests**. Source-bound logs retain exact counts/commands for these,
 native runtime CTest, 71 native FP cases and the eight direct baseline files. Audit, attribution,
 pin/scope/diff and clean-worktree checks accompany delivery. The pre-launch `1ba507c` checkpoint passed
 35 WW05 tests, 177 unchanged tests, 53 direct baseline tests, 71 native FP cases and 3/1/5 runtime/corpus/
@@ -1220,3 +1220,47 @@ runtime CTest **3/3** pass on Linux AArch64. This read has not yet been tested i
 the next isolated source-bound trial is required. No physical Vita, Windows CI, rendered frame
 or FPS is claimed. FPS/REL markers remain deferred, and the integrated DVD seam remains the
 required dependency at the first real file open.
+
+## Real PI continuation: first external vector is outside compiled dispatch
+
+Run `107557bedf9241489d12e7396c3f77b2`, source `5c55b79ef5acc199a942ff3e541297400da6eae5`,
+passes the reset-code word read and continues through the guest's memory-init loop. The strict
+closed report remains **FAIL**: **36,124 edges, 6,789,375 credited cycles**, no FIFO bytes,
+`GX_FRONTIER complete=0`, `live=0`, and actual STOP:
+`unsupported host call address=00000500 pc=00000500`. Both owned phases time out after 600 s,
+exit -15 by TERM and `waited=true`; process 124/INCOMPLETE remains separate from the guest FAIL.
+Build status zero, 120.731 seconds, static archive SHA-256 still
+`9d1c59238cea4b83798f1c16b0549950d41ec0011a89e95591d5a307718aea08`.
+Exact-source **215 host tests, 177 ARMv7 tests**, audit and attribution pass on Linux AArch64;
+precommit native runtime CTest **3/3** passed. VPK SHA-256:
+`fcf7afb03e32ace8cd946a013c76a75754f0f47daa2c1dde9bd99b0d430d86f9`;
+report: `f086b1d3e08a30131abb9d0633eba3c4fe99a3d4d72dddd2bf4602669325ff6a`;
+result: `72622662b8481a1cf83cd0c45c47781ad4995609b6d17b5036f319ed9b3d87e6`;
+log: `86d7ddc3236a185c814dde809a8068911c2cf3eb4668a88b49d58f8766a330aa`;
+closed LER journal: `169da8b7a0e0d3067e984a0701130bdf9916ce1c09ccf887d9004ec9f413b079`.
+
+`00000500` is the external-interrupt vector, outside this module's compiled DOL ranges. The
+existing EE/PI gate takes the pinned exception, saves SRR0/SRR1 and clears the consumed pending
+CPU bit before dispatching the vector. The compiled dispatcher therefore reaches the unimplemented
+host-call path, which sets the host failure bit. The older outer-loop diagnostic condition skipped
+all state/vector logging when a host service had already failed, so this trial does **not** identify
+the delivered PI cause or prove the contents/lineage of the copied vector. Do not infer them from
+the zero-filled initial image or substitute a handler without verifying the actual guest memory.
+
+The next increment is **diagnostic only**. The existing exception diagnostic now also runs after
+a service-set failure, retains the first STOP address/PC/reason, includes the actual PI cause/mask,
+and reads at most **256 bounded bytes** directly from guest RAM at the failed PC. It prints the
+saved SRR pair and existing CPU state on the same unbuffered `ww05` channel; every write remains
+checked. No CPU registers, interrupt sources, memory, instruction result, timing or vector
+dispatch are changed. In particular, do not import the desktop's context-synthesis/vector-alias
+shortcut: the real vector instructions must be proved and executed, not skipped.
+
+`logs/external-vector-diagnostic-red.log` reproduces the missing state/bytes and the fact that the
+previous suppressed path never exercised injected logging failures. The synthetic main-loop
+fixture now follows the real edge/unsupported-host-call/error path with a game-free 256-byte
+pattern; it proves the original STOP survives, actual saved state and exact pattern are logged,
+the same 24 executed cycles remain, and state/vector write failures cannot publish a closed
+verdict. `logs/external-vector-diagnostic-green.log` passes **218 host tests**, alongside **177
+ARMv7 tests**, audit, attribution and native runtime CTest **3/3** on Linux AArch64. The real vector
+diagnostics still require a fresh source-bound isolated run. Physical Vita, Windows CI, rendering,
+FPS and REL lifecycle remain untested; no marker or completion is fabricated.

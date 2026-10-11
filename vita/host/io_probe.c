@@ -126,6 +126,10 @@ static int dispatch(CPUState* cpu, u32 address) {
     }
     const char* interrupt = getenv("WW05_IO_IRQ");
     if (interrupt != NULL && address == 0x80001000u) {
+        if (strcmp(interrupt, "unsupported") == 0) {
+            for (u32 index = 0u; index < 256u; ++index)
+                cpu->ram[0x500u + index] = (u8)index;
+        }
         if (strcmp(interrupt, "decrementer") == 0)
             ppc_mtspr(cpu, 22u, 0u, address);
         else {
@@ -142,6 +146,11 @@ static int dispatch(CPUState* cpu, u32 address) {
     if (interrupt != NULL && (address == 0x500u || address == 0x900u)) {
         assert(cpu->srr0 == 0x80001004u);
         assert(!(cpu->msr & PPC_MSR_EE));
+        if (strcmp(interrupt, "unsupported") == 0) {
+            assert(cpu->host_call(cpu, address));
+            cpu->downcount -= 12;
+            return 1;
+        }
         if (address == 0x500u)
             cpu->external_write(cpu, DOL_SI_BASE + DOL_SI_COMCSR_OFF, 0xC0010300u, 4u);
         ppc_rfi(cpu, address);
@@ -209,6 +218,12 @@ FILE* __wrap_fopen(const char* path, const char* mode) {
 }
 
 int __wrap_fprintf(FILE* stream, const char* format, ...) {
+    if (stream == stderr &&
+        ((strncmp(format, "[exception]", 11u) == 0 && failure("external-state-log")) ||
+         (strncmp(format, "[exception-vector]", 18u) == 0 && failure("external-vector-log")))) {
+        errno = EIO;
+        return -1;
+    }
     if (stream == stderr && dispatch_marked && strncmp(format, "[dispatch] stage=enter", 22u) == 0 &&
         failure("dispatch-entry-log")) {
         errno = EIO;

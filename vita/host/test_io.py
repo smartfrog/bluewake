@@ -67,6 +67,11 @@ class MainIoTest(unittest.TestCase):
                 self.assertIn('[exception-vector] address=00000C00', log)
             if interrupt == 'decrementer':
                 self.assertIn('[decrementer] stage=delivered vector=00000900', result.stderr.decode())
+            if interrupt == 'unsupported' and not failure:
+                log = result.stderr.decode()
+                self.assertIn('[exception] bits=00000001 pc=00000500 srr0=80001004', log)
+                self.assertIn('pi_cause=00010008 pi_mask=00000008', log)
+                self.assertIn('[exception-vector] address=00000500 bytes=256 hex=' + bytes(range(256)).hex().upper(), log)
             if dispatch_trace is not None:
                 path = root / 'ww05.dispatch'
                 self.assertEqual(path.read_text() if path.exists() else None, dispatch_trace)
@@ -114,6 +119,23 @@ class MainIoTest(unittest.TestCase):
                 self.assertEqual(status, 0)
                 self.assertIn('pc=80001004', report)
                 self.assertTrue(report.endswith('END frontier=PASS live=0 rendered=0\n'))
+
+    def test_unsupported_external_vector_logs_real_saved_state_and_bytes_without_replacing_the_first_failure(self):
+        status, report = self.run_fixture(interrupt='unsupported')
+        self.assertNotEqual(status, 0)
+        self.assertIn('STOP reason=unsupported host call address=00000500 pc=00000500', report)
+        self.assertIn('cycles=24\n', report)
+        self.assertTrue(report.endswith('END frontier=FAIL live=0 rendered=0\n'))
+
+    def test_external_failure_state_log_error_cannot_publish_a_closed_guest_verdict(self):
+        status, report = self.run_fixture(interrupt='unsupported', failure='external-state-log')
+        self.assertNotEqual(status, 0)
+        self.assertIsNone(report)
+
+    def test_external_vector_log_error_cannot_publish_a_closed_guest_verdict(self):
+        status, report = self.run_fixture(interrupt='unsupported', failure='external-vector-log')
+        self.assertNotEqual(status, 0)
+        self.assertIsNone(report)
 
     def test_unhandled_system_call_is_not_mislabelled_as_an_fp_defect(self):
         status, report = self.run_fixture(exception=True)
