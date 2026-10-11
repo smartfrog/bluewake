@@ -468,33 +468,40 @@ int main(int argc, char** argv) {
         assert(host->error != NULL && host->error_address == 0xC0u);
         assert(read_be32(host->cpu.ram + 0xC0u) == 0u);
     } else if (strncmp(argv[1], "pi-fifo-base-", 13u) == 0 || strncmp(argv[1], "pi-fifo-end-", 12u) == 0 ||
-               strncmp(argv[1], "pi-fifo-wptr-", 13u) == 0) {
+               strncmp(argv[1], "pi-fifo-wptr-", 13u) == 0 || strncmp(argv[1], "cp-fifo-base-low-", 17u) == 0) {
         const DolInterrupts before = host->interrupts;
         const bool end = strncmp(argv[1], "pi-fifo-end-", 12u) == 0;
         const bool wptr = strncmp(argv[1], "pi-fifo-wptr-", 13u) == 0;
-        const char* scenario = argv[1] + (end ? 12u : 13u);
-        const u32 address = end ? 0xCC003010u : wptr ? 0xCC003014u : 0xCC00300Cu;
-        host->cpu.pc = end ? 0x80320F08u : wptr ? 0x80320F1Cu : 0x80320EF8u;
+        const bool cp = strncmp(argv[1], "cp-fifo-base-low-", 17u) == 0;
+        const char* scenario = argv[1] + (cp ? 17u : end ? 12u : 13u);
+        const u32 address = cp ? 0xCC000020u : end ? 0xCC003010u : wptr ? 0xCC003014u : 0xCC00300Cu;
+        const u32 pc = cp ? 0x80320F80u : end ? 0x80320F08u : wptr ? 0x80320F1Cu : 0x80320EF8u;
+        const u8 supported_width = cp ? 2u : 4u;
+        const u32 mask = cp ? 0xFFE0u : 0xFFFFFFE0u;
+        host->cpu.pc = pc;
         const bool reset = strcmp(scenario, "reset") == 0;
         const bool store = strcmp(scenario, "store") == 0;
         const bool credit = strcmp(scenario, "credit") == 0;
         const bool bad_write = strncmp(scenario, "write-width-", 12u) == 0;
         const bool bad_read = strncmp(scenario, "read-width-", 11u) == 0;
         const bool masked = strncmp(scenario, "mask-", 5u) == 0;
-        const u64 value = masked ? strtoul(scenario + 5u, NULL, 0) : end ? 0x004C9F5Cu : 0x00429F60u;
+        const u64 value = masked ? strtoul(scenario + 5u, NULL, 0) : cp ? 0x9F60u : end ? 0x004C9F5Cu : 0x00429F60u;
         const u8 width = bad_write ? (u8)strtoul(scenario + 12u, NULL, 0) :
-                         bad_read ? (u8)strtoul(scenario + 11u, NULL, 0) : 4u;
+                         bad_read ? (u8)strtoul(scenario + 11u, NULL, 0) : supported_width;
         if (credit) {
             bluewake_cycle_domain_begin_turn(&host->cycles, &host->cpu);
             bluewake_cycle_domain_prepare_dispatch(&host->cycles, &host->cpu);
             host->cpu.downcount -= 256;
         }
         if (store) {
-            host->cpu.gpr[3] = 0xCC003000u;
+            host->cpu.gpr[3] = cp ? 0xCC000000u : 0xCC003000u;
             host->cpu.gpr[0] = (u32)value;
-            mem_write32(&host->cpu, host->cpu.gpr[3] + (end ? 16u : wptr ? 20u : 12u), host->cpu.gpr[0]);
+            if (cp)
+                mem_write16(&host->cpu, host->cpu.gpr[3] + 32u, (u16)host->cpu.gpr[0]);
+            else
+                mem_write32(&host->cpu, host->cpu.gpr[3] + (end ? 16u : wptr ? 20u : 12u), host->cpu.gpr[0]);
         } else if (!reset) {
-            host->cpu.external_write(&host->cpu, address, value, bad_write ? width : 4u);
+            host->cpu.external_write(&host->cpu, address, value, bad_write ? width : supported_width);
         }
         if (bad_read) {
             assert(host->error == NULL);
@@ -504,14 +511,14 @@ int main(int argc, char** argv) {
             assert(host->error != NULL && host->error_address == address && host->error_pc == host->cpu.pc);
             if (bad_write)
                 assert(host->error_width == width && host->error_value == value);
-            assert(host->cpu.external_read(&host->cpu, address, 4u) == (bad_write ? 0u : value & 0xFFFFFFE0u));
+            assert(host->cpu.external_read(&host->cpu, address, supported_width) == (bad_write ? 0u : value & mask));
         } else {
             assert(host->error == NULL && host->cpu.exception == 0u);
-            assert(host->cpu.external_read(&host->cpu, address, 4u) == (reset ? 0u : value & 0xFFFFFFE0u));
+            assert(host->cpu.external_read(&host->cpu, address, supported_width) == (reset ? 0u : value & mask));
         }
         assert(memcmp(&before, &host->interrupts, sizeof(before)) == 0);
         assert(host->frontier.size == 0u && !host->frontier.complete);
-        assert(host->cpu.pc == (end ? 0x80320F08u : wptr ? 0x80320F1Cu : 0x80320EF8u));
+        assert(host->cpu.pc == pc);
         assert(host->cycles.absolute_cycles == (credit ? 256u : 0u));
         if (credit) {
             assert(host->cpu.cycle_budget == 0 && host->cpu.timebase == 21u);
@@ -521,10 +528,12 @@ int main(int argc, char** argv) {
         host->cpu.external_write(&host->cpu, 0xCC00300Cu, 0x00429F60u, 4u);
         host->cpu.external_write(&host->cpu, 0xCC003010u, 0x004C9F5Cu, 4u);
         host->cpu.external_write(&host->cpu, 0xCC003014u, 0x00429FA0u, 4u);
+        host->cpu.external_write(&host->cpu, 0xCC000020u, 0xABDFu, 2u);
         assert(host->error == NULL);
         assert(host->cpu.external_read(&host->cpu, 0xCC00300Cu, 4u) == 0x00429F60u);
         assert(host->cpu.external_read(&host->cpu, 0xCC003010u, 4u) == 0x004C9F40u);
         assert(host->cpu.external_read(&host->cpu, 0xCC003014u, 4u) == 0x00429FA0u);
+        assert(host->cpu.external_read(&host->cpu, 0xCC000020u, 2u) == 0xABC0u);
     } else if (strncmp(argv[1], "cp-control-", 11u) == 0) {
         const DolInterrupts before = host->interrupts;
         host->cpu.pc = 0x80321308u;

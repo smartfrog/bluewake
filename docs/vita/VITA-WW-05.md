@@ -1932,3 +1932,29 @@ Final integration debt, explicitly unverified:
 
 No physical Vita, Windows CI, rendering, FPS, runtime REL event or actual guest disc access
 is claimed. The next observed boot unit remains CP FIFO base-low configuration.
+
+## Observed CP FIFO base-low configuration
+
+The actual `da07158f060f4e79ac74d5596b78a180` blocker above is **CP_FIFO_BASE_LO**:
+`VideoCommon/CommandProcessor.h:64` identifies offset `20`; `CommandProcessor.cpp:35-48`
+resets CPBase and GP enables to zero. `128-143,159-163` directly map the low halfword and
+apply **`FFE0`**, independently of CP control. The observed `9F60` remains `9F60`; a
+low write of `9F7F` reads back as `9F60`. No reusable CP MMIO implementation exists in the
+pinned C runtime/shared host, so WW05 extends the existing scalar FIFO register selector
+with exactly this observed address and halfword width. PI stores still require words.
+One shared masked-write path retains configuration only; it does not start GP reads/link,
+copy guest FIFO bytes, move WPTR, feed the GX parser or raise an interrupt.
+
+The register tests reuse the PI configuration fixture and explicit width parameterizations,
+including zero reset, normal guest halfword memory hook, sourced mask, invalid read/write
+widths with unchanged retained state, independent PI/CP values and real credited cycles
+without spent-quantum renewal. `logs/cp-fifo-base-low-red.log` reproduces the low-register
+refusal while PI cases pass. `logs/cp-fifo-base-low-host-final-green.log` passes **315 host
+tests** on Linux AArch64, with extended parameters rather than an inflated method count.
+The main-loop continuation remains a clearly synthetic FIFO fixture, not game acceptance.
+
+Other CP FIFO registers, CP enables and FIFO reset remain refused. The documented WPTR
+progress limitation is still open and belongs to the authentic gather/FIFO path. Strict
+opcode/bytes/PC/completion-PC GX validation, pinned module/CPU ABI and static archive are
+unchanged. The next clean source-bound Vita build/trial will check authentic continuation;
+physical Vita, Windows CI, rendering, FPS, runtime REL and guest disc access remain unverified.

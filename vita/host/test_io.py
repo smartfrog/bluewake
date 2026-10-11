@@ -17,7 +17,7 @@ class MainIoTest(unittest.TestCase):
 
     def run_fixture(self, failure='', stale=False, interrupt=None, exception=False, syscall=None, progress=False,
                     dispatch_trace=None, stale_dispatch=False, mmio_poll=False, aram_dma=False, dsp_init=False,
-                    cpu_boundary=None, exi=False, cp_control=None, pi_fifo=None, prior_aram_transfers=None):
+                    cpu_boundary=None, exi=False, cp_control=None, fifo=None, prior_aram_transfers=None):
         with tempfile.TemporaryDirectory(dir=OUT, prefix='io-') as directory:
             root = Path(directory)
             data = bytearray(260)
@@ -55,8 +55,8 @@ class MainIoTest(unittest.TestCase):
                 environment['WW05_IO_EXI'] = '1'
             if cp_control is not None:
                 environment['WW05_IO_CP_CONTROL'] = str(cp_control)
-            if pi_fifo is not None:
-                environment['WW05_IO_PI_FIFO'] = pi_fifo
+            if fifo is not None:
+                environment['WW05_IO_FIFO'] = fifo
             result = subprocess.run([str(OUT / 'io_probe')], cwd=root,
                                     env=environment, capture_output=True, timeout=10)
             report = (root / 'ww05.report').read_text() if (root / 'ww05.report').exists() else None
@@ -119,10 +119,10 @@ class MainIoTest(unittest.TestCase):
         self.assertEqual(status, 0)
         self.assertTrue(report.endswith('END frontier=PASS live=0 rendered=0\n'))
 
-    def test_pi_fifo_configuration_setup_continues_guest_dispatch_before_the_host_only_fifo_fixture(self):
-        for register in ('base', 'end', 'wptr'):
+    def test_fifo_configuration_setup_continues_guest_dispatch_before_the_host_only_fifo_fixture(self):
+        for register in ('base', 'end', 'wptr', 'cp-base-low'):
             with self.subTest(register=register):
-                status, report = self.run_fixture(pi_fifo=register)
+                status, report = self.run_fixture(fifo=register)
                 self.assertEqual(status, 0)
                 self.assertTrue(report.endswith('END frontier=PASS live=0 rendered=0\n'))
 

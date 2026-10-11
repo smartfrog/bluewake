@@ -8,6 +8,7 @@ from vector_fixture import external_vector_fixture
 ROOT = Path(__file__).resolve().parents[2]
 STACK = Path('/home/fred/projects/zeldaWWHDRecomp/build-vita-tools/local-stack')
 OUT = Path('/home/fred/projects/zeldaWWHDRecomp/build-f5/services-tests')
+FIFO_REGISTERS = {'pi-fifo-base': 4, 'pi-fifo-end': 4, 'pi-fifo-wptr': 4, 'cp-fifo-base-low': 2}
 
 
 class StartupHostTest(unittest.TestCase):
@@ -44,40 +45,40 @@ class StartupHostTest(unittest.TestCase):
     def test_runtime_pvr_is_preserved(self):
         subprocess.run([str(OUT / 'host_probe'), 'pvr'], check=True)
 
-    def test_pi_fifo_configuration_starts_at_the_sourced_zero_reset_without_events(self):
-        for register in ('base', 'end', 'wptr'):
+    def test_fifo_configuration_starts_at_the_sourced_zero_reset_without_events(self):
+        for register in FIFO_REGISTERS:
             with self.subTest(register=register):
-                subprocess.run([str(OUT / 'host_probe'), f'pi-fifo-{register}-reset'], check=True)
+                subprocess.run([str(OUT / 'host_probe'), f'{register}-reset'], check=True)
 
-    def test_observed_pi_fifo_configuration_store_retains_the_masked_word_through_the_guest_memory_hook(self):
-        for register in ('base', 'end', 'wptr'):
+    def test_observed_fifo_configuration_store_retains_the_masked_value_through_the_guest_memory_hook(self):
+        for register in FIFO_REGISTERS:
             with self.subTest(register=register):
-                subprocess.run([str(OUT / 'host_probe'), f'pi-fifo-{register}-store'], check=True)
+                subprocess.run([str(OUT / 'host_probe'), f'{register}-store'], check=True)
 
-    def test_pi_fifo_configuration_retains_only_the_sourced_32_byte_alignment_mask(self):
-        for register in ('base', 'end', 'wptr'):
+    def test_fifo_configuration_retains_only_the_sourced_32_byte_alignment_mask(self):
+        for register in FIFO_REGISTERS:
             for value in (0, 0x00429F7F, 0xFFFFFFFF):
                 with self.subTest(register=register, value=value):
-                    subprocess.run([str(OUT / 'host_probe'), f'pi-fifo-{register}-mask-{value}'], check=True)
+                    subprocess.run([str(OUT / 'host_probe'), f'{register}-mask-{value}'], check=True)
 
-    def test_pi_fifo_configuration_write_rejects_widths_outside_the_observed_word_store(self):
-        for register in ('base', 'end', 'wptr'):
-            for width in (1, 2, 8):
+    def test_fifo_configuration_write_rejects_widths_outside_the_observed_store(self):
+        for register, supported_width in FIFO_REGISTERS.items():
+            for width in (width for width in (1, 2, 4, 8) if width != supported_width):
                 with self.subTest(register=register, width=width):
-                    subprocess.run([str(OUT / 'host_probe'), f'pi-fifo-{register}-write-width-{width}'], check=True)
+                    subprocess.run([str(OUT / 'host_probe'), f'{register}-write-width-{width}'], check=True)
 
-    def test_pi_fifo_configuration_read_requires_the_supported_word_width(self):
-        for register in ('base', 'end', 'wptr'):
-            for width in (1, 2, 8):
+    def test_fifo_configuration_read_requires_the_supported_width(self):
+        for register, supported_width in FIFO_REGISTERS.items():
+            for width in (width for width in (1, 2, 4, 8) if width != supported_width):
                 with self.subTest(register=register, width=width):
-                    subprocess.run([str(OUT / 'host_probe'), f'pi-fifo-{register}-read-width-{width}'], check=True)
+                    subprocess.run([str(OUT / 'host_probe'), f'{register}-read-width-{width}'], check=True)
 
-    def test_pi_fifo_configuration_write_credits_cycles_without_manufacturing_fifo_or_quantum_allowance(self):
-        for register in ('base', 'end', 'wptr'):
+    def test_fifo_configuration_write_credits_cycles_without_manufacturing_fifo_or_quantum_allowance(self):
+        for register in FIFO_REGISTERS:
             with self.subTest(register=register):
-                subprocess.run([str(OUT / 'host_probe'), f'pi-fifo-{register}-credit'], check=True)
+                subprocess.run([str(OUT / 'host_probe'), f'{register}-credit'], check=True)
 
-    def test_pi_fifo_configuration_words_have_independent_retained_storage(self):
+    def test_fifo_configuration_values_have_independent_retained_storage(self):
         subprocess.run([str(OUT / 'host_probe'), 'pi-fifo-independent'], check=True)
 
     def test_observed_cp_control_zero_init_does_not_create_fifo_or_interrupt_activity(self):

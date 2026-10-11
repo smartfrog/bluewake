@@ -32,17 +32,21 @@ static int dispatch(CPUState* cpu, u32 address) {
     static bool polled;
     static u32 repeated_handlers;
     static bool init_started;
-    const char* pi_fifo = getenv("WW05_IO_PI_FIFO");
-    if (pi_fifo != NULL) {
-        assert(strcmp(pi_fifo, "base") == 0 || strcmp(pi_fifo, "end") == 0 || strcmp(pi_fifo, "wptr") == 0);
-        const bool end = strcmp(pi_fifo, "end") == 0;
-        const bool wptr = strcmp(pi_fifo, "wptr") == 0;
-        const u32 address = end ? 0xCC003010u : wptr ? 0xCC003014u : 0xCC00300Cu;
-        const u32 value = end ? 0x004C9F5Cu : 0x00429F60u;
-        cpu->external_write(cpu, address, value, 4u);
+    const char* fifo = getenv("WW05_IO_FIFO");
+    if (fifo != NULL) {
+        assert(strcmp(fifo, "base") == 0 || strcmp(fifo, "end") == 0 || strcmp(fifo, "wptr") == 0 ||
+               strcmp(fifo, "cp-base-low") == 0);
+        const bool end = strcmp(fifo, "end") == 0;
+        const bool wptr = strcmp(fifo, "wptr") == 0;
+        const bool cp = strcmp(fifo, "cp-base-low") == 0;
+        const u32 address = cp ? 0xCC000020u : end ? 0xCC003010u : wptr ? 0xCC003014u : 0xCC00300Cu;
+        const u32 value = cp ? 0x9F60u : end ? 0x004C9F5Cu : 0x00429F60u;
+        const u8 width = cp ? 2u : 4u;
+        const u32 mask = cp ? 0xFFE0u : 0xFFFFFFE0u;
+        cpu->external_write(cpu, address, value, width);
         if (cpu->exception != 0u)
             return 1;
-        assert(cpu->external_read(cpu, address, 4u) == (value & 0xFFFFFFE0u));
+        assert(cpu->external_read(cpu, address, width) == (value & mask));
     }
     const char* cp_control = getenv("WW05_IO_CP_CONTROL");
     if (cp_control != NULL) {
