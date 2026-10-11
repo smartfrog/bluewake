@@ -104,6 +104,9 @@ static void observe(CPUState* cpu) {
 
 static u32 spr_read(CPUState* cpu, u16 spr, u32 cia) {
     WwHost* host = owner(cpu);
+    u32 bat_value;
+    if (ww_bat_read(&host->bat, spr, &bat_value))
+        return bat_value;
     if (spr == 287u)
         return 0x00083214u;
     if (spr == 1008u)
@@ -142,6 +145,24 @@ static void spr_write(CPUState* cpu, u16 spr, u32 value, u32 cia) {
             ppc_memory_fence();
         }
         host->l2cr = value;
+    } else if (ww_bat_contains(spr)) {
+        const char* error = ww_bat_write(&host->bat, spr, value, cpu->msr);
+        if (error == NULL && (spr & 1u) == 0u && (value & 3u) != 0u) {
+            u32 lower;
+            if (!ww_bat_read(&host->bat, spr + 1u, &lower))
+                error = "BAT trace cannot read matching lower register";
+            else if (fprintf(stderr, "[bat] spr=%u upper=%08X lower=%08X bytes=%u pc=%08X\n", spr, value,
+                             lower, (((value >> 2u) & 0x7FFu) + 1u) << 17u, cia) < 0)
+                error = "BAT trace write failed";
+        }
+        if (error != NULL) {
+            if (host->error == NULL) {
+                host->error_width = 4u;
+                host->error_value = value;
+            }
+            ww_host_fail(host, error, spr, cia);
+            return;
+        }
     } else {
         ww_host_fail(host, "unsupported SPR write", spr, cia);
     }
@@ -428,6 +449,11 @@ bool ww_host_edge(void* user, CPUState* cpu, u32 address) {
     // Composite edges follow completed blocks; only in-block observations exclude an instruction suffix.
     bluewake_cycle_domain_flush(&host->cycles, cpu);
     refresh(host);
+    if (!ww_bat_memory_supported(&host->bat, cpu->msr)) {
+        ww_host_fail(host, "BAT translation requires a complete supported fixed memory view", address, cpu->pc);
+        host->edge_stopped = true;
+        return true;
+    }
     if (host->cycles.absolute_cycles >= host->next_edge_progress || (host->edges & 0xFFFFu) == 0u) {
         if (fprintf(stderr, "[edge-progress] edges=%llu cycles=%llu pc=%08X tb=%llu dec=%08X pending=%u ee=%u downcount=%lld budget=%lld\n",
                     (unsigned long long)host->edges, (unsigned long long)host->cycles.absolute_cycles,
@@ -535,6 +561,7 @@ bool ww_host_init(WwHost* host) {
     host->cpu.instruction_fallback = fallback;
     host->cpu.host_call = host_call;
     host->decrementer = UINT32_MAX;
+    ww_bat_init(&host->bat);
     host->decrementer_valid = true;
     bluewake_cycle_domain_init(&host->cycles, 256, advance, deadline, host);
     dol_interrupts_init(&host->interrupts);

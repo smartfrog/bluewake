@@ -237,7 +237,7 @@ a lingering process. Its short red/green loops are in `logs/private-{launch,gues
 The parent-symlink loop reproduced creation outside an owned fake profile, then prevented it with the
 existing no-follow directory-descriptor pattern. No real/shared profile was involved.
 
-The WW05 host suite currently has **189 tests**. Source-bound logs retain exact counts/commands for these,
+The WW05 host suite currently has **203 tests**. Source-bound logs retain exact counts/commands for these,
 native runtime CTest, 71 native FP cases and the eight direct baseline files. Audit, attribution,
 pin/scope/diff and clean-worktree checks accompany delivery. The pre-launch `1ba507c` checkpoint passed
 35 WW05 tests, 177 unchanged tests, 53 direct baseline tests, 71 native FP cases and 3/1/5 runtime/corpus/
@@ -1040,3 +1040,80 @@ A source-bound isolated game trial is next; no physical Vita, Windows CI, render
 performance was tested, and no pins, generated game code or shared runtime source changed.
 Tracker publication/open-PR checks remain unavailable under the offline/no-network constraint;
 this Markdown record remains the local evidence for VITA-WW-05.
+
+## Restart recovery: real init mail reached, then the SDK BAT setup
+
+The server restart cancelled supervisor `sh_12b1d95ea001R5J027kuS3bmbg` during guest phase of
+run `c683ad214d254385851731b785d0d080`, source `023736f128ab14fae47e0798a7b61f946978c08f`.
+Build status was zero, 122.223 seconds; the archive is still byte-identical. Installation has
+a retained 600-second timeout/TERM/reap receipt with `waited=true`, and preparation was VERIFIED.
+The guest wrote a source/request/package-bound, eight-record closed **FAIL** report before the
+restart. It has 10,874 edges, 271,011 credited cycles, zero FIFO bytes and `live=0`.
+STOP is `unsupported SPR write address=00000218 pc=80305C4C`.
+There is **no guest process receipt and no original result.json**: its exit, duration and wait
+cannot be reconstructed. A fresh `/proc` inspection found no live run-owned sandbox or Vita3K
+process. This is an interrupted INCOMPLETE process attempt, not an invented 124 or successful reap.
+
+Recovery rechecked clean source/pins, readonly build/runtime/library/firmware inputs, the
+installed private SELF/SFO/DOL bytes and the strict report token/package identity. The new
+exclusive `evidence/restart-recovery.json` records that missing receipt rather than rewriting
+the absent terminal process evidence. Recovery SHA-256:
+`cbbfad0e983f356e28c1b2af01f5f47f723469da9da582c2ed37b5e8ed1f35cf`.
+VPK: `346e886b7c992d1c6800d9fbcfa7a84e2f60205f3a8478424ebd0203d6ac0d2b`;
+report: `d6a1c20cb14b86dd7a639537aa1450b4e8e1e27c39385223f68f73434356e085`;
+log: `4165da4493a25f346e913cd499eb86e05ce6740f4ca897717e9e53f41a38ac24`;
+the three-byte LER journal hash remains unchanged.
+
+The retained log proves both 32-byte ARAM copies, the real 4 KiB DSP init copy at `80302F34`,
+and **`[dsp-init-mail] value=80544348 cycles=270659`**. The CPU then consumes the mail and
+asserts HALT/reset in its real startup sequence. There is no DSP init-HALT trace, so this trial
+does not prove execution of the following DSP HALT instruction; it proves the fixed init mail
+was reached and the guest continued. Audio remains stopped/silent. Exact-source checks remain
+189 host tests, 177 ARMv7 tests, audit and attribution on Linux AArch64, with precommit native
+runtime CTest 3/3. Nothing was pushed and the cancelled profile is preserved, never reused.
+
+SPR `0x218` is **DBAT0U (536)**, not DSP/MMIO. Pinned `PowerPC/Gekko.h:852-867` maps IBAT0..3
+and DBAT0..3 to SPRs 528..543. The actual failing instruction writes zero from r7, invalidating
+DBAT0U before setting its lower and upper halves. Static inspection of the source-bound private
+startup shows lower `00000002`, upper `800001FF`, then BAT2 lower `01000002`, upper `810000FF`,
+in both data and instruction banks. The function enables MSR IR/DR by its real RFI at `80305CA0`.
+With BL measured in 128 KiB blocks, these are **16 MiB at 80000000 -> physical 00000000** and
+**8 MiB at 81000000 -> physical 01000000**. Pinned `Gekko.h:710-735` gives BEPI/BL/VS/VP and
+BRPN/WIMG/PP; `PowerPC/MMUBAT.cpp:15-78` gives the actual base and block translation.
+
+WW05 retains all 16 BAT halves in `bat_contract.c`, beginning with the pinned GameCube boot
+setup (`Boot/Boot_BS2Emu.cpp:116-138`): IBAT0/DBAT0 `80001FFF/00000002` and DBAT1
+`C0001FFF/0000002A`, other pairs disabled. It accepts only this boot view, the observed split
+MEM1 view and zero/disabled preparation writes. A lower change requires the upper to have been
+invalidated; an enabled upper requires the exact supported physical base/attributes. No changed
+BAT is accepted while that bank's IR/DR is active. The pinned `ppc_mfspr`/`ppc_mtspr` privilege
+check is unchanged; the original instruction fallback executes the actual mtdbat opcode and
+advances PC normally, without an instruction skip or fake charge. Readback returns the retained
+values. Active upper commits trace SPR, upper/lower, real range size and CIA; errors propagate.
+
+This is a **fixed-view contract, not a new MMU**: the allowed tuples produce exactly the existing
+24 MiB MEM1 and uncached mirror relation from pinned `GXRuntime/include/core/cpu.h:205-254`.
+It does not add mappings, extra memory, segment/page translation, cache accuracy or protection
+faults. Every edge with IR/DR active requires a complete supported view, including the retained
+uncached data mapping, after crediting the completed block's actual cycles. An unsupported
+base, length, physical page, attribute, active remap or incomplete view fails explicitly rather
+than being accepted as a meaningless SPR store. Registers are host-owned and counted by the
+existing `sizeof(WwHost)` allocation census. Pins/shared runtime/generated code remain untouched.
+
+TDD records: `logs/bat-contract-red.log` plus `logs/bat-contract-red-fixture-build.log` retain a
+fixture constant typo, fixed before `logs/bat-contract-red-behavior.log` reproduces all 13
+missing contract behaviors. `logs/bat-contract-trace-red.log` reproduces absent commit traces.
+`logs/bat-contract-edge-credit-red.log` exposes a pre-flush edge refusal; the check was moved
+after the existing credit flush, so failed activation retains all executed cycles.
+`logs/bat-contract-edge-green.log` passes **203 host tests**, including original instruction
+fallback, boot and SDK readback, actual RFI/unchanged memory views, privilege checks, rejected
+unknown/partial/active tuples and the failing edge's cycle credit. **177 ARMv7 tests**, audit,
+attribution and native runtime CTest **3/3** pass on Linux AArch64; physical Vita and Windows CI
+remain untested. A fresh 600-second-per-phase source-bound trial is next.
+
+Coordinator integration note: VITA-WW-13's disc seam is present locally at
+`35f7c8a05e69648a5e57241ef8ed08b9093fb337`. When the guest approaches its first actual file open,
+rebase this lane onto that integration and use its pinned dvd.c force-include seam, private ISO
+path `ux0:data/bluewake/GZLE01.iso` and isolated `scripts/vita/dvd/launch.py`. Do not reinvent
+disc/FST reads. No rebase is needed for the current DSP/BAT wall; preserve existing source-bound
+trial identities before changing the branch base.

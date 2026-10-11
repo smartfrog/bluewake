@@ -8,6 +8,7 @@
 #include "cycle_domain.h"
 #include "ipl_sram.h"
 #include "dsp_interface.h"
+#include "bat_contract.h"
 #include "gxruntime/di.h"
 #include "gxruntime/exi.h"
 #include "gxruntime/interrupts.h"
@@ -27,6 +28,7 @@ typedef struct WwHost {
     DolSiDevice si;
     DolAudioDma audio;
     WwDspInterface dsp;
+    WwBatContract bat;
     const StaticRecompModuleDesc* module;
     u32 l2cr;
     WwCodeGuard code_guard;
