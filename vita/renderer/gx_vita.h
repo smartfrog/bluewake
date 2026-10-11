@@ -3,9 +3,15 @@
 //
 // One gxcore DrawPlan becomes the exact command set a vitaGL submission would
 // issue: pipeline state in the GL token space, the decoded geometry, and the
-// texture decoded to RGBA8 by the pinned codecs. The structs are
+// textures decoded to RGBA8 by the pinned codecs. The structs are
 // backend-neutral, so the host records and checks them without a GPU and the
 // Vita side submits the same values through vitaGL.
+//
+// Texture rules (mirroring gxcore.cpp's plan build): the flat `texture` field
+// is the single-texmap case and the sampler is the one for that texmap; when
+// the draw samples more than one texmap (THP YUV, two-texture J2D) the
+// per-texmap `textures[]` set and `texmap_mask` are authoritative. Samplers
+// are indexed by texmap, never assumed to be 0.
 
 #pragma once
 
@@ -38,11 +44,18 @@ inline constexpr std::uint16_t kGlGequal = 0x0206;
 inline constexpr std::uint16_t kGlAlways = 0x0207;
 inline constexpr std::uint16_t kGlBack = 0x0405;
 inline constexpr std::uint16_t kGlFront = 0x0404;
+inline constexpr std::uint16_t kGlCcw = 0x0901;
+inline constexpr std::uint16_t kGlCw = 0x0900;
 inline constexpr std::uint16_t kGlRepeat = 0x2901;
 inline constexpr std::uint16_t kGlClampToEdge = 0x812F;
 inline constexpr std::uint16_t kGlMirroredRepeat = 0x8370;
 inline constexpr std::uint16_t kGlNearest = 0x2600;
 inline constexpr std::uint16_t kGlLinear = 0x2601;
+inline constexpr std::uint16_t kGlFuncAdd = 0x8006;
+inline constexpr std::uint16_t kGlFuncSubtract = 0x800A;
+inline constexpr std::uint16_t kGlPoints = 0x0000;
+inline constexpr std::uint16_t kGlLines = 0x0001;
+inline constexpr std::uint16_t kGlTriangles = 0x0004;
 
 // Pipeline state as vitaGL consumes it. program_key hashes the gxcore
 // ShaderKey (Cg program selection); equal keys mean equal Cg sources.
@@ -53,16 +66,30 @@ struct PipelineState {
   std::uint8_t blend_enable = 0;
   std::uint16_t blend_src = kGlOne;
   std::uint16_t blend_dst = kGlZero;
+  // Separate alpha factors (glBlendFuncSeparate), already Dolphin-mapped by
+  // gxcore (GX colour factors collapse to their alpha equivalents).
+  std::uint16_t blend_src_alpha = kGlOne;
+  std::uint16_t blend_dst_alpha = kGlZero;
+  std::uint16_t blend_equation = kGlFuncAdd; // SUBTRACT -> kGlFuncSubtract
+  // BP 0x42 constant destination alpha: the Cg fragment shader replaces the
+  // output alpha with dst_alpha/255 when use_dst_alpha is set (vitaGL has no
+  // blend colour, so this is a shader contract, not a GL state).
+  std::uint8_t use_dst_alpha = 0;
+  std::uint8_t dst_alpha = 0;
   std::uint8_t cull_enable = 0;
   std::uint16_t cull_face = kGlBack;
+  // GX's winding maps to the GL default (counter-clockwise front faces);
+  // the value is explicit here so a hardware check can change it in one place.
+  std::uint16_t front_face = kGlCcw;
   std::uint8_t color_write = 0;
   std::uint8_t alpha_write = 0;
+  std::uint16_t topology = kGlTriangles; // 0 triangles, 1 lines, 2 points
   std::uint64_t program_key = 0;
 };
 
 struct Geometry {
   std::vector<std::uint8_t> vertices; // gxcore fixed layout, float32
-  std::vector<std::uint16_t> indices; // triangle list
+  std::vector<std::uint16_t> indices; // triangle/line/point list
   std::uint32_t vertex_count = 0;
 };
 
@@ -82,7 +109,13 @@ struct TranslatedDraw {
   const char* skip_reason = nullptr; // set when ok == false
   PipelineState pipeline;
   Geometry geometry;
+  // Single-texmap case (plan.texmap_mask == 0): the draw's one texture and the
+  // sampler of the texmap it samples.
   TextureUpload texture;
+  // Multi-texmap case: bit t set means textures[t] is sampled by an enabled
+  // TEV stage and must be bound; 0 for single-texmap draws.
+  std::uint32_t texmap_mask = 0;
+  TextureUpload textures[8];
 };
 
 // Translate one draw plan. ok == false means the plan itself was not usable

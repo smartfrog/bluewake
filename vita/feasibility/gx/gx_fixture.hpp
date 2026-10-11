@@ -100,6 +100,7 @@ struct FixtureContext {
 inline constexpr u32 kTextureBase = 0x1000u; // 4x4 RGBA8, 64 bytes
 inline constexpr u32 kTextureWidth = 4u;
 inline constexpr u32 kTextureHeight = 4u;
+inline constexpr u32 kRampBase = 0x1800u; // 4x4 RGBA8 ramp, 64 bytes
 inline constexpr u32 kCi8Base = 0x800u; // 8x8 CI8 indices, 64 bytes
 inline constexpr u32 kCi8Width = 8u;
 inline constexpr u32 kCi8Height = 8u;
@@ -129,12 +130,14 @@ inline bool resolve_mem1(void* user, u32 address, u32 size,
 }
 
 // Fill the fixture's texture zones: the 4x4 RGBA8 pattern (byte i = i), the
-// 8x8 CI8 indices (i % 16) and the 16-entry RGB5A3 palette (opaque, one
-// distinct value per entry).
+// 4x4 RGBA8 ramp (byte i = 0xFF - i), the 8x8 CI8 indices (i % 16) and the
+// 16-entry RGB5A3 palette (opaque, one distinct value per entry).
 inline void fill_texture_zones(FixtureContext& ctx) {
   ctx.mem1.assign(24u << 20u, 0u);
   for (std::uint32_t i = 0; i < 64u; ++i)
     ctx.mem1[kTextureBase + i] = static_cast<std::uint8_t>(i);
+  for (std::uint32_t i = 0; i < 64u; ++i)
+    ctx.mem1[kRampBase + i] = static_cast<std::uint8_t>(0xFFu - i);
   for (std::uint32_t i = 0; i < 64u; ++i)
     ctx.mem1[kCi8Base + i] = static_cast<std::uint8_t>(i % 16u);
   for (std::uint32_t i = 0; i < kTlutEntries; ++i) {
@@ -257,6 +260,12 @@ inline std::vector<std::uint8_t> build_cel_triangle() {
   push_bp(fifo, DOL_GX_BP_REG_TX_SETIMAGE0,
           tex_image0(kTextureWidth, kTextureHeight, 6u));
   push_bp(fifo, DOL_GX_BP_REG_TX_SETIMAGE3, kTextureBase >> 5u);
+  // The ramp lives in texture slot 1: the stage 0 texmap 1 samples it, so the
+  // multi-texmap set must carry two images (the flat single texture would
+  // silently lose the ramp).
+  push_bp(fifo, DOL_GX_BP_REG_TX_SETIMAGE0 + 1u,
+          tex_image0(kTextureWidth, kTextureHeight, 6u));
+  push_bp(fifo, DOL_GX_BP_REG_TX_SETIMAGE3 + 1u, kRampBase >> 5u);
   // genMode numtevstages-1 = 1 (bits 10-13), numtexgens = 2 (bits 0-3), one
   // colour channel (bits 4-6).
   push_bp(fifo, DOL_GX_BP_REG_GENMODE, 2u | (1u << 4u) | (1u << 10u));
@@ -278,13 +287,63 @@ inline std::vector<std::uint8_t> build_cel_triangle() {
   return fifo;
 }
 
+// A two-vertex line list (GX command 0xA8): the primitive topology must
+// survive translation as GL_LINES, not GL_TRIANGLES.
+inline std::vector<std::uint8_t> build_lines_pair() {
+  std::vector<std::uint8_t> fifo;
+  push_common_state(fifo);
+  push_bp(fifo, DOL_GX_BP_REG_TX_SETIMAGE0,
+          tex_image0(kTextureWidth, kTextureHeight, 6u));
+  push_bp(fifo, DOL_GX_BP_REG_TX_SETIMAGE3, kTextureBase >> 5u);
+  push_draw(fifo, 0xA8u, 2u,
+            {
+                0.f, 0.f, 0.f, 0.f, 0.f,
+                1.f, 1.f, 0.f, 1.f, 1.f,
+            });
+  return fifo;
+}
+
+// Blending with GX SUBTRACT (cmode0 bit 11): the equation must become
+// GL_FUNC_SUBTRACT, not stay additive.
+inline std::vector<std::uint8_t> build_subtract_triangle() {
+  std::vector<std::uint8_t> fifo;
+  push_common_state(fifo);
+  push_bp(fifo, DOL_GX_BP_REG_GENMODE, (1u << 0u));
+  push_bp(fifo, 0x41u, 1u | (4u << 8u) | (5u << 5u) | (1u << 3u) | (1u << 4u) |
+                           (1u << 11u));
+  push_bp(fifo, DOL_GX_BP_REG_PE_CONTROL, 1u);
+  push_bp(fifo, DOL_GX_BP_REG_TX_SETIMAGE0,
+          tex_image0(kTextureWidth, kTextureHeight, 6u));
+  push_bp(fifo, DOL_GX_BP_REG_TX_SETIMAGE3, kTextureBase >> 5u);
+  push_triangle(fifo);
+  return fifo;
+}
+
+// Constant destination alpha (BP 0x42 enable bit 8, value 0x80) with the alpha
+// update active: the shader contract is use_dst_alpha with alpha = 0x80.
+inline std::vector<std::uint8_t> build_dstalpha_triangle() {
+  std::vector<std::uint8_t> fifo;
+  push_common_state(fifo);
+  push_bp(fifo, DOL_GX_BP_REG_GENMODE, (1u << 0u));
+  push_bp(fifo, 0x41u, 1u | (4u << 8u) | (5u << 5u) | (1u << 3u) | (1u << 4u));
+  push_bp(fifo, DOL_GX_BP_REG_PE_CONTROL, 1u);
+  push_bp(fifo, 0x42u, (1u << 8u) | 0x80u);
+  push_bp(fifo, DOL_GX_BP_REG_TX_SETIMAGE0,
+          tex_image0(kTextureWidth, kTextureHeight, 6u));
+  push_bp(fifo, DOL_GX_BP_REG_TX_SETIMAGE3, kTextureBase >> 5u);
+  push_triangle(fifo);
+  return fifo;
+}
+
 // --- Replay -----------------------------------------------------------------
 
 using PlanObserver = void (*)(const gxc::DrawPlan& plan, void* user);
 
 inline bool known_scenario(const std::string& name) {
   return name == "textured_triangle" || name == "ci8_triangle" ||
-         name == "state_triangle" || name == "cel_triangle";
+         name == "state_triangle" || name == "cel_triangle" ||
+         name == "lines_pair" || name == "subtract_triangle" ||
+         name == "dstalpha_triangle";
 }
 
 // Replays the named scenario through the pinned frontend and GxCoreSink. The
@@ -301,6 +360,12 @@ inline bool replay_scenario(const std::string& name, PlanObserver observer,
     fifo = build_state_triangle();
   else if (name == "cel_triangle")
     fifo = build_cel_triangle();
+  else if (name == "lines_pair")
+    fifo = build_lines_pair();
+  else if (name == "subtract_triangle")
+    fifo = build_subtract_triangle();
+  else if (name == "dstalpha_triangle")
+    fifo = build_dstalpha_triangle();
   else
     return false;
 

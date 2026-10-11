@@ -50,15 +50,17 @@ void plan_observer(const gxc::DrawPlan& plan, void* user) {
   std::snprintf(line, sizeof line,
                 "pipeline textured=%u has_pos_mtx_idx=%u cull_mode=%u "
                 "depth_test=%u depth_func=%u depth_update=%u blend_enable=%u "
-                "src_factor=%u dst_factor=%u color_update=%u alpha_update=%u "
-                "texgens=%u litchan0=%u",
+                "blend_subtract=%u src_factor=%u dst_factor=%u color_update=%u "
+                "alpha_update=%u topology=%u texmap_mask=%u texgens=%u litchan0=%u",
                 plan.pipeline.shader.textured,
                 plan.pipeline.shader.has_pos_mtx_idx,
                 plan.pipeline.cull_mode, plan.pipeline.depth_test,
                 plan.pipeline.depth_func, plan.pipeline.depth_update,
-                plan.pipeline.blend_enable, plan.pipeline.src_factor,
+                plan.pipeline.blend_enable, plan.pipeline.blend_subtract,
+                plan.pipeline.src_factor,
                 plan.pipeline.dst_factor, plan.pipeline.color_update,
-                plan.pipeline.alpha_update,
+                plan.pipeline.alpha_update, plan.pipeline.primitive_topology,
+                plan.texmap_mask,
                 plan.pipeline.shader.num_tex_gens,
                 plan.pipeline.shader.litchan[0].enablelighting);
   out->push_back(line);
@@ -81,7 +83,18 @@ void plan_observer(const gxc::DrawPlan& plan, void* user) {
       out->push_back(line);
     }
   }
-  if (plan.has_texture) {
+  if (plan.texmap_mask != 0u) {
+    for (std::uint32_t t = 0; t < 8u; ++t) {
+      if ((plan.texmap_mask & (1u << t)) == 0u)
+        continue;
+      const gxc::PlanTexture& texture = plan.textures[t];
+      std::snprintf(line, sizeof line,
+                    "texture texmap=%u valid=%u format=%u width=%u height=%u",
+                    t, texture.valid ? 1u : 0u, texture.format, texture.width,
+                    texture.height);
+      out->push_back(line);
+    }
+  } else if (plan.has_texture) {
     std::snprintf(line, sizeof line, "texture format=%u width=%u height=%u",
                   plan.tex_format, plan.tex_width, plan.tex_height);
     out->push_back(line);

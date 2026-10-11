@@ -3,19 +3,31 @@
 //
 // Replays each fixture through the pinned frontend and checks the translation
 // against the fixture's own values: the decoded geometry, the pipeline state
-// in GL tokens, and texture bytes cross-checked against a direct pinned-codec
-// decode of the same fixture pattern.
+// in GL tokens, and texture bytes checked both against golden texels (derived
+// from the documented GX formats, not from the decoder) and against a direct
+// pinned-codec decode.
+//
+// Checks are explicit (no assert): a release build must fail loudly too.
 
 #include "gx_vita.h"
 
 #include "../feasibility/gx/gx_fixture.hpp"
 
-#include <cassert>
+#include <cstdint>
 #include <cstdio>
 #include <cstring>
 #include <string>
+#include <vector>
 
 namespace gxc = gxruntime::gxcore;
+
+#define CHECK(cond)                                                          \
+  do {                                                                       \
+    if (!(cond)) {                                                           \
+      std::fprintf(stderr, "FAIL %s:%d: %s\n", __FILE__, __LINE__, #cond);   \
+      return 1;                                                              \
+    }                                                                        \
+  } while (0)
 
 namespace {
 
@@ -32,10 +44,39 @@ bool replay(const char* scenario, gx_vita::TranslatedDraw& out) {
   return true;
 }
 
+std::uint8_t texel(const std::vector<std::uint8_t>& rgba, std::uint32_t width,
+                   std::uint32_t x, std::uint32_t y, int channel) {
+  return rgba[(static_cast<std::size_t>(y) * width + x) * 4u +
+              static_cast<std::size_t>(channel)];
+}
+
+void check_texel(const std::vector<std::uint8_t>& rgba, std::uint32_t width,
+                 std::uint32_t x, std::uint32_t y, std::uint8_t r,
+                 std::uint8_t g, std::uint8_t b, std::uint8_t a,
+                 const char* label, int& failures) {
+  if (texel(rgba, width, x, y, 0) != r || texel(rgba, width, x, y, 1) != g ||
+      texel(rgba, width, x, y, 2) != b || texel(rgba, width, x, y, 3) != a) {
+    std::fprintf(stderr,
+                 "FAIL golden texel %s(%u,%u) = (%u,%u,%u,%u), expected "
+                 "(%u,%u,%u,%u)\n",
+                 label, x, y, texel(rgba, width, x, y, 0),
+                 texel(rgba, width, x, y, 1), texel(rgba, width, x, y, 2),
+                 texel(rgba, width, x, y, 3), r, g, b, a);
+    ++failures;
+  }
+}
+
 std::vector<std::uint8_t> fixture_rgba8_pattern() {
   std::vector<std::uint8_t> pattern(64u);
   for (std::uint32_t i = 0; i < 64u; ++i)
     pattern[i] = static_cast<std::uint8_t>(i);
+  return pattern;
+}
+
+std::vector<std::uint8_t> fixture_ramp_pattern() {
+  std::vector<std::uint8_t> pattern(64u);
+  for (std::uint32_t i = 0; i < 64u; ++i)
+    pattern[i] = static_cast<std::uint8_t>(0xFFu - i);
   return pattern;
 }
 
@@ -49,7 +90,8 @@ std::vector<std::uint8_t> fixture_ci8_indices() {
 std::vector<std::uint8_t> fixture_tlut() {
   std::vector<std::uint8_t> tlut(32u);
   for (std::uint32_t i = 0; i < 16u; ++i) {
-    const std::uint16_t entry = static_cast<std::uint16_t>(0x8000u | (i * 0x421u));
+    const std::uint16_t entry =
+        static_cast<std::uint16_t>(0x8000u | (i * 0x421u));
     tlut[i * 2u] = static_cast<std::uint8_t>(entry >> 8u);
     tlut[i * 2u + 1u] = static_cast<std::uint8_t>(entry);
   }
@@ -59,29 +101,39 @@ std::vector<std::uint8_t> fixture_tlut() {
 } // namespace
 
 int main() {
+  int failures = 0;
   std::uint64_t textured_key = 0;
 
   {
     gx_vita::TranslatedDraw draw;
-    assert(replay("textured_triangle", draw));
-    assert(draw.ok);
-    assert(draw.geometry.vertex_count == 3u);
-    assert(draw.geometry.vertices.size() == 3u * gxc::kVertexStrideBytes);
-    assert(draw.geometry.indices.size() == 3u);
-    assert(draw.geometry.indices[0] == 0u && draw.geometry.indices[1] == 1u &&
-           draw.geometry.indices[2] == 2u);
-    assert(draw.pipeline.program_key != 0u);
+    CHECK(replay("textured_triangle", draw));
+    CHECK(draw.ok);
+    CHECK(draw.geometry.vertex_count == 3u);
+    CHECK(draw.geometry.vertices.size() == 3u * gxc::kVertexStrideBytes);
+    CHECK(draw.geometry.indices.size() == 3u);
+    CHECK(draw.geometry.indices[0] == 0u && draw.geometry.indices[1] == 1u &&
+          draw.geometry.indices[2] == 2u);
+    CHECK(draw.pipeline.program_key != 0u);
+    CHECK(draw.pipeline.topology == gx_vita::kGlTriangles);
     textured_key = draw.pipeline.program_key;
 
-    assert(draw.texture.valid);
-    assert(draw.texture.width == 4u && draw.texture.height == 4u);
-    assert(draw.texture.rgba.size() == 64u);
+    CHECK(draw.texture.valid);
+    CHECK(draw.texmap_mask == 0u);
+    CHECK(draw.texture.width == 4u && draw.texture.height == 4u);
+    CHECK(draw.texture.rgba.size() == 64u);
+    // Golden texels from the documented GX_TF_RGBA8 layout (4x4 block, AR
+    // plane then GB plane) applied to the fixture's byte pattern.
+    check_texel(draw.texture.rgba, 4u, 0u, 0u, 1u, 32u, 33u, 0u, "rgba8",
+                failures);
+    check_texel(draw.texture.rgba, 4u, 1u, 0u, 3u, 34u, 35u, 2u, "rgba8",
+                failures);
+    // Cross-check: the same bytes as a direct pinned-codec decode.
     const std::vector<std::uint8_t> pattern = fixture_rgba8_pattern();
     const std::vector<std::uint8_t> expected =
         gxc::decode_texture(6u, 4u, 4u, pattern.data(), pattern.size());
-    assert(expected.size() == draw.texture.rgba.size());
-    assert(std::memcmp(expected.data(), draw.texture.rgba.data(),
-                       expected.size()) == 0);
+    CHECK(expected.size() == draw.texture.rgba.size());
+    CHECK(std::memcmp(expected.data(), draw.texture.rgba.data(),
+                      expected.size()) == 0);
     std::printf("textured_triangle ok key=%016llx rgba=%zu\n",
                 static_cast<unsigned long long>(textured_key),
                 draw.texture.rgba.size());
@@ -89,36 +141,49 @@ int main() {
 
   {
     gx_vita::TranslatedDraw draw;
-    assert(replay("ci8_triangle", draw));
-    assert(draw.ok);
-    assert(draw.texture.valid);
-    assert(draw.texture.width == 8u && draw.texture.height == 8u);
-    assert(draw.texture.rgba.size() == 256u);
+    CHECK(replay("ci8_triangle", draw));
+    CHECK(draw.ok);
+    CHECK(draw.texture.valid);
+    CHECK(draw.texture.width == 8u && draw.texture.height == 8u);
+    CHECK(draw.texture.rgba.size() == 256u);
+    // Golden texels: palette entry i = 0x8000 | i * 0x421 (RGB555, opaque),
+    // expanded 5->8 bits; indices are 0, 1, 2 at the first texels.
+    check_texel(draw.texture.rgba, 8u, 0u, 0u, 0u, 0u, 0u, 255u, "ci8",
+                failures);
+    check_texel(draw.texture.rgba, 8u, 1u, 0u, 8u, 8u, 8u, 255u, "ci8",
+                failures);
+    check_texel(draw.texture.rgba, 8u, 2u, 0u, 16u, 16u, 16u, 255u, "ci8",
+                failures);
     const std::vector<std::uint8_t> indices = fixture_ci8_indices();
     const std::vector<std::uint8_t> tlut = fixture_tlut();
     const std::vector<std::uint8_t> expected =
         gxc::decode_ci(9u, 8u, 8u, indices.data(), indices.size(), 2u, 16u,
                        tlut.data(), tlut.size());
-    assert(expected.size() == draw.texture.rgba.size());
-    assert(std::memcmp(expected.data(), draw.texture.rgba.data(),
-                       expected.size()) == 0);
+    CHECK(expected.size() == draw.texture.rgba.size());
+    CHECK(std::memcmp(expected.data(), draw.texture.rgba.data(),
+                      expected.size()) == 0);
     std::printf("ci8_triangle ok rgba=%zu\n", draw.texture.rgba.size());
   }
 
   {
     gx_vita::TranslatedDraw draw;
-    assert(replay("state_triangle", draw));
-    assert(draw.ok);
-    assert(draw.pipeline.depth_test == 1u);
-    assert(draw.pipeline.depth_func == gx_vita::kGlLequal);
-    assert(draw.pipeline.depth_write == 1u);
-    assert(draw.pipeline.blend_enable == 1u);
-    assert(draw.pipeline.blend_src == gx_vita::kGlSrcAlpha);
-    assert(draw.pipeline.blend_dst == gx_vita::kGlOneMinusSrcAlpha);
-    assert(draw.pipeline.cull_enable == 1u);
-    assert(draw.pipeline.cull_face == gx_vita::kGlBack);
-    assert(draw.pipeline.color_write == 1u);
-    assert(draw.pipeline.alpha_write == 1u);
+    CHECK(replay("state_triangle", draw));
+    CHECK(draw.ok);
+    CHECK(draw.pipeline.depth_test == 1u);
+    CHECK(draw.pipeline.depth_func == gx_vita::kGlLequal);
+    CHECK(draw.pipeline.depth_write == 1u);
+    CHECK(draw.pipeline.blend_enable == 1u);
+    CHECK(draw.pipeline.blend_src == gx_vita::kGlSrcAlpha);
+    CHECK(draw.pipeline.blend_dst == gx_vita::kGlOneMinusSrcAlpha);
+    CHECK(draw.pipeline.blend_src_alpha == gx_vita::kGlSrcAlpha);
+    CHECK(draw.pipeline.blend_dst_alpha == gx_vita::kGlOneMinusSrcAlpha);
+    CHECK(draw.pipeline.blend_equation == gx_vita::kGlFuncAdd);
+    CHECK(draw.pipeline.use_dst_alpha == 0u);
+    CHECK(draw.pipeline.cull_enable == 1u);
+    CHECK(draw.pipeline.cull_face == gx_vita::kGlBack);
+    CHECK(draw.pipeline.front_face == gx_vita::kGlCcw);
+    CHECK(draw.pipeline.color_write == 1u);
+    CHECK(draw.pipeline.alpha_write == 1u);
     std::printf("state_triangle ok depth_func=0x%04x blend=0x%04x/0x%04x\n",
                 draw.pipeline.depth_func, draw.pipeline.blend_src,
                 draw.pipeline.blend_dst);
@@ -126,15 +191,94 @@ int main() {
 
   {
     gx_vita::TranslatedDraw draw;
-    assert(replay("cel_triangle", draw));
-    assert(draw.ok);
-    assert(draw.pipeline.program_key != 0u);
-    assert(draw.pipeline.program_key != textured_key);
-    assert(draw.texture.valid);
-    std::printf("cel_triangle ok key=%016llx\n",
-                static_cast<unsigned long long>(draw.pipeline.program_key));
+    CHECK(replay("cel_triangle", draw));
+    CHECK(draw.ok);
+    CHECK(draw.pipeline.program_key != 0u);
+    CHECK(draw.pipeline.program_key != textured_key);
+    // Two texmaps are sampled: the flat single texture must NOT be used, and
+    // both per-texmap uploads must carry their image.
+    CHECK(draw.texmap_mask == 0x3u);
+    CHECK(!draw.texture.valid);
+    CHECK(draw.textures[0].valid);
+    CHECK(draw.textures[1].valid);
+    CHECK(draw.textures[0].rgba.size() == 64u);
+    CHECK(draw.textures[1].rgba.size() == 64u);
+    const std::vector<std::uint8_t> ramp = fixture_ramp_pattern();
+    const std::vector<std::uint8_t> expected_ramp =
+        gxc::decode_texture(6u, 4u, 4u, ramp.data(), ramp.size());
+    CHECK(std::memcmp(expected_ramp.data(), draw.textures[1].rgba.data(),
+                      expected_ramp.size()) == 0);
+    std::printf("cel_triangle ok key=%016llx texmap_mask=0x%x\n",
+                static_cast<unsigned long long>(draw.pipeline.program_key),
+                draw.texmap_mask);
   }
 
+  {
+    gx_vita::TranslatedDraw draw;
+    CHECK(replay("lines_pair", draw));
+    CHECK(draw.ok);
+    CHECK(draw.pipeline.topology == gx_vita::kGlLines);
+    CHECK(draw.geometry.vertex_count == 2u);
+    CHECK(draw.geometry.indices.size() == 2u);
+    CHECK(draw.geometry.indices[0] == 0u && draw.geometry.indices[1] == 1u);
+    std::printf("lines_pair ok topology=0x%04x\n", draw.pipeline.topology);
+  }
+
+  {
+    gx_vita::TranslatedDraw draw;
+    CHECK(replay("subtract_triangle", draw));
+    CHECK(draw.ok);
+    CHECK(draw.pipeline.blend_enable == 1u);
+    CHECK(draw.pipeline.blend_equation == gx_vita::kGlFuncSubtract);
+    std::printf("subtract_triangle ok equation=0x%04x\n",
+                draw.pipeline.blend_equation);
+  }
+
+  {
+    gx_vita::TranslatedDraw draw;
+    CHECK(replay("dstalpha_triangle", draw));
+    CHECK(draw.ok);
+    CHECK(draw.pipeline.use_dst_alpha == 1u);
+    CHECK(draw.pipeline.dst_alpha == 0x80u);
+    CHECK(draw.pipeline.blend_src_alpha == gx_vita::kGlOne);
+    CHECK(draw.pipeline.blend_dst_alpha == gx_vita::kGlZero);
+    std::printf("dstalpha_triangle ok dst_alpha=0x%02x\n",
+                draw.pipeline.dst_alpha);
+  }
+
+  {
+    // Golden hash: pinned for the pinned ShaderKey layout, so a pin change
+    // that moves the key bytes fails here instead of silently re-keying Cg
+    // programs. The zero key's hash and three distinct variants must differ.
+    gxc::ShaderKey zero{};
+    const std::uint64_t zero_hash = gx_vita::shader_key_hash(zero);
+    std::printf("shader_key_hash zero=%016llx sizeof=%zu\n",
+                static_cast<unsigned long long>(zero_hash), sizeof(zero));
+    // Pinned golden: the pinned ShaderKey layout (RecompCore ddd031b) is 844
+    // bytes and the zero key hashes to this value. A pin change that moves the
+    // key bytes must fail here instead of silently re-keying Cg programs.
+    CHECK(sizeof(gxc::ShaderKey) == 844u);
+    CHECK(zero_hash == 0xff540a73510ed19bULL);
+    gxc::ShaderKey variant = zero;
+    variant.num_tex_gens = 1;
+    gxc::ShaderKey variant2 = zero;
+    variant2.textured = 1;
+    gxc::ShaderKey variant3 = zero;
+    variant3.tev_valid = 1;
+    const std::uint64_t hashes[3] = {gx_vita::shader_key_hash(variant),
+                                     gx_vita::shader_key_hash(variant2),
+                                     gx_vita::shader_key_hash(variant3)};
+    for (int i = 0; i < 3; ++i) {
+      CHECK(hashes[i] != zero_hash);
+      for (int j = i + 1; j < 3; ++j)
+        CHECK(hashes[i] != hashes[j]);
+    }
+  }
+
+  if (failures != 0) {
+    std::fprintf(stderr, "gx_vita: %d golden texel failures\n", failures);
+    return 1;
+  }
   std::printf("gx_vita: all translations ok\n");
   return 0;
 }

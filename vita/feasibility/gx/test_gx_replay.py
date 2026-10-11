@@ -177,6 +177,18 @@ class CelTexgenTest(unittest.TestCase):
         self.assertEqual(stages[1]["texcoord"], "0")
         self.assertEqual(stages[1]["enable"], "1")
 
+    def test_both_texmaps_carry_a_bound_image(self):
+        self.assertEqual(self.pipeline["texmap_mask"], "3")  # texmap 0 and 1
+        textures = {}
+        for entry in self.lines["texture"]:
+            texmap = int(entry[0].split("=")[1])
+            textures[texmap] = dict(field.split("=", 1) for field in entry[1:])
+        self.assertEqual(sorted(textures), [0, 1])
+        self.assertEqual(textures[0]["valid"], "1")
+        self.assertEqual(textures[1]["valid"], "1")
+        self.assertEqual(textures[0]["width"], "4")
+        self.assertEqual(textures[1]["width"], "4")
+
     def test_plan_is_textured(self):
         self.assertEqual(self.pipeline["textured"], "1")
 
