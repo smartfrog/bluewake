@@ -43,6 +43,22 @@ class RelEventTest(unittest.TestCase):
         ))
         self.assertEqual(events, [RelLoad(module_id=7, name="d_a_att", bytes=20000, us=42)])
 
+    def test_parses_an_unload_with_an_optional_wall_time(self):
+        events = parse_rel_events(log(
+            "[rel-unload] module=2",
+            "[rel-load] module=3 name=d_a_andsw0 bytes=1 us=10",
+            "[rel-unload] module=3 us=20",
+        ))
+        self.assertEqual(events[0], RelUnload(module_id=2))
+        self.assertEqual(events[2], RelUnload(module_id=3, us=20))
+
+    def test_refuses_an_unload_wall_time_that_goes_backwards(self):
+        with self.assertRaises(RelEventError):
+            parse_rel_events(log(
+                "[rel-load] module=3 name=d_a_andsw0 bytes=1 us=20",
+                "[rel-unload] module=3 us=10",
+            ))
+
     def test_accepts_a_reload_of_the_same_module_after_an_unload(self):
         events = parse_rel_events(log(
             "[rel-load] module=2 name=d_a_agbsw0 bytes=25380 us=1000",
