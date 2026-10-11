@@ -2242,3 +2242,41 @@ validation, pins, ABI, `BlueWakeRelData` and static archive are unchanged. Authe
 continuation awaits the clean source-bound build/trial. Dynamic pointers, DVD/CMake,
 Windows ARAM and final counts remain tracked; physical Vita, Windows CI, rendering,
 FPS, runtime REL and actual guest disc/file access remain unverified.
+
+## Real CP base-high continuation and observed end high
+
+Run `72ef6122eeab443b82e4961cb042a859`, source
+`b180821390705cfeea2d8ebc24affe5c0f151f76`, passes CP base high and reaches
+**`CC000026 = 004C`**, halfword PC **`80320FE8`**. The closed guest **FAIL** has
+**64,248 edges, 7,140,042 cycles**, zero FIFO bytes, `GX_FRONTIER complete=0`, `live=0`,
+`rendered=0`. Build status zero in 124.524 s; archive unchanged. Both owned phases timeout
+at 60 s, TERM/exit -15, `waited=true`; process **124/INCOMPLETE** is separate. Bindings
+and LER are rechecked in `logs/cp-fifo-base-high-evidence-b180821.json`. SHA-256:
+
+- VPK: `27ea2b997710666053729e9ec25fd9e03baa892ec6100089923ccded3f849c01`;
+- report: `ee9b92c6e412315fcbc8cd454d6670fcf180ad1966b401162fc9ed95845fce5d`;
+- result: `f675d7da3eda432202c367ccb4643c645d45f6e478e73f5feeb808d72d8f443a`;
+- log: `e53c5af186f23140c23810e0dd46dfbad9baa2e8b8124233c165a3eafcb1c81d`;
+- LER: `169da8b7a0e0d3067e984a0701130bdf9916ce1c09ccf887d9004ec9f413b079`.
+
+The pin identifies **CP_FIFO_END_HI** at offset `26`
+(`VideoCommon/CommandProcessor.h:67`) and directly maps CPEnd's high halfword with the
+GameCube **`03FF`** mask (`CommandProcessor.cpp:131,145,159-163`). WW05 adds only this
+observed high address to the existing CPEnd selector. The shared halfword path preserves
+the low `9F40` when writing `004C`, yielding **`004C9F40`**; low/high reads remain
+**`9F40` / `004C`**. No new data structure, duplicated mask/update path or GPU side effect
+is introduced.
+
+`logs/cp-fifo-end-high-red.log` reproduces high-end refusal while earlier parameterizations
+and base assembly pass. `logs/cp-fifo-end-high-host-green.log` passes **319 host tests**
+on Linux AArch64. The existing halfword assembly test now explicitly parameterizes base/end
+and low-first/high-first order, masked overwrite preserving the other half and correct
+16-bit reads. Shared tests retain reset/store/mask, actual halfword memory hooks, invalid
+widths and credited-cycle/spent-quantum coverage; main-loop PASS remains synthetic.
+
+Other unobserved high accesses/enables and FIFO reset remain refused. There is no FIFO
+copy/consumption, pointer advancement, parser feed, status/IRQ invention or instruction
+skip. Strict GX validation, pins, ABI, `BlueWakeRelData` and static archive are unchanged.
+The next clean source-bound build/trial checks authentic continuation. Dynamic pointers,
+DVD/CMake, Windows ARAM and final counts remain tracked. Physical Vita, Windows CI,
+rendering, FPS, runtime REL and actual guest disc/file access remain unverified.

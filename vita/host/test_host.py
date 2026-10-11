@@ -11,7 +11,7 @@ OUT = Path('/home/fred/projects/zeldaWWHDRecomp/build-f5/services-tests')
 FIFO_REGISTERS = {'pi-fifo-base': 4, 'pi-fifo-end': 4, 'pi-fifo-wptr': 4,
                   'cp-fifo-base-low': 2, 'cp-fifo-end-low': 2, 'cp-fifo-wptr-low': 2,
                   'cp-fifo-rptr-low': 2, 'cp-fifo-high-watermark-low': 2,
-                  'cp-fifo-low-watermark-low': 2, 'cp-fifo-base-high': 2}
+                  'cp-fifo-low-watermark-low': 2, 'cp-fifo-base-high': 2, 'cp-fifo-end-high': 2}
 
 
 class StartupHostTest(unittest.TestCase):
@@ -84,10 +84,11 @@ class StartupHostTest(unittest.TestCase):
     def test_fifo_configuration_values_have_independent_retained_storage(self):
         subprocess.run([str(OUT / 'host_probe'), 'pi-fifo-independent'], check=True)
 
-    def test_cp_fifo_base_halfword_updates_preserve_the_other_half_in_either_write_order(self):
-        for order in ('low-first', 'high-first'):
-            with self.subTest(order=order):
-                subprocess.run([str(OUT / 'host_probe'), f'cp-base-halves-{order}'], check=True)
+    def test_cp_fifo_halfword_updates_preserve_the_other_half_in_either_write_order(self):
+        for register in ('base', 'end'):
+            for order in ('low-first', 'high-first'):
+                with self.subTest(register=register, order=order):
+                    subprocess.run([str(OUT / 'host_probe'), f'cp-{register}-halves-{order}'], check=True)
 
     def test_observed_disabled_cp_zero_init_does_not_create_fifo_or_interrupt_activity(self):
         for register in ('control', 'distance-low'):

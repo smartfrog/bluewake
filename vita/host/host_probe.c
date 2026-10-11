@@ -543,22 +543,31 @@ int main(int argc, char** argv) {
         assert(host->cpu.external_read(&host->cpu, 0xCC000038u, 2u) == 0xA180u);
         assert(host->cpu.external_read(&host->cpu, 0xCC000028u, 2u) == 0x3200u);
         assert(host->cpu.external_read(&host->cpu, 0xCC00002Cu, 2u) == 0x5420u);
-    } else if (strcmp(argv[1], "cp-base-halves-low-first") == 0 || strcmp(argv[1], "cp-base-halves-high-first") == 0) {
-        const bool high_first = strcmp(argv[1], "cp-base-halves-high-first") == 0;
+    } else if (strncmp(argv[1], "cp-base-halves-", 15u) == 0 || strncmp(argv[1], "cp-end-halves-", 14u) == 0) {
+        const bool end = strncmp(argv[1], "cp-end-halves-", 14u) == 0;
+        const char* order = argv[1] + (end ? 14u : 15u);
+        assert(strcmp(order, "low-first") == 0 || strcmp(order, "high-first") == 0);
+        const bool high_first = strcmp(order, "high-first") == 0;
+        const u32 low_address = end ? 0xCC000024u : 0xCC000020u;
+        const u32 high_address = low_address + 2u;
+        const u32 high_value = end ? 0x4Cu : 0x42u;
+        const u32 low_value = end ? 0x9F5Cu : 0x9F60u;
+        const u32 masked_low = low_value & 0xFFE0u;
+        u32* full_value = end ? &host->cp_fifo_end : &host->cp_fifo_base;
         const DolInterrupts before = host->interrupts;
-        host->cpu.external_write(&host->cpu, high_first ? 0xCC000022u : 0xCC000020u, high_first ? 0x42u : 0x9F60u, 2u);
+        host->cpu.external_write(&host->cpu, high_first ? high_address : low_address, high_first ? high_value : low_value, 2u);
         assert(host->error == NULL);
-        assert(host->cpu.external_read(&host->cpu, high_first ? 0xCC000020u : 0xCC000022u, 2u) == 0u);
-        host->cpu.external_write(&host->cpu, high_first ? 0xCC000020u : 0xCC000022u, high_first ? 0x9F60u : 0x42u, 2u);
-        assert(host->error == NULL && host->cp_fifo_base == 0x00429F60u);
-        assert(host->cpu.external_read(&host->cpu, 0xCC000020u, 2u) == 0x9F60u);
-        assert(host->cpu.external_read(&host->cpu, 0xCC000022u, 2u) == 0x42u);
-        host->cpu.external_write(&host->cpu, 0xCC000022u, UINT16_MAX, 2u);
-        assert(host->error == NULL && host->cp_fifo_base == 0x03FF9F60u);
-        assert(host->cpu.external_read(&host->cpu, 0xCC000020u, 2u) == 0x9F60u);
-        host->cpu.external_write(&host->cpu, 0xCC000020u, 0xABDFu, 2u);
-        assert(host->error == NULL && host->cp_fifo_base == 0x03FFABC0u);
-        assert(host->cpu.external_read(&host->cpu, 0xCC000022u, 2u) == 0x03FFu);
+        assert(host->cpu.external_read(&host->cpu, high_first ? low_address : high_address, 2u) == 0u);
+        host->cpu.external_write(&host->cpu, high_first ? low_address : high_address, high_first ? low_value : high_value, 2u);
+        assert(host->error == NULL && *full_value == ((high_value << 16u) | masked_low));
+        assert(host->cpu.external_read(&host->cpu, low_address, 2u) == masked_low);
+        assert(host->cpu.external_read(&host->cpu, high_address, 2u) == high_value);
+        host->cpu.external_write(&host->cpu, high_address, UINT16_MAX, 2u);
+        assert(host->error == NULL && *full_value == (0x03FF0000u | masked_low));
+        assert(host->cpu.external_read(&host->cpu, low_address, 2u) == masked_low);
+        host->cpu.external_write(&host->cpu, low_address, 0xABDFu, 2u);
+        assert(host->error == NULL && *full_value == 0x03FFABC0u);
+        assert(host->cpu.external_read(&host->cpu, high_address, 2u) == 0x03FFu);
         assert(memcmp(&before, &host->interrupts, sizeof(before)) == 0);
         assert(host->frontier.size == 0u && !host->frontier.complete && host->cycles.absolute_cycles == 0u);
     } else if (strncmp(argv[1], "cp-control-", 11u) == 0 || strncmp(argv[1], "cp-distance-low-", 16u) == 0) {
