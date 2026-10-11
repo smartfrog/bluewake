@@ -345,6 +345,31 @@ int main(int argc, char** argv) {
         host->cpu.external_write(&host->cpu, 0xCC00401Cu, 0x15u, 2u);
         assert(host->error == NULL);
         assert(host->cpu.external_read(&host->cpu, 0xCC00401Cu, 2u) == 0x15u);
+    } else if (strcmp(argv[1], "mi-init-reset") == 0) {
+        assert(host->cpu.external_read(&host->cpu, 0xCC004020u, 2u) == 0u);
+        assert(host->cpu.external_read(&host->cpu, 0xCC004010u, 2u) == 0u);
+        assert(host->error == NULL);
+    } else if (strcmp(argv[1], "mi-init-zero") == 0 || strcmp(argv[1], "mi-init-unrestricted") == 0) {
+        const bool unrestricted = strcmp(argv[1], "mi-init-unrestricted") == 0;
+        const u32 address = unrestricted ? 0xCC004010u : 0xCC004020u;
+        const u16 value = unrestricted ? 0xFFu : 0u;
+        host->cpu.external_write(&host->cpu, address, value, 2u);
+        assert(host->error == NULL);
+        assert(host->cpu.external_read(&host->cpu, address, 2u) == value);
+        assert(host->cpu.external_read(&host->cpu, 0xCC00401Cu, 2u) == 0u);
+        assert(!dol_interrupts_external_pending(&host->interrupts));
+        assert(host->cpu.timebase == 0u && host->cycles.absolute_cycles == 0u);
+    } else if (strncmp(argv[1], "mi-init-bad-", 12u) == 0) {
+        const bool protection = strcmp(argv[1], "mi-init-bad-protection") == 0 ||
+                                strcmp(argv[1], "mi-init-bad-protection-width") == 0;
+        const bool width = strstr(argv[1], "-width") != NULL;
+        const u32 address = protection ? 0xCC004010u : 0xCC004020u;
+        const u16 value = width ? 0u : protection ? 0xFEu : 1u;
+        host->cpu.pc = 0x80305DA4u;
+        host->cpu.external_write(&host->cpu, address, value, width ? 4u : 2u);
+        assert(host->error != NULL && host->error_address == address && host->error_pc == host->cpu.pc);
+        assert(host->error_width == (width ? 4u : 2u) && host->error_value == value);
+        assert(host->cpu.external_read(&host->cpu, address, 2u) == 0u);
     } else if (strcmp(argv[1], "mi-invalid-mask") == 0) {
         host->cpu.external_write(&host->cpu, 0xCC00401Cu, 0x20u, 2u);
         assert(host->error != NULL);

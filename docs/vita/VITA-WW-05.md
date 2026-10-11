@@ -237,7 +237,7 @@ a lingering process. Its short red/green loops are in `logs/private-{launch,gues
 The parent-symlink loop reproduced creation outside an owned fake profile, then prevented it with the
 existing no-follow directory-descriptor pattern. No real/shared profile was involved.
 
-The WW05 host suite currently has **203 tests**. Source-bound logs retain exact counts/commands for these,
+The WW05 host suite currently has **210 tests**. Source-bound logs retain exact counts/commands for these,
 native runtime CTest, 71 native FP cases and the eight direct baseline files. Audit, attribution,
 pin/scope/diff and clean-worktree checks accompany delivery. The pre-launch `1ba507c` checkpoint passed
 35 WW05 tests, 177 unchanged tests, 53 direct baseline tests, 71 native FP cases and 3/1/5 runtime/corpus/
@@ -1117,3 +1117,67 @@ rebase this lane onto that integration and use its pinned dvd.c force-include se
 path `ux0:data/bluewake/GZLE01.iso` and isolated `scripts/vita/dvd/launch.py`. Do not reinvent
 disc/FST reads. No rebase is needed for the current DSP/BAT wall; preserve existing source-bound
 trial identities before changing the branch base.
+
+## Real SDK BAT continuation and bounded MI startup configuration
+
+Run `05ca92e8a373477f9120449ae00faaa1`, source `3bd525458b4610bf0065bb5e0c9ae6efcee828c3`,
+records all four expected upper commits at their actual PCs: DBAT0 `80305C54`, IBAT0
+`80305C64`, DBAT2 `80305C74`, IBAT2 `80305C84`. Values are `800001FF/00000002` and
+`810000FF/01000002`. The guest then executes its real RFI and continues to MI startup.
+The closed guest report remains **FAIL**, 10,887 edges, 271,033 cycles, `GX_FRONTIER complete=0`
+with no FIFO bytes, and `live=0`. New actual STOP:
+`unsupported MMIO write address=CC004020 pc=80305DA4 width=2 value=0000000000000000`.
+Both owned emulator phases reach their 600-second deadlines, exit by TERM with `waited=true`;
+process 124/INCOMPLETE is separate from that guest FAIL. Build status zero, 121.615 seconds;
+the static game archive remains `9d1c59238cea4b83798f1c16b0549950d41ec0011a89e95591d5a307718aea08`.
+Exact-source 203 host tests, 177 ARMv7 tests, audit and attribution pass on Linux AArch64;
+precommit native runtime CTest 3/3 passed. VPK SHA-256:
+`77fa1321d6402bbec48ff67d7f9f6d32a3a5646cefc1b7d39eeec483c4c730ed`;
+report: `70332f33a3706951ed21653780c2ee956fdd1d5d8bc5ee8efd9c18266c2a7382`;
+result: `ff193c14f8d3935aba00e3b148dea16d7e6842b7995e89e6f7cc1fee93f29511`;
+log: `f6c7276f89fee80ad9b170588e6c18dd468592b41506721d0983e21928e55d79`;
+the LER journal hash remains unchanged.
+
+Pinned `HW/MemoryInterface.cpp:27-32` distinguishes MI_IRQMASK (`401C`), MI_IRQFLAG (`401E`)
+and **MI_UNKNOWN1 (`4020`)**. The failing write is not an interrupt acknowledgement.
+`MemoryInterface.cpp:60-64,87-97` gives zero reset and direct halfword storage for UNKNOWN1 and
+MI_PROT_TYPE (`4010`). The actual SDK startup writes zero to UNKNOWN1, then `00FF` to PROT_TYPE
+at `80305DB0`. The latter gives all four two-bit regions read/write permission: pinned
+`MemoryInterface.h:51-60` defines the four fields, and
+`GXRuntime/graphics/aurora/include/dolphin/os/OSMemory.h:15-18` defines READ=1, WRITE=2, RDWR=3.
+
+The existing MI register seam now retains and reads these two halfwords. It accepts **only zero
+at UNKNOWN1 and 00FF at PROT_TYPE**, preserving the reset image and the SDK's unrestricted
+startup view without claiming the undocumented UNKNOWN1 hardware function or pretending to
+enforce protected memory. Nonzero UNKNOWN1, restrictive/other protection values and unsupported
+widths stop with the actual address, PC, width and value; their stores cannot mutate the retained
+state. No synthetic MI/PI interrupt, cycle credit, memory copy or GX command is introduced.
+The existing MI mask behavior is unchanged. The small host-owned register fields remain counted
+once by `sizeof(WwHost)` in the existing allocation census.
+
+`logs/mi-init-red.log` reproduces the three missing reset/zero/unrestricted behaviors before
+implementation. `logs/mi-init-green.log` passes **210 host tests**, adding seven focused reset,
+configuration, no-event/no-time, support-boundary and access-width cases. The unchanged **177
+ARMv7 tests**, audit, attribution and native runtime CTest **3/3** pass on Linux AArch64. Physical
+Vita, Windows CI, rendering and FPS remain untested. The next source-bound isolated trial must
+show whether actual MI startup continues; zero FIFO bytes are still the latest real evidence.
+
+Pending rendering contract, verified read-only against VITA-WW-12 on local `vita-integration`:
+emit `[frame-timing] retrace=N us=T` on every real VI retrace and `[frame-present] frame=N us=T`
+only on an actually presented GX display copy. T is host wall-clock microseconds, not guest
+cycles/TB, with strictly advancing per-stream indices and times. Use the same checked,
+unbuffered `stderr` channel established by `fixture_log_open("ww05")` and `setvbuf(...,_IONBF,...)`.
+Propagate logging/flush failures. Do not emit markers for the FIFO frontier, emulator presents,
+or unsubmitted display copies; there is no VI clock or GX presentation path in this host yet,
+so no marker or FPS claim is added in this increment.
+
+Pending REL lifecycle contract, verified read-only at integration `4312a15`: emit
+`[rel-load] module=ID name=NAME bytes=B us=T` only after successful materialization and
+`[rel-unload] module=ID us=T` exactly once on a live-to-dead slot transition. ID is the actual
+big-endian REL header module id, NAME the requested module name without spaces, B the raw
+materialized image size (not rounded capacity); T uses the same monotonic host wall-clock base
+and checked unbuffered `ww05` channel as the frame markers. No duplicate live loads, inactive
+unloads or non-advancing timestamps are acceptable. The cited `host_materialize_rel` and
+`host_rel_slot_is_live` paths currently exist in `runtime/host/src/main.c`, not `vita/host/main.c`.
+Wire the contract when this lane actually reaches runtime REL loading; do not count the
+startup static-alias preparation as load events, and do not add fake REL activity now.

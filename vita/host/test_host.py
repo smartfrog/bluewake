@@ -167,6 +167,27 @@ class StartupHostTest(unittest.TestCase):
     def test_mi_interrupt_mask_is_retained(self):
         subprocess.run([str(OUT / 'host_probe'), 'mi-mask'], check=True)
 
+    def test_mi_init_registers_have_the_pinned_zero_reset_image(self):
+        subprocess.run([str(OUT / 'host_probe'), 'mi-init-reset'], check=True)
+
+    def test_mi_unknown1_zero_init_is_retained_without_invented_events_or_time(self):
+        subprocess.run([str(OUT / 'host_probe'), 'mi-init-zero'], check=True)
+
+    def test_mi_unrestricted_protection_configuration_is_retained_without_interrupts(self):
+        subprocess.run([str(OUT / 'host_probe'), 'mi-init-unrestricted'], check=True)
+
+    def test_nonzero_mi_unknown1_requires_documented_behavior_instead_of_a_guess(self):
+        subprocess.run([str(OUT / 'host_probe'), 'mi-init-bad-unknown'], check=True)
+
+    def test_restrictive_mi_protection_cannot_succeed_without_a_protection_backend(self):
+        subprocess.run([str(OUT / 'host_probe'), 'mi-init-bad-protection'], check=True)
+
+    def test_mi_unknown1_wrong_width_preserves_state_and_actual_failure_context(self):
+        subprocess.run([str(OUT / 'host_probe'), 'mi-init-bad-unknown-width'], check=True)
+
+    def test_mi_protection_wrong_width_preserves_state_and_actual_failure_context(self):
+        subprocess.run([str(OUT / 'host_probe'), 'mi-init-bad-protection-width'], check=True)
+
     def test_unknown_mi_mask_bits_fail(self):
         subprocess.run([str(OUT / 'host_probe'), 'mi-invalid-mask'], check=True)
 

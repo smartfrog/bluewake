@@ -331,6 +331,10 @@ static u64 mmio_read(CPUState* cpu, u32 address, u8 size) {
     }
     if (address == 0xCC00401Cu && size == 2u)
         value = host->mi_interrupt_mask;
+    else if (address == 0xCC004020u && size == 2u)
+        value = host->mi_unknown1;
+    else if (address == 0xCC004010u && size == 2u)
+        value = host->mi_protection;
     else if (address == 0xCC006C00u && size == 4u)
         dol_audio_dma_ai_mmio_read(&host->audio, DOL_AUDIO_DMA_AI_CONTROL_OFF, size, &value);
     else if (interrupt_register(address, size, false))
@@ -399,6 +403,18 @@ static void mmio_write(CPUState* cpu, u32 address, u64 value, u8 size) {
             return;
         }
         host->mi_interrupt_mask = (u16)value;
+    } else if (address == 0xCC004020u && size == 2u) {
+        if (value != 0u) {
+            fail_mmio_write(host, "nonzero MI UNKNOWN1 operation not implemented", address, value, size);
+            return;
+        }
+        host->mi_unknown1 = (u16)value;
+    } else if (address == 0xCC004010u && size == 2u) {
+        if (value != 0xFFu) {
+            fail_mmio_write(host, "MI protection requires unrestricted init; protection backend not implemented", address, value, size);
+            return;
+        }
+        host->mi_protection = (u16)value;
     } else if (address == 0xCC006C00u && size == 4u) {
         if ((value & ~0x3Cull) != DOL_AUDIO_DMA_AI_CONTROL_INIT) {
             fail_mmio_write(host, "AI stream/rate change requires an audio backend", address, value, size);
