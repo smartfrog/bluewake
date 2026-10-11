@@ -123,6 +123,37 @@ struct TranslatedDraw {
 // never silently dropped here.
 TranslatedDraw translate(const gxruntime::gxcore::DrawPlan& plan);
 
+// One EFB copy-to-texture as vitaGL would execute it: resolve the EFB region
+// into the destination texture (render-to-texture or glCopyTexSubImage2D),
+// then apply the clear the hardware performs after the copy, honouring the
+// write masks at the copy. The display copy (format 0xF, GXCopyDisp) has no
+// texture destination and is refused with a reason.
+struct TranslatedCopy {
+  bool ok = false;
+  const char* skip_reason = nullptr; // set when ok == false
+  std::uint32_t dest_address = 0;
+  std::uint32_t byte_size = 0;
+  std::uint32_t format = 0; // true GXTexFmt incl. Z (0x10) / CTF (0x20) bits
+  std::uint32_t src_x = 0;
+  std::uint32_t src_y = 0;
+  std::uint32_t width = 0;
+  std::uint32_t height = 0;
+  std::uint32_t dest_width = 0;
+  std::uint32_t dest_height = 0;
+  bool clear = false;
+  bool color_update = true;
+  bool alpha_update = true;
+  bool depth_update = true;
+  std::uint32_t clear_r = 0;
+  std::uint32_t clear_g = 0;
+  std::uint32_t clear_b = 0;
+  std::uint32_t clear_a = 0;
+  std::uint32_t clear_z = 0;
+  bool efb_has_alpha = true;
+};
+
+TranslatedCopy translate_copy(const gxruntime::gxcore::EfbCopyCommand& cmd);
+
 // FNV-1a 64 over the ShaderKey bytes; 0 is reserved for "no key".
 std::uint64_t shader_key_hash(const gxruntime::gxcore::ShaderKey& key);
 

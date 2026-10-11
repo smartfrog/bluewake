@@ -273,9 +273,31 @@ int main() {
     CHECK(copy.cmd.byte_size == 32u);
     CHECK(copy.cmd.width == 4u && copy.cmd.height == 4u);
     CHECK(copy.cmd.src_x == 0u && copy.cmd.src_y == 0u);
+    const gx_vita::TranslatedCopy translated = gx_vita::translate_copy(copy.cmd);
+    CHECK(translated.ok);
+    CHECK(translated.dest_address == gx_fixture::kCopyBase);
+    CHECK(translated.format == 0x28u);
+    CHECK(translated.byte_size == 32u);
+    CHECK(translated.width == 4u && translated.height == 4u);
+    CHECK(translated.dest_width == 4u && translated.dest_height == 4u);
+    CHECK(!translated.clear);
+    CHECK(translated.color_update && translated.alpha_update &&
+          translated.depth_update);
     std::printf("copy_triangle ok dest=0x%X format=0x%X %ux%u\n",
                 copy.cmd.dest_address, copy.cmd.format, copy.cmd.width,
                 copy.cmd.height);
+  }
+
+  {
+    // A display copy has no texture destination: the translation must refuse
+    // it with a reason instead of producing an empty copy.
+    gxc::EfbCopyCommand display{};
+    display.format = 0xFu;
+    const gx_vita::TranslatedCopy translated =
+        gx_vita::translate_copy(display);
+    CHECK(!translated.ok);
+    CHECK(translated.skip_reason != nullptr);
+    std::printf("display copy refused ok: %s\n", translated.skip_reason);
   }
 
   {

@@ -210,4 +210,33 @@ TranslatedDraw translate(const gxc::DrawPlan& plan) {
   return out;
 }
 
+TranslatedCopy translate_copy(const gxc::EfbCopyCommand& cmd) {
+  TranslatedCopy out;
+  if (cmd.format == 0xFu) { // GXCopyDisp: no texture destination
+    out.skip_reason = "display copy has no texture destination";
+    return out;
+  }
+  out.ok = true;
+  out.dest_address = cmd.dest_address;
+  out.byte_size = cmd.byte_size;
+  out.format = cmd.format;
+  out.src_x = cmd.src_x;
+  out.src_y = cmd.src_y;
+  out.width = cmd.width;
+  out.height = cmd.height;
+  out.dest_width = cmd.destination_width;
+  out.dest_height = cmd.destination_height;
+  out.clear = cmd.clear;
+  out.color_update = cmd.color_update;
+  out.alpha_update = cmd.alpha_update;
+  out.depth_update = cmd.depth_update;
+  out.clear_r = cmd.clear_r;
+  out.clear_g = cmd.clear_g;
+  out.clear_b = cmd.clear_b;
+  out.clear_a = cmd.clear_a;
+  out.clear_z = cmd.clear_z;
+  out.efb_has_alpha = cmd.efb_has_alpha;
+  return out;
+}
+
 } // namespace gx_vita
