@@ -2128,3 +2128,40 @@ Strict GX validation, pins, ABI, `BlueWakeRelData` and static archive are unchan
 documented dynamic-pointer, DVD/CMake, Windows ARAM and final-test-count debts remain open.
 Physical Vita, Windows CI, rendering, FPS, runtime REL and actual guest disc/file access
 remain unverified.
+
+## Real CP read-pointer-low continuation and observed high-watermark low
+
+Run `e1921e685ad34d8da083ee0156a48746`, source
+`1466c509fcb3c766fbf8c65af5472990123d3194`, passes CP read-pointer low and reaches
+**`CC000028 = C000`**, halfword PC **`80320FBC`**. Its closed guest **FAIL** has
+**64,248 edges, 7,140,042 cycles**, zero FIFO bytes, `GX_FRONTIER complete=0`, `live=0`,
+`rendered=0`. Build status zero in 123.749 s; archive unchanged. Both owned phases timeout
+at 60 s, TERM/exit -15, `waited=true`; process **124/INCOMPLETE** remains separate.
+Bindings and LER are rechecked in `logs/cp-fifo-rptr-low-evidence-1466c50.json`. SHA-256:
+
+- VPK: `5cc7b47508904a590c808d244ce8431c7e02e2731d16fdf3f2a93b5e97e00125`;
+- report: `f57ad296b2d6fb7affb9e1cca5ec36d08514e9bc275a734adfb2cf93615d5b58`;
+- result: `8bd4166333112f017f7629889a739fa4b2db61a29941d4f96019f47558fcdf3b`;
+- log: `e53c5af186f23140c23810e0dd46dfbad9baa2e8b8124233c165a3eafcb1c81d`;
+- LER: `169da8b7a0e0d3067e984a0701130bdf9916ce1c09ccf887d9004ec9f413b079`.
+
+The pin identifies **CP_FIFO_HI_WATERMARK_LO** at offset `28`
+(`VideoCommon/CommandProcessor.h:68`), resets CPHiWatermark to zero
+(`CommandProcessor.cpp:35-48`) and directly maps its low halfword with **`FFE0`**
+(`130,146,159-163`). WW05 adds only this observed halfword to the shared scalar FIFO
+selector with independent high-watermark configuration. `C000` remains `C000`. The store
+does not enable GP, manufacture FIFO distance or overflow status, raise an interrupt,
+consume/copy bytes, advance pointers or feed the GX parser.
+
+`logs/cp-fifo-high-watermark-low-red.log` reproduces this register's refusal while preceding
+configuration parameters pass. `logs/cp-fifo-high-watermark-low-host-green.log` passes
+**318 host tests** on Linux AArch64; the shared descriptor and parameterizations cover
+reset, actual halfword guest memory hook, mask, invalid-width retained-state preservation,
+independent values and credited-cycle/spent-quantum behavior. Synthetic main-loop PASS is
+not authentic game/GX acceptance. Clean source-bound build/trial checks real continuation next.
+
+Other unobserved CP accesses/enables and FIFO reset remain refused. Strict GX validation,
+pins, ABI, `BlueWakeRelData` and static archive are unchanged. Dynamic FIFO pointers,
+DVD/CMake integration, Windows ARAM verification and final test-count confirmation remain
+tracked. Physical Vita, Windows CI, rendering, FPS, runtime REL and actual guest disc/file
+access remain unverified.
