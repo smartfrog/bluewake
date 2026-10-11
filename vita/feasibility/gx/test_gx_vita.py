@@ -16,6 +16,21 @@ import unittest
 from pathlib import Path
 
 DEFAULT_BUILD = Path("/home/fred/projects/zeldaWWHDRecomp/build-f2/ww02")
+ROOT = Path(__file__).resolve().parents[3]
+SOURCES = [
+    ROOT / "vita/feasibility/gx/gx_fixture.hpp",
+    ROOT / "vita/renderer/gx_vita.h",
+    ROOT / "vita/renderer/gx_vita.cpp",
+    ROOT / "vita/renderer/gx_vita_tests.cpp",
+]
+
+def check_binary(binary):
+    """A missing binary skips; a stale one fails (never a silent old pass)."""
+    if not binary.is_file():
+        raise unittest.SkipTest(f"{binary.name} not built; run scripts/vita/gx/build.py")
+    newest = max(source.stat().st_mtime for source in SOURCES if source.is_file())
+    if binary.stat().st_mtime < newest:
+        raise AssertionError(f"stale binary {binary}; run scripts/vita/gx/build.py")
 
 
 def find_tests():
@@ -26,8 +41,7 @@ def find_tests():
 class TranslationTest(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
-        if not find_tests().is_file():
-            raise unittest.SkipTest("gx_vita_tests not built; run scripts/vita/gx/build.py")
+        check_binary(find_tests())
         result = subprocess.run([str(find_tests())], stdout=subprocess.PIPE,
                                 stderr=subprocess.PIPE, text=True)
         cls.output = result.stdout

@@ -31,6 +31,17 @@ namespace gxc = gxruntime::gxcore;
 
 namespace {
 
+struct CopyCapture {
+  gxc::EfbCopyCommand cmd{};
+  int count = 0;
+};
+
+void capture_copy(const gxc::EfbCopyCommand& cmd, void* user) {
+  auto* capture = static_cast<CopyCapture*>(user);
+  capture->cmd = cmd;
+  ++capture->count;
+}
+
 void capture(const gxc::DrawPlan& plan, void* user) {
   *static_cast<gx_vita::TranslatedDraw*>(user) = gx_vita::translate(plan);
 }
@@ -244,6 +255,27 @@ int main() {
     CHECK(draw.pipeline.blend_dst_alpha == gx_vita::kGlZero);
     std::printf("dstalpha_triangle ok dst_alpha=0x%02x\n",
                 draw.pipeline.dst_alpha);
+  }
+
+  {
+    // EFB copy-to-texture: the sink's copy observer carries the resolved
+    // command (destination, R8 format, source rectangle).
+    gx_vita::TranslatedDraw draw;
+    CopyCapture copy;
+    std::string error;
+    CHECK(gx_fixture::replay_scenario("copy_triangle", capture, &draw, &error,
+                                      capture_copy, &copy));
+    CHECK(draw.ok);
+    CHECK(copy.count == 1);
+    CHECK(copy.cmd.dest_address == gx_fixture::kCopyBase);
+    CHECK(copy.cmd.format == 0x28u); // GX_CTF_R8
+    // 4x4 at 8 bits/texel: one 8x4 source block, 32 bytes.
+    CHECK(copy.cmd.byte_size == 32u);
+    CHECK(copy.cmd.width == 4u && copy.cmd.height == 4u);
+    CHECK(copy.cmd.src_x == 0u && copy.cmd.src_y == 0u);
+    std::printf("copy_triangle ok dest=0x%X format=0x%X %ux%u\n",
+                copy.cmd.dest_address, copy.cmd.format, copy.cmd.width,
+                copy.cmd.height);
   }
 
   {

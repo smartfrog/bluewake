@@ -18,6 +18,19 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[3]
 MAIN_CHECKOUT = Path("/home/fred/projects/zeldaWWHDRecomp")
 DEFAULT_BUILD = MAIN_CHECKOUT / "build-f2" / "ww02"
+SOURCES = [
+    ROOT / "vita/feasibility/gx/gx_fixture.hpp",
+    ROOT / "vita/feasibility/gx/gx_replay.cpp",
+]
+
+
+def check_binary(binary):
+    """A missing binary skips; a stale one fails (never a silent old pass)."""
+    if not binary.is_file():
+        raise unittest.SkipTest(f"{binary.name} not built; run scripts/vita/gx/build.py")
+    newest = max(source.stat().st_mtime for source in SOURCES if source.is_file())
+    if binary.stat().st_mtime < newest:
+        raise AssertionError(f"stale binary {binary}; run scripts/vita/gx/build.py")
 
 
 def find_replay():
@@ -49,8 +62,7 @@ class TexturedTriangleTest(unittest.TestCase):
 
     @classmethod
     def setUpClass(cls):
-        if not find_replay().is_file():
-            raise unittest.SkipTest("gx_replay not built; run scripts/vita/gx/build.py")
+        check_binary(find_replay())
         cls.lines = parse_report(run_scenario("textured_triangle"))
 
     def test_plan_is_built(self):
@@ -90,8 +102,7 @@ class Ci8TriangleTest(unittest.TestCase):
 
     @classmethod
     def setUpClass(cls):
-        if not find_replay().is_file():
-            raise unittest.SkipTest("gx_replay not built; run scripts/vita/gx/build.py")
+        check_binary(find_replay())
         cls.lines = parse_report(run_scenario("ci8_triangle"))
 
     def test_plan_is_built(self):
@@ -118,8 +129,7 @@ class StateTriangleTest(unittest.TestCase):
 
     @classmethod
     def setUpClass(cls):
-        if not find_replay().is_file():
-            raise unittest.SkipTest("gx_replay not built; run scripts/vita/gx/build.py")
+        check_binary(find_replay())
         cls.lines = parse_report(run_scenario("state_triangle"))
         cls.pipeline = dict(field.split("=", 1) for field in cls.lines["pipeline"][0])
 
@@ -147,8 +157,7 @@ class CelTexgenTest(unittest.TestCase):
 
     @classmethod
     def setUpClass(cls):
-        if not find_replay().is_file():
-            raise unittest.SkipTest("gx_replay not built; run scripts/vita/gx/build.py")
+        check_binary(find_replay())
         cls.lines = parse_report(run_scenario("cel_triangle"))
         cls.pipeline = dict(field.split("=", 1) for field in cls.lines["pipeline"][0])
         cls.texgens = [dict(field.split("=", 1) for field in entry[1:])
@@ -191,6 +200,33 @@ class CelTexgenTest(unittest.TestCase):
 
     def test_plan_is_textured(self):
         self.assertEqual(self.pipeline["textured"], "1")
+
+
+class CopyTriangleTest(unittest.TestCase):
+    """An EFB copy-to-texture resolves through the sink's copy observer."""
+
+    @classmethod
+    def setUpClass(cls):
+        check_binary(find_replay())
+        cls.lines = parse_report(run_scenario("copy_triangle"))
+
+    def test_copy_command_is_the_fixture_copy(self):
+        copy = dict(field.split("=", 1) for field in self.lines["copy"][0])
+        self.assertEqual(copy["dest"], "0x1C00")
+        self.assertEqual(copy["format"], "0x28")  # GX_CTF_R8
+        # 4x4 at 8 bits/texel: one 8x4 source block, 32 bytes.
+        self.assertEqual(copy["size"], "32")
+        self.assertEqual(copy["src_x"], "0")
+        self.assertEqual(copy["src_y"], "0")
+        self.assertEqual(copy["width"], "4")
+        self.assertEqual(copy["height"], "4")
+        self.assertEqual(copy["clear"], "0")
+
+    def test_counters_report_the_copy(self):
+        counters = dict(field.split("=", 1) for field in self.lines["counters"][0])
+        self.assertEqual(counters["planned"], "1")
+        self.assertEqual(counters["skipped"], "0")
+        self.assertEqual(counters["efb_copies"], "1")
 
 
 if __name__ == "__main__":

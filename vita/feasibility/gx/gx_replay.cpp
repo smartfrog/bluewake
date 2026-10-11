@@ -106,6 +106,43 @@ void plan_observer(const gxc::DrawPlan& plan, void* user) {
   }
 }
 
+void copy_observer(const gxc::EfbCopyCommand& cmd, void* user) {
+  auto* out = static_cast<std::vector<std::string>*>(user);
+  char line[256];
+  std::snprintf(line, sizeof line,
+                "copy dest=0x%X size=%u format=0x%X src_x=%u src_y=%u "
+                "width=%u height=%u dest_width=%u dest_height=%u clear=%u",
+                cmd.dest_address, cmd.byte_size, cmd.format, cmd.src_x,
+                cmd.src_y, cmd.width, cmd.height, cmd.destination_width,
+                cmd.destination_height, cmd.clear ? 1u : 0u);
+  out->push_back(line);
+}
+
+void print_counters(const gxc::GapCounters& counters) {
+  std::printf("counters planned=%llu skipped=%llu efb_copies=%llu "
+              "indirect_ignored=%llu\n",
+              counters.draws_planned, counters.draws_skipped,
+              counters.efb_copies, counters.indirect_ignored);
+  struct {
+    const char* name;
+    unsigned long long value;
+  } gaps[] = {
+      {"missing_vcd", counters.missing_vcd},
+      {"vertex_decode_failures", counters.vertex_decode_failures},
+      {"unsupported_texgen", counters.unsupported_texgen},
+      {"tlut_texture", counters.tlut_texture},
+      {"efb_copy_ignored", counters.efb_copy_ignored},
+      {"indirect_ignored", counters.indirect_ignored},
+      {"fog_ignored", counters.fog_ignored},
+      {"lighting_ignored", counters.lighting_ignored},
+      {"unresolved_tex_matrix", counters.unresolved_tex_matrix},
+  };
+  for (const auto& gap : gaps) {
+    if (gap.value != 0u)
+      std::printf("gap %s=%llu\n", gap.name, gap.value);
+  }
+}
+
 } // namespace
 
 int main(int argc, char** argv) {
@@ -120,12 +157,15 @@ int main(int argc, char** argv) {
   }
   std::vector<std::string> report;
   std::string error;
-  if (!gx_fixture::replay_scenario(scenario, plan_observer, &report, &error)) {
+  gxc::GapCounters counters{};
+  if (!gx_fixture::replay_scenario(scenario, plan_observer, &report, &error,
+                                   copy_observer, &report, &counters)) {
     std::fprintf(stderr, "frontend rejected the fixture: %s\n", error.c_str());
     return 1;
   }
   std::printf("scenario ok\n");
   for (const std::string& line : report)
     std::printf("%s\n", line.c_str());
+  print_counters(counters);
   return 0;
 }

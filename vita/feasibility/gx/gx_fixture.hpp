@@ -107,6 +107,7 @@ inline constexpr u32 kCi8Height = 8u;
 inline constexpr u32 kTlutBase = 0x1400u; // 16 RGB5A3 entries, 32 bytes
 inline constexpr u32 kTlutEntries = 16u;
 inline constexpr u32 kTlutTmem = 0x20u;
+inline constexpr u32 kCopyBase = 0x1C00u; // EFB copy destination, 4x4 R8 = 16 bytes
 
 inline bool resolve_mem1(void* user, u32 address, u32 size,
                          DolGuestAddressSpace space,
@@ -335,6 +336,23 @@ inline std::vector<std::uint8_t> build_dstalpha_triangle() {
   return fifo;
 }
 
+// One textured draw followed by an EFB copy-to-texture: source rectangle 0,0
+// 4x4, destination at kCopyBase, R8 format (trigger field 2), no half-scale,
+// no clear. The sink's copy observer carries the resolved command.
+inline std::vector<std::uint8_t> build_copy_triangle() {
+  std::vector<std::uint8_t> fifo;
+  push_common_state(fifo);
+  push_bp(fifo, DOL_GX_BP_REG_TX_SETIMAGE0,
+          tex_image0(kTextureWidth, kTextureHeight, 6u));
+  push_bp(fifo, DOL_GX_BP_REG_TX_SETIMAGE3, kTextureBase >> 5u);
+  push_bp(fifo, DOL_GX_BP_REG_EFB_TL, 0u);
+  push_bp(fifo, DOL_GX_BP_REG_EFB_WH, 3u | (3u << 10u)); // width-1, height-1
+  push_bp(fifo, DOL_GX_BP_REG_EFB_ADDR, kCopyBase >> 5u);
+  push_bp(fifo, DOL_GX_BP_REG_TRIGGER_EFB_COPY, 2u << 3u);
+  push_triangle(fifo);
+  return fifo;
+}
+
 // --- Replay -----------------------------------------------------------------
 
 using PlanObserver = void (*)(const gxc::DrawPlan& plan, void* user);
@@ -343,14 +361,18 @@ inline bool known_scenario(const std::string& name) {
   return name == "textured_triangle" || name == "ci8_triangle" ||
          name == "state_triangle" || name == "cel_triangle" ||
          name == "lines_pair" || name == "subtract_triangle" ||
-         name == "dstalpha_triangle";
+         name == "dstalpha_triangle" || name == "copy_triangle";
 }
 
 // Replays the named scenario through the pinned frontend and GxCoreSink. The
-// observer receives every plan; `error` carries the frontend's rejection
-// detail when the replay fails.
+// observer receives every plan; `copy_observer` (optional) receives resolved
+// EFB copy commands; `counters` (optional) receives the sink's gap counters.
+// `error` carries the frontend's rejection detail when the replay fails.
 inline bool replay_scenario(const std::string& name, PlanObserver observer,
-                            void* user, std::string* error) {
+                            void* user, std::string* error,
+                            gxc::GxCoreSink::CopyObserver copy_observer = nullptr,
+                            void* copy_user = nullptr,
+                            gxc::GapCounters* counters = nullptr) {
   std::vector<std::uint8_t> fifo;
   if (name == "textured_triangle")
     fifo = build_textured_triangle();
@@ -366,6 +388,8 @@ inline bool replay_scenario(const std::string& name, PlanObserver observer,
     fifo = build_subtract_triangle();
   else if (name == "dstalpha_triangle")
     fifo = build_dstalpha_triangle();
+  else if (name == "copy_triangle")
+    fifo = build_copy_triangle();
   else
     return false;
 
@@ -381,6 +405,8 @@ inline bool replay_scenario(const std::string& name, PlanObserver observer,
   gxc::GxCoreSink sink;
   sink.set_guest_resolver(&frontend.state().resolver);
   sink.set_plan_observer(observer, user);
+  if (copy_observer != nullptr)
+    sink.set_copy_observer(copy_observer, copy_user);
 
   if (!frontend.replay_fifo(fifo, &sink)) {
     if (error != nullptr) {
@@ -396,6 +422,8 @@ inline bool replay_scenario(const std::string& name, PlanObserver observer,
     return false;
   }
   sink.flush_frame();
+  if (counters != nullptr)
+    *counters = sink.counters();
   return true;
 }
 
