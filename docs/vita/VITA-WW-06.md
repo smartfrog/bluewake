@@ -58,8 +58,9 @@ Eight markers, searched anywhere in a line so interleaved logger output cannot h
   and must not go backwards; `us` is the host's monotonic wall clock in microseconds.
 - `[input-consumed]` — the game's own pad record changed (GZLE01 `0x803A4E20..0x803A4E27`).
   `hold` and `trig` are the two 16-bit words the desktop input-chain probe already reads there
-  (`runtime/host/src/main.c`); `axes` is the raw 32-bit word at `0x803A4E24` (the stick bytes,
-  printed raw on purpose until the record's inner byte order is pinned from the decomp). Emit
+  (`runtime/host/src/main.c`); `axes` is the raw 32-bit word at `0x803A4E24`, where the stick
+  bytes are read from in the game's record — printed raw on purpose until the record's inner
+  layout is pinned from the decomp. Emit
   on change: its presence inside a deflection span is guest-side evidence that the game's
   controller code read the state.
 - `[audio-active]` — the AI stream is running and producing output at `rate` Hz (nonzero).

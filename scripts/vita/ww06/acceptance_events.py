@@ -12,10 +12,11 @@ harnesses read their markers the same way):
     [input-consumed] retrace=N hold=0xHHHH trig=0xHHHH axes=0xHHHHHHHH us=T
         the game's own pad record (GZLE01 0x803A4E20..0x803A4E27) changed.
         hold and trig are the two 16-bit words the desktop input-chain probe
-        reads there; axes is the raw 32-bit word at 0x803A4E24 (the stick
-        bytes; the record's inner byte order is the game's, printed raw on
-        purpose). Emitted on change, so its presence after a deflection is
-        guest-side evidence that the game's controller code read the state.
+        reads there; axes is the raw 32-bit word at 0x803A4E24, where the
+        stick bytes are read from in the game's record (printed raw on
+        purpose until the record's inner layout is pinned from the decomp).
+        Emitted on change, so its presence after a deflection is guest-side
+        evidence that the game's controller code read the state.
     [audio-active] us=T rate=HZ   the AI stream is running and producing
                                   output at a nonzero sample rate
     [audio-silent] us=T           the stream stopped or its output went silent
