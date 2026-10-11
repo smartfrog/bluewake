@@ -9,7 +9,7 @@ Without the image the image-dependent tests skip.
 
 Environment:
   WW13_ISO    disc image path (default: the main checkout's private USA image)
-  WW13_BUILD  build directory (default: <main checkout>/build-f2/ww13)
+  WW13_BUILD  build directory (default: <main checkout>/build-f13/ww13)
 """
 
 import os
@@ -22,7 +22,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[3]
 MAIN_CHECKOUT = Path("/home/fred/projects/zeldaWWHDRecomp")
 DEFAULT_ISO = MAIN_CHECKOUT / "Legend of Zelda, The - The Wind Waker (USA).iso"
-DEFAULT_BUILD = MAIN_CHECKOUT / "build-f2" / "ww13"
+DEFAULT_BUILD = MAIN_CHECKOUT / "build-f13" / "ww13"
 
 # The game's first disc paths, resolved against the real private image: the
 # boot framework and the REL archive at the root, then ordinary resources.

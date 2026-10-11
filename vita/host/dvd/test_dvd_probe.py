@@ -15,7 +15,7 @@ STACK = Path('/home/fred/projects/zeldaWWHDRecomp/build-vita-tools/local-stack')
 RECOMPCORE = Path(os.environ.get('RECOMPCORE_DIR', str(ROOT / 'ref/vita-ww-01/RecompCore')))
 ISO = Path(os.environ.get(
     'WW13_ISO', '/home/fred/projects/zeldaWWHDRecomp/Legend of Zelda, The - The Wind Waker (USA).iso'))
-OUT = Path('/home/fred/projects/zeldaWWHDRecomp/build-f2/ww13-seam/dvd-probe-tests')
+OUT = Path('/home/fred/projects/zeldaWWHDRecomp/build-f13/ww13-seam/dvd-probe-tests')
 
 
 def build():

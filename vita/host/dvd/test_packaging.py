@@ -13,7 +13,7 @@ sys.path.insert(0, str(ROOT / 'scripts/vita/dvd'))
 import iso_layout  # noqa: E402
 import make_synthetic_image  # noqa: E402
 
-OUT = Path('/home/fred/projects/zeldaWWHDRecomp/build-f2/ww13-seam/tools-tests')
+OUT = Path('/home/fred/projects/zeldaWWHDRecomp/build-f13/ww13-seam/tools-tests')
 
 
 class SyntheticImageTest(unittest.TestCase):

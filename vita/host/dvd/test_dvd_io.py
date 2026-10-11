@@ -11,7 +11,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[3]
 STACK = Path('/home/fred/projects/zeldaWWHDRecomp/build-vita-tools/local-stack')
-OUT = Path('/home/fred/projects/zeldaWWHDRecomp/build-f2/ww13-seam/dvd-io-tests')
+OUT = Path('/home/fred/projects/zeldaWWHDRecomp/build-f13/ww13-seam/dvd-io-tests')
 
 CASES = (
     'open-close',

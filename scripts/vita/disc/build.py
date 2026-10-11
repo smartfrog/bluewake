@@ -3,7 +3,7 @@
 
 The probe compiles the pristine RecompCore checkout (never edited) and links
 it against vita/feasibility/disc/disc_probe.c. Heavy output goes to the
-maintainer's ignored build-f2 tree, never into the worktree.
+maintainer's ignored build-f13 tree, never into the worktree.
 """
 
 import argparse
@@ -13,7 +13,7 @@ import subprocess
 
 ROOT = Path(__file__).resolve().parents[3]
 PINS = {"recompcore": "ddd031b2a7f45fcbda37a49daac9b308b8d95da1"}
-DEFAULT_BUILD = Path("/home/fred/projects/zeldaWWHDRecomp/build-f2/ww13")
+DEFAULT_BUILD = Path("/home/fred/projects/zeldaWWHDRecomp/build-f13/ww13")
 
 
 def verify_source(path, sha):
