@@ -17,7 +17,7 @@ add_subdirectory("${GXRUNTIME_DIR}" runtime)
 
 set(RENDERER_DIR "${CMAKE_CURRENT_SOURCE_DIR}/../../renderer")
 
-add_library(gx_vita STATIC "${RENDERER_DIR}/gx_vita.cpp")
+add_library(gx_vita STATIC "${RENDERER_DIR}/gx_vita.cpp" "${RENDERER_DIR}/gx_cg.cpp")
 target_link_libraries(gx_vita PUBLIC GXRuntime::gxcore)
 target_include_directories(gx_vita PUBLIC "${RENDERER_DIR}")
 target_compile_options(gx_vita PRIVATE -O2 -Wall -Wextra)
@@ -29,3 +29,7 @@ target_compile_options(gx_replay PRIVATE -O2 -Wall -Wextra)
 add_executable(gx_vita_tests "${RENDERER_DIR}/gx_vita_tests.cpp")
 target_link_libraries(gx_vita_tests PRIVATE gx_vita GXRuntime::retail_gx_frontend)
 target_compile_options(gx_vita_tests PRIVATE -O2 -Wall -Wextra)
+
+add_executable(gx_cg_tests "${RENDERER_DIR}/gx_cg_tests.cpp")
+target_link_libraries(gx_cg_tests PRIVATE gx_vita GXRuntime::retail_gx_frontend)
+target_compile_options(gx_cg_tests PRIVATE -O2 -Wall -Wextra)

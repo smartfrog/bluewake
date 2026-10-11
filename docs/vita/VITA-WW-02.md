@@ -50,7 +50,7 @@ plug into later. It is not a general GX/Aurora rewrite and not a full renderer.
 | HUD (2D draws) | **PENDING** | Same direct-draw path as the fixtures; no dedicated fixture yet. |
 | EFB copy → texture | **PENDING** | `GxCoreSink` exposes `CopyObserver`/`EfbCopyCommand`; no fixture, no translation into a copy command yet. |
 | EFB readback to guest memory | **PENDING** | Required by the acceptance list; not implemented. |
-| Cg program generation | **PENDING** | Only the program key is produced; no Cg source generation from `ShaderKey` yet. |
+| Cg program generation | **bounded, delivered** | `vita/renderer/gx_cg.{h,cpp}`: untextured passthrough, textured passthrough, regular TEV combines (Prev/Tex/Raster/Zero/One/Half args, add/subtract, clamp, 1x/2x/4x scale, Regular and Colour texgens). Anything else is refused with a reason. |
 | Vita3K / device run | **PENDING** | No Vita3K run of this path yet; any run must use the isolated private-profile launcher pattern. |
 | Physical console | **PENDING** | No hardware measurement; emulator timings never extrapolate to hardware. |
 

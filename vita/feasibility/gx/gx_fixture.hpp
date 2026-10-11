@@ -274,16 +274,18 @@ inline std::vector<std::uint8_t> build_cel_triangle() {
   // texmap 3 bits, texcoord 3 bits, enable 1 bit, colour channel 3 bits).
   push_bp(fifo, 0x28u,
           (1u | (1u << 3u) | (1u << 6u)) | ((1u << 6u) << 12u));
-  // Stage 0: COMBINED = ramp (TexColor=8) * raster (RASC=10), dest prev.
+  // Stage 0: COMBINED = ramp (TexColor as c) * raster (RASC as b), dest prev.
+  // TEV's regular combine is d + lerp(a, b, c) = a + (b-a)*c, so a multiply
+  // needs a = Zero, c = the texture.
   push_bp(fifo, 0xC0u,
-          15u | (15u << 4u) | (10u << 8u) | (8u << 12u) | (1u << 19u));
+          15u | (8u << 4u) | (10u << 8u) | (15u << 12u) | (1u << 19u));
   push_bp(fifo, 0xC1u,
-          7u | (7u << 4u) | (5u << 10u) | (4u << 13u) | (1u << 19u));
-  // Stage 1: COMBINED = diffuse (TexColor=8) * prev (PrevColor=0), dest prev.
+          7u | (4u << 7u) | (5u << 10u) | (7u << 13u) | (1u << 19u));
+  // Stage 1: COMBINED = diffuse (TexColor as c) * prev (PrevColor as b).
   push_bp(fifo, 0xC2u,
-          15u | (15u << 4u) | (0u << 8u) | (8u << 12u) | (1u << 19u));
+          15u | (8u << 4u) | (0u << 8u) | (15u << 12u) | (1u << 19u));
   push_bp(fifo, 0xC3u,
-          7u | (7u << 4u) | (0u << 10u) | (4u << 13u) | (1u << 19u));
+          7u | (4u << 7u) | (0u << 10u) | (7u << 13u) | (1u << 19u));
   push_triangle(fifo);
   return fifo;
 }
