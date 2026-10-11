@@ -69,9 +69,9 @@ initial halt/init bits follow the pristine donor's `HW/DSP.cpp`, `HW/DSP.h` and
 ROM selection model: it requires all 128 live init bytes to match the identified private reference.
 The reset bit clears without altering guest time. A stopped ROM does not expose its pending mail;
 verified ROM release exposes the documented `8071FEED`, whose busy latch clears on low-word read.
-Unknown code, external DSP interrupts, running/queued CPU-mail protocols and the init transfer
-still refuse explicitly. No DSP core or audio is implemented. The ARAM DMA increment below
-adds real copies and credit-driven busy/interrupt state. ARAM configuration
+Unknown code, external DSP interrupts and running/queued CPU-mail protocols still refuse
+explicitly. The increments below add real ARAM copies and the verified fixed init transfer,
+with separate credit-driven state transitions. No general DSP core or audio is implemented. ARAM configuration
 halfwords are implemented separately: AR_INFO (`CC005012`, mask `007F`, reset zero),
 read-only AR_MODE (`CC005016`, reset one), and AR_REFRESH (`CC00501A`, mask `07FF`, reset 156).
 The refresh image is a register value, not a new emulated clock frequency.
@@ -237,7 +237,7 @@ a lingering process. Its short red/green loops are in `logs/private-{launch,gues
 The parent-symlink loop reproduced creation outside an owned fake profile, then prevented it with the
 existing no-follow directory-descriptor pattern. No real/shared profile was involved.
 
-The WW05 host suite currently has **171 tests**. Source-bound logs retain exact counts/commands for these,
+The WW05 host suite currently has **189 tests**. Source-bound logs retain exact counts/commands for these,
 native runtime CTest, 71 native FP cases and the eight direct baseline files. Audit, attribution,
 pin/scope/diff and clean-worktree checks accompany delivery. The pre-launch `1ba507c` checkpoint passed
 35 WW05 tests, 177 unchanged tests, 53 direct baseline tests, 71 native FP cases and 3/1/5 runtime/corpus/
@@ -958,3 +958,85 @@ FIFO fixture (246 DMA cycles plus 12 fixture cycles, not real GX evidence).
 `logs/aram-dma-armv7.log` passes **177 unchanged tests**; audit passes. A source-bound real
 trial must establish whether the game's two startup DMA transfers execute and expose the next
 init operation. No ucode init completion is claimed by these synthetic tests.
+
+## Verified DSP init transfer and documented completion mail
+
+Run `6ddbfdaf995a45e790b8f0133d68786f` at `22a9c6aa63c54278946265e017ac1b3c2eaeb749`
+proves both real 32-byte MEM1-to-ARAM startup copies, from cached `81000000` to ARAM offset
+zero, at PCs `80302EC8` and `80302F10`. Both have a 246-credited-cycle deadline and completion
+traces (absolute cycles 144,101 and 170,680). The closed guest report has 10,471 edges,
+170,694 cycles and **FAIL** at `DSP initialization transfer not implemented address=CC00500A
+pc=80302F34 width=2 value=0000000000000004`. GX is still `complete=0`, bytes=0; all owners
+are released (`live=0`). Both owned emulator phases timeout at 600 seconds, TERM/reap with
+`waited=true`; process 124/INCOMPLETE is distinct from that guest FAIL. Archive SHA-256 remains
+`9d1c59238cea4b83798f1c16b0549950d41ec0011a89e95591d5a307718aea08`.
+VPK: `ee3b63c1d440dd154e7eb64c3404adcf2329c1bf728edee4979252a51c8a3ef3`;
+report: `ecabcd01829a01d98c266846fbafe73d0aae5ed2d651bdb41a420411bc892602`;
+result: `a155fb50a7602e948ea208c5dbda0a3fa709b8813763faba19240593ac92b751`;
+log: `c040d04818467b9db35d34ddeb6c10a0c5e740b3702b2a83ade3255c9de14d86`;
+the three-byte `LER` journal keeps hash
+`169da8b7a0e0d3067e984a0701130bdf9916ce1c09ccf887d9004ec9f413b079`.
+Exact-checkpoint 171 host tests, 177 ARMv7 tests and attribution pass; precommit audit and
+native runtime CTest 3/3 also passed on Linux AArch64.
+
+The pinned interpreter's `DSP/Interpreter/DSPInterpreter.cpp:245-265` models INIT falling
+as a **real 4 KiB MEM1-to-DSP instruction-memory copy** from `81000000`, selecting PC zero.
+Its source comments acknowledge uncertainty in the physical mechanism. WW05 follows that
+reference copy, not an invented ARAM transfer or a fabricated mailbox acknowledgement. The
+entire source range must exist, and its first 128 bytes must exactly match the private
+hash-checked init reference. The loaded 4 KiB image has a separate host-owned store; restoring
+the CPU scratch afterwards cannot change it. Reset/release and execution re-verify the loaded
+128-byte program. A changed loaded image cannot fall back to a still-matching MEM1 image.
+The extra instruction-image and 8 KiB DSP data stores are in `sizeof(WwHost)`, so the existing
+ledger counts each once and no new silent allocation is introduced.
+
+This is an explicitly bounded **fixed-function model of that program**, not a DSP interpreter.
+Private static proof identifies a discarded instruction-ROM scan, a zero fill of all 4,096 DSP
+data words, a discarded coefficient scan, an empty outgoing-mailbox poll, constant high/low
+mail stores, then HALT. No ROM or coefficient data are synthesized: their scan results do not
+reach the fixed response. The data store is really cleared, bulk-applied before the first
+outgoing store; per-instruction intermediate DSP memory state is not exposed or claimed.
+`DSPHLE/UCodes/INIT.cpp:19-22` documents **`80544348`**; the identified program corroborates
+the stores, and `DSP/DSPHWInterface.cpp:52-72` supplies their latch semantics. High-word output
+is `0054`, followed by low-word `4348` setting busy to produce `80544348`. Reading low clears
+busy without changing the residual bits. The next instruction asserts HALT
+(`DSP/Interpreter/DSPIntBranch.cpp:127-132`), but the already-written mailbox remains readable.
+No mailbox interrupt, AI stream, audio completion or controller data is generated.
+
+Execution is advanced solely by real credited guest cycles while HALT is clear. The private
+proof `logs/init-timing-sourced-22a9c6a.json`, SHA-256
+`94b8ab7470a684e36898fb44c2630d3a3ab3d0eef52a9926d3ea0a6bc1922e22`, counts **16,404 DSP
+steps** including HALT for the verified code and empty outgoing mailbox. Pinned
+`DSP/Interpreter/DSPInterpreter.cpp:68-85,88-106` charges one step per instruction, and
+`HW/DSPLLE/DSPLLE.cpp:249-272` supplies six core cycles per DSP step. Therefore the fixed
+high, low and HALT transitions occur at 98,412, 98,418 and 98,424 running core cycles.
+This adopts the reference ratio and static accounting, **not a new frequency or a physical
+timing claim**. Pausing preserves fractional progress. Dispatch deadlines bound each outgoing
+store and HALT, separately from ARAM and DEC deadlines.
+
+DSP_INIT_CODE is a different transition: the reference sets it at INIT falling and clears it
+after **130 existing TB ticks** (`DSPInterpreter.cpp:261-281`). The reference describes this as
+an inconsistent Wii hardware measurement. WW05 preserves that limitation and the existing
+TB fractional phase; the interval elapses even while DSP execution is halted. Readback writes
+of the flag cannot create a new interval. It is not reused as the mail latency. Zero-credit
+polls neither expire it nor execute the program. Unknown init code, a short source range,
+busy ARAM, occupied outgoing mailbox, simultaneous reset/init, completed-init re-release and
+queued/running undocumented CPU-mail protocols are explicit stops. Dynamic Zelda audio is
+still outside the coordinator authorization.
+
+TDD: `logs/dsp-init-red.log` and `logs/dsp-init-red-fixture-build.log` preserve a test-fixture
+constant typo, fixed before `logs/dsp-init-red-behavior.log` reproduces six missing transfer
+behaviors. `logs/dsp-init-trace-red.log` reproduces absent transfer/mail/HALT evidence;
+`logs/dsp-init-chassis-red.log` reproduces absent integration continuation.
+`logs/dsp-init-final-green.log` passes **189 host tests**, including 128 single-byte mutation
+cases, complete copy/source guards, loaded-image corruption at release/reset/during execution,
+fractional TB expiry, halted/paused execution, store deadlines, a readable halted mailbox and
+post-init reset after MEM1 scratch restoration. The real main-loop integration uses only
+synthetic bytes and waits through repeated credited dispatches until its documented init mail,
+then writes the HOST-only FIFO fixture: 98,418 execution cycles plus 12 fixture cycles.
+That synthetic PASS is not real game GX evidence. The unchanged **177 ARMv7 tests**, audit
+and native runtime CTest **3/3** pass. Transfer/mail/HALT trace failures propagate explicitly.
+A source-bound isolated game trial is next; no physical Vita, Windows CI, rendering or
+performance was tested, and no pins, generated game code or shared runtime source changed.
+Tracker publication/open-PR checks remain unavailable under the offline/no-network constraint;
+this Markdown record remains the local evidence for VITA-WW-05.

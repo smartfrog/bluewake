@@ -39,16 +39,28 @@ static u32 canonical_dispatch_address(const CPUState* cpu, u32 address) {
 
 static void advance(CPUState* cpu, u64 cycles, void* user) {
     WwHost* host = user;
+    const u64 total = cycles + host->clock_remainder;
+    const u64 ticks = total / WW_HOST_CYCLES_PER_TIMEBASE_TICK;
     const bool aram_busy = host->dsp.aram_cycles_remaining != 0u;
-    ww_dsp_interface_advance(&host->dsp, cycles);
+    const u32 prior_dsp_mailbox = host->dsp.dsp_mailbox;
+    const bool init_active = !host->dsp.rom_selected && host->dsp.init_cycles_remaining != 0u;
+    if (!ww_dsp_interface_advance(&host->dsp, cycles, ticks))
+        ww_host_fail(host, host->dsp.error, WW_DSP_CONTROL, cpu->pc);
+    if (init_active && host->dsp.dsp_mailbox != prior_dsp_mailbox && (host->dsp.dsp_mailbox & 0x80000000u)) {
+        if (fprintf(stderr, "[dsp-init-mail] value=%08X cycles=%llu\n", host->dsp.dsp_mailbox,
+                    (unsigned long long)host->cycles.absolute_cycles) < 0)
+            ww_host_fail(host, "DSP init mail trace write failed", 0xCC005004u, cpu->pc);
+    }
+    if (init_active && host->dsp.init_cycles_remaining == 0u) {
+        if (fprintf(stderr, "[dsp-init-halt] cycles=%llu\n", (unsigned long long)host->cycles.absolute_cycles) < 0)
+            ww_host_fail(host, "DSP init halt trace write failed", WW_DSP_CONTROL, cpu->pc);
+    }
     const u64 transfer = host->dsp.aram.transfer_count;
     if (aram_busy && host->dsp.aram_cycles_remaining == 0u && (transfer <= 8u || transfer % 1000u == 0u)) {
         if (fprintf(stderr, "[aram-complete] transfer=%llu cycles=%llu\n",
                     (unsigned long long)transfer, (unsigned long long)host->cycles.absolute_cycles) < 0)
             ww_host_fail(host, "ARAM completion trace write failed", WW_DSP_CONTROL, cpu->pc);
     }
-    const u64 total = cycles + host->clock_remainder;
-    const u64 ticks = total / WW_HOST_CYCLES_PER_TIMEBASE_TICK;
     host->clock_remainder = (u32)(total % WW_HOST_CYCLES_PER_TIMEBASE_TICK);
     cpu->timebase += ticks;
     if (host->decrementer_valid) {
@@ -64,8 +76,13 @@ static u64 deadline(const CPUState* cpu, void* user) {
         return 1u;
     const u64 decrementer_expiry = host->decrementer_valid ?
         ((u64)host->decrementer + 1u) * WW_HOST_CYCLES_PER_TIMEBASE_TICK - host->clock_remainder : UINT64_MAX;
-    const u64 aram_expiry = ww_dsp_interface_deadline(&host->dsp);
-    const u64 expiry = decrementer_expiry < aram_expiry ? decrementer_expiry : aram_expiry;
+    const u64 dsp_expiry = ww_dsp_interface_deadline(&host->dsp);
+    u64 expiry = decrementer_expiry < dsp_expiry ? decrementer_expiry : dsp_expiry;
+    if (host->dsp.init_ticks_remaining != 0u) {
+        const u64 init_expiry = (u64)host->dsp.init_ticks_remaining * WW_HOST_CYCLES_PER_TIMEBASE_TICK - host->clock_remainder;
+        if (init_expiry < expiry)
+            expiry = init_expiry;
+    }
     if (host->cycles.dispatch_cycles == 0u)
         return expiry;
     const u64 remaining = host->cycles.dispatch_cycles < (u64)host->cycles.cap ?
@@ -331,12 +348,18 @@ static void mmio_write(CPUState* cpu, u32 address, u64 value, u8 size) {
         return;
     observe(cpu);
     const u64 prior_aram_transfer = host->dsp.aram.transfer_count;
+    const u16 prior_dsp_control = host->dsp.control;
     const bool dsp_written = ww_dsp_interface_write(&host->dsp, cpu, address, size, value);
     if (host->dsp.error != NULL) {
         fail_mmio_write(host, host->dsp.error, address, value, size);
         return;
     }
     if (dsp_written) {
+        if ((prior_dsp_control & 0x0800u) && !(host->dsp.control & 0x0800u)) {
+            if (fprintf(stderr, "[dsp-init-transfer] main=81000000 bytes=%u verified=%u init_code_ticks=%u pc=%08X\n",
+                        WW_DSP_INIT_TRANSFER_BYTES, WW_DSP_INIT_UCODE_BYTES, host->dsp.init_ticks_remaining, cpu->pc) < 0)
+                fail_mmio_write(host, "DSP init transfer trace write failed", address, value, size);
+        }
         const BluewakeAramDma* aram = &host->dsp.aram;
         if (aram->transfer_count != prior_aram_transfer &&
             (aram->transfer_count <= 8u || aram->transfer_count % 1000u == 0u)) {

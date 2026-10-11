@@ -41,6 +41,9 @@ if(WW05_TESTS_ONLY)
     add_executable(aram_probe aram_probe.c)
     target_compile_options(aram_probe PRIVATE -UNDEBUG)
     target_link_libraries(aram_probe PRIVATE ww05_services)
+    add_executable(dsp_init_probe dsp_init_probe.c)
+    target_compile_options(dsp_init_probe PRIVATE -UNDEBUG)
+    target_link_libraries(dsp_init_probe PRIVATE ww05_services)
     file(WRITE "${CMAKE_CURRENT_BINARY_DIR}/ww05_identity.h" "#define WW05_SOURCE \"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\"\n")
     add_executable(io_probe main.c io_probe.c
         "${BLUEWAKE_ROOT}/vita/feasibility/armv7/platform.c"

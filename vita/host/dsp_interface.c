@@ -5,6 +5,7 @@
 
 #define DSP_HALT 0x0004u
 #define DSP_INIT 0x0800u
+#define DSP_INIT_CODE 0x0400u
 #define DSP_INTERRUPT_MASKS 0x0150u
 #define DSP_INTERRUPT_ACKS 0x00A8u
 #define DSP_MAIL_BUSY 0x80000000u
@@ -12,6 +13,10 @@
 #define DSP_ARAM_INTERRUPT 0x0020u
 #define DSP_DMA_BUSY 0x0200u
 #define ARAM_CYCLES_PER_BLOCK 246u
+#define DSP_INIT_MAIL 0x80544348u
+#define DSP_INIT_CORE_CYCLES 98424u
+#define DSP_CORE_CYCLES_PER_STEP 6u
+#define DSP_INIT_CODE_TICKS 130u
 
 void ww_dsp_interface_init(WwDspInterface* dsp, const u8* init_reference) {
     *dsp = (WwDspInterface){.ar_refresh = 156u, .control = DSP_INIT | DSP_HALT,
@@ -30,20 +35,46 @@ static bool init_matches(const WwDspInterface* dsp, const CPUState* cpu) {
            memcmp(cpu->ram + WW_DSP_INIT_LOAD_ADDRESS, dsp->init_reference, WW_DSP_INIT_UCODE_BYTES) == 0;
 }
 
+static bool loaded_init_matches(const WwDspInterface* dsp) {
+    return dsp->init_loaded && dsp->init_reference != NULL &&
+           memcmp(dsp->init_image, dsp->init_reference, WW_DSP_INIT_UCODE_BYTES) == 0;
+}
+
 static bool control_write(WwDspInterface* dsp, const CPUState* cpu, u16 value) {
-    if (value & ~(DSP_INIT | DSP_HALT | 1u | DSP_INTERRUPT_MASKS | DSP_INTERRUPT_ACKS | DSP_DMA_BUSY))
+    if (value & ~(DSP_INIT | DSP_INIT_CODE | DSP_HALT | 1u | DSP_INTERRUPT_MASKS | DSP_INTERRUPT_ACKS | DSP_DMA_BUSY))
         return reject(dsp, "unsupported DSP control operation");
-    if ((dsp->control & DSP_INIT) != 0u && (value & DSP_INIT) == 0u)
-        return reject(dsp, "DSP initialization transfer not implemented");
+    const bool load_init = (dsp->control & DSP_INIT) != 0u && (value & DSP_INIT) == 0u;
     const bool reset = (value & 1u) != 0u;
     const bool running = (value & DSP_HALT) == 0u;
-    if ((reset || running) && !init_matches(dsp, cpu))
+    if (load_init) {
+        if (reset)
+            return reject(dsp, "simultaneous DSP reset and init transfer not implemented");
+        if (!init_matches(dsp, cpu) || cpu->ram_size < WW_DSP_INIT_LOAD_ADDRESS + WW_DSP_INIT_TRANSFER_BYTES)
+            return reject(dsp, "DSP init transfer requires complete MEM1 range and byte-identical documented ucode");
+        if (dsp->aram_cycles_remaining != 0u)
+            return reject(dsp, "DSP init transfer while ARAM DMA busy not implemented");
+        if (dsp->dsp_mailbox & DSP_MAIL_BUSY)
+            return reject(dsp, "DSP init transfer with busy outgoing mailbox not implemented");
+    }
+    const bool verified = load_init || (dsp->init_loaded ? loaded_init_matches(dsp) : init_matches(dsp, cpu));
+    if ((reset || running) && !verified)
         return reject(dsp, "DSP reset/release requires byte-identical documented init ucode");
-    if (running && !reset && !dsp->rom_selected)
+    if (running && !reset && !load_init && !dsp->rom_selected && !dsp->init_loaded)
         return reject(dsp, "DSP release requires verified reset-selected ROM");
+    if (running && !reset && !load_init && !dsp->rom_selected && dsp->init_cycles_remaining == 0u)
+        return reject(dsp, "completed DSP init requires reset before release");
     if (running && (dsp->cpu_mailbox & DSP_MAIL_BUSY))
         return reject(dsp, "queued ROM mail protocol not implemented");
+    if (load_init) {
+        memcpy(dsp->init_image, cpu->ram + WW_DSP_INIT_LOAD_ADDRESS, WW_DSP_INIT_TRANSFER_BYTES);
+        dsp->init_loaded = true;
+        dsp->init_cycles_remaining = DSP_INIT_CORE_CYCLES;
+        dsp->init_ticks_remaining = DSP_INIT_CODE_TICKS;
+        dsp->rom_selected = false;
+        dsp->rom_mail_pending = false;
+    }
     if (reset) {
+        dsp->init_cycles_remaining = 0u;
         dsp->rom_selected = true;
         dsp->rom_mail_pending = true;
     }
@@ -96,12 +127,41 @@ static bool aram_dma_write(WwDspInterface* dsp, CPUState* cpu, u32 address, u8 s
     return true;
 }
 
-void ww_dsp_interface_advance(WwDspInterface* dsp, u64 cycles) {
+bool ww_dsp_interface_advance(WwDspInterface* dsp, u64 cycles, u64 ticks) {
+    if (dsp->error != NULL)
+        return false;
     dsp->aram_cycles_remaining = cycles < dsp->aram_cycles_remaining ? dsp->aram_cycles_remaining - cycles : 0u;
+    dsp->init_ticks_remaining = ticks < dsp->init_ticks_remaining ? dsp->init_ticks_remaining - (u16)ticks : 0u;
+    if ((dsp->control & DSP_HALT) || dsp->rom_selected || dsp->init_cycles_remaining == 0u)
+        return true;
+    if (!loaded_init_matches(dsp))
+        return reject(dsp, "DSP init execution requires byte-identical loaded documented ucode");
+    const u32 prior = dsp->init_cycles_remaining;
+    dsp->init_cycles_remaining = cycles < prior ? prior - (u32)cycles : 0u;
+    if (prior > 2u * DSP_CORE_CYCLES_PER_STEP && dsp->init_cycles_remaining <= 2u * DSP_CORE_CYCLES_PER_STEP) {
+        if (dsp->dsp_mailbox & DSP_MAIL_BUSY)
+            return reject(dsp, "DSP init outgoing mailbox wait not implemented");
+        memset(dsp->dram, 0, sizeof(dsp->dram));
+        dsp->dsp_mailbox = (dsp->dsp_mailbox & 0xFFFFu) | (DSP_INIT_MAIL & 0x7FFF0000u);
+    }
+    if (prior > DSP_CORE_CYCLES_PER_STEP && dsp->init_cycles_remaining <= DSP_CORE_CYCLES_PER_STEP)
+        dsp->dsp_mailbox = DSP_INIT_MAIL;
+    if (dsp->init_cycles_remaining == 0u)
+        dsp->control |= DSP_HALT;
+    return true;
 }
 
 u64 ww_dsp_interface_deadline(const WwDspInterface* dsp) {
-    return dsp->aram_cycles_remaining != 0u ? dsp->aram_cycles_remaining : UINT64_MAX;
+    u64 expiry = dsp->aram_cycles_remaining != 0u ? dsp->aram_cycles_remaining : UINT64_MAX;
+    if (!(dsp->control & DSP_HALT) && !dsp->rom_selected && dsp->init_cycles_remaining != 0u) {
+        const u64 init_expiry = dsp->init_cycles_remaining > 2u * DSP_CORE_CYCLES_PER_STEP ?
+            dsp->init_cycles_remaining - 2u * DSP_CORE_CYCLES_PER_STEP :
+            dsp->init_cycles_remaining > DSP_CORE_CYCLES_PER_STEP ?
+            dsp->init_cycles_remaining - DSP_CORE_CYCLES_PER_STEP : dsp->init_cycles_remaining;
+        if (init_expiry < expiry)
+            expiry = init_expiry;
+    }
+    return expiry;
 }
 
 bool ww_dsp_interface_interrupt_pending(const WwDspInterface* dsp) {
@@ -136,7 +196,8 @@ bool ww_dsp_interface_read(WwDspInterface* dsp, u32 address, u8 size, u64* value
         dsp->dsp_mailbox &= ~DSP_MAIL_BUSY;
         return true;
     case WW_DSP_CONTROL:
-        *value = dsp->control | (dsp->aram_cycles_remaining != 0u ? DSP_DMA_BUSY :
+        *value = dsp->control | (dsp->init_ticks_remaining != 0u ? DSP_INIT_CODE : 0u) |
+                 (dsp->aram_cycles_remaining != 0u ? DSP_DMA_BUSY :
                  bluewake_aram_dma_interrupt_pending(&dsp->aram) ? DSP_ARAM_INTERRUPT : 0u);
         return true;
     case WW_DSP_AR_INFO: *value = dsp->ar_info; return true;

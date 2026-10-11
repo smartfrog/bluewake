@@ -16,7 +16,7 @@ class MainIoTest(unittest.TestCase):
         test_host.StartupHostTest.setUpClass()
 
     def run_fixture(self, failure='', stale=False, interrupt=None, exception=False, syscall=None, progress=False,
-                    dispatch_trace=None, stale_dispatch=False, mmio_poll=False, aram_dma=False):
+                    dispatch_trace=None, stale_dispatch=False, mmio_poll=False, aram_dma=False, dsp_init=False):
         with tempfile.TemporaryDirectory(dir=OUT, prefix='io-') as directory:
             root = Path(directory)
             data = bytearray(260)
@@ -44,6 +44,8 @@ class MainIoTest(unittest.TestCase):
                 environment['WW05_IO_MMIO_POLL'] = '1'
             if aram_dma:
                 environment['WW05_IO_ARAM_DMA'] = '1'
+            if dsp_init:
+                environment['WW05_IO_DSP_INIT'] = '1'
             result = subprocess.run([str(OUT / 'io_probe')], cwd=root,
                                     env=environment, capture_output=True, timeout=10)
             report = (root / 'ww05.report').read_text() if (root / 'ww05.report').exists() else None
@@ -96,6 +98,12 @@ class MainIoTest(unittest.TestCase):
         self.assertEqual(status, 0)
         self.assertIn('cycles=258\n', report)
         self.assertIn('aram=16777216', report)
+        self.assertIn('END frontier=PASS live=0', report)
+
+    def test_dsp_init_mail_poll_yields_through_the_real_chassis_until_credited_execution_completes(self):
+        status, report = self.run_fixture(dsp_init=True)
+        self.assertEqual(status, 0)
+        self.assertIn('cycles=98430\n', report)
         self.assertIn('END frontier=PASS live=0', report)
         self.assertTrue(report.endswith('END frontier=PASS live=0 rendered=0\n'))
 

@@ -28,6 +28,30 @@ static int mmio_poll(CPUState* cpu, u32 address) {
 static int dispatch(CPUState* cpu, u32 address) {
     static bool polled;
     static u32 repeated_handlers;
+    static bool init_started;
+    if (getenv("WW05_IO_DSP_INIT") != NULL && !polled) {
+        if (!init_started) {
+            init_started = true;
+            for (u32 index = 0u; index < 128u; ++index)
+                cpu->ram[0x01000000u + index] = (u8)index;
+            cpu->external_write(cpu, 0xCC00500Au, 0x0805u, 2u);
+            cpu->external_write(cpu, 0xCC00500Au, 4u, 2u);
+            cpu->external_write(cpu, 0xCC00500Au, 0u, 2u);
+        }
+        while (cpu->downcount > -cpu->cycle_budget) {
+            cpu->pc = address;
+            cpu->cycle_observation_suffix = 0u;
+            cpu->downcount -= 1;
+            const u64 high = cpu->external_read(cpu, 0xCC005004u, 2u);
+            if (high & 0x8000u) {
+                assert(high == 0x8054u && cpu->external_read(cpu, 0xCC005006u, 2u) == 0x4348u);
+                polled = true;
+                cpu->pc = address + 4u;
+                break;
+            }
+        }
+        return 1;
+    }
     if (getenv("WW05_IO_ARAM_DMA") != NULL && !polled) {
         polled = true;
         cpu->external_write(cpu, 0xCC005012u, 0x43u, 2u);
