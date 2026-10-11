@@ -343,9 +343,20 @@ bool ww_host_resume_exception(WwHost* host) {
     CPUState* cpu = &host->cpu;
     const u32 source = 0x803077D0u;
     if (cpu->exception != PPC_EXC_SYSTEM_CALL || cpu->pc != PPC_VECTOR_SYSTEM_CALL ||
-        host->module == NULL ||
-        !ww_code_guard_copied_text_matches(&host->code_guard, cpu, source,
-                                           GC_RAM_BASE | PPC_VECTOR_SYSTEM_CALL, 28u))
+        host->module == NULL)
+        return false;
+    if (fprintf(stderr, "[exception-handoff] stage=guard vector=%08X source=%08X srr0=%08X\n",
+                cpu->pc, source, cpu->srr0) < 0) {
+        ww_host_fail(host, "exception handoff log write failed", source, cpu->pc);
+        return false;
+    }
+    const bool matched = ww_code_guard_copied_text_matches(&host->code_guard, cpu, source,
+                                                         GC_RAM_BASE | PPC_VECTOR_SYSTEM_CALL, 28u);
+    if (fprintf(stderr, "[exception-handoff] stage=guard-result matched=%u\n", matched) < 0) {
+        ww_host_fail(host, "exception handoff log write failed", source, cpu->pc);
+        return false;
+    }
+    if (!matched)
         return false;
     for (u32 index = 0u; index < host->module->num_code_ranges; ++index) {
         const StaticRecompRange* range = &host->module->code_ranges[index];

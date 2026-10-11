@@ -230,7 +230,7 @@ a lingering process. Its short red/green loops are in `logs/private-{launch,gues
 The parent-symlink loop reproduced creation outside an owned fake profile, then prevented it with the
 existing no-follow directory-descriptor pattern. No real/shared profile was involved.
 
-The WW05 host suite currently has **103 tests**. Source-bound logs retain exact counts/commands for these,
+The WW05 host suite currently has **104 tests**. Source-bound logs retain exact counts/commands for these,
 native runtime CTest, 71 native FP cases and the eight direct baseline files. Audit, attribution,
 pin/scope/diff and clean-worktree checks accompany delivery. The pre-launch `1ba507c` checkpoint passed
 35 WW05 tests, 177 unchanged tests, 53 direct baseline tests, 71 native FP cases and 3/1/5 runtime/corpus/
@@ -533,3 +533,21 @@ time. A partial report remains non-certifying. Logging failures propagate to a n
 and the shared platform fixture and other profiles remain untouched.
 `logs/private-progress-{red,green}.log` verifies visible progress and refusal of stderr-buffer
 configuration failure; all 103 host tests pass before the next private diagnosis trial.
+
+Run `68197f98888b4193bb159271cc40b536` at `b220c81ea925b6caef336fbd5197d32a3d9cad30`
+logged successful load, the real SRAM transaction and progress through turn 494, 1,231 edges,
+131,751 cycles, PC `80309598`, MSR `00000002`. No later sampled return or exception-resume
+line appeared before the 180-second guest timeout. This narrows the problem to execution after
+load but does not establish the final instruction or that a syscall handoff was reached.
+The partial file remained empty despite logged SceIoWrite calls; only the immediate private
+stderr log is available. Frontier UNAVAILABLE and process 124/INCOMPLETE remain distinct.
+Result SHA-256: `f677a8fc2faa1412deebca1d6c0e23dd3b843a3354879c75fcaf9b5a4bfb2a2d`;
+log SHA-256: `9aa5fabb249b96c38c32e96ea15c341b64c1b81231ea7151ba5bc9391dbb6fc1`.
+
+The next diagnostic checkpoint logs entry/result of the copied-handler guard and pairs native
+dispatch entry/return in the observed 131,072–196,607-cycle window, only during the first 1,024
+turns. This bounds diagnostic output, not guest execution. No instructions, cycle accounting,
+exceptions, pins or emulator behavior change. `logs/handoff-guard-red.log` and
+`logs/handoff-window-{red,green}.log` retain the reproduced missing diagnostics and all 104
+passing host tests. The window fixture charges synthetic time explicitly and cannot certify
+game behavior. A fresh source-bound private run is required to locate the missing return.

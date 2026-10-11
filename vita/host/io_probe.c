@@ -23,6 +23,8 @@ static int dispatch(CPUState* cpu, u32 address) {
         cpu->msr = PPC_MSR_RI;
         ppc_system_call_exception(cpu, address);
         cpu->downcount -= 12;
+        if (strcmp(syscall, "trace-window") == 0)
+            cpu->downcount -= 131072;
         return 1;
     }
     if (syscall != NULL && address == 0x803077D0u) {

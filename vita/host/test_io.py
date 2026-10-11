@@ -42,6 +42,12 @@ class MainIoTest(unittest.TestCase):
             report = (root / 'ww05.report').read_text() if (root / 'ww05.report').exists() else None
             if progress:
                 self.assertIn('[progress] turns=1', result.stderr.decode())
+            if syscall == 'valid':
+                self.assertIn('[exception-handoff] stage=guard', result.stderr.decode())
+                self.assertIn('[exception-handoff] stage=guard-result matched=1', result.stderr.decode())
+            if syscall == 'trace-window':
+                self.assertIn('[dispatch] stage=enter turn=2 pc=803077D0', result.stderr.decode())
+                self.assertIn('[dispatch] stage=return turn=2 pc=80001004', result.stderr.decode())
             if exception:
                 log = result.stderr.decode()
                 self.assertIn('[exception] bits=00000008 pc=00000C00 srr0=80001004', log)
@@ -78,6 +84,11 @@ class MainIoTest(unittest.TestCase):
         status, report = self.run_fixture(syscall='vector-changed')
         self.assertNotEqual(status, 0)
         self.assertIn('END frontier=FAIL', report)
+
+    def test_dispatch_window_identifies_the_compiled_handler_entry_and_return(self):
+        status, report = self.run_fixture(syscall='trace-window')
+        self.assertEqual(status, 0)
+        self.assertIn('END frontier=PASS', report)
 
     def test_changed_syscall_source_is_not_executed_using_stale_compiled_code(self):
         status, report = self.run_fixture(syscall='source-changed')

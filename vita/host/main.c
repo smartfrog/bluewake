@@ -85,9 +85,21 @@ int fixture_run(int argc, char** argv) {
         }
         bluewake_cycle_domain_begin_turn(&host->cycles, &host->cpu);
         bluewake_cycle_domain_prepare_dispatch(&host->cycles, &host->cpu);
+        const bool trace_dispatch = host->cycles.absolute_cycles >= 131072u &&
+                                    host->cycles.absolute_cycles < 196608u && turns < 1024u;
+        if (trace_dispatch && fprintf(stderr, "[dispatch] stage=enter turn=%llu pc=%08X cycles=%llu\n",
+                                      (unsigned long long)(turns + 1u), host->cpu.pc,
+                                      (unsigned long long)host->cycles.absolute_cycles) < 0) {
+            error = 1;
+            break;
+        }
         const int dispatched = module->dispatch(&host->cpu, host->cpu.pc);
         bluewake_cycle_domain_end_turn(&host->cycles, &host->cpu);
         ++turns;
+        if (trace_dispatch)
+            error |= fprintf(stderr, "[dispatch] stage=return turn=%llu pc=%08X cycles=%llu exception=%08X\n",
+                             (unsigned long long)turns, host->cpu.pc,
+                             (unsigned long long)host->cycles.absolute_cycles, host->cpu.exception) < 0;
         if (host->cycles.absolute_cycles >= next_progress || (turns & 0xFFFFu) == 0u) {
             error |= fprintf(stderr, "[progress] turns=%llu edges=%llu cycles=%llu pc=%08X msr=%08X srr0=%08X exception=%08X\n",
                              (unsigned long long)turns, (unsigned long long)host->edges,
