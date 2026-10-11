@@ -68,7 +68,7 @@ def _deflected(frame, deadzone: int, axis: str) -> bool:
 
 def _axis_requirement(runs, deadzone: int, min_frames: int, axis: str,
                       label: str) -> dict:
-    frames = [frame for _, run in runs for frame in run.input_frames]
+    frames = [frame for _, _, run in runs for frame in run.input_frames]
     if not frames:
         return _result(None, "not measured: no input-frame markers in the evidence")
     channel_frames = [frame for frame in frames if frame.channel == 0]
@@ -83,7 +83,7 @@ def _axis_requirement(runs, deadzone: int, min_frames: int, axis: str,
         return _result(False, f"longest channel-0 {label} deflection is {length} frames, "
                               f"below the {min_frames}-frame minimum")
     first, last = longest[0], longest[-1]
-    consumed = [record for _, run in runs for record in run.input_consumed
+    consumed = [record for _, _, run in runs for record in run.input_consumed
                 if first.us <= record.us <= last.us]
     if not consumed:
         return _result(False, f"{label} deflected {len(longest)} frames but the guest's own "
@@ -108,8 +108,8 @@ def _runs_of(frames, deadzone: int, axis: str) -> list:
 
 
 def _audio_requirement(runs) -> dict:
-    active = [event for _, run in runs for event in run.audio_active]
-    silent = [event for _, run in runs for event in run.audio_silent]
+    active = [event for _, _, run in runs for event in run.audio_active]
+    silent = [event for _, _, run in runs for event in run.audio_silent]
     if not active and not silent:
         return _result(None, "not measured: no audio markers in the evidence")
     if not active:
@@ -124,7 +124,7 @@ def _audio_requirement(runs) -> dict:
 
 
 def _transition_requirement(runs) -> dict:
-    loads = [load for _, run in runs for load in run.scene_loads]
+    loads = [load for _, _, run in runs for load in run.scene_loads]
     if not loads:
         return _result(None, "not measured: no scene-load markers in the evidence")
     names = []
@@ -138,11 +138,11 @@ def _transition_requirement(runs) -> dict:
 
 
 def _save_requirement(runs) -> dict:
-    writes = [(index, event) for index, (_, run) in enumerate(runs)
+    writes = [(index, event) for index, (_, _, run) in enumerate(runs)
               for event in run.save_writes]
-    reads = [(index, event) for index, (_, run) in enumerate(runs)
+    reads = [(index, event) for index, (_, _, run) in enumerate(runs)
              for event in run.save_reads]
-    errors = [(index, event) for index, (_, run) in enumerate(runs)
+    errors = [(index, event) for index, (_, _, run) in enumerate(runs)
               for event in run.save_errors]
     if errors:
         index, error = errors[0]
