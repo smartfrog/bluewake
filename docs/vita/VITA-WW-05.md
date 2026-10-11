@@ -997,9 +997,10 @@ mail stores, then HALT. No ROM or coefficient data are synthesized: their scan r
 reach the fixed response. The data store is really cleared, bulk-applied before the first
 outgoing store; per-instruction intermediate DSP memory state is not exposed or claimed.
 `DSPHLE/UCodes/INIT.cpp:19-22` documents **`80544348`**; the identified program corroborates
-the stores, and `DSP/DSPHWInterface.cpp:52-72` supplies their latch semantics. High-word output
-is `0054`, followed by low-word `4348` setting busy to produce `80544348`. Reading low clears
-busy without changing the residual bits. The next instruction asserts HALT
+the stores. Following the independent review, the host exposes the **complete word at the
+first mail transition**, matching `DSPHLE/MailHandler.cpp:38-68`, not an intermediate LLE
+store latch. Reading low clears busy without changing the residual bits or reissuing the mail
+at the former second-store deadline. The next instruction asserts HALT
 (`DSP/Interpreter/DSPIntBranch.cpp:127-132`), but the already-written mailbox remains readable.
 No mailbox interrupt, AI stream, audio completion or controller data is generated.
 
@@ -1009,10 +1010,11 @@ proof `logs/init-timing-sourced-22a9c6a.json`, SHA-256
 steps** including HALT for the verified code and empty outgoing mailbox. Pinned
 `DSP/Interpreter/DSPInterpreter.cpp:68-85,88-106` charges one step per instruction, and
 `HW/DSPLLE/DSPLLE.cpp:249-272` supplies six core cycles per DSP step. Therefore the fixed
-high, low and HALT transitions occur at 98,412, 98,418 and 98,424 running core cycles.
+first-mail and HALT transitions occur at 98,412 and 98,424 running core cycles. The former
+98,418 intermediate-store deadline no longer mutates the CPU-visible mailbox.
 This adopts the reference ratio and static accounting, **not a new frequency or a physical
-timing claim**. Pausing preserves fractional progress. Dispatch deadlines bound each outgoing
-store and HALT, separately from ARAM and DEC deadlines.
+timing claim**. Pausing preserves fractional progress. Dispatch deadlines bound the complete
+mail and HALT, separately from ARAM and DEC deadlines.
 
 DSP_INIT_CODE is a different transition: the reference sets it at INIT falling and clears it
 after **130 existing TB ticks** (`DSPInterpreter.cpp:261-281`). The reference describes this as
@@ -1637,3 +1639,25 @@ Linux AArch64, including real copies and the unchanged legacy wrap. **177 ARMv7 
 audit, attribution and native runtime CTest **3/3** pass. Real absent-HSP probe continuation
 still needs the next clean Vita build/trial; no physical Vita, Windows CI, GX acceptance,
 rendering, FPS, runtime REL event or guest disc access is claimed.
+
+## Independent review B1: atomic documented init mail
+
+The requested B1 correction writes all of `80544348` at the first visible init-mail
+transition. `DSPHLE/UCodes/INIT.cpp:19-22` sources the value and
+`DSPHLE/MailHandler.cpp:38-68` sources complete-mail visibility and low-read consumption.
+There is no transient `0054` high word before delivery and no later store that can restore
+busy after an early low read. Verified-image authorization, credited execution, HALT,
+130-TB-tick INIT_CODE expiry, no interrupt and stopped audio are unchanged.
+
+`logs/review-b1-red.log` reproduces five failures at the first-mail assertion. The regression
+also consumes low at that first transition and checks that busy stays clear through the old
+six-cycle window and HALT. The existing main-loop poll now observes mail six credited cycles
+earlier; this is the requested visibility correction, not skipped guest instructions.
+
+Linux AArch64 checks: **288 host tests**, **177 ARMv7 campaign tests**, repository audit
+and native runtime CTest **3/3** pass. The ARMv7 campaign initially failed configuration
+after invoking a different host compiler, then failed on a host-only optional zlib header;
+both failures are retained. Its generated build was retained under
+`build-ww08-io-tests-review-b1-config-failure`; the fresh game-free generator uses the
+existing no-zlib configuration, with no source, pin or floating-point change. Physical Vita
+and Windows CI are not tested.

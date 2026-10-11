@@ -145,7 +145,7 @@ class MainIoTest(unittest.TestCase):
     def test_dsp_init_mail_poll_yields_through_the_real_chassis_until_credited_execution_completes(self):
         status, report = self.run_fixture(dsp_init=True)
         self.assertEqual(status, 0)
-        self.assertIn('cycles=98430\n', report)
+        self.assertIn('cycles=98424\n', report)
         self.assertIn('END frontier=PASS live=0', report)
         self.assertTrue(report.endswith('END frontier=PASS live=0 rendered=0\n'))
 

@@ -160,10 +160,8 @@ bool ww_dsp_interface_advance(WwDspInterface* dsp, u64 cycles, u64 ticks) {
         if (dsp->dsp_mailbox & DSP_MAIL_BUSY)
             return reject(dsp, "DSP init outgoing mailbox wait not implemented");
         memset(dsp->dram, 0, sizeof(dsp->dram));
-        dsp->dsp_mailbox = (dsp->dsp_mailbox & 0xFFFFu) | (DSP_INIT_MAIL & 0x7FFF0000u);
-    }
-    if (prior > DSP_CORE_CYCLES_PER_STEP && dsp->init_cycles_remaining <= DSP_CORE_CYCLES_PER_STEP)
         dsp->dsp_mailbox = DSP_INIT_MAIL;
+    }
     if (dsp->init_cycles_remaining == 0u)
         dsp->control |= DSP_HALT;
     return true;
@@ -173,9 +171,7 @@ u64 ww_dsp_interface_deadline(const WwDspInterface* dsp) {
     u64 expiry = dsp->aram_cycles_remaining != 0u ? dsp->aram_cycles_remaining : UINT64_MAX;
     if (!(dsp->control & DSP_HALT) && !dsp->rom_selected && dsp->init_cycles_remaining != 0u) {
         const u64 init_expiry = dsp->init_cycles_remaining > 2u * DSP_CORE_CYCLES_PER_STEP ?
-            dsp->init_cycles_remaining - 2u * DSP_CORE_CYCLES_PER_STEP :
-            dsp->init_cycles_remaining > DSP_CORE_CYCLES_PER_STEP ?
-            dsp->init_cycles_remaining - DSP_CORE_CYCLES_PER_STEP : dsp->init_cycles_remaining;
+            dsp->init_cycles_remaining - 2u * DSP_CORE_CYCLES_PER_STEP : dsp->init_cycles_remaining;
         if (init_expiry < expiry)
             expiry = init_expiry;
     }

@@ -125,15 +125,23 @@ int main(int argc, char** argv) {
             bluewake_cycle_domain_prepare_dispatch(&host->cycles, &host->cpu);
             assert(host->cpu.cycle_budget == 1);
             charge_cycles(host, 1u);
-            assert(read_register(host, 0xCC005004u) == 0x0054u);
-            charge_cycles(host, 5u);
-            assert(read_register(host, 0xCC005004u) == 0x0054u);
-            charge_cycles(host, 1u);
             assert(read_register(host, 0xCC005004u) == 0x8054u);
-            assert(read_register(host, 0xCC005006u) == 0x4348u);
+            assert(host->dsp.dsp_mailbox == 0x80544348u);
+            const bool consume_early = strcmp(argv[1], "mail-consume-early") == 0;
+            if (consume_early) {
+                assert(read_register(host, 0xCC005006u) == 0x4348u);
+                assert(read_register(host, 0xCC005004u) == 0x0054u);
+            }
+            charge_cycles(host, 5u);
+            assert(read_register(host, 0xCC005004u) == (consume_early ? 0x0054u : 0x8054u));
+            charge_cycles(host, 1u);
+            assert(read_register(host, 0xCC005004u) == (consume_early ? 0x0054u : 0x8054u));
+            if (!consume_early)
+                assert(read_register(host, 0xCC005006u) == 0x4348u);
             assert(read_register(host, 0xCC005004u) == 0x0054u);
             charge_cycles(host, 6u);
             assert(read_register(host, WW_DSP_CONTROL) == 4u);
+            assert(read_register(host, 0xCC005004u) == 0x0054u);
             for (u32 index = 0u; index < sizeof(host->dsp.dram); ++index)
                 assert(host->dsp.dram[index] == 0u);
             assert(!dol_interrupts_external_pending(&host->interrupts));
@@ -145,7 +153,7 @@ int main(int argc, char** argv) {
                 assert(host->error == NULL && read_register(host, 0xCC005004u) == 0x8071u);
                 assert(read_register(host, 0xCC005006u) == 0xFEEDu);
             } else {
-                assert(strcmp(argv[1], "mail") == 0 || strcmp(argv[1], "pause") == 0);
+                assert(strcmp(argv[1], "mail") == 0 || strcmp(argv[1], "pause") == 0 || consume_early);
             }
         }
     }

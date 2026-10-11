@@ -50,6 +50,9 @@ class DspInitTest(unittest.TestCase):
     def test_verified_loaded_init_emits_documented_mail_then_halts_without_audio_or_irq(self):
         subprocess.run([str(test_host.OUT / 'dsp_init_probe'), 'mail'], check=True)
 
+    def test_mail_consumed_at_the_first_visible_transition_is_not_reissued_six_cycles_later(self):
+        subprocess.run([str(test_host.OUT / 'dsp_init_probe'), 'mail-consume-early'], check=True)
+
     def test_large_credit_crossing_the_halt_keeps_the_emitted_mail_readable_and_consumable(self):
         subprocess.run([str(test_host.OUT / 'dsp_init_probe'), 'bulk-halt-mail'], check=True)
 
@@ -57,7 +60,7 @@ class DspInitTest(unittest.TestCase):
         result = subprocess.run([str(test_host.OUT / 'dsp_init_probe'), 'mail'], check=True,
                                 capture_output=True, text=True)
         self.assertIn('[dsp-init-transfer] main=81000000 bytes=4096 verified=128 init_code_ticks=130 pc=80302F34', result.stderr)
-        self.assertIn('[dsp-init-mail] value=80544348 cycles=99978', result.stderr)
+        self.assertIn('[dsp-init-mail] value=80544348 cycles=99972', result.stderr)
         self.assertIn('[dsp-init-halt] cycles=99984', result.stderr)
 
     def test_halt_pauses_execution_and_resumes_without_recharging_completed_steps(self):
