@@ -1,83 +1,27 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
-// Host contract tests for the disc I/O seam. A fake in-memory backend exercises
+// Host contract tests for the disc I/O seam. The shared fake backend exercises
 // the stdio-shaped shims the pinned dvd.c is redirected to: no real file, no
 // pinned runtime, deterministic failure injection.
 #include "dvd_io.h"
+#include "dvd_fake_backend.h"
 
 #include <stdbool.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 
-typedef struct {
-    unsigned char* bytes;
-    unsigned long long size;
-    bool open_fails;
-    bool read_fails;
-    unsigned long long open_calls;
-    unsigned long long max_request;
-    unsigned long long total_served;
-} FakeImage;
-
-static FakeImage g_image;
-
-static BwDvdFile* fake_open(const char* path) {
-    if (g_image.open_fails || strcmp(path, "fake.iso") != 0)
-        return NULL;
-    g_image.open_calls++;
-    return (BwDvdFile*)&g_image;
-}
-
-static long long fake_read_at(BwDvdFile* file, unsigned long long offset, void* dst,
-                              unsigned long long length) {
-    FakeImage* image = (FakeImage*)file;
-    if (image->read_fails)
-        return -1;
-    if (length > image->max_request)
-        image->max_request = length;
-    if (offset >= image->size)
-        return 0;
-    unsigned long long serve = image->size - offset;
-    if (serve > length)
-        serve = length;
-    memcpy(dst, image->bytes + offset, (size_t)serve);
-    image->total_served += serve;
-    return (long long)serve;
-}
-
-static long long fake_size(BwDvdFile* file) {
-    return (long long)((FakeImage*)file)->size;
-}
-
-static void fake_close(BwDvdFile* file) {
-    (void)file;
-}
-
-static const BwDvdBackend FAKE_BACKEND = {"fake", fake_open, fake_read_at, fake_size, fake_close};
-
 static void reset(unsigned long long size) {
-    free(g_image.bytes);
-    memset(&g_image, 0, sizeof g_image);
-    if (size != 0u) {
-        g_image.bytes = (unsigned char*)malloc((size_t)size);
-        if (g_image.bytes == NULL) {
-            fprintf(stderr, "test allocation failed\n");
-            exit(2);
-        }
-        for (unsigned long long i = 0; i < size; ++i)
-            g_image.bytes[i] = (unsigned char)(i * 131u + 7u);
-        g_image.size = size;
-    }
-    bw_dvd_io_set_backend(&FAKE_BACKEND);
-    bw_dvd_io_stats_reset();
+    bw_fake_install(size);
+    for (unsigned long long i = 0; i < size; ++i)
+        bw_fake_image.bytes[i] = (unsigned char)(i * 131u + 7u);
 }
 
-#define CHECK(condition, message)                     \
-    do {                                              \
-        if (!(condition)) {                           \
+#define CHECK(condition, message)                          \
+    do {                                                   \
+        if (!(condition)) {                                \
             fprintf(stderr, "FAIL %s: %s\n", name, message); \
-            return 1;                                 \
-        }                                             \
+            return 1;                                      \
+        }                                                  \
     } while (0)
 
 static int case_open_close(const char* name) {
@@ -100,13 +44,13 @@ static int case_read_sequential(const char* name) {
     unsigned char first[256];
     unsigned char second[256];
     CHECK(bw_dvd_fread(first, 1u, sizeof first, stream) == sizeof first, "first read short");
-    CHECK(memcmp(first, g_image.bytes, sizeof first) == 0, "first read bytes differ");
+    CHECK(memcmp(first, bw_fake_image.bytes, sizeof first) == 0, "first read bytes differ");
     CHECK(bw_dvd_fread(second, 1u, sizeof second, stream) == sizeof second, "second read short");
-    CHECK(memcmp(second, g_image.bytes + sizeof first, sizeof second) == 0,
+    CHECK(memcmp(second, bw_fake_image.bytes + sizeof first, sizeof second) == 0,
           "second read did not continue the position");
     unsigned char pair[8];
     CHECK(bw_dvd_fread(pair, 2u, 4u, stream) == 4u, "item read count differs");
-    CHECK(memcmp(pair, g_image.bytes + 512u, sizeof pair) == 0, "item read bytes differ");
+    CHECK(memcmp(pair, bw_fake_image.bytes + 512u, sizeof pair) == 0, "item read bytes differ");
     CHECK(bw_dvd_fclose(stream) == 0, "close failed");
     printf("PASS %s\n", name);
     return 0;
@@ -119,7 +63,7 @@ static int case_short_read_eof(const char* name) {
     CHECK(bw_dvd_fseeko(stream, 4090, SEEK_SET) == 0, "seek failed");
     unsigned char tail[16];
     CHECK(bw_dvd_fread(tail, 1u, sizeof tail, stream) == 6u, "short read at EOF not reported");
-    CHECK(memcmp(tail, g_image.bytes + 4090u, 6u) == 0, "tail bytes differ");
+    CHECK(memcmp(tail, bw_fake_image.bytes + 4090u, 6u) == 0, "tail bytes differ");
     CHECK(bw_dvd_fclose(stream) == 0, "close failed");
     printf("PASS %s\n", name);
     return 0;
@@ -139,7 +83,7 @@ static int case_read_past_eof(const char* name) {
 
 static int case_read_failure(const char* name) {
     reset(4096u);
-    g_image.read_fails = true;
+    bw_fake_image.read_fails = true;
     FILE* stream = bw_dvd_fopen("fake.iso", "rb");
     CHECK(stream != NULL, "open failed");
     unsigned char buffer[16];
@@ -157,13 +101,13 @@ static int case_seek_set_cur_end(const char* name) {
     CHECK(bw_dvd_fseeko(stream, 100, SEEK_SET) == 0, "SEEK_SET failed");
     unsigned char data[8];
     CHECK(bw_dvd_fread(data, 1u, sizeof data, stream) == sizeof data, "read after SEEK_SET short");
-    CHECK(memcmp(data, g_image.bytes + 100u, sizeof data) == 0, "SEEK_SET bytes differ");
+    CHECK(memcmp(data, bw_fake_image.bytes + 100u, sizeof data) == 0, "SEEK_SET bytes differ");
     CHECK(bw_dvd_fseeko(stream, -8, SEEK_CUR) == 0, "SEEK_CUR failed");
     CHECK(bw_dvd_fread(data, 1u, sizeof data, stream) == sizeof data, "read after SEEK_CUR short");
-    CHECK(memcmp(data, g_image.bytes + 100u, sizeof data) == 0, "SEEK_CUR bytes differ");
+    CHECK(memcmp(data, bw_fake_image.bytes + 100u, sizeof data) == 0, "SEEK_CUR bytes differ");
     CHECK(bw_dvd_fseeko(stream, -4, SEEK_END) == 0, "SEEK_END failed");
     CHECK(bw_dvd_fread(data, 1u, sizeof data, stream) == 4u, "SEEK_END tail not short");
-    CHECK(memcmp(data, g_image.bytes + 4092u, 4u) == 0, "SEEK_END bytes differ");
+    CHECK(memcmp(data, bw_fake_image.bytes + 4092u, 4u) == 0, "SEEK_END bytes differ");
     CHECK(bw_dvd_fclose(stream) == 0, "close failed");
     printf("PASS %s\n", name);
     return 0;
@@ -188,10 +132,10 @@ static int case_chunk_bound(const char* name) {
     unsigned char* buffer = (unsigned char*)malloc((size_t)size);
     CHECK(buffer != NULL, "buffer allocation failed");
     CHECK(bw_dvd_fread(buffer, 1u, (size_t)size, stream) == (size_t)size, "large read short");
-    CHECK(g_image.max_request <= BW_DVD_READ_CHUNK_BYTES, "request exceeded the chunk cap");
-    CHECK(g_image.max_request == BW_DVD_READ_CHUNK_BYTES, "chunk cap was not exercised");
-    CHECK(memcmp(buffer, g_image.bytes, 1024u) == 0, "head bytes differ");
-    CHECK(memcmp(buffer + size - 1024u, g_image.bytes + size - 1024u, 1024u) == 0,
+    CHECK(bw_fake_image.max_request <= BW_DVD_READ_CHUNK_BYTES, "request exceeded the chunk cap");
+    CHECK(bw_fake_image.max_request == BW_DVD_READ_CHUNK_BYTES, "chunk cap was not exercised");
+    CHECK(memcmp(buffer, bw_fake_image.bytes, 1024u) == 0, "head bytes differ");
+    CHECK(memcmp(buffer + size - 1024u, bw_fake_image.bytes + size - 1024u, 1024u) == 0,
           "tail bytes differ");
     BwDvdIoStats stats;
     bw_dvd_io_stats(&stats);
@@ -206,7 +150,7 @@ static int case_chunk_bound(const char* name) {
 
 static int case_open_failure(const char* name) {
     reset(0u);
-    g_image.open_fails = true;
+    bw_fake_image.open_fails = true;
     CHECK(bw_dvd_fopen("fake.iso", "rb") == NULL, "failed open returned a stream");
     printf("PASS %s\n", name);
     return 0;
