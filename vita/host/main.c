@@ -1,5 +1,6 @@
 #define _POSIX_C_SOURCE 200809L
 #include "boot_host.h"
+#include "gxruntime/aram.h"
 #include "ww05_identity.h"
 #include "diagnostic_io.h"
 #include "fixture.h"
@@ -86,14 +87,15 @@ int fixture_run(int argc, char** argv) {
     bool loaded = !error && initialized && ww_host_load(host, module, data, count, WW05_DOL_PATH);
     error |= fprintf(stderr, "[host] stage=loaded loaded=%u pc=%08X\n", loaded, host->cpu.pc) < 0;
     if (!initialized)
-        ww_host_fail(host, "CPU/VM/cache allocation failed", 0u, 0u);
+        ww_host_fail(host, "CPU/VM/cache/ARAM allocation or ownership failed", 0u, 0u);
     error |= fprintf(report, "ABI pointer=%u cpu=%u version=%u\n", fixture_abi.pointer_bytes,
                      fixture_abi.cpu_bytes, fixture_abi.cpu_abi) < 0;
-    error |= fprintf(report, "ALLOC host=%u mem1=%u vm=%u cache=%u code_snapshot=%llu aliases=%llu alias_count=%u owned_live=%llu\n",
+    error |= fprintf(report, "ALLOC host=%u mem1=%u vm=%u cache=%u code_snapshot=%llu aram=%u aliases=%llu alias_count=%u owned_live=%llu\n",
                      (unsigned)sizeof(*host), host->cpu.ram != NULL ? host->cpu.ram_size : 0u,
                      host->memory.vm != NULL ? host->memory.config.vm_size : 0u,
                       host->memory.locked_cache != NULL ? host->memory.config.locked_cache_size : 0u,
-                      (unsigned long long)host->code_guard.bytes,
+                       (unsigned long long)host->code_guard.bytes,
+                      host->aram_owned ? ARAM_SIZE : 0u,
                      (unsigned long long)host->alias_bytes, host->alias_count,
                       (unsigned long long)(sizeof(*host) + host->backing_bytes + host->code_guard.bytes + host->alias_bytes)) < 0;
     error |= fprintf(report, "UNKNOWN residency native_stack_highwater pool_peak GPU\n") < 0;

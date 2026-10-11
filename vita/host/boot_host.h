@@ -49,6 +49,7 @@ typedef struct WwHost {
     bool edge_stopped;
     bool decrementer_valid;
     bool decrementer_pending;
+    bool aram_owned;
 } WwHost;
 
 static inline bool ww_host_trace_syscall(u64 resume) {

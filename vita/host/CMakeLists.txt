@@ -15,6 +15,7 @@ target_compile_options(gxruntime PRIVATE -ffp-contract=off -fno-fast-math -fstac
 
 add_library(ww05_services STATIC boot_host.c gx_checkpoint.c code_guard.c dsp_interface.c
     "${BLUEWAKE_ROOT}/runtime/host/src/cycle_domain.c"
+    "${BLUEWAKE_ROOT}/runtime/host/src/aram_dma.c"
     "${BLUEWAKE_ROOT}/runtime/host/src/external_memory.c"
     "${BLUEWAKE_ROOT}/runtime/host/src/ipl_sram.c"
     "${BLUEWAKE_ROOT}/runtime/host/src/interrupt_sources.c")
@@ -37,6 +38,9 @@ if(WW05_TESTS_ONLY)
     target_compile_options(host_probe PRIVATE -UNDEBUG)
     target_link_libraries(host_probe PRIVATE ww05_services)
     target_link_options(host_probe PRIVATE -Wl,--wrap=calloc)
+    add_executable(aram_probe aram_probe.c)
+    target_compile_options(aram_probe PRIVATE -UNDEBUG)
+    target_link_libraries(aram_probe PRIVATE ww05_services)
     file(WRITE "${CMAKE_CURRENT_BINARY_DIR}/ww05_identity.h" "#define WW05_SOURCE \"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\"\n")
     add_executable(io_probe main.c io_probe.c
         "${BLUEWAKE_ROOT}/vita/feasibility/armv7/platform.c"

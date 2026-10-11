@@ -293,7 +293,7 @@ class StartupHostTest(unittest.TestCase):
         subprocess.run([str(OUT / 'host_probe'), 'module'], check=True)
 
     def test_allocation_failures_release_earlier_backings(self):
-        for allocation in (1, 2, 3):
+        for allocation in (1, 2, 3, 4):
             with self.subTest(allocation=allocation):
                 subprocess.run([str(OUT / 'host_probe'), f'allocation-{allocation}'], check=True)
 

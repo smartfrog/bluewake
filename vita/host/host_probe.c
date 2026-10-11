@@ -1,4 +1,5 @@
 #include "boot_host.h"
+#include "probe_support.h"
 #include <assert.h>
 #include <stdlib.h>
 #include <stdio.h>
@@ -56,14 +57,6 @@ static void exi_sram_command(WwHost* host, u32 command) {
     host->cpu.external_write(&host->cpu, DOL_EXI_BASE + DOL_EXI_STATUS_OFF, 0x130u, 4u);
     host->cpu.external_write(&host->cpu, DOL_EXI_BASE + DOL_EXI_IMMEDIATE_DATA_OFF, command, 4u);
     host->cpu.external_write(&host->cpu, DOL_EXI_BASE + DOL_EXI_CONTROL_OFF, 0x35u, 4u);
-}
-
-static void charge_cycles(WwHost* host, u64 cycles) {
-    assert(cycles <= INT64_MAX);
-    bluewake_cycle_domain_begin_turn(&host->cycles, &host->cpu);
-    bluewake_cycle_domain_prepare_dispatch(&host->cycles, &host->cpu);
-    host->cpu.downcount = -(s64)cycles;
-    bluewake_cycle_domain_end_turn(&host->cycles, &host->cpu);
 }
 
 static void expect_decrementer_delivery(WwHost* host) {

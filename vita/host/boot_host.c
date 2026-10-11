@@ -5,6 +5,7 @@
 #include "edge_intercept_table.h"
 #include "gxruntime/boot.h"
 #include "gxruntime/guest_memory_dirty.h"
+#include "gxruntime/aram.h"
 #include "ww05_dsp_init.h"
 
 #include <string.h>
@@ -38,6 +39,14 @@ static u32 canonical_dispatch_address(const CPUState* cpu, u32 address) {
 
 static void advance(CPUState* cpu, u64 cycles, void* user) {
     WwHost* host = user;
+    const bool aram_busy = host->dsp.aram_cycles_remaining != 0u;
+    ww_dsp_interface_advance(&host->dsp, cycles);
+    const u64 transfer = host->dsp.aram.transfer_count;
+    if (aram_busy && host->dsp.aram_cycles_remaining == 0u && (transfer <= 8u || transfer % 1000u == 0u)) {
+        if (fprintf(stderr, "[aram-complete] transfer=%llu cycles=%llu\n",
+                    (unsigned long long)transfer, (unsigned long long)host->cycles.absolute_cycles) < 0)
+            ww_host_fail(host, "ARAM completion trace write failed", WW_DSP_CONTROL, cpu->pc);
+    }
     const u64 total = cycles + host->clock_remainder;
     const u64 ticks = total / WW_HOST_CYCLES_PER_TIMEBASE_TICK;
     host->clock_remainder = (u32)(total % WW_HOST_CYCLES_PER_TIMEBASE_TICK);
@@ -53,8 +62,10 @@ static u64 deadline(const CPUState* cpu, void* user) {
     const WwHost* host = user;
     if (cpu->exception == 0u && (cpu->msr & PPC_MSR_EE) && host->decrementer_pending)
         return 1u;
-    const u64 expiry = host->decrementer_valid ?
+    const u64 decrementer_expiry = host->decrementer_valid ?
         ((u64)host->decrementer + 1u) * WW_HOST_CYCLES_PER_TIMEBASE_TICK - host->clock_remainder : UINT64_MAX;
+    const u64 aram_expiry = ww_dsp_interface_deadline(&host->dsp);
+    const u64 expiry = decrementer_expiry < aram_expiry ? decrementer_expiry : aram_expiry;
     if (host->cycles.dispatch_cycles == 0u)
         return expiry;
     const u64 remaining = host->cycles.dispatch_cycles < (u64)host->cycles.cap ?
@@ -262,6 +273,7 @@ static bool interrupt_register(u32 address, u8 size, bool write) {
 
 static void refresh(WwHost* host) {
     BluewakeInterruptSources sources = {.di = dol_di_interrupt_pending(&host->di),
+                                       .dsp = ww_dsp_interface_interrupt_pending(&host->dsp),
                                        .si = dol_si_interrupt_pending(&host->si)};
     bluewake_interrupt_sources_refresh(&host->interrupts, &host->cycles, &host->cpu, &sources);
     dol_interrupts_set_source(&host->interrupts, DOL_PI_CAUSE_EXI, dol_exi_interrupt_pending(&host->exi));
@@ -318,12 +330,22 @@ static void mmio_write(CPUState* cpu, u32 address, u64 value, u8 size) {
         dol_guest_memory_write(&host->memory, address, size, value))
         return;
     observe(cpu);
+    const u64 prior_aram_transfer = host->dsp.aram.transfer_count;
     const bool dsp_written = ww_dsp_interface_write(&host->dsp, cpu, address, size, value);
     if (host->dsp.error != NULL) {
         fail_mmio_write(host, host->dsp.error, address, value, size);
         return;
     }
     if (dsp_written) {
+        const BluewakeAramDma* aram = &host->dsp.aram;
+        if (aram->transfer_count != prior_aram_transfer &&
+            (aram->transfer_count <= 8u || aram->transfer_count % 1000u == 0u)) {
+            if (fprintf(stderr, "[aram-dma] transfer=%llu main=%08X aram=%08X bytes=%u direction=%u completion_in=%llu pc=%08X\n",
+                        (unsigned long long)aram->transfer_count, aram->last_main_address,
+                        aram->last_aram_address, aram->last_length, aram->last_direction,
+                        (unsigned long long)host->dsp.aram_cycles_remaining, cpu->pc) < 0)
+                fail_mmio_write(host, "ARAM transfer trace write failed", address, value, size);
+        }
         refresh(host);
         return;
     }
@@ -464,6 +486,8 @@ bool ww_host_init(WwHost* host) {
     if (host == NULL)
         return false;
     memset(host, 0, sizeof(*host));
+    if (aram_buffer() != NULL)
+        return false;
     BlueWakeModuleStorage storage = {.cpu = &host->cpu};
     if (!bw_module_cpu_init(&storage))
         return false;
@@ -472,6 +496,13 @@ bool ww_host_init(WwHost* host) {
         return false;
     }
     host->backing_bytes = host->cpu.ram_size + (u64)host->memory.config.vm_size + host->memory.config.locked_cache_size;
+    aram_init();
+    if (aram_buffer() == NULL) {
+        ww_host_shutdown(host);
+        return false;
+    }
+    host->aram_owned = true;
+    host->backing_bytes += ARAM_SIZE;
     host->cpu.external_user_data = host;
     host->cpu.external_read = mmio_read;
     host->cpu.external_write = mmio_write;
@@ -499,6 +530,10 @@ bool ww_host_init(WwHost* host) {
 }
 
 void ww_host_shutdown(WwHost* host) {
+    if (host->aram_owned) {
+        aram_free();
+        host->aram_owned = false;
+    }
     host->module = NULL;
     ww_code_guard_free(&host->code_guard);
     ppc_guest_alias_clear();

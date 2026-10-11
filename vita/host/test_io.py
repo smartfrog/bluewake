@@ -16,7 +16,7 @@ class MainIoTest(unittest.TestCase):
         test_host.StartupHostTest.setUpClass()
 
     def run_fixture(self, failure='', stale=False, interrupt=None, exception=False, syscall=None, progress=False,
-                    dispatch_trace=None, stale_dispatch=False, mmio_poll=False):
+                    dispatch_trace=None, stale_dispatch=False, mmio_poll=False, aram_dma=False):
         with tempfile.TemporaryDirectory(dir=OUT, prefix='io-') as directory:
             root = Path(directory)
             data = bytearray(260)
@@ -42,6 +42,8 @@ class MainIoTest(unittest.TestCase):
                 environment['WW05_IO_SYSCALL'] = syscall
             if mmio_poll:
                 environment['WW05_IO_MMIO_POLL'] = '1'
+            if aram_dma:
+                environment['WW05_IO_ARAM_DMA'] = '1'
             result = subprocess.run([str(OUT / 'io_probe')], cwd=root,
                                     env=environment, capture_output=True, timeout=10)
             report = (root / 'ww05.report').read_text() if (root / 'ww05.report').exists() else None
@@ -88,6 +90,13 @@ class MainIoTest(unittest.TestCase):
         status, report = self.run_fixture(mmio_poll=True)
         self.assertEqual(status, 0)
         self.assertIn('cycles=268\n', report)
+
+    def test_aram_poll_continues_only_after_the_credited_dma_deadline(self):
+        status, report = self.run_fixture(aram_dma=True)
+        self.assertEqual(status, 0)
+        self.assertIn('cycles=258\n', report)
+        self.assertIn('aram=16777216', report)
+        self.assertIn('END frontier=PASS live=0', report)
         self.assertTrue(report.endswith('END frontier=PASS live=0 rendered=0\n'))
 
     def test_synthetic_interrupt_yields_resume_the_main_dispatch_loop(self):

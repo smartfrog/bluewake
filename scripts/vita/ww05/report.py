@@ -21,9 +21,10 @@ def validate(content, token, source, package):
         return 'FAIL'
     if len(lines) != 8 or lines[1] != 'ABI pointer=4 cpu=3496 version=6':
         raise ValueError('WW05 record count or target CPU ABI mismatch')
-    host, mem1, vm, cache, code_snapshot, aliases, count, live = (int(value or 0) for value in matched(
-        r'ALLOC host=(\d+) mem1=(\d+) vm=(\d+) cache=(\d+)(?: code_snapshot=(\d+))? aliases=(\d+) alias_count=(\d+) owned_live=(\d+)', lines[2]))
-    if (live != host + mem1 + vm + cache + code_snapshot + aliases or host <= 0 or code_snapshot > mem1 or
+    host, mem1, vm, cache, code_snapshot, aram, aliases, count, live = (int(value or 0) for value in matched(
+        r'ALLOC host=(\d+) mem1=(\d+) vm=(\d+) cache=(\d+)(?: code_snapshot=(\d+))?(?: aram=(\d+))? aliases=(\d+) alias_count=(\d+) owned_live=(\d+)', lines[2]))
+    if (live != host + mem1 + vm + cache + code_snapshot + aram + aliases or host <= 0 or code_snapshot > mem1 or
+        aram not in (0, 16777216) or
         mem1 not in (0, 25165824) or vm not in (0, 33554432) or cache not in (0, 16384) or
         count > 4096 or bool(aliases) != bool(count)):
         raise ValueError('WW05 allocation ledger is inconsistent')

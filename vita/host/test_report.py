@@ -57,6 +57,16 @@ END frontier=PASS live=0 rendered=0
         with self.assertRaisesRegex(ValueError, 'ledger'):
             self.validate(content, TOKEN, SOURCE, PACKAGE)
 
+    def test_aram_owner_is_included_in_the_allocation_ledger(self):
+        content = self.content.replace('cache=16384 aliases=', 'cache=16384 aram=16777216 aliases=')
+        content = content.replace('owned_live=59536652', 'owned_live=76313868')
+        self.assertEqual(self.validate(content, TOKEN, SOURCE, PACKAGE), 'PASS')
+
+    def test_aram_owner_cannot_be_omitted_from_owned_live(self):
+        content = self.content.replace('cache=16384 aliases=', 'cache=16384 aram=16777216 aliases=')
+        with self.assertRaises(ValueError):
+            self.validate(content, TOKEN, SOURCE, PACKAGE)
+
     def test_negative_report_retains_the_observed_service_write(self):
         content = self.content.replace('first complete GX command; no renderer', 'SI transfer unsupported')
         content = content.replace('frontier=PASS', 'frontier=FAIL')

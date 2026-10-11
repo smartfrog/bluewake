@@ -70,7 +70,8 @@ ROM selection model: it requires all 128 live init bytes to match the identified
 The reset bit clears without altering guest time. A stopped ROM does not expose its pending mail;
 verified ROM release exposes the documented `8071FEED`, whose busy latch clears on low-word read.
 Unknown code, external DSP interrupts, running/queued CPU-mail protocols and the init transfer
-still refuse explicitly. No DSP core, audio or ARAM DMA is implemented in this increment. ARAM configuration
+still refuse explicitly. No DSP core or audio is implemented. The ARAM DMA increment below
+adds real copies and credit-driven busy/interrupt state. ARAM configuration
 halfwords are implemented separately: AR_INFO (`CC005012`, mask `007F`, reset zero),
 read-only AR_MODE (`CC005016`, reset one), and AR_REFRESH (`CC00501A`, mask `07FF`, reset 156).
 The refresh image is a register value, not a new emulated clock frequency.
@@ -88,7 +89,7 @@ Known PI/VI/PE/DI/EXI/SI register operations use the pinned C models with width/
 An unimplemented register, SPR, cache operation, instruction, host call, desktop interception,
 interrupt delivery, DVD command or EXI/SI transfer stops with reason/address/PC. There is no
 fabricated DSP/controller/DVD completion, arbitrary zero-valued service or instruction advance.
-Audio/DSP, CP hardware service and later rendering are not implemented. These are material risks
+Audio/DSP execution, CP hardware service and later rendering are not implemented. These are material risks
 of stopping **before** GX, which only actual startup evidence can resolve.
 
 `bluewake_set_edge_service(ww_host_edge, host)` installs the stop latch. The outer dispatcher also
@@ -236,7 +237,7 @@ a lingering process. Its short red/green loops are in `logs/private-{launch,gues
 The parent-symlink loop reproduced creation outside an owned fake profile, then prevented it with the
 existing no-follow directory-descriptor pattern. No real/shared profile was involved.
 
-The WW05 host suite currently has **155 tests**. Source-bound logs retain exact counts/commands for these,
+The WW05 host suite currently has **171 tests**. Source-bound logs retain exact counts/commands for these,
 native runtime CTest, 71 native FP cases and the eight direct baseline files. Audit, attribution,
 pin/scope/diff and clean-worktree checks accompany delivery. The pre-launch `1ba507c` checkpoint passed
 35 WW05 tests, 177 unchanged tests, 53 direct baseline tests, 71 native FP cases and 3/1/5 runtime/corpus/
@@ -892,3 +893,68 @@ release; the corrected model refuses it. `logs/dsp-fixed-reset-verified-green.lo
 mailbox consumption, zero-charge reset and ROM-mail/no-interrupt behavior.
 `logs/dsp-fixed-reset-armv7.log` passes 177 unchanged tests; audit passes. Rejected DSP writes
 now retain width/value in the existing strict report without adding GX evidence fields.
+
+## Real ARAM DMA with credit-driven completion
+
+Run `7a5394b685b24c8f8c0bb4962ea5b60e` at `e43abdd6c0490486633dccf9db24c9f5a10a5577`
+closes **FAIL** at the first actual ARAM DMA address write:
+`unsupported MMIO write address=CC005020 pc=80302EB0 width=4 value=0000000001000000`.
+It has 1,311 edges, 144,070 credited cycles, zero FIFO bytes and `live=0` after shutdown.
+This proves the guarded reset and halted mailbox accesses were passed, not that a DMA happened.
+Both emulator phases still timeout/reap at 600 seconds, so process status remains 124/INCOMPLETE.
+The static game archive remains byte-identical. At this SHA 155 host tests, 177 ARMv7 tests,
+audit and attribution pass on Linux AArch64. No physical Vita, Windows, render or speed claim.
+VPK SHA-256: `9aa900c998766e17723e753a365938b9e4fd8468c26de3edcdf041404c3b1000`;
+report: `8e2b073aa2a895bd97014b25a2a0b68bc8ba667c8959aa3492c2cae236cd691e`;
+result: `0b634cdf1427420327ce80437dc7652f124ccd6733a8082e2e083bac6d0f4a26`.
+The log/journal hashes equal the preceding run because neither log embeds the terminal MMIO
+failure: the source/request/package-bound closed report distinguishes these trials.
+
+Pinned `Source/Core/Core/HW/DSP.cpp:45-62` identifies `5020/5022` as AR_DMA_MMADDR_H/L,
+`5024/5026` as AR_DMA_ARADDR_H/L and `5028/502A` as AR_DMA_CNT_H/L. These are **not mailboxes**.
+The native word `01000000` supplies physical MEM1 address `01000000`, cached alias `81000000`.
+The reference masks high halves with `03FF`, low halves with `FFE0`, and count high with
+`83FF` (direction bit included); the count-low write starts the DMA (`DSP.cpp:164-210,304-312`).
+ARAM is the reference's 16 MiB separate backing (`DSP.h:34-39`), not a CPU-visible fake response.
+
+WW05 now reuses `runtime/host/src/aram_dma.c` for validated actual byte copies and its transfer
+census, using the pinned `GXRuntime/src/aram.c` buffer/copy/dirty-mark primitives. No shared
+source is changed. The shared adapter's immediate pending flag is **not exposed as completion**:
+WW05 keeps a separate cycle deadline and exposes DSP_CONTROL.DMAState while the transfer is
+busy. Only credited guest cycles advance it, at **246 core cycles per 32-byte block** from
+`DSP.cpp:456-465`. Zero-credit polls neither complete it nor move TB/DEC. When the deadline
+expires, DMAState clears and the real transfer's ARAM interrupt becomes visible (`DSP.cpp:99-103`).
+The existing shared cycle-domain deadline prevents a dispatch from budgeting past that event.
+Address registers advance by the copied length and count drains, preserving direction, as in
+`DSP.cpp:467-564`. The reference bulk-copies bytes at start and delays the interrupt; WW05
+does the same, without claiming per-block contention or physical bus latency.
+
+DSP interrupt publication follows the reference's pending/mask pair (`DSP.cpp:371-395`) and
+the unchanged PI/MSR-EE exception seam. W1C acknowledges a completed transfer, but an early
+acknowledgement cannot suppress the interrupt of a still-busy transfer. Audio remains stopped,
+and this path generates no DSP mailbox word or AI interrupt. Supported ranges are mapped
+24 MiB MEM1 and the 16 MiB ARAM store. Expansion/HSP, nibble-4 mirrored layout, zero-length
+DMA, new DMA before acknowledgement and register writes while busy are explicit support
+boundaries, not invented data or unnoticed shortcuts. Those refusals retain actual PC/width/value.
+
+The host acquires ARAM once before guest execution, validates the otherwise-silent allocation
+through `aram_buffer()`, refuses an existing owner and releases it on terminal shutdown.
+Allocation failure unwinds CPU/VM/cache owners. `ALLOC` now includes optional `aram=16777216`,
+and the strict validator includes it exactly once in `owned_live` (accepting old reports with
+no ARAM owner). The eight-record framing and all GX-frontier fields and acceptance checks
+are unchanged. Transfer/completion diagnostics log the first eight transfers and each thousandth,
+with actual addresses, length, direction, remaining completion cycles and credited completion cycle;
+trace errors propagate rather than being ignored.
+
+TDD records: `logs/aram-dma-red.log` reproduces missing backing/register/ledger/ownership
+behavior; `logs/aram-dma-green.log` and `logs/aram-dma-green-build-failure.log` preserve a C
+symbol collision with the existing `aram_write`, corrected by naming the adapter handler
+`aram_dma_write`. `logs/aram-dma-trace-red.log` reproduces absent transfer diagnostics;
+`logs/aram-chassis-red.log` reproduces missing synthetic polling continuation.
+`logs/aram-dma-final-green.log` passes **171 host tests**, including both copy directions,
+32/64-byte deadlines, W1C-before-completion, zero-credit polls, deadline-bounded budgets,
+memory/owner/error guards and the real main loop's synthetic poll followed by its HOST-only
+FIFO fixture (246 DMA cycles plus 12 fixture cycles, not real GX evidence).
+`logs/aram-dma-armv7.log` passes **177 unchanged tests**; audit passes. A source-bound real
+trial must establish whether the game's two startup DMA transfers execute and expose the next
+init operation. No ucode init completion is claimed by these synthetic tests.

@@ -28,6 +28,26 @@ static int mmio_poll(CPUState* cpu, u32 address) {
 static int dispatch(CPUState* cpu, u32 address) {
     static bool polled;
     static u32 repeated_handlers;
+    if (getenv("WW05_IO_ARAM_DMA") != NULL && !polled) {
+        polled = true;
+        cpu->external_write(cpu, 0xCC005012u, 0x43u, 2u);
+        cpu->external_write(cpu, 0xCC005020u, 0x1000u, 4u);
+        cpu->external_write(cpu, 0xCC005024u, 0u, 4u);
+        cpu->external_write(cpu, 0xCC005028u, 32u, 4u);
+        u32 reads = 0u;
+        for (;;) {
+            cpu->pc = address;
+            cpu->cycle_observation_suffix = 0u;
+            cpu->downcount -= 1;
+            const u64 control = cpu->external_read(cpu, 0xCC00500Au, 2u);
+            assert(++reads <= 246u);
+            if (control & 0x20u)
+                break;
+        }
+        assert(reads == 246u);
+        cpu->pc = address + 4u;
+        return 1;
+    }
     if (getenv("WW05_IO_MMIO_POLL") != NULL && !polled) {
         polled = true;
         return bluewake_chassis_dispatch_loop(cpu, address, mmio_poll, edge, edge_user);
