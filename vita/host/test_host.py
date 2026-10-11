@@ -8,7 +8,8 @@ from vector_fixture import external_vector_fixture
 ROOT = Path(__file__).resolve().parents[2]
 STACK = Path('/home/fred/projects/zeldaWWHDRecomp/build-vita-tools/local-stack')
 OUT = Path('/home/fred/projects/zeldaWWHDRecomp/build-f5/services-tests')
-FIFO_REGISTERS = {'pi-fifo-base': 4, 'pi-fifo-end': 4, 'pi-fifo-wptr': 4, 'cp-fifo-base-low': 2}
+FIFO_REGISTERS = {'pi-fifo-base': 4, 'pi-fifo-end': 4, 'pi-fifo-wptr': 4,
+                  'cp-fifo-base-low': 2, 'cp-fifo-end-low': 2}
 
 
 class StartupHostTest(unittest.TestCase):

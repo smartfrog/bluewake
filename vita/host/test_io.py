@@ -120,7 +120,7 @@ class MainIoTest(unittest.TestCase):
         self.assertTrue(report.endswith('END frontier=PASS live=0 rendered=0\n'))
 
     def test_fifo_configuration_setup_continues_guest_dispatch_before_the_host_only_fifo_fixture(self):
-        for register in ('base', 'end', 'wptr', 'cp-base-low'):
+        for register in ('base', 'end', 'wptr', 'cp-base-low', 'cp-end-low'):
             with self.subTest(register=register):
                 status, report = self.run_fixture(fifo=register)
                 self.assertEqual(status, 0)

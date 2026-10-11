@@ -1958,3 +1958,42 @@ progress limitation is still open and belongs to the authentic gather/FIFO path.
 opcode/bytes/PC/completion-PC GX validation, pinned module/CPU ABI and static archive are
 unchanged. The next clean source-bound Vita build/trial will check authentic continuation;
 physical Vita, Windows CI, rendering, FPS, runtime REL and guest disc access remain unverified.
+
+## Real CP base-low continuation and observed end-low register
+
+Run `9f6d2ee01ffb43b7adbd252f7d0ee3b1`, source
+`2b2f4faed52eb60acc28ab239b1aa8bdddd0dae4`, passes CP FIFO base-low and reaches
+**`CC000024 = 9F5C`**, halfword PC **`80320F8C`**. The closed guest **FAIL** has
+**64,248 edges, 7,140,042 cycles**, zero FIFO bytes, `GX_FRONTIER complete=0`, `live=0`,
+`rendered=0`. Build status zero in 123.234 s; archive unchanged. Both owned phases timeout
+at 60 s, TERM/exit -15, `waited=true`: process **124/INCOMPLETE** remains separate.
+`logs/cp-fifo-base-low-evidence-2b2f4fa.json` independently rechecks source/request/package/
+report bindings and the closed LER journal. SHA-256:
+
+- VPK: `2e77759df617769a0c6d3b9ab54a1f496183f063e2bb58b71d181d1fae2ddf46`;
+- report: `db443092c03b3ca60c6588b21cae0827b9fdb55496eaa21e9e1afecaaa4c01b1`;
+- result: `5a05bf7666de424c5675d451a7754735a699dabd2e26050e37bea5afc694140a`;
+- log: `e53c5af186f23140c23810e0dd46dfbad9baa2e8b8124233c165a3eafcb1c81d`;
+- LER: `169da8b7a0e0d3067e984a0701130bdf9916ce1c09ccf887d9004ec9f413b079`.
+
+The pin identifies **CP_FIFO_END_LO** at offset `24`
+(`VideoCommon/CommandProcessor.h:66`), resets CPEnd to zero
+(`CommandProcessor.cpp:35-48`) and directly maps its low halfword with **`FFE0`**
+(`130,144,159-163`). The observed `9F5C` must read back as **`9F40`**. WW05 adds only
+this observed halfword address to the existing scalar register selector, with independent
+CP end storage and the existing shared mask/width/cycle path. No GP activity, FIFO copy,
+pointer advancement, parser input, reset or interrupt is created.
+
+`logs/cp-fifo-end-low-red.log` reproduces end-low refusal while the preceding PI/base-low
+parameters still pass. `logs/cp-fifo-end-low-host-green.log` passes **315 host tests** on
+Linux AArch64; explicit parameterizations now include CP end-low reset, actual guest
+halfword memory hook, mask, invalid-width retained-state preservation, independent CP/PI
+values, credited cycles and exhausted-quantum closure. Synthetic main-loop continuation
+does not count as genuine GX acceptance. The shared HSP trace fix also compiles in the
+clean `2b2f4fa` Vita build; the guest reaches the same authentic CP path without regressions.
+
+Unobserved CP registers/enables and FIFO reset still fail. The known static-WPTR limit
+still requires the real gather/FIFO memory path. Module/CPU ABI, `BlueWakeRelData` alignment,
+pins, static archive and strict GX opcode/bytes/PC/completion-PC validation are unchanged.
+Authentic end-low continuation awaits the next clean source-bound build/trial. Physical
+Vita, Windows CI, rendering, FPS, runtime REL and actual guest disc/file access remain unverified.
