@@ -475,7 +475,12 @@ static void mmio_write(CPUState* cpu, u32 address, u64 value, u8 size) {
         refresh(host);
         return;
     }
-    if (address == 0xCC00401Cu && size == 2u) {
+    if (address == 0xCC000002u && size == 2u) {
+        if (value != 0u) {
+            fail_mmio_write(host, "CP control requires disabled init; FIFO processor backend not implemented", address, value, size);
+            return;
+        }
+    } else if (address == 0xCC00401Cu && size == 2u) {
         if (value & ~0x1Full) {
             fail_mmio_write(host, "unsupported MI interrupt mask bits", address, value, size);
             return;

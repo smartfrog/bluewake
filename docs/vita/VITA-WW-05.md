@@ -1732,3 +1732,48 @@ checked record reports direction 0 and actual PC. A write-trace failure stops be
 unrecorded transfer. Authentic continuation still needs the next clean build/trial.
 Physical Vita, Windows CI, rendering, FPS, runtime REL events and guest disc access remain
 unverified; DVD integration `35f7c8a` still precedes the first actual guest disc/file access.
+
+## Real HSP write continuation and disabled CP initialization
+
+Run `ecd55871471c41c6a472be520472f9d9`, source
+`12e7c1886dbb867e2d2ca3e736423ccd55236dbf`, completes the actual absent-HSP write:
+transfer **4**, main=`8040CDE0`, ARAM=`01000000`, direction 0, 32 bytes, PC=`80317758`,
+completion at **7,124,468 credited cycles**. The guest then performs and completes another
+documented absent-device read, transfer **5**, main=`8040CD60`, PC=`80317818`, at
+**7,124,824 cycles**. The next actual STOP is a halfword write of **zero** to
+**`CC000002`**, PC **`80321308`**. The report has **64,235 edges, 7,139,922 cycles**, zero
+FIFO bytes, `GX_FRONTIER complete=0`, `live=0`, `rendered=0` and guest **FAIL**.
+
+Build status zero, 123.094 s, static archive unchanged. Both owned emulator phases timeout
+at 60 s, TERM/exit -15, `waited=true`: process **124/INCOMPLETE** is not the closed guest
+verdict. Source/request/package bindings, the report and closed LER journal are rechecked in
+`logs/absent-hsp-write-evidence-12e7c18.json`. SHA-256:
+
+- VPK: `0c575b58f56617d1c5c160951fdf29c6b36fbb81111e786bf90f4d2c77258962`;
+- report: `166d77b72316386920beff3fed3b9f5ace1bb87ade82881e654a81f993fb6b5f`;
+- result: `69ee0f55008d79d035dd7c2357d5685d07c376e01a9e2baffde0009dfecf5209`;
+- log: `a1ead70d7460d6a707edcf1dccf0d5630fbbc169c5181de549593f6863726e9d`;
+- LER: `169da8b7a0e0d3067e984a0701130bdf9916ce1c09ccf887d9004ec9f413b079`.
+
+The pin identifies `CC000002` as CP CTRL (`VideoCommon/CommandProcessor.h:56-61`).
+Its reset value is zero (`CommandProcessor.cpp:107-117`); the halfword control write retains
+six enable bits (`201-208`, `CommandProcessor.h:122-133`), and zero leaves GP reads, link,
+breakpoint and interrupt enables disabled (`CommandProcessor.cpp:574-586`). WW05 has no
+queued GPU execution before the frontier and cannot enable those services. No reusable
+CP MMIO service exists in the pinned C runtime or shared host helpers.
+
+The bounded increment therefore accepts **only the observed zero halfword control store**
+through the normal memory/MMIO hook. It leaves the already-disabled control state unchanged;
+it does not skip the guest instruction, change the PC, invent status or FIFO data, launch a
+GPU worker, or synthesize an interrupt. Nonzero control, other widths, reads and other CP
+registers remain explicit failures. In-block cycle observation and spent-quantum closure are
+unchanged. The strict first-command parser and opcode/bytes/PC/completion-PC report remain
+the acceptance gate, not this register store.
+
+`logs/cp-disabled-init-red.log` reproduces three rejected zero-store scenarios and the
+failed main-loop continuation. `logs/cp-disabled-init-host-green.log` passes **302 host
+tests** on Linux AArch64: normal halfword memory routing, repeated zero stores, no FIFO or
+interrupt manufacture, rejected enables/widths with exact context, credited cycles without
+quantum renewal, and real main-loop continuation into a clearly synthetic FIFO fixture.
+Authentic CP continuation is still awaiting a clean source-bound build/trial. No physical
+Vita, Windows CI, rendering, FPS, runtime REL event or actual guest disc access is claimed.

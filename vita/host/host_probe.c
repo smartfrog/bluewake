@@ -467,6 +467,43 @@ int main(int argc, char** argv) {
         host->cpu.external_read(&host->cpu, 0xC0u, 4u);
         assert(host->error != NULL && host->error_address == 0xC0u);
         assert(read_be32(host->cpu.ram + 0xC0u) == 0u);
+    } else if (strncmp(argv[1], "cp-control-", 11u) == 0) {
+        const DolInterrupts before = host->interrupts;
+        host->cpu.pc = 0x80321308u;
+        const bool credit = strcmp(argv[1], "cp-control-credit") == 0;
+        const bool store = strcmp(argv[1], "cp-control-store") == 0;
+        const bool bad_value = strncmp(argv[1], "cp-control-value-", 17u) == 0;
+        const bool bad_width = strncmp(argv[1], "cp-control-width-", 17u) == 0;
+        const u64 value = bad_value ? strtoul(argv[1] + 17u, NULL, 0) : 0u;
+        const u8 width = bad_width ? (u8)strtoul(argv[1] + 17u, NULL, 0) : 2u;
+        if (credit) {
+            bluewake_cycle_domain_begin_turn(&host->cycles, &host->cpu);
+            bluewake_cycle_domain_prepare_dispatch(&host->cycles, &host->cpu);
+            host->cpu.downcount -= 256;
+        }
+        if (store) {
+            host->cpu.gpr[3] = 0xCC000000u;
+            host->cpu.gpr[0] = 0u;
+            mem_write16(&host->cpu, host->cpu.gpr[3] + 2u, (u16)host->cpu.gpr[0]);
+        } else {
+            host->cpu.external_write(&host->cpu, 0xCC000002u, value, width);
+        }
+        if (bad_value || bad_width) {
+            assert(host->error != NULL && host->error_address == 0xCC000002u);
+            assert(host->error_pc == 0x80321308u && host->error_width == width && host->error_value == value);
+        } else {
+            assert(host->error == NULL && host->cpu.exception == 0u);
+            host->cpu.external_write(&host->cpu, 0xCC000002u, 0u, 2u);
+            assert(host->error == NULL);
+        }
+        assert(memcmp(&before, &host->interrupts, sizeof(before)) == 0);
+        assert(host->frontier.size == 0u && !host->frontier.complete);
+        assert(host->cpu.pc == 0x80321308u);
+        assert(host->cycles.absolute_cycles == (credit ? 256u : 0u));
+        if (credit) {
+            assert(host->cpu.cycle_budget == 0 && host->cpu.timebase == 21u);
+            assert(bluewake_cycle_domain_end_turn(&host->cycles, &host->cpu) == 0u);
+        }
     } else if (strcmp(argv[1], "pi-cold-reset") == 0) {
         const DolInterrupts before = host->interrupts;
         host->cpu.pc = 0x803069E8u;

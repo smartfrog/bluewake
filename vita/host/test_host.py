@@ -44,6 +44,25 @@ class StartupHostTest(unittest.TestCase):
     def test_runtime_pvr_is_preserved(self):
         subprocess.run([str(OUT / 'host_probe'), 'pvr'], check=True)
 
+    def test_observed_cp_control_zero_init_does_not_create_fifo_or_interrupt_activity(self):
+        subprocess.run([str(OUT / 'host_probe'), 'cp-control-zero'], check=True)
+
+    def test_cp_control_zero_store_runs_through_the_normal_guest_halfword_memory_hook(self):
+        subprocess.run([str(OUT / 'host_probe'), 'cp-control-store'], check=True)
+
+    def test_cp_control_enables_and_unobserved_values_fail_with_the_actual_write_context(self):
+        for value in (1, 2, 4, 8, 16, 32, 64, 65535):
+            with self.subTest(value=value):
+                subprocess.run([str(OUT / 'host_probe'), f'cp-control-value-{value}'], check=True)
+
+    def test_cp_control_rejects_widths_outside_the_observed_halfword_store(self):
+        for width in (1, 4, 8):
+            with self.subTest(width=width):
+                subprocess.run([str(OUT / 'host_probe'), f'cp-control-width-{width}'], check=True)
+
+    def test_cp_control_zero_store_credits_real_cycles_without_renewing_a_spent_quantum(self):
+        subprocess.run([str(OUT / 'host_probe'), 'cp-control-credit'], check=True)
+
     def test_pi_cold_reset_code_is_stable_without_events_or_time(self):
         subprocess.run([str(OUT / 'host_probe'), 'pi-cold-reset'], check=True)
 
