@@ -36,12 +36,15 @@ def validate(content, token, source, package):
     data = bytes.fromhex(raw)
     if len(data) != int(size) or len(data) > 1025 or (data and data[0] != int(opcode, 16)):
         raise ValueError('WW05 FIFO byte evidence mismatch')
-    reason, address, error_pc = matched(r'STOP reason=(.{1,256}) address=([0-9A-F]{8}) pc=([0-9A-F]{8})', lines[6])
+    reason, address, error_pc, width, value = matched(
+        r'STOP reason=(.{1,256}) address=([0-9A-F]{8}) pc=([0-9A-F]{8})(?: width=([1248]) value=([0-9A-F]{16}))?', lines[6])
+    if width is not None and int(value, 16) >= 1 << (8 * int(width)):
+        raise ValueError('WW05 service write value exceeds its width')
     verdict, = matched(r'END frontier=(PASS|FAIL) live=0 rendered=0', lines[7])
     if verdict == 'PASS':
         if (complete != '1' or edge_stop != '1' or int(edges) < 1 or exception != '00000000' or
             entry != '80003140' or reason != 'first complete GX command; no renderer' or
-            address != '00000000' or error_pc != '00000000' or
+            address != '00000000' or error_pc != '00000000' or width is not None or
             (mem1, vm, cache) != (25165824, 33554432, 16384)):
             raise ValueError('WW05 PASS without genuine stopped frontier')
         opcode = int(opcode, 16)

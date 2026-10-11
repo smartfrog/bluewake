@@ -94,9 +94,13 @@ int fixture_run(int argc, char** argv) {
                      (unsigned long long)frontier->trailing_bytes, host->edge_stopped) < 0;
     for (u32 i = 0u; i < frontier->size; ++i)
         error |= fprintf(report, "%02X", frontier->bytes[i]) < 0;
-    error |= fprintf(report, "\nSTOP reason=%s address=%08X pc=%08X\n",
-                     host->error != NULL ? host->error : "first complete GX command; no renderer",
-                     host->error_address, host->error_pc) < 0;
+    error |= fprintf(report, "\nSTOP reason=%s address=%08X pc=%08X",
+                      host->error != NULL ? host->error : "first complete GX command; no renderer",
+                      host->error_address, host->error_pc) < 0;
+    if (host->error_width != 0u)
+        error |= fprintf(report, " width=%u value=%016llX", host->error_width,
+                         (unsigned long long)host->error_value) < 0;
+    error |= fprintf(report, "\n") < 0;
     bool success = loaded && frontier->complete && host->edge_stopped && host->error == NULL;
     ww_host_shutdown(host);
     free(host);

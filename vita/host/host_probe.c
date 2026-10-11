@@ -193,6 +193,15 @@ int main(int argc, char** argv) {
         host->cpu.external_read(&host->cpu, 0xCC006C00u, 2u);
         assert(host->error != NULL);
         assert(host->error_address == 0xCC006C00u);
+    } else if (strcmp(argv[1], "si-transfer") == 0) {
+        host->cpu.pc = 0x8030C1C0u;
+        host->cpu.external_write(&host->cpu, DOL_SI_BASE + DOL_SI_COMCSR_OFF, 0x40000201u, 4u);
+        assert(host->error != NULL);
+        assert(host->error_address == DOL_SI_BASE + DOL_SI_COMCSR_OFF);
+        assert(host->error_pc == 0x8030C1C0u);
+        assert(host->error_width == 4u);
+        assert(host->error_value == 0x40000201u);
+        assert(dol_si_mmio_read(&host->si, DOL_SI_BASE + DOL_SI_COMCSR_OFF, 4u) == 0u);
     } else if (strcmp(argv[1], "module") == 0) {
         StaticRecompModuleDesc module = {.abi_version = 99u, .dispatch = dispatch};
         BlueWakeRelData data = {0};

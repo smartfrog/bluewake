@@ -230,7 +230,7 @@ a lingering process. Its short red/green loops are in `logs/private-{launch,gues
 The parent-symlink loop reproduced creation outside an owned fake profile, then prevented it with the
 existing no-follow directory-descriptor pattern. No real/shared profile was involved.
 
-The WW05 host suite currently has **72 tests**. Source-bound logs retain exact counts/commands for these,
+The WW05 host suite currently has **76 tests**. Source-bound logs retain exact counts/commands for these,
 native runtime CTest, 71 native FP cases and the eight direct baseline files. Audit, attribution,
 pin/scope/diff and clean-worktree checks accompany delivery. The pre-launch `1ba507c` checkpoint passed
 35 WW05 tests, 177 unchanged tests, 53 direct baseline tests, 71 native FP cases and 3/1/5 runtime/corpus/
@@ -318,3 +318,36 @@ SHA-256 is `71de57662a3c2633cab930659059384450540a39cc21030f513e1186cc36cf09`; b
 30-second phases stopped/reaped, process 124/INCOMPLETE. The next correction wires the pinned
 stopped AI control only, with tests for initial clock, masks, acknowledgement, counter-reset,
 stream/rate refusal and width. No real GX success is inferred from these register operations.
+
+## Observed SI blocker and delivery
+
+Run `193647366f324f4195192301624effc2` at `e2d2f129f4503367bcda4782b63eaa6239d701b4`
+passed the AI mask and advanced to 119,998 guest cycles, 968 edges, terminal PC `80304630`,
+SP `8040CEA8`. It stopped on `SI transfer unsupported (no fabricated controller)` at MMIO
+`CC006434`, instruction PC `8030C1C0` (`stw r0,0(r6)`), with zero FIFO bytes and frontier FAIL.
+Report SHA-256 is `7237245796a0c96ef66daaaa0a049aa11cf4f53aa92a6bf3be00839408c9575e`.
+Both 30-second Qt phases stopped/reaped, process 124/INCOMPLETE. The source-bound snapshot is
+`artifacts-5a5ed6016e2145a49dc6666783d18579/`; its ELF/VELF/SELF/SFO/VPK and every earlier
+negative attempt remain private and retained.
+
+This is a concrete limitation of the pinned SI model, not a long-running guest or FP defect.
+`GXRuntime/src/si.c:104-109` immediately clears TSTART and sets TCINT without a peripheral
+transaction, transfer callback or elapsed-time timeout. `GXRuntime/include/gxruntime/si.h`
+offers register/poll operations only. Forwarding the requested start would claim a completion
+without a controller response; writing an invented controller identity or skipping the guest
+transfer would invalidate the real-startup evidence. WW05 therefore refuses it before the
+runtime changes the register. The final diagnostic records the attempted write's width/value
+while preserving this refusal; tests check that no TCINT is latched and no width mismatch or
+failed service can certify PASS. Historical eight-record reports remain valid.
+
+Next options require a separately authorized runtime change and new accepted pin: add a SI
+transfer callback and guest-time scheduling to RecompCore, with an explicit timed no-response
+result for an unplugged channel, or connect a real controller backend through that contract.
+Then wire the host seam and rerun from a new private profile. This task keeps both runtime pins
+pristine, does not act on another repository, and does not duplicate the SI runtime in the host.
+No genuine complete GX command, rendered scene or physical Vita feasibility is established.
+
+The final source-bound build/run/check receipts are retained under `build-f5/ww05/` and named
+by their own SHA/UUID, not retroactively attributed to this earlier attempt. Final offline review
+must include the added diagnostic fields in `sizeof(WwHost)` and the existing text snapshot
+inside the 96 MiB heap. Unknown residency, pool peak and native stack high-water remain unknown.

@@ -57,6 +57,23 @@ END frontier=PASS live=0 rendered=0
         with self.assertRaisesRegex(ValueError, 'ledger'):
             self.validate(content, TOKEN, SOURCE, PACKAGE)
 
+    def test_negative_report_retains_the_observed_service_write(self):
+        content = self.content.replace('first complete GX command; no renderer', 'SI transfer unsupported')
+        content = content.replace('frontier=PASS', 'frontier=FAIL')
+        content = content.replace('pc=00000000\nEND', 'pc=00000000 width=4 value=0000000040000201\nEND')
+        self.assertEqual(self.validate(content, TOKEN, SOURCE, PACKAGE), 'FAIL')
+
+    def test_service_write_width_and_value_must_agree(self):
+        content = self.content.replace('frontier=PASS', 'frontier=FAIL')
+        content = content.replace('pc=00000000\nEND', 'pc=00000000 width=1 value=0000000040000201\nEND')
+        with self.assertRaisesRegex(ValueError, 'service write'):
+            self.validate(content, TOKEN, SOURCE, PACKAGE)
+
+    def test_pass_cannot_contain_an_unsupported_service_write(self):
+        content = self.content.replace('pc=00000000\nEND', 'pc=00000000 width=4 value=0000000040000201\nEND')
+        with self.assertRaises(ValueError):
+            self.validate(content, TOKEN, SOURCE, PACKAGE)
+
 
 if __name__ == '__main__':
     unittest.main()

@@ -247,6 +247,10 @@ static void mmio_write(CPUState* cpu, u32 address, u64 value, u8 size) {
         dol_exi_mmio_write(&host->exi, cpu, address, size, value);
     else if (size == 4u && (address & 3u) == 0u && in_range(address, size, DOL_SI_BASE, DOL_SI_REGISTER_BYTES)) {
         if (address == DOL_SI_BASE + DOL_SI_COMCSR_OFF && ((u32)value & DOL_SI_TSTART)) {
+            if (host->error == NULL) {
+                host->error_width = size;
+                host->error_value = value;
+            }
             ww_host_fail(host, "SI transfer unsupported (no fabricated controller)", address, cpu->pc);
             return;
         }

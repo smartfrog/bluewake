@@ -29,6 +29,8 @@ typedef struct WwHost {
     const char* error;
     u32 error_address;
     u32 error_pc;
+    u8 error_width;
+    u64 error_value;
     u32 clock_remainder;
     u32 decrementer;
     u32 hid0;
