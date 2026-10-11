@@ -2366,3 +2366,49 @@ enables and FIFO reset remain refused. Strict GX validation, pins, ABI, `BlueWak
 and static archive are unchanged. Authentic continuation awaits the clean source-bound
 build/trial; DVD/CMake, Windows ARAM and final counts remain tracked. Physical Vita,
 Windows CI, rendering, FPS, runtime REL and actual guest disc/file access remain unverified.
+
+## Real CP write-pointer-high continuation and bounded read-pointer high
+
+Run `83b6af3e9d7f41d498980003b488254c`, source
+`27022512b36f4b3a3f46db580773411a4ecefed5`, passes CP write-pointer high and reaches
+**`CC00003A = 0042`**, halfword PC **`80321018`**. The closed guest **FAIL** has
+**64,248 edges, 7,140,042 cycles**, zero FIFO bytes, `GX_FRONTIER complete=0`, `live=0`,
+`rendered=0`. Build status zero in 124.185 s; archive unchanged. Both owned phases timeout
+at 60 s, TERM/exit -15, `waited=true`; process **124/INCOMPLETE** remains separate.
+`logs/cp-fifo-wptr-high-evidence-2702251.json` independently checks plan/request/result
+source and package-hash equality, request-bound report, runtime VPK hash and closed LER.
+SHA-256:
+
+- VPK: `569cafceaccfd907c919c8755fca8357fb68ec18b5b7a9cc3f2ec6b9431835cc`;
+- report: `e55414a1979035f66cab710b1f7c2a6b8d528fc95d06ba2216628341b2254e77`;
+- result: `5f0c9feacea1d598286a12b96ac130d5d2c4ef10acdbb7ff2c2da6543851d2ef`;
+- log: `e53c5af186f23140c23810e0dd46dfbad9baa2e8b8124233c165a3eafcb1c81d`;
+- LER: `169da8b7a0e0d3067e984a0701130bdf9916ce1c09ccf887d9004ec9f413b079`.
+
+The pin identifies **CP_FIFO_READ_POINTER_HI** at offset `3A`
+(`VideoCommon/CommandProcessor.h:77`). Without a GPU thread its high read synchronizes
+then exposes CPReadPointer (`CommandProcessor.cpp:324-328`); its high write synchronizes
+then replaces the high halfword with **`03FF`** (`329-334`). The threaded branch additionally
+maintains SafeCPReadPointer (`308-320`). WW05 has no GPU worker, GP enables are refused and
+distance stays zero before FIFO input, so the already-sourced empty-sync constraint applies.
+
+WW05 adds exactly the observed high register to the existing CP read-pointer word, with
+shared mask/halfword-preservation logic. `0042:9F60` becomes **`00429F60`**. Both high
+reads and high writes explicitly fail after any FIFO byte, before mutating the pointer or
+claiming synchronization/consumption. This does not fabricate SafeCPReadPointer, GPU timing,
+pointer progress, FIFO bytes, parser input, status or interrupts. The full sync/consumer path
+remains unimplemented and must accompany real GX/FIFO execution.
+
+`logs/cp-fifo-rptr-high-red.log` reproduces high read-pointer refusal, both assembly orders
+and missing bounded-sync diagnostics while preceding cases pass.
+`logs/cp-fifo-rptr-high-host-green.log` passes **320 host tests** on Linux AArch64. The
+existing assembly fixture now covers base/end/write-pointer/read-pointer in both write orders
+and masked overwrites. A separate explicitly parameterized test checks pending synthetic
+FIFO input refuses high read/write synchronization with pointer, FIFO bytes, interrupts,
+PC and time unchanged. Shared configuration tests retain masks, width/context failures,
+normal halfword hooks and credited-cycle/spent-quantum behavior. Main-loop PASS is synthetic,
+not authentic game/GX acceptance. The next clean build/trial checks real continuation.
+
+Strict GX validation, pins, ABI, `BlueWakeRelData` and static archive are unchanged. Dynamic
+FIFO pointers, DVD/CMake, Windows ARAM and final counts remain tracked. Physical Vita,
+Windows CI, rendering, FPS, runtime REL and actual guest disc/file access remain unverified.

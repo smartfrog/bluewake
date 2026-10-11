@@ -362,7 +362,7 @@ static u32* fifo_register(WwHost* host, u32 address, u8 size) {
         return &host->cp_fifo_low_watermark;
     if ((address == 0xCC000034u || address == 0xCC000036u) && size == 2u)
         return &host->cp_fifo_write_pointer;
-    if (address == 0xCC000038u && size == 2u)
+    if ((address == 0xCC000038u || address == 0xCC00003Au) && size == 2u)
         return &host->cp_fifo_read_pointer;
     if (size != 4u)
         return NULL;
@@ -420,6 +420,10 @@ static u64 mmio_read(CPUState* cpu, u32 address, u8 size) {
     if (ww_dsp_interface_read(&host->dsp, address, size, &value)) {
         refresh(host);
         return value;
+    }
+    if (address == 0xCC00003Au && size == 2u && host->frontier.size != 0u) {
+        ww_host_fail(host, "CP read pointer sync requires empty disabled init; FIFO processor backend not implemented", address, cpu->pc);
+        return 0u;
     }
     u32* fifo = fifo_register(host, address, size);
     if (fifo != NULL)
@@ -513,6 +517,9 @@ static void mmio_write(CPUState* cpu, u32 address, u64 value, u8 size) {
             fail_mmio_write(host, "CP FIFO distance requires empty disabled init; FIFO processor backend not implemented", address, value, size);
             return;
         }
+    } else if (address == 0xCC00003Au && size == 2u && host->frontier.size != 0u) {
+        fail_mmio_write(host, "CP read pointer sync requires empty disabled init; FIFO processor backend not implemented", address, value, size);
+        return;
     } else if (fifo != NULL) {
         if (size == 2u) {
             const u32 shift = (address & 2u) != 0u ? 16u : 0u;

@@ -544,18 +544,20 @@ int main(int argc, char** argv) {
         assert(host->cpu.external_read(&host->cpu, 0xCC000028u, 2u) == 0x3200u);
         assert(host->cpu.external_read(&host->cpu, 0xCC00002Cu, 2u) == 0x5420u);
     } else if (strncmp(argv[1], "cp-base-halves-", 15u) == 0 || strncmp(argv[1], "cp-end-halves-", 14u) == 0 ||
-               strncmp(argv[1], "cp-wptr-halves-", 15u) == 0) {
+               strncmp(argv[1], "cp-wptr-halves-", 15u) == 0 || strncmp(argv[1], "cp-rptr-halves-", 15u) == 0) {
         const bool end = strncmp(argv[1], "cp-end-halves-", 14u) == 0;
         const bool wptr = strncmp(argv[1], "cp-wptr-halves-", 15u) == 0;
+        const bool rptr = strncmp(argv[1], "cp-rptr-halves-", 15u) == 0;
         const char* order = argv[1] + (end ? 14u : 15u);
         assert(strcmp(order, "low-first") == 0 || strcmp(order, "high-first") == 0);
         const bool high_first = strcmp(order, "high-first") == 0;
-        const u32 low_address = end ? 0xCC000024u : wptr ? 0xCC000034u : 0xCC000020u;
+        const u32 low_address = end ? 0xCC000024u : wptr ? 0xCC000034u : rptr ? 0xCC000038u : 0xCC000020u;
         const u32 high_address = low_address + 2u;
         const u32 high_value = end ? 0x4Cu : 0x42u;
         const u32 low_value = end ? 0x9F5Cu : 0x9F60u;
         const u32 masked_low = low_value & 0xFFE0u;
-        u32* full_value = end ? &host->cp_fifo_end : wptr ? &host->cp_fifo_write_pointer : &host->cp_fifo_base;
+        u32* full_value = end ? &host->cp_fifo_end : wptr ? &host->cp_fifo_write_pointer :
+                          rptr ? &host->cp_fifo_read_pointer : &host->cp_fifo_base;
         const DolInterrupts before = host->interrupts;
         host->cpu.external_write(&host->cpu, high_first ? high_address : low_address, high_first ? high_value : low_value, 2u);
         assert(host->error == NULL);
@@ -572,6 +574,25 @@ int main(int argc, char** argv) {
         assert(host->cpu.external_read(&host->cpu, high_address, 2u) == 0x03FFu);
         assert(memcmp(&before, &host->interrupts, sizeof(before)) == 0);
         assert(host->frontier.size == 0u && !host->frontier.complete && host->cycles.absolute_cycles == 0u);
+    } else if (strcmp(argv[1], "cp-rptr-high-sync-read") == 0 || strcmp(argv[1], "cp-rptr-high-sync-write") == 0) {
+        host->cpu.pc = 0x80321018u;
+        host->cpu.external_write(&host->cpu, 0xCC000038u, 0x9F60u, 2u);
+        assert(host->error == NULL);
+        assert(ww_gx_write(&host->frontier, &host->gx, 0x10u, 1u, host->cpu.pc - 4u, host->cpu.gpr[1]));
+        const WwGxCheckpoint before = host->frontier;
+        const DolInterrupts interrupts = host->interrupts;
+        if (strcmp(argv[1], "cp-rptr-high-sync-read") == 0) {
+            host->cpu.external_read(&host->cpu, 0xCC00003Au, 2u);
+        } else {
+            host->cpu.external_write(&host->cpu, 0xCC00003Au, 0x42u, 2u);
+            assert(host->error_width == 2u && host->error_value == 0x42u);
+        }
+        assert(host->error != NULL && host->error_address == 0xCC00003Au && host->error_pc == 0x80321018u);
+        assert(strcmp(host->error, "CP read pointer sync requires empty disabled init; FIFO processor backend not implemented") == 0);
+        assert(host->cp_fifo_read_pointer == 0x9F60u);
+        assert(memcmp(&before, &host->frontier, sizeof(before)) == 0);
+        assert(memcmp(&interrupts, &host->interrupts, sizeof(interrupts)) == 0);
+        assert(host->cycles.absolute_cycles == 0u && host->cpu.pc == 0x80321018u);
     } else if (strncmp(argv[1], "cp-control-", 11u) == 0 || strncmp(argv[1], "cp-distance-low-", 16u) == 0 ||
                strncmp(argv[1], "cp-distance-high-", 17u) == 0) {
         const DolInterrupts before = host->interrupts;
