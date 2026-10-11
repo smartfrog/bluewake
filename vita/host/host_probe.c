@@ -538,15 +538,27 @@ int main(int argc, char** argv) {
         assert(host->cpu.external_read(&host->cpu, 0xCC003014u, 4u) == 0x00429FA0u);
         assert(host->cpu.external_read(&host->cpu, 0xCC000020u, 2u) == 0xABC0u);
         assert(host->cpu.external_read(&host->cpu, 0xCC000024u, 2u) == 0xCDE0u);
-    } else if (strncmp(argv[1], "cp-control-", 11u) == 0) {
+    } else if (strncmp(argv[1], "cp-control-", 11u) == 0 || strncmp(argv[1], "cp-distance-low-", 16u) == 0) {
         const DolInterrupts before = host->interrupts;
-        host->cpu.pc = 0x80321308u;
-        const bool credit = strcmp(argv[1], "cp-control-credit") == 0;
-        const bool store = strcmp(argv[1], "cp-control-store") == 0;
-        const bool bad_value = strncmp(argv[1], "cp-control-value-", 17u) == 0;
-        const bool bad_width = strncmp(argv[1], "cp-control-width-", 17u) == 0;
-        const u64 value = bad_value ? strtoul(argv[1] + 17u, NULL, 0) : 0u;
-        const u8 width = bad_width ? (u8)strtoul(argv[1] + 17u, NULL, 0) : 2u;
+        const bool distance = strncmp(argv[1], "cp-distance-low-", 16u) == 0;
+        const char* scenario = argv[1] + (distance ? 16u : 11u);
+        const u32 address = distance ? 0xCC000030u : 0xCC000002u;
+        const u32 pc = distance ? 0x80320F98u : 0x80321308u;
+        host->cpu.pc = pc;
+        const bool credit = strcmp(scenario, "credit") == 0;
+        const bool store = strcmp(scenario, "store") == 0;
+        const bool queued = strcmp(scenario, "queued") == 0;
+        const bool read = strcmp(scenario, "read") == 0;
+        const bool bad_value = strncmp(scenario, "value-", 6u) == 0;
+        const bool bad_width = strncmp(scenario, "width-", 6u) == 0;
+        const u64 value = bad_value ? strtoul(scenario + 6u, NULL, 0) : 0u;
+        const u8 width = bad_width ? (u8)strtoul(scenario + 6u, NULL, 0) : 2u;
+        if (queued) {
+            assert(distance);
+            assert(ww_gx_write(&host->frontier, &host->gx, 0x10u, 1u, pc - 4u, host->cpu.gpr[1]));
+            assert(host->frontier.size == 1u && !host->frontier.complete);
+        }
+        const WwGxCheckpoint frontier = host->frontier;
         if (credit) {
             bluewake_cycle_domain_begin_turn(&host->cycles, &host->cpu);
             bluewake_cycle_domain_prepare_dispatch(&host->cycles, &host->cpu);
@@ -555,21 +567,25 @@ int main(int argc, char** argv) {
         if (store) {
             host->cpu.gpr[3] = 0xCC000000u;
             host->cpu.gpr[0] = 0u;
-            mem_write16(&host->cpu, host->cpu.gpr[3] + 2u, (u16)host->cpu.gpr[0]);
+            mem_write16(&host->cpu, host->cpu.gpr[3] + (distance ? 48u : 2u), (u16)host->cpu.gpr[0]);
+        } else if (read) {
+            assert(distance);
+            host->cpu.external_read(&host->cpu, address, width);
         } else {
-            host->cpu.external_write(&host->cpu, 0xCC000002u, value, width);
+            host->cpu.external_write(&host->cpu, address, value, width);
         }
-        if (bad_value || bad_width) {
-            assert(host->error != NULL && host->error_address == 0xCC000002u);
-            assert(host->error_pc == 0x80321308u && host->error_width == width && host->error_value == value);
+        if (bad_value || bad_width || queued || read) {
+            assert(host->error != NULL && host->error_address == address && host->error_pc == pc);
+            if (!read)
+                assert(host->error_width == width && host->error_value == value);
         } else {
             assert(host->error == NULL && host->cpu.exception == 0u);
-            host->cpu.external_write(&host->cpu, 0xCC000002u, 0u, 2u);
+            host->cpu.external_write(&host->cpu, address, 0u, 2u);
             assert(host->error == NULL);
         }
         assert(memcmp(&before, &host->interrupts, sizeof(before)) == 0);
-        assert(host->frontier.size == 0u && !host->frontier.complete);
-        assert(host->cpu.pc == 0x80321308u);
+        assert(memcmp(&frontier, &host->frontier, sizeof(frontier)) == 0);
+        assert(host->cpu.pc == pc);
         assert(host->cycles.absolute_cycles == (credit ? 256u : 0u));
         if (credit) {
             assert(host->cpu.cycle_budget == 0 && host->cpu.timebase == 21u);

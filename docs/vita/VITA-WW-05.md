@@ -1997,3 +1997,49 @@ still requires the real gather/FIFO memory path. Module/CPU ABI, `BlueWakeRelDat
 pins, static archive and strict GX opcode/bytes/PC/completion-PC validation are unchanged.
 Authentic end-low continuation awaits the next clean source-bound build/trial. Physical
 Vita, Windows CI, rendering, FPS, runtime REL and actual guest disc/file access remain unverified.
+
+## Real CP end-low continuation and empty distance initialization
+
+Run `7052682e0f274e9393c5b40219f4d801`, source
+`827a97ba898da3a549f990f8424a6735d4f1382e`, passes CP FIFO end-low and reaches
+**`CC000030 = 0000`**, halfword PC **`80320F98`**. Its closed guest **FAIL** has
+**64,248 edges, 7,140,042 cycles**, zero FIFO bytes, `GX_FRONTIER complete=0`, `live=0`,
+`rendered=0`. Build status zero in 123.323 s; archive unchanged. Both owned phases timeout
+at 60 s, TERM/exit -15, `waited=true`; process **124/INCOMPLETE** is distinct.
+`logs/cp-fifo-end-low-evidence-827a97b.json` independently rechecks bindings and LER.
+SHA-256:
+
+- VPK: `e69ee90817b9a751367be9e606978d8a09d05531a3573abe4cdeda0051d98aff`;
+- report: `95dd6d8df8e0a6bda70cf5b023e74c26f1f99525a5a44f3908dfc0f2a8122027`;
+- result: `f9a9fe97b05d850c123d52859ff36185c0eecae0e22f186b6bafa971e1c1b862`;
+- log: `e53c5af186f23140c23810e0dd46dfbad9baa2e8b8124233c165a3eafcb1c81d`;
+- LER: `169da8b7a0e0d3067e984a0701130bdf9916ce1c09ccf887d9004ec9f413b079`.
+
+The pin identifies **CP_FIFO_RW_DISTANCE_LO** at offset `30`
+(`VideoCommon/CommandProcessor.h:72`). Distance and GP enables reset to zero
+(`CommandProcessor.cpp:35-48`). The low write directly updates the low halfword masked by
+`FFE0` (`255-257`); threaded low reads derive real pointer distance (`232-248`), while the
+single-threaded low read uses the retained distance (`250-254`). Distance-high writes also
+synchronize/run the GPU (`290-296`). This is not the same complete contract as inert base/end
+configuration: real distance/progress requires the gather/consumer path.
+
+WW05 therefore accepts **only the observed zero halfword low-distance initialization,
+before any FIFO byte**. With all CP enables already disabled/refused, this leaves the sourced
+empty reset state unchanged. It executes through the normal memory/MMIO hook, with credited
+cycle observation and refresh intact. It neither skips the instruction nor sets PC, creates
+queued bytes or discards parser input. Nonzero values, other widths, any low-distance read,
+distance-high access and zero writes after observed FIFO input still fail explicitly.
+No pretend distance readback or GPU consumption is introduced.
+
+`logs/cp-fifo-distance-low-red.log` reproduces zero-init refusal while control cases pass.
+`logs/cp-fifo-distance-low-host-green.log` passes **318 host tests** on Linux AArch64.
+The disabled-control fixture is reused and parameterized for low-distance stores, rejected
+values/widths, repeat zero stores and real credited cycles without exhausted-quantum renewal.
+Separate tests retain pending synthetic FIFO bytes on a refused zero write, refuse distance
+reads and prove unsupported distance cannot reach the main-loop FIFO fixture. Synthetic PASS
+is not authentic GX acceptance. The next clean build/trial checks real continuation.
+
+Static WPTR, DVD/CMake integration, Windows ARAM verification and final test-count confirmation
+remain tracked above. Strict GX validation, pins, ABI, `BlueWakeRelData` and static archive
+are unchanged. Physical Vita, Windows CI, rendering, FPS, runtime REL and actual guest
+disc/file access remain unverified.

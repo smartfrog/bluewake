@@ -500,6 +500,11 @@ static void mmio_write(CPUState* cpu, u32 address, u64 value, u8 size) {
             fail_mmio_write(host, "CP control requires disabled init; FIFO processor backend not implemented", address, value, size);
             return;
         }
+    } else if (address == 0xCC000030u && size == 2u) {
+        if (value != 0u || host->frontier.size != 0u) {
+            fail_mmio_write(host, "CP FIFO distance requires empty disabled init; FIFO processor backend not implemented", address, value, size);
+            return;
+        }
     } else if (fifo != NULL) {
         *fifo = (u32)value & (size == 2u ? 0xFFE0u : 0xFFFFFFE0u);
     } else if (address == 0xCC00401Cu && size == 2u) {

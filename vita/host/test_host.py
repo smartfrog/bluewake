@@ -82,24 +82,38 @@ class StartupHostTest(unittest.TestCase):
     def test_fifo_configuration_values_have_independent_retained_storage(self):
         subprocess.run([str(OUT / 'host_probe'), 'pi-fifo-independent'], check=True)
 
-    def test_observed_cp_control_zero_init_does_not_create_fifo_or_interrupt_activity(self):
-        subprocess.run([str(OUT / 'host_probe'), 'cp-control-zero'], check=True)
+    def test_observed_disabled_cp_zero_init_does_not_create_fifo_or_interrupt_activity(self):
+        for register in ('control', 'distance-low'):
+            with self.subTest(register=register):
+                subprocess.run([str(OUT / 'host_probe'), f'cp-{register}-zero'], check=True)
 
-    def test_cp_control_zero_store_runs_through_the_normal_guest_halfword_memory_hook(self):
-        subprocess.run([str(OUT / 'host_probe'), 'cp-control-store'], check=True)
+    def test_disabled_cp_zero_store_runs_through_the_normal_guest_halfword_memory_hook(self):
+        for register in ('control', 'distance-low'):
+            with self.subTest(register=register):
+                subprocess.run([str(OUT / 'host_probe'), f'cp-{register}-store'], check=True)
 
-    def test_cp_control_enables_and_unobserved_values_fail_with_the_actual_write_context(self):
-        for value in (1, 2, 4, 8, 16, 32, 64, 65535):
-            with self.subTest(value=value):
-                subprocess.run([str(OUT / 'host_probe'), f'cp-control-value-{value}'], check=True)
+    def test_cp_enables_and_unobserved_distances_fail_with_the_actual_write_context(self):
+        for register in ('control', 'distance-low'):
+            for value in (1, 2, 4, 8, 16, 32, 64, 65535):
+                with self.subTest(register=register, value=value):
+                    subprocess.run([str(OUT / 'host_probe'), f'cp-{register}-value-{value}'], check=True)
 
-    def test_cp_control_rejects_widths_outside_the_observed_halfword_store(self):
-        for width in (1, 4, 8):
-            with self.subTest(width=width):
-                subprocess.run([str(OUT / 'host_probe'), f'cp-control-width-{width}'], check=True)
+    def test_disabled_cp_init_rejects_widths_outside_the_observed_halfword_store(self):
+        for register in ('control', 'distance-low'):
+            for width in (1, 4, 8):
+                with self.subTest(register=register, width=width):
+                    subprocess.run([str(OUT / 'host_probe'), f'cp-{register}-width-{width}'], check=True)
 
-    def test_cp_control_zero_store_credits_real_cycles_without_renewing_a_spent_quantum(self):
-        subprocess.run([str(OUT / 'host_probe'), 'cp-control-credit'], check=True)
+    def test_disabled_cp_zero_store_credits_real_cycles_without_renewing_a_spent_quantum(self):
+        for register in ('control', 'distance-low'):
+            with self.subTest(register=register):
+                subprocess.run([str(OUT / 'host_probe'), f'cp-{register}-credit'], check=True)
+
+    def test_cp_distance_zero_cannot_discard_already_observed_fifo_input(self):
+        subprocess.run([str(OUT / 'host_probe'), 'cp-distance-low-queued'], check=True)
+
+    def test_cp_distance_read_is_refused_without_a_fifo_progress_backend(self):
+        subprocess.run([str(OUT / 'host_probe'), 'cp-distance-low-read'], check=True)
 
     def test_pi_cold_reset_code_is_stable_without_events_or_time(self):
         subprocess.run([str(OUT / 'host_probe'), 'pi-cold-reset'], check=True)

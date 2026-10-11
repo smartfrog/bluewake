@@ -55,6 +55,12 @@ static int dispatch(CPUState* cpu, u32 address) {
         if (cpu->exception != 0u)
             return 1;
     }
+    const char* cp_distance = getenv("WW05_IO_CP_DISTANCE");
+    if (cp_distance != NULL) {
+        cpu->external_write(cpu, 0xCC000030u, strtoul(cp_distance, NULL, 0), 2u);
+        if (cpu->exception != 0u)
+            return 1;
+    }
     if (getenv("WW05_IO_EXI") != NULL) {
         cpu->external_write(cpu, DOL_EXI_BASE + DOL_EXI_STATUS_OFF, 0x130u, 4u);
         cpu->external_write(cpu, DOL_EXI_BASE + DOL_EXI_IMMEDIATE_DATA_OFF, 0x20000100u, 4u);
