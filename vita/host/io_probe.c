@@ -2,6 +2,7 @@
 #include "dispatch_loop.h"
 #include "gxruntime/interrupts.h"
 #include "gxruntime/si.h"
+#include "gxruntime/exi.h"
 #include "external_vector.h"
 #include <assert.h>
 #include <errno.h>
@@ -30,6 +31,13 @@ static int dispatch(CPUState* cpu, u32 address) {
     static bool polled;
     static u32 repeated_handlers;
     static bool init_started;
+    if (getenv("WW05_IO_EXI") != NULL) {
+        cpu->external_write(cpu, DOL_EXI_BASE + DOL_EXI_STATUS_OFF, 0x130u, 4u);
+        cpu->external_write(cpu, DOL_EXI_BASE + DOL_EXI_IMMEDIATE_DATA_OFF, 0x20000100u, 4u);
+        cpu->external_write(cpu, DOL_EXI_BASE + DOL_EXI_CONTROL_OFF, 0x35u, 4u);
+        if (cpu->exception != 0u)
+            return 1;
+    }
     const char* cpu_boundary = getenv("WW05_IO_CPU_BOUNDARY");
     if (cpu_boundary != NULL && strcmp(cpu_boundary, "context") == 0) {
         if (address == 0x80001000u) {
@@ -319,7 +327,8 @@ int __wrap_fprintf(FILE* stream, const char* format, ...) {
          (strncmp(format, "[exception-vector-return]", 25u) == 0 && failure("external-return-log")) ||
          (strncmp(format, "[fp-exception-resume]", 21u) == 0 && failure("fp-resume-log")) ||
          (strncmp(format, "[aram-expansion-request]", 24u) == 0 && failure("aram-expansion-log")) ||
-         (strncmp(format, "[aram-hsp-absent]", 17u) == 0 && failure("aram-absent-log")))) {
+         (strncmp(format, "[aram-hsp-absent]", 17u) == 0 && failure("aram-absent-log")) ||
+         (strncmp(format, "[exi]", 5u) == 0 && failure("exi-log")))) {
         errno = EIO;
         return -1;
     }

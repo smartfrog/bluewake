@@ -357,6 +357,20 @@ class StartupHostTest(unittest.TestCase):
         self.assertIn('channel=0 chip_select=2 frequency_code=3 direction=1 length=4 dma=0', result.stderr)
         self.assertIn('dma_address=00000000 immediate=20000100 pc=80309E1C', result.stderr)
 
+    def test_exi_transfer_trace_samples_only_the_first_eight_and_each_thousandth(self):
+        result = subprocess.run([str(OUT / 'host_probe'), 'exi-trace-sample'], check=True,
+                                capture_output=True, text=True)
+        lines = [line for line in result.stderr.splitlines() if line.startswith('[exi]')]
+        counts = [int(line.split('transfer=')[1].split()[0]) for line in lines]
+        self.assertEqual(counts, [*range(1, 9), 1000])
+        self.assertTrue(all('pc=80309E1C' in line for line in lines))
+
+    def test_exi_sample_write_failure_stops_before_sram_or_completion_mutation(self):
+        for sample in ('first', 'late', 'payload'):
+            with self.subTest(sample=sample):
+                subprocess.run([str(OUT / 'host_probe'), 'exi-trace-error-' + sample], check=True,
+                               capture_output=True)
+
     def test_exi_sram_dma_reads_shared_defaults_and_publishes_completion(self):
         subprocess.run([str(OUT / 'host_probe'), 'exi-sram-dma'], check=True)
 

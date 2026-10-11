@@ -48,6 +48,7 @@ typedef struct WwHost {
     u64 backing_bytes;
     u32 alias_count;
     u64 edges;
+    u64 exi_transfers;
     u64 next_edge_progress;
     u64 syscall_resumes;
     u32 dispatch_trace_remaining;
@@ -59,6 +60,10 @@ typedef struct WwHost {
 
 static inline bool ww_host_trace_syscall(u64 resume) {
     return resume <= 1u || resume % 1000u == 0u;
+}
+
+static inline bool ww_host_trace_transfer(u64 transfer) {
+    return transfer <= 8u || transfer % 1000u == 0u;
 }
 
 bool ww_host_init(WwHost* host);

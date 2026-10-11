@@ -1,6 +1,8 @@
 #include "boot_host.h"
 #include "probe_support.h"
 #include <assert.h>
+#include <errno.h>
+#include <stdarg.h>
 #include <stdlib.h>
 #include <stdio.h>
 #include <string.h>
@@ -8,10 +10,24 @@
 void* __real_calloc(size_t count, size_t size);
 static unsigned allocation;
 static unsigned fail_allocation;
+static u32 exi_logs;
+static u32 fail_exi_log;
 void* __wrap_calloc(size_t count, size_t size) {
     if (++allocation == fail_allocation)
         return NULL;
     return __real_calloc(count, size);
+}
+
+int __wrap_fprintf(FILE* stream, const char* format, ...) {
+    if (stream == stderr && strncmp(format, "[exi]", 5u) == 0 && ++exi_logs == fail_exi_log) {
+        errno = ENOSPC;
+        return -1;
+    }
+    va_list arguments;
+    va_start(arguments, format);
+    const int result = vfprintf(stream, format, arguments);
+    va_end(arguments);
+    return result;
 }
 
 static int dispatch(CPUState* cpu, u32 address) {
@@ -719,6 +735,35 @@ int main(int argc, char** argv) {
         assert(!ww_host_load(host, &module, &data, 0u, "not-opened.dol"));
         assert(strstr(host->error, "ABI") != NULL);
         assert(host->alias_count == 0u);
+    } else if (strncmp(argv[1], "exi-trace-", 10u) == 0) {
+        const bool payload = strcmp(argv[1], "exi-trace-error-payload") == 0;
+        const bool late = strcmp(argv[1], "exi-trace-error-late") == 0;
+        const bool fail = payload || late || strcmp(argv[1], "exi-trace-error-first") == 0;
+        fail_exi_log = payload ? 2u : late ? 9u : fail ? 1u : 0u;
+        const u32 transfers = payload || (fail && !late) ? 1u : late ? 1000u : 1001u;
+        for (u32 transfer = 1u; transfer <= transfers; ++transfer) {
+            host->cpu.external_write(&host->cpu, DOL_EXI_BASE + DOL_EXI_STATUS_OFF, DOL_EXI_STATUS_TCINT, 4u);
+            exi_sram_command(host, 0x20000100u);
+            if (fail && !payload && transfer == transfers)
+                break;
+            assert(host->error == NULL && host->sram.command_latched);
+        }
+        if (payload) {
+            host->cpu.external_write(&host->cpu, DOL_EXI_BASE + DOL_EXI_STATUS_OFF, 0x138u, 4u);
+            host->cpu.external_write(&host->cpu, DOL_EXI_BASE + DOL_EXI_CONTROL_OFF, 0x31u, 4u);
+            assert(host->sram.command_latched && host->sram.cursor == 0u);
+            assert(host->exi.channels[0].immediate_data == 0x20000100u);
+        }
+        if (fail) {
+            assert(host->error != NULL && strcmp(host->error, "EXI transfer trace write failed") == 0);
+            assert(host->error_address == DOL_EXI_BASE + DOL_EXI_CONTROL_OFF);
+            assert(host->error_pc == 0x80309E1Cu);
+            assert(host->sram.command_latched == payload);
+            assert(!(host->exi.channels[0].status & DOL_EXI_STATUS_TCINT));
+            assert(host->exi.channels[0].control & DOL_EXI_CONTROL_TSTART);
+        } else {
+            assert(exi_logs == 9u);
+        }
     } else if (strcmp(argv[1], "exi-context") == 0) {
         exi_sram_command(host, 0x20000100u);
         assert(host->error == NULL);

@@ -17,7 +17,7 @@ class MainIoTest(unittest.TestCase):
 
     def run_fixture(self, failure='', stale=False, interrupt=None, exception=False, syscall=None, progress=False,
                     dispatch_trace=None, stale_dispatch=False, mmio_poll=False, aram_dma=False, dsp_init=False,
-                    cpu_boundary=None):
+                    cpu_boundary=None, exi=False):
         with tempfile.TemporaryDirectory(dir=OUT, prefix='io-') as directory:
             root = Path(directory)
             data = bytearray(260)
@@ -49,6 +49,8 @@ class MainIoTest(unittest.TestCase):
                 environment['WW05_IO_DSP_INIT'] = '1'
             if cpu_boundary is not None:
                 environment['WW05_IO_CPU_BOUNDARY'] = cpu_boundary
+            if exi:
+                environment['WW05_IO_EXI'] = '1'
             result = subprocess.run([str(OUT / 'io_probe')], cwd=root,
                                     env=environment, capture_output=True, timeout=10)
             report = (root / 'ww05.report').read_text() if (root / 'ww05.report').exists() else None
@@ -122,6 +124,13 @@ class MainIoTest(unittest.TestCase):
         status, report = self.run_fixture(aram_dma='hsp', failure='aram-expansion-log')
         self.assertNotEqual(status, 0)
         self.assertIn('STOP reason=ARAM expansion request trace write failed', report)
+        self.assertTrue(report.endswith('END frontier=FAIL live=0 rendered=0\n'))
+
+    def test_exi_log_failure_publishes_fail_with_the_actual_mmio_pc_instead_of_accepting_fifo(self):
+        status, report = self.run_fixture(exi=True, failure='exi-log')
+        self.assertNotEqual(status, 0)
+        self.assertIn('GX_FRONTIER complete=0', report)
+        self.assertIn('STOP reason=EXI transfer trace write failed address=CC00680C pc=80001000', report)
         self.assertTrue(report.endswith('END frontier=FAIL live=0 rendered=0\n'))
 
     def test_absent_hsp_trace_failure_cannot_complete_an_unrecorded_transfer(self):

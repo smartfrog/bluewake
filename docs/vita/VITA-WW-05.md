@@ -1661,3 +1661,29 @@ both failures are retained. Its generated build was retained under
 `build-ww08-io-tests-review-b1-config-failure`; the fresh game-free generator uses the
 existing no-zlib configuration, with no source, pin or floating-point change. Physical Vita
 and Windows CI are not tested.
+
+## Independent review B2: sampled, checked EXI records
+
+EXI now counts transfers per host and uses the same sampling helper as ARAM: the first
+**eight**, then each **1,000th**, with the actual count, transaction fields and guest PC.
+An exhausted counter fails rather than wrapping. Each emitted `fprintf` is checked; failure
+propagates as `EXI transfer trace write failed` at the actual EXI control register and PC,
+before SRAM command/payload mutation or successful EXI completion. TSTART remains asserted
+and no new TCINT is fabricated.
+
+`logs/review-b2-red.log` reproduces the unsampled loop, ignored first/late/payload trace
+failures and the erroneous successful main-loop report. The green suite passes **291 host
+tests** on Linux AArch64. It verifies the exact nine records over 1,001 transfers, checks
+each error before device mutation, and publishes a closed guest FAIL rather than accepting
+the fixture FIFO after an EXI trace error. B1's early-mail-consumption regression also passes.
+
+The review's loop-bound reservation is documented, not hidden: the current external bound
+is `launch.py --timeout 600` **per emulator phase**, with owned TERM/KILL/reap. The guest
+fixture has no internal turn/cycle or host-time limit. Sampling bounds the log rate, not
+the total bytes of an indefinitely running standalone boot. A physical Vita launch has no
+such external supervisor and still needs a local STOP bound before unattended use; none is
+claimed here. No physical Vita or Windows CI result is claimed.
+
+`BlueWakeRelData` is unchanged. Compile-time checks against `module_exports.h` pass with
+the native AArch64 and ARMv7 Vita compilers: `bytes` offset 16, natural pointer alignment,
+stride `16 + sizeof(pointer)`. Evidence: `logs/independent-review-rel-alignment.log`.

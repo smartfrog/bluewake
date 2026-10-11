@@ -67,7 +67,7 @@ static void advance(CPUState* cpu, u64 cycles, void* user) {
             ww_host_fail(host, "DSP init halt trace write failed", WW_DSP_CONTROL, cpu->pc);
     }
     const u64 transfer = host->dsp.aram.transfer_count;
-    if (aram_busy && host->dsp.aram_cycles_remaining == 0u && (transfer <= 8u || transfer % 1000u == 0u)) {
+    if (aram_busy && host->dsp.aram_cycles_remaining == 0u && ww_host_trace_transfer(transfer)) {
         if (fprintf(stderr, "[aram-complete] transfer=%llu cycles=%llu\n",
                     (unsigned long long)transfer, (unsigned long long)host->cycles.absolute_cycles) < 0)
             ww_host_fail(host, "ARAM completion trace write failed", WW_DSP_CONTROL, cpu->pc);
@@ -306,9 +306,19 @@ static void sram_write8(void* user, u32 physical, u8 value) {
 static bool exi_transfer(void* user, DolExiTransfer* transfer) {
     WwHost* host = user;
     const u32 frequency = (host->exi.channels[transfer->channel].status & DOL_EXI_STATUS_CLK_MASK) >> 4u;
-    fprintf(stderr, "[exi] channel=%u chip_select=%u frequency_code=%u direction=%u length=%u dma=%u dma_address=%08X immediate=%08X pc=%08X\n",
-            transfer->channel, transfer->chip_select, frequency, transfer->direction,
-            transfer->length, transfer->dma, transfer->dma_address, *transfer->immediate_data, host->cpu.pc);
+    const u32 control_address = DOL_EXI_BASE + transfer->channel * DOL_EXI_CHANNEL_STRIDE + DOL_EXI_CONTROL_OFF;
+    if (host->exi_transfers == UINT64_MAX) {
+        ww_host_fail(host, "EXI transfer counter exhausted", control_address, host->cpu.pc);
+        return false;
+    }
+    const u64 count = ++host->exi_transfers;
+    if (ww_host_trace_transfer(count) &&
+        fprintf(stderr, "[exi] transfer=%llu channel=%u chip_select=%u frequency_code=%u direction=%u length=%u dma=%u dma_address=%08X immediate=%08X pc=%08X\n",
+                (unsigned long long)count, transfer->channel, transfer->chip_select, frequency, transfer->direction,
+                transfer->length, transfer->dma, transfer->dma_address, *transfer->immediate_data, host->cpu.pc) < 0) {
+        ww_host_fail(host, "EXI transfer trace write failed", control_address, host->cpu.pc);
+        return false;
+    }
     if (transfer->channel == 0u && transfer->chip_select == 2u &&
         transfer->direction <= DOL_EXI_TRANSFER_WRITE) {
         BluewakeIplSram* sram = &host->sram;
@@ -455,8 +465,7 @@ static void mmio_write(CPUState* cpu, u32 address, u64 value, u8 size) {
                 fail_mmio_write(host, "DSP init transfer trace write failed", address, value, size);
         }
         const BluewakeAramDma* aram = &host->dsp.aram;
-        if (aram->transfer_count != prior_aram_transfer &&
-            (aram->transfer_count <= 8u || aram->transfer_count % 1000u == 0u)) {
+        if (aram->transfer_count != prior_aram_transfer && ww_host_trace_transfer(aram->transfer_count)) {
             if (fprintf(stderr, "[aram-dma] transfer=%llu main=%08X aram=%08X bytes=%u direction=%u completion_in=%llu pc=%08X\n",
                         (unsigned long long)aram->transfer_count, aram->last_main_address,
                         aram->last_aram_address, aram->last_length, aram->last_direction,
