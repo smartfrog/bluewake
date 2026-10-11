@@ -32,6 +32,7 @@ typedef struct WwHost {
     const StaticRecompModuleDesc* module;
     u32 l2cr;
     u32 pi_fifo_base;
+    u32 pi_fifo_end;
     WwCodeGuard code_guard;
     const char* error;
     u32 error_address;

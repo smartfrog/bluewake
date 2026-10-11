@@ -351,6 +351,14 @@ static bool exi_transfer(void* user, DolExiTransfer* transfer) {
     return false;
 }
 
+static u32* pi_fifo_register(WwHost* host, u32 address) {
+    if (address == 0xCC00300Cu)
+        return &host->pi_fifo_base;
+    if (address == 0xCC003010u)
+        return &host->pi_fifo_end;
+    return NULL;
+}
+
 static bool in_range(u32 address, u8 size, u32 base, u32 length) {
     return address >= base && address - base < length && size <= length - (address - base);
 }
@@ -397,8 +405,9 @@ static u64 mmio_read(CPUState* cpu, u32 address, u8 size) {
         refresh(host);
         return value;
     }
-    if (address == 0xCC00300Cu && size == 4u)
-        value = host->pi_fifo_base;
+    u32* pi_fifo = pi_fifo_register(host, address);
+    if (pi_fifo != NULL && size == 4u)
+        value = *pi_fifo;
     else if (address == 0xCC00401Cu && size == 2u)
         value = host->mi_interrupt_mask;
     else if (address == 0xCC004020u && size == 2u)
@@ -477,13 +486,14 @@ static void mmio_write(CPUState* cpu, u32 address, u64 value, u8 size) {
         refresh(host);
         return;
     }
+    u32* pi_fifo = pi_fifo_register(host, address);
     if (address == 0xCC000002u && size == 2u) {
         if (value != 0u) {
             fail_mmio_write(host, "CP control requires disabled init; FIFO processor backend not implemented", address, value, size);
             return;
         }
-    } else if (address == 0xCC00300Cu && size == 4u) {
-        host->pi_fifo_base = (u32)value & 0xFFFFFFE0u;
+    } else if (pi_fifo != NULL && size == 4u) {
+        *pi_fifo = (u32)value & 0xFFFFFFE0u;
     } else if (address == 0xCC00401Cu && size == 2u) {
         if (value & ~0x1Full) {
             fail_mmio_write(host, "unsupported MI interrupt mask bits", address, value, size);

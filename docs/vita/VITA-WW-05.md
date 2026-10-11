@@ -1815,3 +1815,36 @@ the actual word memory hook, the alignment mask, invalid-width state preservatio
 manufactured FIFO/IRQ/time, spent-quantum closure and synthetic main-loop continuation.
 Clean-source Vita compilation and authentic continuation are next; physical Vita, Windows
 CI, rendering, FPS, runtime REL events and actual guest disc access remain unverified.
+
+## Real PI FIFO base continuation and observed end register
+
+Run `4feb9aeb93a8448fa93ed26e10d75fec`, source
+`863230bb213d2e5698dda3c0f9f62abe685fb2ac`, passes the base store and reaches the next
+word store: **`CC003010 = 004C9F5C`**, PC **`80320F08`**. Its closed guest **FAIL** has
+**64,235 edges, 7,139,922 cycles**, zero FIFO bytes, `GX_FRONTIER complete=0`, `live=0`,
+`rendered=0`. Build status zero, 123.273 s, static archive unchanged. Both owned phases
+timeout after 60 s, TERM/exit -15 and `waited=true`; process **124/INCOMPLETE** remains
+distinct. `logs/pi-fifo-base-evidence-863230b.json` rechecks the bindings and LER journal.
+SHA-256:
+
+- VPK: `be1b76133ec61cf1a8d3ca0b3ebaef8d19160b46475e9fa657dc44eeaf7fc443`;
+- report: `eb0b221865b4afafe25057c9b56eb7a445fbe626b7dc9f56ea4adf158ca338e9`;
+- result: `b8aff81e6b611c6b3e354139400db35655284e3aff39d9f650c4b1b616d72b3f`;
+- log: `a1ead70d7460d6a707edcf1dccf0d5630fbbc169c5181de549593f6863726e9d`;
+- LER: `169da8b7a0e0d3067e984a0701130bdf9916ce1c09ccf887d9004ec9f413b079`.
+
+The pin identifies **PI_FIFO_END** at offset `10` (`HW/ProcessorInterface.h:55`), reset
+zero (`ProcessorInterface.cpp:47-54`), with the same direct word read/write mask
+**`FFFFFFE0`** (`87-88`). The actual `004C9F5C` therefore reads back as **`004C9F40`**;
+retaining its low `1C` bits would be wrong. WW05 extends the existing scalar register
+selector to base/end and shares one mask and width gate, without duplicate device logic.
+The two words have independent host-owned stores. No FIFO write pointer, reset, GPU work,
+memory copy, parser feed or interrupt is implemented by this configuration store.
+
+`logs/pi-fifo-end-red.log` reproduces end-register refusal while the base cases pass.
+`logs/pi-fifo-end-host-green.log` passes **310 host tests** on Linux AArch64, including
+parameterized base/end reset, actual word memory hooks, masking, invalid-width state
+preservation, independent retained words, credited-cycle/spent-quantum behavior and clearly
+synthetic main-loop continuation. Strict GX acceptance and the module/CPU ABI are unchanged.
+Authentic continuation awaits the next clean build/trial; physical Vita, Windows CI,
+rendering, FPS, runtime REL events and actual guest disc access remain unverified.
