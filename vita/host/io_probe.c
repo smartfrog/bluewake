@@ -1,4 +1,7 @@
 #include "module_exports.h"
+#include "gxruntime/interrupts.h"
+#include "gxruntime/si.h"
+#include <assert.h>
 #include <errno.h>
 #include <stdarg.h>
 #include <stdio.h>
@@ -9,6 +12,27 @@ static BluewakeEdgeServiceFn edge;
 static void* edge_user;
 
 static int dispatch(CPUState* cpu, u32 address) {
+    const char* interrupt = getenv("WW05_IO_IRQ");
+    if (interrupt != NULL && address == 0x80001000u) {
+        cpu->external_write(cpu, DOL_PI_INTERRUPT_MASK, DOL_PI_CAUSE_SI, 4u);
+        cpu->external_write(cpu, DOL_SI_BASE + DOL_SI_COMCSR_OFF, 0xC0010301u, 4u);
+        cpu->msr |= PPC_MSR_EE;
+        cpu->pc = address + 4u;
+        cpu->downcount -= 12;
+        if (strcmp(interrupt, "inside") == 0)
+            assert(edge(edge_user, cpu, cpu->pc));
+        return 1;
+    }
+    if (interrupt != NULL && address == 0x500u) {
+        assert(cpu->srr0 == 0x80001004u);
+        assert(!(cpu->msr & PPC_MSR_EE));
+        cpu->external_write(cpu, DOL_SI_BASE + DOL_SI_COMCSR_OFF, 0xC0010300u, 4u);
+        ppc_rfi(cpu, address);
+        cpu->downcount -= 12;
+        return 1;
+    }
+    if (interrupt != NULL)
+        assert(address == 0x80001004u && (cpu->msr & PPC_MSR_EE));
     cpu->pc = address;
     cpu->external_write(cpu, 0xCC008000u, 0x61u, 1u);
     cpu->external_write(cpu, 0xCC008000u, 0xFEFFFFFFu, 4u);

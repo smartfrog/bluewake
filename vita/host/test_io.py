@@ -15,7 +15,7 @@ class MainIoTest(unittest.TestCase):
     def setUpClass(cls):
         test_host.StartupHostTest.setUpClass()
 
-    def run_fixture(self, failure='', stale=False):
+    def run_fixture(self, failure='', stale=False, interrupt=None):
         with tempfile.TemporaryDirectory(dir=OUT, prefix='io-') as directory:
             root = Path(directory)
             data = bytearray(260)
@@ -26,8 +26,11 @@ class MainIoTest(unittest.TestCase):
             (root / 'ww05.request').write_text(f'{"c" * 32} {"a" * 40} {"b" * 64}\n')
             if stale:
                 (root / 'ww05.report').write_text('preserve me')
+            environment = dict(os.environ, WW05_IO_FAILURE=failure)
+            if interrupt is not None:
+                environment['WW05_IO_IRQ'] = interrupt
             result = subprocess.run([str(OUT / 'io_probe')], cwd=root,
-                                    env=dict(os.environ, WW05_IO_FAILURE=failure), capture_output=True)
+                                    env=environment, capture_output=True, timeout=10)
             report = (root / 'ww05.report').read_text() if (root / 'ww05.report').exists() else None
             return result.returncode, report
 
@@ -36,6 +39,14 @@ class MainIoTest(unittest.TestCase):
         self.assertEqual(status, 0)
         self.assertIn('platform=HOST', report)
         self.assertTrue(report.endswith('END frontier=PASS live=0 rendered=0\n'))
+
+    def test_synthetic_interrupt_yields_resume_the_main_dispatch_loop(self):
+        for boundary in ('inside', 'outside'):
+            with self.subTest(boundary=boundary):
+                status, report = self.run_fixture(interrupt=boundary)
+                self.assertEqual(status, 0)
+                self.assertIn('pc=80001004', report)
+                self.assertTrue(report.endswith('END frontier=PASS live=0 rendered=0\n'))
 
     def test_write_failure_is_not_published(self):
         status, report = self.run_fixture('write')

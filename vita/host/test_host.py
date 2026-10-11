@@ -133,6 +133,24 @@ class StartupHostTest(unittest.TestCase):
     def test_si_transfer_requires_word_access(self):
         subprocess.run([str(OUT / 'host_probe'), 'si-width'], check=True)
 
+    def test_si_completion_delivers_external_exception_at_next_edge(self):
+        subprocess.run([str(OUT / 'host_probe'), 'irq-si'], check=True)
+
+    def test_di_completion_uses_the_same_external_exception_gate(self):
+        subprocess.run([str(OUT / 'host_probe'), 'irq-di'], check=True)
+
+    def test_pi_mask_defers_external_exception(self):
+        subprocess.run([str(OUT / 'host_probe'), 'irq-masked'], check=True)
+
+    def test_msr_ee_defers_external_exception_until_reenabled(self):
+        subprocess.run([str(OUT / 'host_probe'), 'irq-disabled'], check=True)
+
+    def test_acknowledged_si_interrupt_does_not_recur_after_rfi(self):
+        subprocess.run([str(OUT / 'host_probe'), 'irq-ack-rfi'], check=True)
+
+    def test_external_interrupt_does_not_replace_a_guest_fault(self):
+        subprocess.run([str(OUT / 'host_probe'), 'irq-prior-exception'], check=True)
+
     def test_invalid_module_is_rejected_before_dol_io(self):
         subprocess.run([str(OUT / 'host_probe'), 'module'], check=True)
 

@@ -8,6 +8,9 @@
 
 #include <string.h>
 
+#define PPC_EXC_EXTERNAL 0x00000040u
+#define PPC_VECTOR_EXTERNAL 0x00500u
+
 void ww_host_fail(WwHost* host, const char* error, u32 address, u32 pc) {
     if (host->error == NULL) {
         host->error = error;
@@ -177,8 +180,6 @@ static void refresh(WwHost* host) {
                                        .si = dol_si_interrupt_pending(&host->si)};
     bluewake_interrupt_sources_refresh(&host->interrupts, &host->cycles, &host->cpu, &sources);
     dol_interrupts_set_source(&host->interrupts, DOL_PI_CAUSE_EXI, dol_exi_interrupt_pending(&host->exi));
-    if (dol_interrupts_external_pending(&host->interrupts))
-        ww_host_fail(host, "external interrupt delivery unsupported before GX", host->interrupts.pi_cause, host->cpu.pc);
 }
 
 static u64 mmio_read(CPUState* cpu, u32 address, u8 size) {
@@ -267,6 +268,18 @@ bool ww_host_edge(void* user, CPUState* cpu, u32 address) {
     host->edges++;
     if (host->frontier.complete || host->error != NULL) {
         host->edge_stopped = true;
+        return true;
+    }
+    refresh(host);
+    if (cpu->exception == 0u && (cpu->msr & PPC_MSR_EE) &&
+        dol_interrupts_external_pending(&host->interrupts)) {
+        bluewake_cycle_domain_flush(&host->cycles, cpu);
+        if (host->error != NULL) {
+            host->edge_stopped = true;
+            return true;
+        }
+        ppc_take_exception(cpu, PPC_EXC_EXTERNAL, PPC_VECTOR_EXTERNAL, address, 0u);
+        cpu->exception &= ~PPC_EXC_EXTERNAL;
         return true;
     }
     if (bluewake_edge_maybe_intercept(address)) {

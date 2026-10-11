@@ -69,8 +69,11 @@ int fixture_run(int argc, char** argv) {
     error |= fprintf(report, "UNKNOWN residency native_stack_highwater pool_peak GPU\n") < 0;
     bluewake_set_edge_service(ww_host_edge, host);
     while (loaded && !error && host->error == NULL && !host->edge_stopped) {
-        if (ww_host_edge(host, &host->cpu, host->cpu.pc))
-            break;
+        if (ww_host_edge(host, &host->cpu, host->cpu.pc)) {
+            if (host->edge_stopped)
+                break;
+            continue;
+        }
         bluewake_cycle_domain_begin_turn(&host->cycles, &host->cpu);
         bluewake_cycle_domain_prepare_dispatch(&host->cycles, &host->cpu);
         const int dispatched = module->dispatch(&host->cpu, host->cpu.pc);

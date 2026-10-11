@@ -230,7 +230,7 @@ a lingering process. Its short red/green loops are in `logs/private-{launch,gues
 The parent-symlink loop reproduced creation outside an owned fake profile, then prevented it with the
 existing no-follow directory-descriptor pattern. No real/shared profile was involved.
 
-The WW05 host suite currently has **78 tests**. Source-bound logs retain exact counts/commands for these,
+The WW05 host suite currently has **85 tests**. Source-bound logs retain exact counts/commands for these,
 native runtime CTest, 71 native FP cases and the eight direct baseline files. Audit, attribution,
 pin/scope/diff and clean-worktree checks accompany delivery. The pre-launch `1ba507c` checkpoint passed
 35 WW05 tests, 177 unchanged tests, 53 direct baseline tests, 71 native FP cases and 3/1/5 runtime/corpus/
@@ -371,3 +371,26 @@ cycle-accurate serial timeout model. Both upstream pins and generated sources re
 bytes, selected-channel NOREP, COMERR/TCINT, PI source publication, acknowledgement and width
 refusal. These synthetic tests do not establish real startup success; a new source-bound private
 build and trial must do that.
+
+Run `9ae86b0671014a4fa3c01f32311dc948` at `81012f996fd40d4d6ea1c780c18a19a4d981fd79`
+passed the SI transfer and stopped at the host's immediate IRQ refusal:
+`external interrupt delivery unsupported before GX address=00010008 pc=8030C1C0`.
+The report SHA-256 is `71b7c7bc8510f1bbe160a62651614ba245eacb7b53ac133ef662dcb95484c262`.
+Both 60-second processes stopped/reaped with 124/INCOMPLETE; frontier FAIL remains separate.
+The unchanged 119,998 cycles and 968 edges are not a measurement ceiling or evidence of a wait
+loop: both this refusal and the prior SI refusal occur in the same MMIO write, before its next
+block. The cycle domain accumulates a 64-bit absolute count; its 256-cycle dispatch budget is
+renewed every turn and does not cap the total. No budget increase is needed for those counters.
+
+The next host seam leaves completed SI/DI/EXI PI causes pending, then samples the PI mask and
+MSR[EE] at a guest edge. It uses the pinned `ppc_take_exception` helper for vector `00000500`,
+SRR0/SRR1 and exception-mode MSR, consumes only that handled external-exception marker, and
+yields the current dispatch without ending the run. A prior guest fault is never replaced.
+The guest must execute its real handler and acknowledge the peripheral; an unacknowledged
+level reasserts after `rfi`. Interrupt sampling is block-boundary, not instruction-cycle exact.
+
+`logs/external-irq-red.log` reproduces the refusal/missing delivery. The green host suite has
+85 tests, including SI/DI delivery, PI masking, EE deferral/re-enable, acknowledgement/`rfi`,
+pending-level recurrence, guest-fault preservation, cycle flushing, and synthetic main-loop
+continuation for both outer and inner dispatch boundaries. Synthetic vector handling in the
+I/O fixture is not proof that the real relocated OS vector is statically dispatchable.

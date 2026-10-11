@@ -219,6 +219,60 @@ int main(int argc, char** argv) {
         assert(host->cpu.external_read(&host->cpu, DOL_SI_BASE + DOL_SI_COMCSR_OFF, 4u) == 0x60010300u);
         host->cpu.external_write(&host->cpu, DOL_SI_BASE + DOL_SI_STATUS_OFF, 0x08000000u, 4u);
         assert(host->cpu.external_read(&host->cpu, DOL_SI_BASE + DOL_SI_STATUS_OFF, 4u) == 0u);
+    } else if (strncmp(argv[1], "irq-", 4u) == 0) {
+        const bool di = strcmp(argv[1], "irq-di") == 0;
+        const bool masked = strcmp(argv[1], "irq-masked") == 0;
+        const bool disabled = strcmp(argv[1], "irq-disabled") == 0;
+        const bool acknowledge = strcmp(argv[1], "irq-ack-rfi") == 0;
+        const bool prior_exception = strcmp(argv[1], "irq-prior-exception") == 0;
+        const u32 cause = di ? DOL_PI_CAUSE_DI : DOL_PI_CAUSE_SI;
+        host->cpu.pc = 0x8030C1C4u;
+        const u32 msr = PPC_MSR_EE | PPC_MSR_FP | PPC_MSR_IR | PPC_MSR_DR | PPC_MSR_RI;
+        host->cpu.msr = disabled ? msr & ~PPC_MSR_EE : msr;
+        host->cpu.external_write(&host->cpu, DOL_PI_INTERRUPT_MASK, masked ? 0u : cause, 4u);
+        if (di) {
+            host->di.control = DOL_DI_CONTROL_TSTART;
+            host->di.status = DOL_DI_STATUS_DEINTMASK;
+            dol_di_complete_command(&host->di, DOL_DI_COMMAND_ERROR);
+        } else {
+            host->cpu.external_write(&host->cpu, DOL_SI_BASE + DOL_SI_COMCSR_OFF, 0xC0010301u, 4u);
+        }
+        assert(host->error == NULL);
+        if (prior_exception)
+            host->cpu.exception = PPC_EXC_PROGRAM;
+        bluewake_cycle_domain_begin_turn(&host->cycles, &host->cpu);
+        bluewake_cycle_domain_prepare_dispatch(&host->cycles, &host->cpu);
+        host->cpu.downcount = -120;
+        const bool delivered = ww_host_edge(host, &host->cpu, host->cpu.pc);
+        assert(host->error == NULL);
+        assert(!host->edge_stopped);
+        if (masked || disabled || prior_exception) {
+            assert(!delivered);
+            assert(host->cpu.pc == 0x8030C1C4u);
+            assert(host->cpu.srr0 == 0u);
+            assert(host->interrupts.pi_cause & cause);
+            assert(host->cpu.exception == (prior_exception ? PPC_EXC_PROGRAM : 0u));
+            if (disabled) {
+                host->cpu.msr |= PPC_MSR_EE;
+                assert(ww_host_edge(host, &host->cpu, host->cpu.pc));
+                assert(host->cpu.srr0 == 0x8030C1C4u);
+            }
+        } else {
+            assert(delivered);
+            assert(host->cpu.pc == 0x500u);
+            assert(host->cpu.srr0 == 0x8030C1C4u);
+            assert(host->cpu.srr1 == msr);
+            assert(host->cpu.msr == 0u);
+            assert(host->cpu.exception == 0u);
+            assert(host->cycles.absolute_cycles == 120u);
+            assert(!ww_host_edge(host, &host->cpu, host->cpu.pc));
+            if (acknowledge)
+                host->cpu.external_write(&host->cpu, DOL_SI_BASE + DOL_SI_COMCSR_OFF, 0xC0010300u, 4u);
+            ppc_rfi(&host->cpu, 0x80000540u);
+            assert(host->cpu.pc == 0x8030C1C4u);
+            assert(host->cpu.msr == msr);
+            assert(ww_host_edge(host, &host->cpu, host->cpu.pc) == !acknowledge);
+        }
     } else if (strcmp(argv[1], "si-width") == 0) {
         host->cpu.external_write(&host->cpu, DOL_SI_BASE + DOL_SI_COMCSR_OFF, 1u, 2u);
         assert(host->error != NULL);
