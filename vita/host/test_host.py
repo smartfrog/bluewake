@@ -44,6 +44,30 @@ class StartupHostTest(unittest.TestCase):
     def test_runtime_pvr_is_preserved(self):
         subprocess.run([str(OUT / 'host_probe'), 'pvr'], check=True)
 
+    def test_pi_fifo_base_starts_at_the_sourced_zero_reset_without_events(self):
+        subprocess.run([str(OUT / 'host_probe'), 'pi-fifo-base-reset'], check=True)
+
+    def test_observed_pi_fifo_base_store_retains_the_actual_word_through_the_guest_memory_hook(self):
+        subprocess.run([str(OUT / 'host_probe'), 'pi-fifo-base-store'], check=True)
+
+    def test_pi_fifo_base_retains_only_the_sourced_32_byte_alignment_mask(self):
+        for value in (0, 0x00429F7F, 0xFFFFFFFF):
+            with self.subTest(value=value):
+                subprocess.run([str(OUT / 'host_probe'), f'pi-fifo-base-mask-{value}'], check=True)
+
+    def test_pi_fifo_base_write_rejects_widths_outside_the_observed_word_store(self):
+        for width in (1, 2, 8):
+            with self.subTest(width=width):
+                subprocess.run([str(OUT / 'host_probe'), f'pi-fifo-base-write-width-{width}'], check=True)
+
+    def test_pi_fifo_base_read_requires_the_supported_word_width(self):
+        for width in (1, 2, 8):
+            with self.subTest(width=width):
+                subprocess.run([str(OUT / 'host_probe'), f'pi-fifo-base-read-width-{width}'], check=True)
+
+    def test_pi_fifo_base_write_credits_cycles_without_manufacturing_fifo_or_quantum_allowance(self):
+        subprocess.run([str(OUT / 'host_probe'), 'pi-fifo-base-credit'], check=True)
+
     def test_observed_cp_control_zero_init_does_not_create_fifo_or_interrupt_activity(self):
         subprocess.run([str(OUT / 'host_probe'), 'cp-control-zero'], check=True)
 

@@ -1777,3 +1777,41 @@ interrupt manufacture, rejected enables/widths with exact context, credited cycl
 quantum renewal, and real main-loop continuation into a clearly synthetic FIFO fixture.
 Authentic CP continuation is still awaiting a clean source-bound build/trial. No physical
 Vita, Windows CI, rendering, FPS, runtime REL event or actual guest disc access is claimed.
+
+## Real disabled-CP continuation and observed PI FIFO base
+
+Run `90b129654f794d51acdb4ffb96e68aed`, source
+`ce151f89eab50df1c45a8b8d695ff5688c8c51b5`, passes the disabled CP store and reaches a
+word store of **`00429F60` to `CC00300C`**, PC **`80320EF8`**. Its closed guest report is
+**FAIL**, **64,235 edges, 7,139,922 cycles**, zero FIFO bytes, `GX_FRONTIER complete=0`,
+`live=0`, `rendered=0`. Build status zero, 123.896 s, unchanged static archive. Both owned
+phases timeout after 60 s, TERM/exit -15, `waited=true`; process **124/INCOMPLETE** is
+separate from the guest verdict. `logs/cp-disabled-init-evidence-ce151f8.json` rechecks
+source/request/package/report bindings and the closed LER journal. SHA-256:
+
+- VPK: `ba6514b0109e31353c02255bca372df6451f0eb8e0f2a7a63c77a9d57836c84a`;
+- report: `ba9621438f4dbe8fb510963e7a31249a237bfa4f2ef82860143d42e046e3f43b`;
+- result: `ab43d43bdb7105894a26dba345a09acc9476976e12b286ac4a1708144649bf69`;
+- log: `a1ead70d7460d6a707edcf1dccf0d5630fbbc169c5181de549593f6863726e9d`;
+- LER: `169da8b7a0e0d3067e984a0701130bdf9916ce1c09ccf887d9004ec9f413b079`.
+
+The pin identifies this register as **PI_FIFO_BASE** (`HW/ProcessorInterface.h:54`),
+resets it to zero (`ProcessorInterface.cpp:47-54`) and directly retains a word masked with
+**`FFFFFFE0`** (`84-85`). It has no transfer or interrupt side effect. No equivalent scalar
+FIFO-register service exists in the pinned C runtime or shared host helpers. WW05 adds only
+this host-owned register, ordinary word write/read routing, and that sourced mask. The
+observed `00429F60` is retained unchanged. This is not a GPU FIFO allocation, a guest-memory
+copy, a parser feed, a reset or an invented completion. Other PI FIFO registers and widths
+still fail explicitly; unobserved read widths are not claimed even though the wider pin has
+halfword-read adapters. Module/CPU ABI, pins, static archive, strict GX framing and cycle
+observation remain unchanged.
+
+`logs/pi-fifo-base-red.log` reproduces reset/store/mask/credit and main-loop refusal.
+The first full green attempt retained one obsolete fixture failure: its "unknown write"
+used the now-supported PI FIFO base. That fixture now probes the still-unimplemented
+reserved PI offset `CC003008`, preserving fail-fast coverage rather than disabling it.
+`logs/pi-fifo-base-host-final-green.log` passes **309 host tests** on Linux AArch64, including
+the actual word memory hook, the alignment mask, invalid-width state preservation, no
+manufactured FIFO/IRQ/time, spent-quantum closure and synthetic main-loop continuation.
+Clean-source Vita compilation and authentic continuation are next; physical Vita, Windows
+CI, rendering, FPS, runtime REL events and actual guest disc access remain unverified.

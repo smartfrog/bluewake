@@ -31,6 +31,12 @@ static int dispatch(CPUState* cpu, u32 address) {
     static bool polled;
     static u32 repeated_handlers;
     static bool init_started;
+    if (getenv("WW05_IO_PI_FIFO_BASE") != NULL) {
+        cpu->external_write(cpu, 0xCC00300Cu, 0x00429F60u, 4u);
+        if (cpu->exception != 0u)
+            return 1;
+        assert(cpu->external_read(cpu, 0xCC00300Cu, 4u) == 0x00429F60u);
+    }
     const char* cp_control = getenv("WW05_IO_CP_CONTROL");
     if (cp_control != NULL) {
         cpu->external_write(cpu, 0xCC000002u, strtoul(cp_control, NULL, 0), 2u);
