@@ -279,6 +279,23 @@ int main() {
   }
 
   {
+    gx_vita::TranslatedDraw draw;
+    CHECK(replay("hud_quad", draw));
+    CHECK(draw.ok);
+    CHECK(draw.geometry.vertex_count == 4u);
+    CHECK(draw.geometry.indices.size() == 6u);
+    CHECK(draw.geometry.indices[0] == 0u && draw.geometry.indices[1] == 1u &&
+          draw.geometry.indices[2] == 2u && draw.geometry.indices[3] == 2u &&
+          draw.geometry.indices[4] == 3u && draw.geometry.indices[5] == 0u);
+    CHECK(draw.pipeline.topology == gx_vita::kGlTriangles);
+    CHECK(draw.pipeline.depth_test == 0u);
+    CHECK(draw.pipeline.blend_enable == 1u);
+    CHECK(draw.texture.valid);
+    std::printf("hud_quad ok vertices=%u indices=%zu\n",
+                draw.geometry.vertex_count, draw.geometry.indices.size());
+  }
+
+  {
     // Golden hash: pinned for the pinned ShaderKey layout, so a pin change
     // that moves the key bytes fails here instead of silently re-keying Cg
     // programs. The zero key's hash and three distinct variants must differ.

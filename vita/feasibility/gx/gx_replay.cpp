@@ -51,7 +51,8 @@ void plan_observer(const gxc::DrawPlan& plan, void* user) {
                 "pipeline textured=%u has_pos_mtx_idx=%u cull_mode=%u "
                 "depth_test=%u depth_func=%u depth_update=%u blend_enable=%u "
                 "blend_subtract=%u src_factor=%u dst_factor=%u color_update=%u "
-                "alpha_update=%u topology=%u texmap_mask=%u texgens=%u litchan0=%u",
+                "alpha_update=%u topology=%u texmap_mask=%u ind_stages=%u "
+                "texgens=%u litchan0=%u",
                 plan.pipeline.shader.textured,
                 plan.pipeline.shader.has_pos_mtx_idx,
                 plan.pipeline.cull_mode, plan.pipeline.depth_test,
@@ -61,6 +62,7 @@ void plan_observer(const gxc::DrawPlan& plan, void* user) {
                 plan.pipeline.dst_factor, plan.pipeline.color_update,
                 plan.pipeline.alpha_update, plan.pipeline.primitive_topology,
                 plan.texmap_mask,
+                plan.pipeline.shader.num_ind_stages,
                 plan.pipeline.shader.num_tex_gens,
                 plan.pipeline.shader.litchan[0].enablelighting);
   out->push_back(line);

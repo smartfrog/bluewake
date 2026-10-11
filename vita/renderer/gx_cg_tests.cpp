@@ -94,6 +94,20 @@ int main() {
   }
 
   {
+    // An active indirect lookup must be refused with a reason.
+    gxc::ShaderKey key;
+    CHECK(replay_key("indirect_triangle", key));
+    CHECK(key.num_ind_stages == 1u);
+    CHECK(key.tev_stages[0].ind_matrix_index == 1u);
+    const gx_vita::CgProgram cg = gx_vita::generate_cg(key);
+    CHECK(!cg.ok);
+    CHECK(cg.unsupported_reason != nullptr);
+    CHECK(std::string(cg.unsupported_reason).find("indirect") !=
+          std::string::npos);
+    std::printf("indirect refused ok: %s\n", cg.unsupported_reason);
+  }
+
+  {
     // A KONST colour argument needs a uniform the bounded generator does not
     // emit: the program must be refused with a reason, never silently wrong.
     gxc::ShaderKey key{};

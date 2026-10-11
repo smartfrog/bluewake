@@ -355,6 +355,49 @@ inline std::vector<std::uint8_t> build_copy_triangle() {
   return fifo;
 }
 
+// A screen-space HUD quad: four vertices covering 640x480 pixels with an
+// alpha-blended texture and no depth test (the J2D path).
+inline std::vector<std::uint8_t> build_hud_quad() {
+  std::vector<std::uint8_t> fifo;
+  push_common_state(fifo);
+  push_bp(fifo, DOL_GX_BP_REG_TX_SETIMAGE0,
+          tex_image0(kTextureWidth, kTextureHeight, 6u));
+  push_bp(fifo, DOL_GX_BP_REG_TX_SETIMAGE3, kTextureBase >> 5u);
+  push_bp(fifo, DOL_GX_BP_REG_GENMODE, (1u << 0u));
+  push_bp(fifo, 0x40u, 0u); // depth test off
+  push_bp(fifo, 0x41u, 1u | (4u << 8u) | (5u << 5u) | (1u << 3u) | (1u << 4u));
+  push_bp(fifo, DOL_GX_BP_REG_PE_CONTROL, 1u);
+  push_draw(fifo, 0x80u, 4u,
+            {
+                0.f, 0.f, 0.f, 0.f, 0.f,
+                640.f, 0.f, 0.f, 1.f, 0.f,
+                640.f, 480.f, 0.f, 1.f, 1.f,
+                0.f, 480.f, 0.f, 0.f, 1.f,
+            });
+  return fifo;
+}
+
+// A TEV stage with an active indirect lookup: the decode must carry it and the
+// bounded Cg generator must refuse it, never drop the indirection silently.
+inline std::vector<std::uint8_t> build_indirect_triangle() {
+  std::vector<std::uint8_t> fifo;
+  push_common_state(fifo);
+  push_bp(fifo, DOL_GX_BP_REG_TX_SETIMAGE0,
+          tex_image0(kTextureWidth, kTextureHeight, 6u));
+  push_bp(fifo, DOL_GX_BP_REG_TX_SETIMAGE3, kTextureBase >> 5u);
+  // genMode: one texgen, one colour channel, one TEV stage, one indirect stage.
+  push_bp(fifo, DOL_GX_BP_REG_GENMODE, 1u | (1u << 4u) | (1u << 16u));
+  // Stage order: texmap 0 on texcoord 0, enabled.
+  push_bp(fifo, 0x28u, 1u << 6u);
+  // Stage 0 indirect: ind_stage 0, ind_matrix_index 1 (active lookup).
+  push_bp(fifo, 0x10u, 1u << 9u);
+  // Stage 0 combine: tex passthrough.
+  push_bp(fifo, 0xC0u, 15u | (15u << 4u) | (15u << 8u) | (8u << 12u) | (1u << 19u));
+  push_bp(fifo, 0xC1u, 7u | (7u << 4u) | (7u << 10u) | (4u << 13u) | (1u << 19u));
+  push_triangle(fifo);
+  return fifo;
+}
+
 // --- Replay -----------------------------------------------------------------
 
 using PlanObserver = void (*)(const gxc::DrawPlan& plan, void* user);
@@ -363,7 +406,8 @@ inline bool known_scenario(const std::string& name) {
   return name == "textured_triangle" || name == "ci8_triangle" ||
          name == "state_triangle" || name == "cel_triangle" ||
          name == "lines_pair" || name == "subtract_triangle" ||
-         name == "dstalpha_triangle" || name == "copy_triangle";
+         name == "dstalpha_triangle" || name == "copy_triangle" ||
+         name == "hud_quad" || name == "indirect_triangle";
 }
 
 // Replays the named scenario through the pinned frontend and GxCoreSink. The
@@ -392,6 +436,10 @@ inline bool replay_scenario(const std::string& name, PlanObserver observer,
     fifo = build_dstalpha_triangle();
   else if (name == "copy_triangle")
     fifo = build_copy_triangle();
+  else if (name == "hud_quad")
+    fifo = build_hud_quad();
+  else if (name == "indirect_triangle")
+    fifo = build_indirect_triangle();
   else
     return false;
 

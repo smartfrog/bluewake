@@ -134,6 +134,14 @@ CgProgram generate_cg(const gxc::ShaderKey& key) {
   if (key.tev_valid != 0u) {
     for (std::uint32_t n = 0; n < key.num_tev_stages; ++n) {
       const gxc::TevStageKey& stage = key.tev_stages[n];
+      // An active indirect lookup (indirect stage in range) is not generated:
+      // refusing is the only honest answer until the indirection path exists.
+      const bool samples_indirect =
+          stage.ind_matrix_index != 0u || stage.ind_bump_alpha != 0u;
+      if (samples_indirect && stage.ind_stage < key.num_ind_stages) {
+        program.unsupported_reason = "indirect TEV lookups not supported";
+        return program;
+      }
       if (stage.cc_bias != 0u) {
         program.unsupported_reason = "TEV bias not supported";
         return program;

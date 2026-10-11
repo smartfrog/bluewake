@@ -202,6 +202,46 @@ class CelTexgenTest(unittest.TestCase):
         self.assertEqual(self.pipeline["textured"], "1")
 
 
+class HudQuadTest(unittest.TestCase):
+    """A screen-space HUD quad: four vertices, two triangles, alpha blended."""
+
+    @classmethod
+    def setUpClass(cls):
+        check_binary(find_replay())
+        cls.lines = parse_report(run_scenario("hud_quad"))
+        cls.pipeline = dict(field.split("=", 1) for field in cls.lines["pipeline"][0])
+
+    def test_quad_geometry(self):
+        vertices = [dict(field.split("=", 1) for field in entry[1:])
+                    for entry in self.lines["v"]]
+        self.assertEqual(len(vertices), 4)
+        self.assertEqual(vertices[0]["pos"], "0,0,0")
+        self.assertEqual(vertices[2]["pos"], "640,480,0")
+
+    def test_quad_becomes_two_triangles(self):
+        # The pinned topology builder splits a quad into (0,1,2), (2,3,0).
+        self.assertEqual(self.lines["idx"][0], ["0", "1", "2", "2", "3", "0"])
+
+    def test_alpha_blended_without_depth(self):
+        self.assertEqual(self.pipeline["depth_test"], "0")
+        self.assertEqual(self.pipeline["blend_enable"], "1")
+        self.assertEqual(self.pipeline["src_factor"], "4")
+        self.assertEqual(self.pipeline["dst_factor"], "5")
+
+
+class IndirectTriangleTest(unittest.TestCase):
+    """An active indirect stage is decoded (and refused by the Cg generator)."""
+
+    @classmethod
+    def setUpClass(cls):
+        check_binary(find_replay())
+        cls.lines = parse_report(run_scenario("indirect_triangle"))
+
+    def test_indirect_stage_is_decoded(self):
+        pipeline = dict(field.split("=", 1) for field in self.lines["pipeline"][0])
+        self.assertEqual(pipeline["ind_stages"], "1")
+
+
 class CopyTriangleTest(unittest.TestCase):
     """An EFB copy-to-texture resolves through the sink's copy observer."""
 
