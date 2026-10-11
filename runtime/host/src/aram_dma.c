@@ -22,7 +22,7 @@ static void register_write(BluewakeAramDma* dma, u32 address, u16 value) {
     dma->regs[(address - BLUEWAKE_ARAM_DMA_BASE) / 2u] = value;
 }
 
-static bool commit_transfer(BluewakeAramDma* dma, CPUState* cpu) {
+static bool commit_transfer(BluewakeAramDma* dma, CPUState* cpu, bool absent_hsp) {
     const u32 main_physical = ((u32)(dma->regs[0] & 0x03FFu) << 16) |
                               (u32)(dma->regs[1] & 0xFFE0u);
     const u32 aram_address = ((u32)(dma->regs[2] & 0x03FFu) << 16) |
@@ -40,11 +40,19 @@ static bool commit_transfer(BluewakeAramDma* dma, CPUState* cpu) {
         return false;
     }
 
+    if (absent_hsp && (aram_address < ARAM_SIZE || cpu->ram == NULL ||
+                       main_physical >= cpu->ram_size || length > cpu->ram_size - main_physical)) {
+        dma->rejected_count++;
+        return false;
+    }
+
     const u32 main_cached = BLUEWAKE_MEM1_CACHED_BASE | main_physical;
-    if (direction == 0u)
-        aram_dma_to_aram(cpu->ram, main_cached, aram_address, length);
-    else
-        aram_dma_to_ram(cpu->ram, main_cached, aram_address, length);
+    if (!absent_hsp) {
+        if (direction == 0u)
+            aram_dma_to_aram(cpu->ram, main_cached, aram_address, length);
+        else
+            aram_dma_to_ram(cpu->ram, main_cached, aram_address, length);
+    }
 
     dma->last_main_address = main_cached;
     dma->last_aram_address = aram_address;
@@ -74,8 +82,8 @@ u64 bluewake_aram_dma_read(const BluewakeAramDma* dma, u32 address, u8 size) {
            register_read(dma, address + 2u);
 }
 
-bool bluewake_aram_dma_write(BluewakeAramDma* dma, CPUState* cpu, u32 address,
-                             u8 size, u64 value) {
+static bool write_dma(BluewakeAramDma* dma, CPUState* cpu, u32 address,
+                      u8 size, u64 value, bool absent_hsp) {
     if (dma == NULL || !valid_access(address, size))
         return false;
 
@@ -87,8 +95,18 @@ bool bluewake_aram_dma_write(BluewakeAramDma* dma, CPUState* cpu, u32 address,
     }
 
     if (address + size == BLUEWAKE_ARAM_DMA_BASE + BLUEWAKE_ARAM_DMA_BYTES)
-        return commit_transfer(dma, cpu);
+        return commit_transfer(dma, cpu, absent_hsp);
     return true;
+}
+
+bool bluewake_aram_dma_write(BluewakeAramDma* dma, CPUState* cpu, u32 address,
+                             u8 size, u64 value) {
+    return write_dma(dma, cpu, address, size, value, false);
+}
+
+bool bluewake_aram_dma_write_absent_hsp(BluewakeAramDma* dma, CPUState* cpu, u32 address,
+                                        u8 size, u64 value) {
+    return write_dma(dma, cpu, address, size, value, true);
 }
 
 bool bluewake_aram_dma_interrupt_pending(const BluewakeAramDma* dma) {

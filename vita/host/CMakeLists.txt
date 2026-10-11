@@ -1,0 +1,102 @@
+cmake_minimum_required(VERSION 3.16)
+project(ww05_startup C)
+set(CMAKE_C_STANDARD 11)
+set(CMAKE_C_STANDARD_REQUIRED ON)
+set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
+option(WW05_TESTS_ONLY "Build game-free host contract tests only" OFF)
+get_filename_component(BLUEWAKE_ROOT "../.." ABSOLUTE BASE_DIR "${CMAKE_CURRENT_SOURCE_DIR}")
+set(GXRUNTIME_DIR "${RECOMPCORE_DIR}/GXRuntime" CACHE PATH "Pinned runtime" FORCE)
+set(ABI_DIR "${RECOMPCORE_DIR}/Source/Core/Core/PowerPC/StaticRecomp" CACHE PATH "Pinned module ABI" FORCE)
+set(GXRUNTIME_ENABLE_AURORA OFF CACHE BOOL "" FORCE)
+set(GXRUNTIME_ENABLE_AURORA_RECOMP OFF CACHE BOOL "" FORCE)
+set(BUILD_TESTING ${WW05_TESTS_ONLY} CACHE BOOL "" FORCE)
+add_subdirectory("${GXRUNTIME_DIR}" runtime)
+target_compile_options(gxruntime PRIVATE -ffp-contract=off -fno-fast-math -fstack-usage)
+
+add_library(ww05_services STATIC boot_host.c gx_checkpoint.c code_guard.c dsp_interface.c bat_contract.c
+    "${BLUEWAKE_ROOT}/runtime/host/src/cycle_domain.c"
+    "${BLUEWAKE_ROOT}/runtime/host/src/aram_dma.c"
+    "${BLUEWAKE_ROOT}/runtime/host/src/external_memory.c"
+    "${BLUEWAKE_ROOT}/runtime/host/src/ipl_sram.c"
+    "${BLUEWAKE_ROOT}/runtime/host/src/interrupt_sources.c")
+target_include_directories(ww05_services PUBLIC "${CMAKE_CURRENT_SOURCE_DIR}"
+    "${BLUEWAKE_ROOT}/runtime/host/src" "${BLUEWAKE_ROOT}/cmake/composite" "${ABI_DIR}")
+target_link_libraries(ww05_services PUBLIC GXRuntime::runtime)
+target_compile_options(ww05_services PRIVATE -O2 -ffp-contract=off -fno-fast-math -fstack-usage
+    -Wall -Wextra -Werror=implicit-function-declaration)
+
+if(WW05_TESTS_ONLY)
+    enable_testing()
+    set(synthetic_init_bytes "")
+    foreach(value RANGE 0 127)
+        string(APPEND synthetic_init_bytes "${value},")
+    endforeach()
+    file(WRITE "${CMAKE_CURRENT_BINARY_DIR}/ww05_dsp_init.h"
+        "static const unsigned char ww05_dsp_init_reference[128] = {${synthetic_init_bytes}};\n")
+    target_include_directories(ww05_services PRIVATE "${CMAKE_CURRENT_BINARY_DIR}")
+    target_sources(ww05_services PRIVATE "${CMAKE_CURRENT_BINARY_DIR}/ww05_external_vector.c"
+                                       "${CMAKE_CURRENT_BINARY_DIR}/ww05_fp_vector.c")
+    add_executable(host_probe host_probe.c)
+    target_compile_options(host_probe PRIVATE -UNDEBUG)
+    target_link_libraries(host_probe PRIVATE ww05_services)
+    target_link_options(host_probe PRIVATE -Wl,--wrap=calloc -Wl,--wrap=fprintf)
+    add_executable(aram_probe aram_probe.c)
+    target_compile_options(aram_probe PRIVATE -UNDEBUG)
+    target_link_libraries(aram_probe PRIVATE ww05_services)
+    add_executable(dsp_init_probe dsp_init_probe.c)
+    target_compile_options(dsp_init_probe PRIVATE -UNDEBUG)
+    target_link_libraries(dsp_init_probe PRIVATE ww05_services)
+    add_executable(bat_probe bat_probe.c)
+    target_compile_options(bat_probe PRIVATE -UNDEBUG)
+    target_link_libraries(bat_probe PRIVATE ww05_services)
+    add_executable(external_vector_probe external_vector_probe.c)
+    target_compile_options(external_vector_probe PRIVATE -UNDEBUG)
+    target_link_libraries(external_vector_probe PRIVATE ww05_services)
+    add_executable(di_inquiry_probe di_inquiry_probe.c)
+    target_compile_options(di_inquiry_probe PRIVATE -UNDEBUG)
+    target_link_libraries(di_inquiry_probe PRIVATE ww05_services)
+    file(WRITE "${CMAKE_CURRENT_BINARY_DIR}/ww05_identity.h" "#define WW05_SOURCE \"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\"\n")
+    add_executable(io_probe main.c io_probe.c
+        "${BLUEWAKE_ROOT}/vita/feasibility/armv7/platform.c"
+        "${BLUEWAKE_ROOT}/vita/feasibility/armv7/abi.c")
+    target_include_directories(io_probe PRIVATE "${CMAKE_CURRENT_BINARY_DIR}"
+        "${BLUEWAKE_ROOT}/vita/feasibility/armv7")
+    target_compile_definitions(io_probe PRIVATE WW05_IO_TEST=1)
+    target_compile_options(io_probe PRIVATE -fno-builtin)
+    target_link_libraries(io_probe PRIVATE ww05_services)
+    target_link_options(io_probe PRIVATE -Wl,--wrap=fopen -Wl,--wrap=fprintf -Wl,--wrap=fflush
+        -Wl,--wrap=fclose -Wl,--wrap=rename -Wl,--wrap=fixture_log_close -Wl,--wrap=setvbuf)
+else()
+    if(NOT VITA)
+        message(FATAL_ERROR "The real game target is Vita-only; host execution is not authorized")
+    endif()
+    foreach(input "${WW05_IDENTITY_DIR}/ww05_identity.h" "${WW05_IDENTITY_DIR}/ww05_dsp_init.h"
+                  "${WW05_IDENTITY_DIR}/ww05_external_vector.c"
+                  "${WW05_IDENTITY_DIR}/ww05_fp_vector.c" "${WW05_DOL}")
+        if(NOT EXISTS "${input}")
+            message(FATAL_ERROR "Missing verified private input: ${input}")
+        endif()
+    endforeach()
+    target_include_directories(ww05_services PRIVATE "${WW05_IDENTITY_DIR}")
+    target_sources(ww05_services PRIVATE "${WW05_IDENTITY_DIR}/ww05_external_vector.c"
+                                       "${WW05_IDENTITY_DIR}/ww05_fp_vector.c")
+    set(BLUEWAKE_STATIC_MODULE ON CACHE BOOL "" FORCE)
+    set(COMPOSITE_OPTIMIZATION_LEVEL 1 CACHE STRING "" FORCE)
+    add_subdirectory("${BLUEWAKE_ROOT}/cmake/composite" composite)
+    target_compile_options(gGZLE01_recomp PRIVATE -fno-tree-dominator-opts -fno-fast-math -fstack-usage)
+    add_executable(ww05_host main.c "${BLUEWAKE_ROOT}/vita/feasibility/armv7/platform.c"
+        "${BLUEWAKE_ROOT}/vita/feasibility/armv7/abi.c")
+    target_include_directories(ww05_host PRIVATE "${WW05_IDENTITY_DIR}"
+        "${BLUEWAKE_ROOT}/vita/feasibility/armv7")
+    target_link_libraries(ww05_host PRIVATE gGZLE01_recomp ww05_services
+        SceLibKernel_stub SceIofilemgr_stub SceProcessmgr_stub SceSysmem_stub)
+    target_compile_options(ww05_host PRIVATE -O2 -ffp-contract=off -fno-fast-math -fstack-usage)
+    target_link_options(ww05_host PRIVATE "-Wl,-Map=${CMAKE_CURRENT_BINARY_DIR}/ww05.map")
+    foreach(target gxruntime ww05_services gGZLE01_recomp ww05_host)
+        target_compile_options(${target} PRIVATE -mcpu=cortex-a9 -mfpu=neon -mfloat-abi=hard)
+    endforeach()
+    include("$ENV{VITASDK}/share/vita.cmake" REQUIRED)
+    vita_create_self(eboot.bin ww05_host)
+    vita_create_vpk(ww05.vpk BWWG00005 eboot.bin VERSION 00.01 NAME "WW startup GX frontier"
+        FILE "${WW05_DOL}" main.dol)
+endif()

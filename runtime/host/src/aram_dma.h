@@ -22,6 +22,8 @@ bool bluewake_aram_dma_contains(u32 address);
 u64 bluewake_aram_dma_read(const BluewakeAramDma* dma, u32 address, u8 size);
 bool bluewake_aram_dma_write(BluewakeAramDma* dma, CPUState* cpu, u32 address,
                              u8 size, u64 value);
+bool bluewake_aram_dma_write_absent_hsp(BluewakeAramDma* dma, CPUState* cpu, u32 address,
+                                        u8 size, u64 value);
 bool bluewake_aram_dma_interrupt_pending(const BluewakeAramDma* dma);
 void bluewake_aram_dma_acknowledge(BluewakeAramDma* dma);
 
