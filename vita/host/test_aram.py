@@ -36,6 +36,14 @@ class AramDmaTest(unittest.TestCase):
     def test_hsp_expansion_address_is_not_wrapped_into_real_aram(self):
         subprocess.run([str(test_host.OUT / 'aram_probe'), 'hsp'], check=True)
 
+    def test_refused_expansion_dma_retains_the_actual_register_request_without_copying(self):
+        for scenario, count in (('hsp', '00000020'), ('hsp-halfword', '80000020')):
+            with self.subTest(scenario=scenario):
+                result = subprocess.run([str(test_host.OUT / 'aram_probe'), scenario], check=True,
+                                        capture_output=True, text=True)
+                self.assertIn(f'[aram-expansion-request] main=00001000 aram=01000000 count={count} '
+                              'ar_info=0043 control=0804 pc=80302EC8', result.stderr)
+
     def test_zero_length_dma_is_an_explicit_support_boundary(self):
         subprocess.run([str(test_host.OUT / 'aram_probe'), 'zero'], check=True)
 

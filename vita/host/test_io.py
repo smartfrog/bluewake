@@ -44,7 +44,7 @@ class MainIoTest(unittest.TestCase):
             if mmio_poll:
                 environment['WW05_IO_MMIO_POLL'] = '1'
             if aram_dma:
-                environment['WW05_IO_ARAM_DMA'] = '1'
+                environment['WW05_IO_ARAM_DMA'] = 'hsp' if aram_dma == 'hsp' else '1'
             if dsp_init:
                 environment['WW05_IO_DSP_INIT'] = '1'
             if cpu_boundary is not None:
@@ -117,6 +117,12 @@ class MainIoTest(unittest.TestCase):
         self.assertEqual(status, 0)
         self.assertIn('cycles=19\n', report)
         self.assertTrue(report.endswith('END frontier=PASS live=0 rendered=0\n'))
+
+    def test_expansion_request_log_failure_remains_an_explicit_failed_guest_verdict(self):
+        status, report = self.run_fixture(aram_dma='hsp', failure='aram-expansion-log')
+        self.assertNotEqual(status, 0)
+        self.assertIn('STOP reason=ARAM expansion request trace write failed', report)
+        self.assertTrue(report.endswith('END frontier=FAIL live=0 rendered=0\n'))
 
     def test_mmio_quantum_returns_through_the_real_chassis_before_a_fresh_dispatch(self):
         status, report = self.run_fixture(mmio_poll=True)

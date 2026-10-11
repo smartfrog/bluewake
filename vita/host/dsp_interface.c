@@ -1,6 +1,7 @@
 #include "dsp_interface.h"
 #include "gxruntime/aram.h"
 
+#include <stdio.h>
 #include <string.h>
 
 #define DSP_HALT 0x0004u
@@ -95,6 +96,10 @@ static bool aram_dma_write(WwDspInterface* dsp, CPUState* cpu, u32 address, u8 s
         return false;
     if (dsp->aram_cycles_remaining != 0u)
         return reject(dsp, "ARAM DMA register write while busy not implemented");
+    const u32 index = (address - BLUEWAKE_ARAM_DMA_BASE) / 2u;
+    const u32 high_mask = index == 4u ? 0x83FFu : 0x03FFu;
+    const u64 mask = size == 4u ? ((u64)high_mask << 16u) | 0xFFE0u :
+                     (index & 1u) != 0u ? 0xFFE0u : high_mask;
     const bool trigger = address + size == BLUEWAKE_ARAM_DMA_BASE + BLUEWAKE_ARAM_DMA_BYTES;
     if (trigger) {
         const u32 aram_address = ((u32)dsp->aram.regs[2] << 16u) | dsp->aram.regs[3];
@@ -102,15 +107,18 @@ static bool aram_dma_write(WwDspInterface* dsp, CPUState* cpu, u32 address, u8 s
             return reject(dsp, "ARAM DMA requires owned backing memory");
         if (cpu == NULL || cpu->ram == NULL)
             return reject(dsp, "ARAM DMA requires owned MEM1 backing memory");
-        if (aram_address >= ARAM_SIZE)
+        if (aram_address >= ARAM_SIZE) {
+            const u32 main_address = ((u32)dsp->aram.regs[0] << 16u) | dsp->aram.regs[1];
+            const u32 count = size == 4u ? (u32)(value & mask) :
+                             ((u32)dsp->aram.regs[4] << 16u) | (u32)(value & mask);
+            if (fprintf(stderr, "[aram-expansion-request] main=%08X aram=%08X count=%08X ar_info=%04X control=%04X pc=%08X\n",
+                        main_address, aram_address, count, dsp->ar_info, dsp->control, cpu->pc) < 0)
+                return reject(dsp, "ARAM expansion request trace write failed");
             return reject(dsp, "ARAM DMA expansion/HSP address not implemented");
+        }
         if ((dsp->ar_info & 0xFu) == 4u)
             return reject(dsp, "ARAM DMA mirrored layout not implemented");
     }
-    const u32 index = (address - BLUEWAKE_ARAM_DMA_BASE) / 2u;
-    const u32 high_mask = index == 4u ? 0x83FFu : 0x03FFu;
-    const u64 mask = size == 4u ? ((u64)high_mask << 16u) | 0xFFE0u :
-                     (index & 1u) != 0u ? 0xFFE0u : high_mask;
     if (!bluewake_aram_dma_write(&dsp->aram, cpu, address, size, value & mask))
         return reject(dsp, "ARAM DMA requires a nonzero mapped MEM1 range and acknowledged prior transfer");
     if (trigger) {

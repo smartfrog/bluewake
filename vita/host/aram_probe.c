@@ -105,16 +105,27 @@ int main(int argc, char** argv) {
             assert(read_register(host, 0xCC005004u, 2u) == 0u);
             assert(read_be32(host->audio.ai_regs) == DOL_AUDIO_DMA_AI_CONTROL_INIT);
         } else if (strcmp(argv[1], "unmapped-main") == 0 || strcmp(argv[1], "hsp") == 0 ||
+                   strcmp(argv[1], "hsp-halfword") == 0 ||
                    strcmp(argv[1], "zero") == 0 || strcmp(argv[1], "mirror-mode") == 0) {
             const u8 original = aram[0x400u];
+            const bool halfword = strcmp(argv[1], "hsp-halfword") == 0;
             if (strcmp(argv[1], "mirror-mode") == 0)
                 write_register(host, WW_DSP_AR_INFO, 0x44u, 2u);
-            start_dma(host, strcmp(argv[1], "unmapped-main") == 0 ? 0x01800000u : 0x1000u,
-                      strcmp(argv[1], "hsp") == 0 ? 0x01000000u : 0x400u,
-                      strcmp(argv[1], "zero") == 0 ? 0u : 32u, false);
-            assert(host->error != NULL && host->error_address == 0xCC005028u);
-            assert(host->error_width == 4u && host->error_pc == 0x80302EC8u);
+            if (halfword) {
+                write_register(host, 0xCC005020u, 0x1000u, 4u);
+                write_register(host, 0xCC005024u, 0x01000000u, 4u);
+                write_register(host, 0xCC005028u, 0x8000u, 2u);
+                write_register(host, 0xCC00502Au, 32u, 2u);
+            } else {
+                start_dma(host, strcmp(argv[1], "unmapped-main") == 0 ? 0x01800000u : 0x1000u,
+                          strcmp(argv[1], "hsp") == 0 ? 0x01000000u : 0x400u,
+                          strcmp(argv[1], "zero") == 0 ? 0u : 32u, false);
+            }
+            assert(host->error != NULL && host->error_address == (halfword ? 0xCC00502Au : 0xCC005028u));
+            assert(host->error_width == (halfword ? 2u : 4u) && host->error_pc == 0x80302EC8u);
             assert(aram[0x400u] == original && read_register(host, WW_DSP_CONTROL, 2u) == 0x0804u);
+            for (u32 index = 0u; index < 64u; ++index)
+                assert(host->cpu.ram[0x1000u + index] == (u8)(index * 3u + 1u));
         } else if (strcmp(argv[1], "busy-write") == 0) {
             start_dma(host, 0x1000u, 0x400u, 32u, false);
             assert(host->error == NULL);

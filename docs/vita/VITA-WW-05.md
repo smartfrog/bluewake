@@ -237,7 +237,7 @@ a lingering process. Its short red/green loops are in `logs/private-{launch,gues
 The parent-symlink loop reproduced creation outside an owned fake profile, then prevented it with the
 existing no-follow directory-descriptor pattern. No real/shared profile was involved.
 
-The WW05 host suite currently has **282 tests**. Source-bound logs retain exact counts/commands for these,
+The WW05 host suite currently has **284 tests**. Source-bound logs retain exact counts/commands for these,
 native runtime CTest, 71 native FP cases and the eight direct baseline files. Audit, attribution,
 pin/scope/diff and clean-worktree checks accompany delivery. The pre-launch `1ba507c` checkpoint passed
 35 WW05 tests, 177 unchanged tests, 53 direct baseline tests, 71 native FP cases and 3/1/5 runtime/corpus/
@@ -1539,3 +1539,53 @@ not proof that the complete SDK routine has run. The register-restore fixture re
 Real OSLoadContext continuation still requires the next clean Vita build/trial. No physical
 Vita, Windows CI, GX acceptance, rendering, FPS or runtime REL lifecycle is claimed; guest
 disc/FST access still requires the existing DVD integration and mandatory rebase first.
+
+## Real OSLoadContext continuation reaches the SDK's ARAM expansion probe
+
+Run `94cb1d7bbb974f2bbae3e04eb4bbba44`, source `15ed5d0b85223f31211646767648be4709b357e5`,
+passes OSLoadContext and reaches **63,005 edges, 7,123,941 cycles**. The second real lazy-FP
+exception at `80254E60` executes the same verified FP vector and guest handler. The first
+host failure is now `ARAM DMA expansion/HSP address not implemented address=CC00502A
+pc=803176AC width=2 value=0000000000000020`. This is the SDK's real halfword DMA-count
+trigger, not a DSP mailbox or an audio-ucode execution request. The final CPU PC has moved
+on to `80301504`; the first STOP correctly retains the actual issuing PC `803176AC`.
+The validated closed report remains **FAIL**, zero FIFO bytes, `GX_FRONTIER complete=0`,
+`live=0`, `rendered=0`. **Process disposition differs from prior trials:** the install
+phase still times out at 600 s, TERM/exit -15 and `waited=true`; the guest phase exits
+normally **0 after 4.379 s**, `waited=true`. The launch result is **1/COMPLETE** with a
+closed guest FAIL, not a guest PASS and not a 600-second guest timeout.
+Build status zero, 125.099 s; static archive unchanged:
+`9d1c59238cea4b83798f1c16b0549950d41ec0011a89e95591d5a307718aea08`.
+Exact-source **282 host tests, 177 ARMv7 tests**, audit, attribution and native runtime CTest
+**3/3** pass on Linux AArch64. VPK SHA-256:
+`c600d3b9765cbb9c8b05ac9dc8c855a23626a29c27a52dc27b4c3720fffff7af`;
+report: `9611db95e2f2ac50185226ac0e94ce8436376f445b8c88111025c3abe3532cac`;
+result: `a6ca6679e1b666816dccb508a4b8df38447f8351dca243c373006e775f4005ad`;
+log: `6cf0adcdc973b5ee791c1e840720abc6f18ed68d5071335c759e8b98b2813e7c`;
+closed LER journal: `169da8b7a0e0d3067e984a0701130bdf9916ce1c09ccf887d9004ec9f413b079`.
+
+The current STOP records the low count halfword but does **not** capture the complete
+main/ARAM addresses or high count/direction bits. Those missing values are not guessed.
+Before retaining the existing expansion refusal, WW05 now writes a checked
+`[aram-expansion-request]` record containing actual main address, ARAM address, prospective
+masked count, AR_INFO, DSP control and issuing PC. The record handles both combined-word
+and halfword triggers and precedes any memory copy or count-register mutation. A trace
+failure fails loudly. Normal flat-ARAM transfers and their clock/completion behavior are
+unchanged; no expansion DMA is accepted by this diagnostic increment.
+
+At the unchanged RecompCore pin, `HW/DSP.cpp:479-523,536-583` routes an out-of-ARAM DMA
+to HSP in GameCube mode, and `Config/MainSettings.cpp:239-240` selects **no HSP device**
+by default. Crucially, `HW/HSP/HSP_DeviceNull.cpp:9-15` leaves both read destinations and
+writes **unchanged**: it does not supply zeros and does not wrap expansion addresses into
+the real 16 MiB ARAM allocation. The actual request must be captured before choosing any
+bounded support for that documented absent-device path. Unknown devices, ucodes and dynamic
+Zelda audio remain refused; no bytes, memories, DSP mails or payloads are manufactured.
+
+`logs/aram-expansion-diagnostic-red.log` reproduces the missing request evidence and trace
+failure propagation. `logs/aram-expansion-diagnostic-reviewed-host.log` passes **284 host
+tests**, including word and read-direction halfword request records, unchanged MEM1/ARAM
+on refusal and a checked-log failure through the real main loop. **177 ARMv7 tests**, audit,
+attribution and native runtime CTest **3/3** pass on Linux AArch64. Capturing the actual
+expansion request still requires the next clean source-bound Vita build/trial. No physical
+Vita, Windows CI, GX acceptance, rendering, FPS, runtime REL event or guest disc access is
+claimed. The DVD seam and mandatory integration rebase remain before the first actual read.
