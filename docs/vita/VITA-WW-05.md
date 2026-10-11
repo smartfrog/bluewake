@@ -230,7 +230,7 @@ a lingering process. Its short red/green loops are in `logs/private-{launch,gues
 The parent-symlink loop reproduced creation outside an owned fake profile, then prevented it with the
 existing no-follow directory-descriptor pattern. No real/shared profile was involved.
 
-The WW05 host suite currently has **85 tests**. Source-bound logs retain exact counts/commands for these,
+The WW05 host suite currently has **87 tests**. Source-bound logs retain exact counts/commands for these,
 native runtime CTest, 71 native FP cases and the eight direct baseline files. Audit, attribution,
 pin/scope/diff and clean-worktree checks accompany delivery. The pre-launch `1ba507c` checkpoint passed
 35 WW05 tests, 177 unchanged tests, 53 direct baseline tests, 71 native FP cases and 3/1/5 runtime/corpus/
@@ -394,3 +394,24 @@ level reasserts after `rfi`. Interrupt sampling is block-boundary, not instructi
 pending-level recurrence, guest-fault preservation, cycle flushing, and synthetic main-loop
 continuation for both outer and inner dispatch boundaries. Synthetic vector handling in the
 I/O fixture is not proof that the real relocated OS vector is statically dispatchable.
+
+Run `cbb8f000252045d694fed539fb0317cb` at `03b1c73a69fae7a40a3c447fc03e7660ffcae94f`
+advanced to 121,420 cycles and 1,106 edges, then stopped on `dcbi 0,r3`:
+`unsupported instruction fallback address=7C001BAC pc=803030C8`.
+Report SHA-256 is `470e816571042a0bdef3ac79111e5ef6ff018edb6c6c033fe5b548009a36f8ad`.
+Both 60-second phases stopped/reaped; process 124/INCOMPLETE and frontier FAIL remain distinct.
+The extra guest progress proves that the immediate IRQ refusal was removed; this report alone
+does not count actual external-vector entries or establish that a handler ran.
+
+The host fallback now decodes DCBI (31/470) and forwards it through the pinned runtime's
+supervisor-privilege gate. DCBI preserves coherent guest memory and executes a memory fence;
+DCBF/DCBST keep their existing dirty observer without changing guest bytes. No data-cache lines
+exist in this host. Guarded ICBI remains unchanged. `logs/data-cache-red.log` reproduces missing
+DCBI decoding and privilege handling; `logs/data-cache-green.log` passes 87 host tests, including
+all three data-cache operations, zero-base/indexed addressing and preserved memory bytes.
+
+The unchanged pinned C emitter already implements DCBZ (31/1014) as eight zero-word writes to
+the aligned 32-byte block (`emitter.c:1644-1646`; private generated DOL PC `803031AC`), not a
+no-op. DCBZ_L uses `ppc_dcbz_l`. SYNC/ISYNC/EIEIO/TLBSYNC already emit `ppc_memory_fence()`
+(`emitter.c:1891-1896`). These neighbors were inspected, not reimplemented or newly certified.
+Both upstream pins and the verified composite digest remain unchanged.

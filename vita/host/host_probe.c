@@ -283,6 +283,30 @@ int main(int argc, char** argv) {
         assert(!ww_host_load(host, &module, &data, 0u, "not-opened.dol"));
         assert(strstr(host->error, "ABI") != NULL);
         assert(host->alias_count == 0u);
+    } else if (strncmp(argv[1], "data-cache-", 11u) == 0) {
+        const u32 xo = (u32)strtoul(argv[1] + 11u, NULL, 10);
+        assert(xo == 54u || xo == 86u || xo == 470u);
+        memset(host->cpu.ram + 0x1000u, 0xA5u, 96u);
+        host->cpu.gpr[0] = 0xCC007000u;
+        host->cpu.gpr[3] = 0x80001025u;
+        host->cpu.gpr[4] = 3u;
+        host->cpu.pc = 0x803030C8u;
+        const u32 ra = strstr(argv[1], "indexed") != NULL ? 4u : 0u;
+        host->cpu.instruction_fallback(&host->cpu,
+            (31u << 26u) | (ra << 16u) | (3u << 11u) | (xo << 1u), host->cpu.pc);
+        assert(host->error == NULL);
+        assert(host->cpu.exception == 0u);
+        assert(host->cpu.pc == 0x803030CCu);
+        for (u32 offset = 0u; offset < 96u; ++offset)
+            assert(host->cpu.ram[0x1000u + offset] == 0xA5u);
+    } else if (strcmp(argv[1], "dcbi-privilege") == 0) {
+        host->cpu.msr |= PPC_MSR_PR;
+        host->cpu.gpr[3] = 0x80001025u;
+        host->cpu.instruction_fallback(&host->cpu, 0x7C001BACu, 0x803030C8u);
+        assert(host->error == NULL);
+        assert(host->cpu.exception == PPC_EXC_PROGRAM);
+        assert(host->cpu.program_exception & PPC_PROGRAM_PRIV);
+        assert(host->cpu.srr0 == 0x803030C8u);
     } else if (strncmp(argv[1], "icbi-", 5u) == 0) {
         synthetic_dol();
         StaticRecompModuleDesc module = synthetic_module();

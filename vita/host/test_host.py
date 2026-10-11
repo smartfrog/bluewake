@@ -72,6 +72,15 @@ class StartupHostTest(unittest.TestCase):
     def test_instruction_cache_invalidation_refuses_changed_compiled_code(self):
         subprocess.run([str(OUT / 'host_probe'), 'icbi-modified-text'], cwd=OUT, check=True)
 
+    def test_data_cache_operations_preserve_coherent_memory(self):
+        for operation in (54, 86, 470):
+            for addressing in ('zero-base', 'indexed'):
+                with self.subTest(operation=operation, addressing=addressing):
+                    subprocess.run([str(OUT / 'host_probe'), f'data-cache-{operation}-{addressing}'], check=True)
+
+    def test_data_cache_invalidation_requires_supervisor_privilege(self):
+        subprocess.run([str(OUT / 'host_probe'), 'dcbi-privilege'], check=True)
+
     def test_unknown_mmio_write_fails(self):
         subprocess.run([str(OUT / 'host_probe'), 'unknown-write'], check=True)
 

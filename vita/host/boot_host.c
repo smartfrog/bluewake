@@ -97,6 +97,11 @@ static void cache_control(CPUState* cpu, u8 operation, u32 ea, u32 cia) {
         dol_guest_memory_dirty_mark(ea & ~31u, 32u);
         return;
     }
+    if (operation == PPC_CACHE_DCBI) {
+        // Guest memory is coherent; there are no stale data-cache lines to discard.
+        ppc_memory_fence();
+        return;
+    }
     if (operation == PPC_CACHE_ICBI) {
         WwHost* host = owner(cpu);
         const u32 address = canonical_dispatch_address(cpu, ea);
@@ -117,11 +122,11 @@ static void fallback(CPUState* cpu, u32 raw, u32 cia) {
         const u32 xo = (raw >> 1) & 0x3FFu;
         const u16 spr = (u16)(((raw >> 16) & 31u) | ((raw >> 6) & 0x3E0u));
         const u8 reg = (u8)((raw >> 21) & 31u);
-        if (xo == 982u) {
+        if (xo == 470u || xo == 982u) {
             const u32 ra = (raw >> 16) & 31u;
             const u32 rb = (raw >> 11) & 31u;
             const u32 ea = (ra == 0u ? 0u : cpu->gpr[ra]) + cpu->gpr[rb];
-            ppc_cache_control(cpu, PPC_CACHE_ICBI, ea, cia);
+            ppc_cache_control(cpu, xo == 470u ? PPC_CACHE_DCBI : PPC_CACHE_ICBI, ea, cia);
             if (!cpu->exception)
                 cpu->pc = cia + 4u;
             return;
