@@ -142,6 +142,11 @@ class StartupHostTest(unittest.TestCase):
     def test_si_transfer_requires_word_access(self):
         subprocess.run([str(OUT / 'host_probe'), 'si-width'], check=True)
 
+    def test_unsupported_exi_transfer_retains_transaction_context(self):
+        result = subprocess.run([str(OUT / 'host_probe'), 'exi-context'], check=True, capture_output=True, text=True)
+        self.assertIn('channel=0 chip_select=2 frequency_code=3 direction=1 length=4 dma=0', result.stderr)
+        self.assertIn('dma_address=00000000 immediate=20000100 pc=80309E1C', result.stderr)
+
     def test_si_completion_delivers_external_exception_at_next_edge(self):
         subprocess.run([str(OUT / 'host_probe'), 'irq-si'], check=True)
 

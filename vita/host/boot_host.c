@@ -166,6 +166,10 @@ static DolDiCommandResult di_command(void* user, DolDiCommand* command) {
 
 static bool exi_transfer(void* user, DolExiTransfer* transfer) {
     WwHost* host = user;
+    const u32 frequency = (host->exi.channels[transfer->channel].status & DOL_EXI_STATUS_CLK_MASK) >> 4u;
+    fprintf(stderr, "[exi] channel=%u chip_select=%u frequency_code=%u direction=%u length=%u dma=%u dma_address=%08X immediate=%08X pc=%08X\n",
+            transfer->channel, transfer->chip_select, frequency, transfer->direction,
+            transfer->length, transfer->dma, transfer->dma_address, *transfer->immediate_data, host->cpu.pc);
     ww_host_fail(host, "EXI transfer unsupported", transfer->chip_select, host->cpu.pc);
     return false;
 }

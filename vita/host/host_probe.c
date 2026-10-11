@@ -283,6 +283,16 @@ int main(int argc, char** argv) {
         assert(!ww_host_load(host, &module, &data, 0u, "not-opened.dol"));
         assert(strstr(host->error, "ABI") != NULL);
         assert(host->alias_count == 0u);
+    } else if (strcmp(argv[1], "exi-context") == 0) {
+        host->cpu.pc = 0x80309E1Cu;
+        host->cpu.external_write(&host->cpu, DOL_EXI_BASE + DOL_EXI_STATUS_OFF, 0x130u, 4u);
+        host->cpu.external_write(&host->cpu, DOL_EXI_BASE + DOL_EXI_IMMEDIATE_DATA_OFF, 0x20000100u, 4u);
+        host->cpu.external_write(&host->cpu, DOL_EXI_BASE + DOL_EXI_CONTROL_OFF, 0x35u, 4u);
+        assert(host->error != NULL);
+        assert(host->error_address == 2u);
+        assert(host->error_pc == 0x80309E1Cu);
+        assert(host->exi.channels[0].control & DOL_EXI_CONTROL_TSTART);
+        assert(!(host->exi.channels[0].status & DOL_EXI_STATUS_TCINT));
     } else if (strncmp(argv[1], "data-cache-", 11u) == 0) {
         const u32 xo = (u32)strtoul(argv[1] + 11u, NULL, 10);
         assert(xo == 54u || xo == 86u || xo == 470u);

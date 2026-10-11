@@ -230,7 +230,7 @@ a lingering process. Its short red/green loops are in `logs/private-{launch,gues
 The parent-symlink loop reproduced creation outside an owned fake profile, then prevented it with the
 existing no-follow directory-descriptor pattern. No real/shared profile was involved.
 
-The WW05 host suite currently has **87 tests**. Source-bound logs retain exact counts/commands for these,
+The WW05 host suite currently has **88 tests**. Source-bound logs retain exact counts/commands for these,
 native runtime CTest, 71 native FP cases and the eight direct baseline files. Audit, attribution,
 pin/scope/diff and clean-worktree checks accompany delivery. The pre-launch `1ba507c` checkpoint passed
 35 WW05 tests, 177 unchanged tests, 53 direct baseline tests, 71 native FP cases and 3/1/5 runtime/corpus/
@@ -415,3 +415,16 @@ the aligned 32-byte block (`emitter.c:1644-1646`; private generated DOL PC `8030
 no-op. DCBZ_L uses `ppc_dcbz_l`. SYNC/ISYNC/EIEIO/TLBSYNC already emit `ppc_memory_fence()`
 (`emitter.c:1891-1896`). These neighbors were inspected, not reimplemented or newly certified.
 Both upstream pins and the verified composite digest remain unchanged.
+
+Run `53d461435d1b4d3fb9a6a835e0692a98` at `684665775603d588746c80d5a4565336a8b98e22`
+passed DCBI and reached 121,788 cycles and 1,134 edges before
+`EXI transfer unsupported address=00000002 pc=80309E1C`.
+Report SHA-256 is `bd489caeccb30f4f9c1fce46a341c07baed787aad992281ff75d0c36d570a2a4`.
+Both 60-second phases stopped/reaped; frontier FAIL, process 124/INCOMPLETE.
+
+The EXI error address is a chip-select mask, not the channel or peripheral identity. Before
+responding, the host now logs the actual channel, chip-select mask, frequency code, direction,
+length, DMA flag/address and immediate word to the private `ww05.log`. This retains the refusal
+and pending TSTART without fabricating TCINT or data. The diagnostic red/green loop passes all
+88 host tests, including a synthetic channel-0/device-1 8 MHz transaction. A real run must still
+establish which device and command the game actually uses; the synthetic command is not evidence.
