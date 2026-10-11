@@ -166,6 +166,17 @@ class CelTexgenTest(unittest.TestCase):
     def test_channel_zero_is_lit(self):
         self.assertEqual(self.pipeline["litchan0"], "1")
 
+    def test_tev_two_stages_sample_ramp_then_diffuse(self):
+        stages = [dict(field.split("=", 1) for field in entry[1:])
+                  for entry in self.lines["tevstage"]]
+        self.assertEqual(len(stages), 2)
+        self.assertEqual(stages[0]["texmap"], "1")
+        self.assertEqual(stages[0]["texcoord"], "1")
+        self.assertEqual(stages[0]["enable"], "1")
+        self.assertEqual(stages[1]["texmap"], "0")
+        self.assertEqual(stages[1]["texcoord"], "0")
+        self.assertEqual(stages[1]["enable"], "1")
+
     def test_plan_is_textured(self):
         self.assertEqual(self.pipeline["textured"], "1")
 

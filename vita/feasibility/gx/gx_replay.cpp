@@ -255,6 +255,21 @@ std::vector<std::uint8_t> build_cel_triangle() {
   push_bp(fifo, DOL_GX_BP_REG_TX_SETIMAGE0,
           tex_image0(kTextureWidth, kTextureHeight, 6u));
   push_bp(fifo, DOL_GX_BP_REG_TX_SETIMAGE3, kTextureBase >> 5u);
+  // TEV: two stages. genMode numtevstages-1 = 1 (bits 10-13), numtexgens = 2
+  // (bits 0-3), one colour channel (bits 4-6).
+  push_bp(fifo, DOL_GX_BP_REG_GENMODE, 2u | (1u << 4u) | (1u << 10u));
+  // Stage orders (BP 0x28 packs two stages: 0 in bits 0-11, 1 in bits 12-23;
+  // texmap 3 bits, texcoord 3 bits, enable 1 bit, colour channel 3 bits).
+  // Stage 0 samples texmap 1 on texcoord 1 (the Color0 ramp); stage 1 samples
+  // texmap 0 on texcoord 0 (the diffuse map).
+  push_bp(fifo, 0x28u,
+          (1u | (1u << 3u) | (1u << 6u)) | ((1u << 6u) << 12u));
+  // Stage 0: COMBINED = ramp (TexColor=8) * raster (RASC=10), dest prev.
+  push_bp(fifo, 0xC0u, 15u | (15u << 4u) | (10u << 8u) | (8u << 12u) | (1u << 19u));
+  push_bp(fifo, 0xC1u, 7u | (7u << 4u) | (5u << 10u) | (4u << 13u) | (1u << 19u));
+  // Stage 1: COMBINED = diffuse (TexColor=8) * prev (PrevColor=0), dest prev.
+  push_bp(fifo, 0xC2u, 15u | (15u << 4u) | (0u << 8u) | (8u << 12u) | (1u << 19u));
+  push_bp(fifo, 0xC3u, 7u | (7u << 4u) | (0u << 10u) | (4u << 13u) | (1u << 19u));
   push_triangle(fifo);
   return fifo;
 }
@@ -315,6 +330,19 @@ void plan_observer(const gxc::DrawPlan& plan, void* user) {
     std::snprintf(line, sizeof line, "texgen %u type=%u sourcerow=%u enabled=%u",
                   t, texgen.texgentype, texgen.sourcerow, texgen.enabled);
     out->push_back(line);
+  }
+  if (plan.pipeline.shader.tev_valid != 0u) {
+    std::snprintf(line, sizeof line, "tev stages=%u",
+                  plan.pipeline.shader.num_tev_stages);
+    out->push_back(line);
+    for (std::uint32_t n = 0; n < plan.pipeline.shader.num_tev_stages; ++n) {
+      const gxc::TevStageKey& stage = plan.pipeline.shader.tev_stages[n];
+      std::snprintf(line, sizeof line,
+                    "tevstage %u texmap=%u texcoord=%u enable=%u",
+                    n, stage.tevorders_texmap, stage.tevorders_texcoord,
+                    stage.tevorders_enable);
+      out->push_back(line);
+    }
   }
   if (plan.has_texture) {
     std::snprintf(line, sizeof line, "texture format=%u width=%u height=%u",
