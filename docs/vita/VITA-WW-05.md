@@ -2201,3 +2201,44 @@ Other unobserved CP accesses/enables and FIFO reset remain refused. Strict GX va
 pins, ABI, `BlueWakeRelData` and static archive are unchanged. Dynamic FIFO pointers,
 DVD/CMake integration, Windows ARAM verification and final counts remain tracked. Physical
 Vita, Windows CI, rendering, FPS, runtime REL and actual guest disc/file access remain unverified.
+
+## Real low-watermark-low continuation and observed CP base high
+
+Run `ad0e2693f9194037980034244d53287a`, source
+`28971290cee59e3f61838bd81a9a6fbc5fbf2b98`, passes CP low-watermark low and reaches
+**`CC000022 = 0042`**, halfword PC **`80320FD8`**. The closed guest **FAIL** has
+**64,248 edges, 7,140,042 cycles**, zero FIFO bytes, `GX_FRONTIER complete=0`, `live=0`,
+`rendered=0`. Build status zero in 124.669 s; archive unchanged. Both owned phases timeout
+at 60 s, TERM/exit -15, `waited=true`; process **124/INCOMPLETE** remains separate.
+Bindings and LER are rechecked in `logs/cp-fifo-low-watermark-low-evidence-2897129.json`.
+SHA-256:
+
+- VPK: `16f0cc3f33d7588effdb283fe27a52ff562162b4d2c15b804eb259bb4318c1c3`;
+- report: `f7807a58f2095482877bd0526bc4c2d76c5b7b17eb4507e449697fe663ac1022`;
+- result: `a35def514aff89380724efdc74be55e3857f688285041f5d1cc0f208f61161b5`;
+- log: `e53c5af186f23140c23810e0dd46dfbad9baa2e8b8124233c165a3eafcb1c81d`;
+- LER: `169da8b7a0e0d3067e984a0701130bdf9916ce1c09ccf887d9004ec9f413b079`.
+
+The pin identifies **CP_FIFO_BASE_HI** at offset `22`
+(`VideoCommon/CommandProcessor.h:65`). Its GameCube physical mask is **`03FFFFFF`**
+(`155-160`), hence the high mask **`03FF`** (`CommandProcessor.cpp:131,143,159-163`).
+It directly writes/reads CPBase's high halfword while preserving the low halfword. WW05 adds
+only this observed high address to the scalar selector, sharing the existing CPBase word.
+Halfword access now extracts/replaces the addressed part explicitly: highs use `03FF`,
+lows use `FFE0`; each preserves the other 16 bits. Word PI accesses retain their existing
+`FFFFFFE0` mask. After actual low `9F60` and high `0042`, CPBase is **`00429F60`**,
+and low/high readbacks are **`9F60` / `0042`**, not the full word on a low-halfword read.
+
+`logs/cp-fifo-base-high-red.log` reproduces high-register refusal and both write-order
+failures while earlier parameterizations pass. `logs/cp-fifo-base-high-host-green.log`
+passes **319 host tests** on Linux AArch64, including low-first/high-first assembly,
+overwrites preserving the other half, high reserved-bit masking, existing width failures,
+independent configuration and credited-cycle/spent-quantum behavior. The shared descriptor
+also covers normal halfword memory routing and synthetic main-loop continuation.
+
+No GP enable, FIFO copy/consumption, parser feed, pointer advancement or interrupt is
+introduced. Other high-register accesses/enables and FIFO reset remain refused. Strict GX
+validation, pins, ABI, `BlueWakeRelData` and static archive are unchanged. Authentic
+continuation awaits the clean source-bound build/trial. Dynamic pointers, DVD/CMake,
+Windows ARAM and final counts remain tracked; physical Vita, Windows CI, rendering,
+FPS, runtime REL and actual guest disc/file access remain unverified.

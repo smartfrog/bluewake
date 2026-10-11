@@ -20,6 +20,7 @@ static inline const WwFifoProbeRegister* ww_probe_fifo_register(const char* name
         {"pi-fifo-end", 0xCC003010u, 0x80320F08u, 0x004C9F5Cu, 0xFFFFFFE0u, 4u},
         {"pi-fifo-wptr", 0xCC003014u, 0x80320F1Cu, 0x00429F60u, 0xFFFFFFE0u, 4u},
         {"cp-fifo-base-low", 0xCC000020u, 0x80320F80u, 0x9F60u, 0xFFE0u, 2u},
+        {"cp-fifo-base-high", 0xCC000022u, 0x80320FD8u, 0x42u, 0x03FFu, 2u},
         {"cp-fifo-end-low", 0xCC000024u, 0x80320F8Cu, 0x9F5Cu, 0xFFE0u, 2u},
         {"cp-fifo-wptr-low", 0xCC000034u, 0x80320FA4u, 0x9F60u, 0xFFE0u, 2u},
         {"cp-fifo-rptr-low", 0xCC000038u, 0x80320FB0u, 0x9F60u, 0xFFE0u, 2u},

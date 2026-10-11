@@ -352,7 +352,7 @@ static bool exi_transfer(void* user, DolExiTransfer* transfer) {
 }
 
 static u32* fifo_register(WwHost* host, u32 address, u8 size) {
-    if (address == 0xCC000020u && size == 2u)
+    if ((address == 0xCC000020u || address == 0xCC000022u) && size == 2u)
         return &host->cp_fifo_base;
     if (address == 0xCC000024u && size == 2u)
         return &host->cp_fifo_end;
@@ -423,7 +423,7 @@ static u64 mmio_read(CPUState* cpu, u32 address, u8 size) {
     }
     u32* fifo = fifo_register(host, address, size);
     if (fifo != NULL)
-        value = *fifo;
+        value = size == 2u ? (u16)(*fifo >> ((address & 2u) != 0u ? 16u : 0u)) : *fifo;
     else if (address == 0xCC00401Cu && size == 2u)
         value = host->mi_interrupt_mask;
     else if (address == 0xCC004020u && size == 2u)
@@ -514,7 +514,13 @@ static void mmio_write(CPUState* cpu, u32 address, u64 value, u8 size) {
             return;
         }
     } else if (fifo != NULL) {
-        *fifo = (u32)value & (size == 2u ? 0xFFE0u : 0xFFFFFFE0u);
+        if (size == 2u) {
+            const u32 shift = (address & 2u) != 0u ? 16u : 0u;
+            const u32 mask = shift != 0u ? 0x03FFu : 0xFFE0u;
+            *fifo = (*fifo & ~(0xFFFFu << shift)) | (((u32)value & mask) << shift);
+        } else {
+            *fifo = (u32)value & 0xFFFFFFE0u;
+        }
     } else if (address == 0xCC00401Cu && size == 2u) {
         if (value & ~0x1Full) {
             fail_mmio_write(host, "unsupported MI interrupt mask bits", address, value, size);

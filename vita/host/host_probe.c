@@ -543,6 +543,24 @@ int main(int argc, char** argv) {
         assert(host->cpu.external_read(&host->cpu, 0xCC000038u, 2u) == 0xA180u);
         assert(host->cpu.external_read(&host->cpu, 0xCC000028u, 2u) == 0x3200u);
         assert(host->cpu.external_read(&host->cpu, 0xCC00002Cu, 2u) == 0x5420u);
+    } else if (strcmp(argv[1], "cp-base-halves-low-first") == 0 || strcmp(argv[1], "cp-base-halves-high-first") == 0) {
+        const bool high_first = strcmp(argv[1], "cp-base-halves-high-first") == 0;
+        const DolInterrupts before = host->interrupts;
+        host->cpu.external_write(&host->cpu, high_first ? 0xCC000022u : 0xCC000020u, high_first ? 0x42u : 0x9F60u, 2u);
+        assert(host->error == NULL);
+        assert(host->cpu.external_read(&host->cpu, high_first ? 0xCC000020u : 0xCC000022u, 2u) == 0u);
+        host->cpu.external_write(&host->cpu, high_first ? 0xCC000020u : 0xCC000022u, high_first ? 0x9F60u : 0x42u, 2u);
+        assert(host->error == NULL && host->cp_fifo_base == 0x00429F60u);
+        assert(host->cpu.external_read(&host->cpu, 0xCC000020u, 2u) == 0x9F60u);
+        assert(host->cpu.external_read(&host->cpu, 0xCC000022u, 2u) == 0x42u);
+        host->cpu.external_write(&host->cpu, 0xCC000022u, UINT16_MAX, 2u);
+        assert(host->error == NULL && host->cp_fifo_base == 0x03FF9F60u);
+        assert(host->cpu.external_read(&host->cpu, 0xCC000020u, 2u) == 0x9F60u);
+        host->cpu.external_write(&host->cpu, 0xCC000020u, 0xABDFu, 2u);
+        assert(host->error == NULL && host->cp_fifo_base == 0x03FFABC0u);
+        assert(host->cpu.external_read(&host->cpu, 0xCC000022u, 2u) == 0x03FFu);
+        assert(memcmp(&before, &host->interrupts, sizeof(before)) == 0);
+        assert(host->frontier.size == 0u && !host->frontier.complete && host->cycles.absolute_cycles == 0u);
     } else if (strncmp(argv[1], "cp-control-", 11u) == 0 || strncmp(argv[1], "cp-distance-low-", 16u) == 0) {
         const DolInterrupts before = host->interrupts;
         const bool distance = strncmp(argv[1], "cp-distance-low-", 16u) == 0;
