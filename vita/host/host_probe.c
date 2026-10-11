@@ -337,10 +337,62 @@ int main(int argc, char** argv) {
         host->cpu.instruction_fallback(&host->cpu, 0xFFFFFFFFu, host->cpu.pc);
         assert(host->cpu.pc == 0x80001000u);
         assert(host->error != NULL);
+    } else if (strncmp(argv[1], "sprg-state-", 11u) == 0) {
+        const u16 spr = (u16)strtoul(argv[1] + 11u, NULL, 10);
+        assert(spr == 272u);
+        assert(ppc_mfspr(&host->cpu, spr, 0x500u) == 0u && host->error == NULL);
+        ppc_mtspr(&host->cpu, spr, 0xB6B6B6B6u, 0x500u);
+        assert(ppc_mfspr(&host->cpu, spr, 0x504u) == 0xB6B6B6B6u && host->error == NULL);
+        assert(host->cycles.absolute_cycles == 0u && host->cpu.timebase == 0u);
+    } else if (strcmp(argv[1], "sprg-fallback") == 0) {
+        host->cpu.pc = 0x500u;
+        host->cpu.gpr[4] = 0xB6B6B6B6u;
+        host->cpu.instruction_fallback(&host->cpu, 0x7C9043A6u, host->cpu.pc);
+        assert(host->error == NULL && host->cpu.pc == 0x504u);
+        host->cpu.instruction_fallback(&host->cpu, 0x7C7042A6u, host->cpu.pc);
+        assert(host->error == NULL && host->cpu.pc == 0x508u && host->cpu.gpr[3] == 0xB6B6B6B6u);
+    } else if (strcmp(argv[1], "sprg-priv-read") == 0 || strcmp(argv[1], "sprg-priv-write") == 0) {
+        host->cpu.msr = PPC_MSR_PR;
+        if (strcmp(argv[1], "sprg-priv-read") == 0)
+            ppc_mfspr(&host->cpu, 272u, 0x500u);
+        else
+            ppc_mtspr(&host->cpu, 272u, 0xB6B6B6B6u, 0x500u);
+        assert(host->error == NULL && host->cpu.program_exception == PPC_PROGRAM_PRIV);
+        host->cpu.msr = 0u;
+        assert(ppc_mfspr(&host->cpu, 272u, 0x500u) == 0u && host->error == NULL);
     } else if (strcmp(argv[1], "unknown-write") == 0) {
         host->cpu.external_write(&host->cpu, 0xCC00300Cu, 1u, 4u);
         assert(host->error != NULL);
         assert(host->error_address == 0xCC00300Cu);
+    } else if (strncmp(argv[1], "physical-read-", 14u) == 0 || strncmp(argv[1], "physical-write-", 15u) == 0) {
+        const bool write = argv[1][9] == 'w';
+        const u8 size = (u8)strtoul(argv[1] + (write ? 15u : 14u), NULL, 10);
+        assert(size == 1u || size == 2u || size == 4u || size == 8u);
+        host->cpu.msr = 0u;
+        const u64 value = 0x1122334455667788ull;
+        if (write) {
+            memset(host->cpu.ram + 0xB8u, 0xA5u, 24u);
+            host->cpu.external_write(&host->cpu, 0xC0u, value, size);
+            const u64 mask = size == 8u ? UINT64_MAX : (1ull << (size * 8u)) - 1u;
+            assert(host->cpu.external_read(&host->cpu, 0xC0u, size) == (value & mask));
+            assert(host->cpu.ram[0xBFu] == 0xA5u && host->cpu.ram[0xC0u + size] == 0xA5u);
+        } else {
+            write_be64(host->cpu.ram + 0xC0u, value);
+            assert(host->cpu.external_read(&host->cpu, 0xC0u, size) == (value >> (64u - size * 8u)));
+        }
+        assert(host->error == NULL && host->cycles.absolute_cycles == 0u && host->cpu.timebase == 0u);
+    } else if (strcmp(argv[1], "physical-translated") == 0) {
+        host->cpu.msr = PPC_MSR_DR;
+        host->cpu.external_read(&host->cpu, 0xC0u, 4u);
+        assert(host->error != NULL && host->error_address == 0xC0u);
+    } else if (strcmp(argv[1], "physical-alias") == 0 || strcmp(argv[1], "physical-partial-alias") == 0) {
+        const u8 alias[4] = {1u, 2u, 3u, 4u};
+        const u32 offset = strcmp(argv[1], "physical-alias") == 0 ? 0u : 2u;
+        assert(ppc_guest_alias_add(0x800000C0u + offset, sizeof(alias), alias));
+        host->cpu.msr = 0u;
+        host->cpu.external_read(&host->cpu, 0xC0u, 4u);
+        assert(host->error != NULL && host->error_address == 0xC0u);
+        assert(read_be32(host->cpu.ram + 0xC0u) == 0u);
     } else if (strcmp(argv[1], "pi-cold-reset") == 0) {
         const DolInterrupts before = host->interrupts;
         host->cpu.pc = 0x803069E8u;

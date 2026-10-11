@@ -102,6 +102,8 @@ def main():
     parser.add_argument('--out', type=Path, default=OUTPUT)
     parser.add_argument('--prepare-only', action='store_true')
     parser.add_argument('--jobs', type=int, default=2)
+    parser.add_argument('--external-vector', type=Path, default=OUTPUT / 'private/external-vector.bin',
+                        help='exact private vector captured from the documented guest trial')
     args = parser.parse_args()
     if args.jobs < 1 or args.jobs > 4:
         parser.error('jobs must be between one and four')
@@ -157,7 +159,19 @@ def main():
     init_code = extract_init_ucode((private / 'main.dol').read_bytes())
     init_header = identity / 'ww05_dsp_init.h'
     init_header.write_text('static const unsigned char ww05_dsp_init_reference[128] = {' +
-                           ','.join(str(value) for value in init_code) + '};\n')
+                            ','.join(str(value) for value in init_code) + '};\n')
+    from external_vector import OBSERVED_SHA256, TEMPLATE_SHA256, emit_external_vector
+    observed_vector = args.external_vector.read_bytes()
+    vector_generator = output / 'vector-generator'
+    build.run('vector-generator-configure', [cmake, '-S', ROOT / 'vita/feasibility/armv7/generator',
+        '-B', vector_generator, '-G', 'Ninja', f'-DCMAKE_C_COMPILER={cc}',
+        f'-DCMAKE_MAKE_PROGRAM={ninja}', f'-DDOLRECOMP_DIR={sources["DolRecomp"]}',
+        '-DCMAKE_DISABLE_FIND_PACKAGE_ZLIB=ON'])
+    build.run('vector-generator-build', [cmake, '--build', vector_generator,
+        '--target', 'ww_vector_emit', '-j', args.jobs])
+    vector_source = identity / 'ww05_external_vector.c'
+    emit_external_vector((private / 'main.dol').read_bytes(), observed_vector,
+                         vector_generator / 'ww_vector_emit', vector_source)
     os.environ['VITASDK'] = str(STACK / 'vitasdk')
     vita = output / 'vita'
     build.run('vita-configure', [cmake, '-S', ROOT / 'vita/host', '-B', vita, '-G', 'Ninja',
@@ -173,9 +187,14 @@ def main():
     for path in (output / 'footprint.json', vita / 'ww05.map', vita / 'compile_commands.json'):
         shutil.copyfile(path, snapshot / path.name)
     shutil.copyfile(init_header, snapshot / init_header.name)
+    shutil.copyfile(vector_source, snapshot / vector_source.name)
+    shutil.copyfile(vector_source.with_suffix('.bin'), snapshot / 'ww05_external_vector.bin')
     receipt = json.dumps({'source': source, 'pins': PINS,
         'dsp_init': {'bytes': len(init_code), 'sha256': INIT_UCODE_SHA256,
-                     'private_header_sha256': sha256(init_header)},
+                      'private_header_sha256': sha256(init_header)},
+        'external_vector': {'address': '00000500', 'bytes': len(observed_vector),
+                            'sha256': OBSERVED_SHA256, 'template_sha256': TEMPLATE_SHA256,
+                            'private_source_sha256': sha256(vector_source)},
         'composite_digest': digest, 'title': 'BWWG00005', 'method': 'startup-gx-v1',
         'artifacts': artifacts, 'config': {'static_module': True, 'aurora': False, 'aurora_recomp': False,
         'optimization': 1, 'compiler_pass_disabled': 'tree-dominator-opts', 'fp_patch': None},

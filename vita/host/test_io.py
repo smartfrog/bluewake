@@ -67,6 +67,9 @@ class MainIoTest(unittest.TestCase):
                 self.assertIn('[exception-vector] address=00000C00', log)
             if interrupt == 'decrementer':
                 self.assertIn('[decrementer] stage=delivered vector=00000900', result.stderr.decode())
+            if interrupt == 'vector' and not failure:
+                self.assertIn('[external-vector-dispatch] pc=00000500 bytes=152 matched=1', result.stderr.decode())
+                self.assertIn('[external-vector-return] input=00000510 pc=80001004', result.stderr.decode())
             if interrupt == 'unsupported' and not failure:
                 log = result.stderr.decode()
                 self.assertIn('[exception] bits=00000001 pc=00000500 srr0=80001004', log)
@@ -119,6 +122,21 @@ class MainIoTest(unittest.TestCase):
                 self.assertEqual(status, 0)
                 self.assertIn('pc=80001004', report)
                 self.assertTrue(report.endswith('END frontier=PASS live=0 rendered=0\n'))
+
+    def test_verified_generated_vector_runs_through_the_real_main_loop_before_the_host_only_fifo_fixture(self):
+        status, report = self.run_fixture(interrupt='vector')
+        self.assertEqual(status, 0)
+        self.assertTrue(report.endswith('END frontier=PASS live=0 rendered=0\n'))
+
+    def test_generated_vector_dispatch_log_failure_prevents_execution_and_closed_verdict(self):
+        status, report = self.run_fixture(interrupt='vector', failure='external-dispatch-log')
+        self.assertNotEqual(status, 0)
+        self.assertIsNone(report)
+
+    def test_generated_vector_return_log_failure_cannot_publish_a_closed_verdict(self):
+        status, report = self.run_fixture(interrupt='vector', failure='external-return-log')
+        self.assertNotEqual(status, 0)
+        self.assertIsNone(report)
 
     def test_unsupported_external_vector_logs_real_saved_state_and_bytes_without_replacing_the_first_failure(self):
         status, report = self.run_fixture(interrupt='unsupported')

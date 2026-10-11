@@ -3,6 +3,8 @@ from pathlib import Path
 import subprocess
 import unittest
 
+from vector_fixture import external_vector_fixture
+
 ROOT = Path(__file__).resolve().parents[2]
 STACK = Path('/home/fred/projects/zeldaWWHDRecomp/build-vita-tools/local-stack')
 OUT = Path('/home/fred/projects/zeldaWWHDRecomp/build-f5/services-tests')
@@ -11,6 +13,18 @@ OUT = Path('/home/fred/projects/zeldaWWHDRecomp/build-f5/services-tests')
 class StartupHostTest(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
+        generator = OUT / 'vector-generator'
+        subprocess.run([str(STACK / 'bin/cmake'), '-S', str(ROOT / 'vita/feasibility/armv7/generator'),
+                        '-B', str(generator), '-G', 'Ninja', f'-DCMAKE_C_COMPILER={os.environ["CC"]}',
+                        f'-DCMAKE_MAKE_PROGRAM={STACK}/bin/ninja',
+                        f'-DDOLRECOMP_DIR={ROOT}/ref/vita-ww-01/DolRecomp',
+                        '-DCMAKE_DISABLE_FIND_PACKAGE_ZLIB=ON'], check=True, capture_output=True)
+        subprocess.run([str(STACK / 'bin/cmake'), '--build', str(generator),
+                        '--target', 'ww_vector_emit', '-j', '2'], check=True, capture_output=True)
+        binary = OUT / 'synthetic-external-vector.bin'
+        binary.write_bytes(external_vector_fixture())
+        with (OUT / 'ww05_external_vector.c').open('w') as stream:
+            subprocess.run([str(generator / 'ww_vector_emit'), str(binary)], check=True, stdout=stream)
         subprocess.run([str(STACK / 'bin/cmake'), '-S', str(ROOT / 'vita/host'), '-B', str(OUT),
                         '-G', 'Ninja', f'-DCMAKE_C_COMPILER={os.environ["CC"]}',
                         f'-DCMAKE_MAKE_PROGRAM={STACK}/bin/ninja',
@@ -45,6 +59,37 @@ class StartupHostTest(unittest.TestCase):
 
     def test_unknown_spr_fails(self):
         subprocess.run([str(OUT / 'host_probe'), 'unknown-spr'], check=True)
+
+    def test_observed_sprg0_retains_privileged_words_without_creating_time(self):
+        subprocess.run([str(OUT / 'host_probe'), 'sprg-state-272'], check=True)
+
+    def test_actual_vector_sprg_fallbacks_execute_and_advance_normally(self):
+        subprocess.run([str(OUT / 'host_probe'), 'sprg-fallback'], check=True)
+
+    def test_sprg_read_requires_supervisor_privilege(self):
+        subprocess.run([str(OUT / 'host_probe'), 'sprg-priv-read'], check=True)
+
+    def test_sprg_write_requires_supervisor_privilege(self):
+        subprocess.run([str(OUT / 'host_probe'), 'sprg-priv-write'], check=True)
+
+    def test_untranslated_unaliased_mem1_reads_use_real_big_endian_backing(self):
+        for size in (1, 2, 4, 8):
+            with self.subTest(size=size):
+                subprocess.run([str(OUT / 'host_probe'), f'physical-read-{size}'], check=True)
+
+    def test_untranslated_unaliased_mem1_stores_preserve_neighboring_bytes(self):
+        for size in (1, 2, 4, 8):
+            with self.subTest(size=size):
+                subprocess.run([str(OUT / 'host_probe'), f'physical-write-{size}'], check=True)
+
+    def test_physical_mem1_access_is_not_an_invented_mapping_with_data_translation_on(self):
+        subprocess.run([str(OUT / 'host_probe'), 'physical-translated'], check=True)
+
+    def test_physical_mem1_cannot_resolve_to_a_synthetic_linked_alias(self):
+        subprocess.run([str(OUT / 'host_probe'), 'physical-alias'], check=True)
+
+    def test_physical_mem1_read_cannot_cross_a_partial_linked_alias(self):
+        subprocess.run([str(OUT / 'host_probe'), 'physical-partial-alias'], check=True)
 
     def test_l2_control_resets_disabled_without_an_instruction_skip(self):
         subprocess.run([str(OUT / 'host_probe'), 'l2-reset'], check=True)

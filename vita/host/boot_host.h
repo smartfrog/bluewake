@@ -40,6 +40,7 @@ typedef struct WwHost {
     u32 clock_remainder;
     u32 decrementer;
     u32 hid0;
+    u32 sprg0;
     u16 mi_interrupt_mask;
     u16 mi_unknown1;
     u16 mi_protection;
@@ -66,6 +67,7 @@ bool ww_host_load(WwHost* host, const StaticRecompModuleDesc* module,
                    const BlueWakeRelData* data, u32 count, const char* dol);
 bool ww_host_edge(void* user, CPUState* cpu, u32 address);
 bool ww_host_resume_exception(WwHost* host);
+int ww_host_dispatch(WwHost* host, u32 address);
 void ww_host_fail(WwHost* host, const char* error, u32 address, u32 pc);
 
 #endif

@@ -2,6 +2,7 @@
 #include "cache_flush_fallback.h"
 #include "external_memory.h"
 #include "interrupt_sources.h"
+#include "external_vector.h"
 #include "edge_intercept_table.h"
 #include "gxruntime/boot.h"
 #include "gxruntime/guest_memory_dirty.h"
@@ -104,6 +105,8 @@ static void observe(CPUState* cpu) {
 
 static u32 spr_read(CPUState* cpu, u16 spr, u32 cia) {
     WwHost* host = owner(cpu);
+    if (spr == 272u)
+        return host->sprg0;
     u32 bat_value;
     if (ww_bat_read(&host->bat, spr, &bat_value))
         return bat_value;
@@ -124,7 +127,9 @@ static u32 spr_read(CPUState* cpu, u16 spr, u32 cia) {
 
 static void spr_write(CPUState* cpu, u16 spr, u32 value, u32 cia) {
     WwHost* host = owner(cpu);
-    if (spr == 284u || spr == 285u) {
+    if (spr == 272u) {
+        host->sprg0 = value;
+    } else if (spr == 284u || spr == 285u) {
         bluewake_cycle_domain_write_timebase(&host->cycles, cpu, spr, value);
     } else if (spr == 22u) {
         observe(cpu);
@@ -231,16 +236,22 @@ static void fallback(CPUState* cpu, u32 raw, u32 cia) {
     ww_host_fail(owner(cpu), "unsupported instruction fallback", raw, cia);
 }
 
+static bool module_contains_address(const StaticRecompModuleDesc* module, u32 address) {
+    if (module != NULL && (address & 3u) == 0u) {
+        for (u32 index = 0u; index < module->num_code_ranges; ++index) {
+            const StaticRecompRange* range = &module->code_ranges[index];
+            if (address >= range->start && address < range->end)
+                return true;
+        }
+    }
+    return false;
+}
+
 static bool host_call(CPUState* cpu, u32 service) {
     WwHost* host = owner(cpu);
     const u32 address = canonical_dispatch_address(cpu, service);
-    if (host->module != NULL && (address & 3u) == 0u) {
-        for (u32 index = 0u; index < host->module->num_code_ranges; ++index) {
-            const StaticRecompRange* range = &host->module->code_ranges[index];
-            if (address >= range->start && address < range->end)
-                return false;
-        }
-    }
+    if (module_contains_address(host->module, address))
+        return false;
     ww_host_fail(host, "unsupported host call", service, cpu->pc);
     return true;
 }
@@ -303,6 +314,20 @@ static bool in_range(u32 address, u8 size, u32 base, u32 length) {
     return address >= base && address - base < length && size <= length - (address - base);
 }
 
+static bool external_memory_address(CPUState* cpu, u32 address, u8 size, u32* resolved) {
+    *resolved = address;
+    if (!(cpu->msr & PPC_MSR_DR) && in_range(address, size, 0u, cpu->ram_size)) {
+        const u32 cached = address | GC_RAM_BASE;
+        u8* alias;
+        for (u8 offset = 0u; offset < size; ++offset) {
+            if (ppc_guest_alias_resolve(cached + offset, 1u, &alias, NULL))
+                return false;
+        }
+        *resolved = cached;
+    }
+    return true;
+}
+
 static bool interrupt_register(u32 address, u8 size, bool write) {
     return (size == 4u && (address == DOL_PI_INTERRUPT_CAUSE || address == DOL_PI_INTERRUPT_MASK)) ||
            (size == 2u && (address == DOL_PE_INTERRUPT_STATUS || (!write && address == DOL_PE_TOKEN))) ||
@@ -321,7 +346,12 @@ static void refresh(WwHost* host) {
 static u64 mmio_read(CPUState* cpu, u32 address, u8 size) {
     WwHost* host = owner(cpu);
     u64 value;
-    if (bluewake_external_memory_read(cpu, address, size, &value) ||
+    u32 memory_address;
+    if (!external_memory_address(cpu, address, size, &memory_address)) {
+        ww_host_fail(host, "physical MEM1 access overlaps a linked alias", address, cpu->pc);
+        return 0u;
+    }
+    if (bluewake_external_memory_read(cpu, memory_address, size, &value) ||
         dol_guest_memory_read(&host->memory, address, size, &value))
         return value;
     observe(cpu);
@@ -370,8 +400,17 @@ static void mmio_write(CPUState* cpu, u32 address, u64 value, u8 size) {
             ww_host_fail(host, host->frontier.error, address, cpu->pc);
         return;
     }
-    if (bluewake_external_memory_write(cpu, address, value, size) ||
-        dol_guest_memory_write(&host->memory, address, size, value))
+    u32 memory_address;
+    if (!external_memory_address(cpu, address, size, &memory_address)) {
+        fail_mmio_write(host, "physical MEM1 access overlaps a linked alias", address, value, size);
+        return;
+    }
+    if (bluewake_external_memory_write(cpu, memory_address, value, size)) {
+        if (memory_address != address)
+            clear_matching_reservation(cpu, address);
+        return;
+    }
+    if (dol_guest_memory_write(&host->memory, address, size, value))
         return;
     observe(cpu);
     const u64 prior_aram_transfer = host->dsp.aram.transfer_count;
@@ -547,6 +586,41 @@ bool ww_host_resume_exception(WwHost* host) {
         return true;
     }
     return false;
+}
+
+int ww_host_dispatch(WwHost* host, u32 address) {
+    if (host == NULL)
+        return 0;
+    CPUState* cpu = &host->cpu;
+    if (host->module == NULL || host->module->dispatch == NULL) {
+        ww_host_fail(host, "dispatch requires a loaded module", address, cpu->pc);
+        return 0;
+    }
+    if (address >= WW05_EXTERNAL_VECTOR && address < WW05_EXTERNAL_VECTOR + WW05_EXTERNAL_VECTOR_BYTES &&
+        !module_contains_address(host->module, address) &&
+        !module_contains_address(host->module, canonical_dispatch_address(cpu, address))) {
+        if ((address & 3u) != 0u || cpu->pc != address || cpu->exception != 0u ||
+            (cpu->msr & (PPC_MSR_EE | PPC_MSR_PR | PPC_MSR_IR | PPC_MSR_DR | PPC_MSR_LE)) != 0u ||
+            cpu->ram == NULL || cpu->ram_size < WW05_EXTERNAL_VECTOR + WW05_EXTERNAL_VECTOR_BYTES ||
+            memcmp(cpu->ram + WW05_EXTERNAL_VECTOR, ww05_external_vector_reference, WW05_EXTERNAL_VECTOR_BYTES) != 0) {
+            ww_host_fail(host, "external vector requires the exact observed program and physical exception state", address, cpu->pc);
+            return 0;
+        }
+        if (fprintf(stderr, "[external-vector-dispatch] pc=%08X bytes=%u matched=1\n", address, WW05_EXTERNAL_VECTOR_BYTES) < 0) {
+            ww_host_fail(host, "external vector dispatch log write failed", address, cpu->pc);
+            return -1;
+        }
+        if (cpu->cycle_budget <= 0 || cpu->downcount <= -cpu->cycle_budget)
+            return 1;
+        func_00000500(cpu);
+        if (fprintf(stderr, "[external-vector-return] input=%08X pc=%08X srr0=%08X srr1=%08X msr=%08X downcount=%lld\n",
+                    address, cpu->pc, cpu->srr0, cpu->srr1, cpu->msr, (long long)cpu->downcount) < 0) {
+            ww_host_fail(host, "external vector return log write failed", address, cpu->pc);
+            return -1;
+        }
+        return 1;
+    }
+    return host->module->dispatch(&host->cpu, address);
 }
 
 bool ww_host_init(WwHost* host) {

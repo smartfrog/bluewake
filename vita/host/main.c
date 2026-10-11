@@ -153,7 +153,8 @@ int fixture_run(int argc, char** argv) {
             traced_dispatch = true;
             host->dispatch_trace_remaining = 16u;
         }
-        const int dispatched = module->dispatch(&host->cpu, host->cpu.pc);
+        const int dispatched = ww_host_dispatch(host, host->cpu.pc);
+        error |= dispatched < 0;
         if (probe_dispatch) {
             host->dispatch_trace_remaining = 0u;
             if (dispatch_marker('R')) {

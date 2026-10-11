@@ -2,6 +2,7 @@
 #include "dispatch_loop.h"
 #include "gxruntime/interrupts.h"
 #include "gxruntime/si.h"
+#include "external_vector.h"
 #include <assert.h>
 #include <errno.h>
 #include <stdarg.h>
@@ -130,6 +131,11 @@ static int dispatch(CPUState* cpu, u32 address) {
             for (u32 index = 0u; index < 256u; ++index)
                 cpu->ram[0x500u + index] = (u8)index;
         }
+        if (strcmp(interrupt, "vector") == 0) {
+            memcpy(cpu->ram + WW05_EXTERNAL_VECTOR, ww05_external_vector_reference, WW05_EXTERNAL_VECTOR_BYTES);
+            mem_write32(cpu, 0x800000C0u, 0x80002000u);
+            mem_write32(cpu, 0x80003010u, address + 4u);
+        }
         if (strcmp(interrupt, "decrementer") == 0)
             ppc_mtspr(cpu, 22u, 0u, address);
         else {
@@ -146,7 +152,7 @@ static int dispatch(CPUState* cpu, u32 address) {
     if (interrupt != NULL && (address == 0x500u || address == 0x900u)) {
         assert(cpu->srr0 == 0x80001004u);
         assert(!(cpu->msr & PPC_MSR_EE));
-        if (strcmp(interrupt, "unsupported") == 0) {
+        if (strcmp(interrupt, "unsupported") == 0 || strcmp(interrupt, "vector") == 0) {
             assert(cpu->host_call(cpu, address));
             cpu->downcount -= 12;
             return 1;
@@ -157,8 +163,16 @@ static int dispatch(CPUState* cpu, u32 address) {
         cpu->downcount -= 12;
         return 1;
     }
-    if (interrupt != NULL)
-        assert(address == 0x80001004u && (cpu->msr & PPC_MSR_EE));
+    if (interrupt != NULL) {
+        assert(address == 0x80001004u);
+        if (strcmp(interrupt, "vector") == 0) {
+            assert(cpu->gpr[3] == 4u && cpu->gpr[4] == 0x80002000u);
+            assert(cpu->msr == (PPC_MSR_IR | PPC_MSR_DR));
+            assert(mem_read32(cpu, 0x80002198u) == address);
+        } else {
+            assert(cpu->msr & PPC_MSR_EE);
+        }
+    }
     cpu->pc = address;
     cpu->external_write(cpu, 0xCC008000u, 0x61u, 1u);
     cpu->external_write(cpu, 0xCC008000u, 0xFEFFFFFFu, 4u);
@@ -169,11 +183,13 @@ static int dispatch(CPUState* cpu, u32 address) {
 }
 
 const StaticRecompModuleDesc* staticrecomp_get_module(void) {
-    static const StaticRecompRange ranges[] = {{0x80001000u, 0x80001008u}, {0x803077D0u, 0x803077ECu}};
-    static const StaticRecompModuleDesc module = {
+    static const StaticRecompRange ranges[] = {{0x80001000u, 0x80001008u}, {0x803077D0u, 0x803077ECu}, {0x500u, 0x904u}};
+    static StaticRecompModuleDesc module = {
         .abi_version = STATICRECOMP_ABI_VERSION, .cpu_abi_version = GXRUNTIME_CPU_ABI_VERSION,
         .cpu_state_size = sizeof(CPUState), .game_id = "GZLE01", .entry_point = 0x80001000u,
-        .dispatch = dispatch, .code_ranges = ranges, .num_code_ranges = 2u};
+        .dispatch = dispatch, .code_ranges = ranges, .num_code_ranges = 3u};
+    const char* interrupt = getenv("WW05_IO_IRQ");
+    module.num_code_ranges = interrupt != NULL && strcmp(interrupt, "vector") == 0 ? 2u : 3u;
     return &module;
 }
 
@@ -220,7 +236,9 @@ FILE* __wrap_fopen(const char* path, const char* mode) {
 int __wrap_fprintf(FILE* stream, const char* format, ...) {
     if (stream == stderr &&
         ((strncmp(format, "[exception]", 11u) == 0 && failure("external-state-log")) ||
-         (strncmp(format, "[exception-vector]", 18u) == 0 && failure("external-vector-log")))) {
+         (strncmp(format, "[exception-vector]", 18u) == 0 && failure("external-vector-log")) ||
+         (strncmp(format, "[external-vector-dispatch]", 26u) == 0 && failure("external-dispatch-log")) ||
+         (strncmp(format, "[external-vector-return]", 24u) == 0 && failure("external-return-log")))) {
         errno = EIO;
         return -1;
     }

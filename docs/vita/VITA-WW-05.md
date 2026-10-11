@@ -237,7 +237,7 @@ a lingering process. Its short red/green loops are in `logs/private-{launch,gues
 The parent-symlink loop reproduced creation outside an owned fake profile, then prevented it with the
 existing no-follow directory-descriptor pattern. No real/shared profile was involved.
 
-The WW05 host suite currently has **218 tests**. Source-bound logs retain exact counts/commands for these,
+The WW05 host suite currently has **251 tests**. Source-bound logs retain exact counts/commands for these,
 native runtime CTest, 71 native FP cases and the eight direct baseline files. Audit, attribution,
 pin/scope/diff and clean-worktree checks accompany delivery. The pre-launch `1ba507c` checkpoint passed
 35 WW05 tests, 177 unchanged tests, 53 direct baseline tests, 71 native FP cases and 3/1/5 runtime/corpus/
@@ -1264,3 +1264,72 @@ verdict. `logs/external-vector-diagnostic-green.log` passes **218 host tests**, 
 ARMv7 tests**, audit, attribution and native runtime CTest **3/3** on Linux AArch64. The real vector
 diagnostics still require a fresh source-bound isolated run. Physical Vita, Windows CI, rendering,
 FPS and REL lifecycle remain untested; no marker or completion is fabricated.
+
+## Captured external-vector lineage and guarded supplemental translation
+
+Run `215e84669a1d4951967ad29857ea55fd`, source `b8a7329b819c4cb954b8084dd018806062dcdcc8`,
+reproduces the same actual STOP at `00000500`: **36,124 edges, 6,789,375 cycles**, closed guest
+**FAIL**, zero FIFO bytes, `GX_FRONTIER complete=0`, `live=0`. The saved state is now retained:
+SRR0=`80304628`, SRR1=`00008032`, MSR=`00000000`, PI cause=`00010008`, mask=`000000F8`.
+The maskable source is **SI**, not DSP, EXI or an invented VI retrace. Both owned phases reach
+their 600-second deadlines, TERM/exit -15 and `waited=true`; process **124/INCOMPLETE** remains
+distinct from that closed guest failure. Build status zero, 122.826 seconds; static archive
+SHA-256 remains `9d1c59238cea4b83798f1c16b0549950d41ec0011a89e95591d5a307718aea08`.
+Exact-source checks pass **218 host tests, 177 ARMv7 tests**, audit and attribution on Linux
+AArch64; precommit native runtime CTest **3/3** passed. VPK SHA-256:
+`d174abbfa87972016735fa381629007e5994f74e4d1d1d8d83b8ca8fad9de414`;
+report: `acc6225ccd99964f06b75f03848ba444cf4a6857c1a9b66e52f60989f3c77662`;
+result: `ef463ab8ef8b777b56e7c4334cc0664fbbef1d735650a63134cad0b62577b92c`;
+log: `fb06581b0b05b21e40b0632eea1c8179677c4bdd41316e0f514f1a7552ad41c4`;
+closed LER journal: `169da8b7a0e0d3067e984a0701130bdf9916ce1c09ccf887d9004ec9f413b079`.
+
+The observed **152-byte** vector matches the private DOL template at `80301D8C` exactly,
+except word offset **104**: the SDK changes `li r3,0` to the observed external-exception
+number **4**. The remaining captured bytes through 256 are zero. Template SHA-256:
+`9fd8348984aa801eafe743d52f99e803c6bf5bd5cfc620102f9fa832a1dd95a0`; observed vector:
+`959cdcd88e3425871362441b5b3a335accea0263466a3316d38be5d09a5a6f22`.
+Private `logs/external-vector-lineage-b8a7329.json` records the complete comparison without
+publishing the bytes, SHA-256 `c7d23d6dab64679ffdb31d20f2a7109d3490d7a724b33bae589fd5397509e1b0`.
+The request/source/package-bound report was validated again before staging the captured
+152 bytes as private ignored `private/external-vector.bin`. No vector bytes or translated
+game source are committed. Unknown input, different template, ambiguous/truncated DOL mappings
+and any difference beyond that **already observed** SDK patch are refused, not repaired.
+
+The implementation reuses pinned DolRecomp's decoder and **Gekko C emitter** to generate a
+supplemental source object in the private identity directory. It does not modify the original
+composite tree, its digest, static archive, pins, ABI, FP semantics or shared profiles. The
+existing identified DOL-range extraction is shared with DSP init rather than duplicated.
+`game_build.py` now requires the retained private vector input (or `--external-vector PATH`),
+records its/template/source hashes and snapshots both the reference and generated source with
+each artifact. The generated vector executes at its physical PCs `00000500..00000594`,
+including the actual conditional branch and both possible RFIs; it is not a template alias or
+a desktop-style context-synthesis shortcut. Its generated budget macro uses actual remaining
+cycle credit, without resurrecting a zero quantum. Zero-cost SPR fallbacks retain the pinned
+emitter's existing accounting and yield to the next real instruction; no invented cycles are added.
+
+Dispatch rechecks all 152 guest bytes and physical supervisor state before every generated
+entry/resumption, rejects unaligned/changed/incomplete/translated/pending-exception entries
+before executing, and leaves existing module-owned ranges with their original dispatcher.
+Entry and return records carry the actual PCs and saved SRR/MSR state on the checked unbuffered
+channel; a logging failure propagates distinctly and cannot publish a closed guest verdict.
+Only the vector's observed **SPRG0 (272)** is retained, with the pinned privilege checks, not
+an unobserved SPR bank. With data translation disabled, bounded physical MEM1 accesses reuse
+the existing big-endian memory adapter on the actual RAM backing; full or partial linked-alias
+overlap is rejected. Stores retain dirty/reservation handling. References at the unchanged
+RecompCore pin: `Gekko.h:847`, `Interpreter/Interpreter_SystemRegisters.cpp:233-323`,
+`GXRuntime/src/core/cpu_interpreter_integer.c:3-35,41-90`,
+`PowerPC/MMU.cpp:273-293`, and `PowerPC/MMU_Tables.cpp:70-121,204,352-372`.
+
+Retained red checks include `external-vector-dispatch-red.log`, `external-vector-sprg-red.log`,
+`external-vector-physical-red.log`, `external-vector-main-red.log`,
+`external-vector-generation-red.log` and `external-vector-return-red.log`; all intermediate
+failed checks are retained as well. `logs/external-vector-reviewed-host.log` passes **251 host
+tests** using game-free authored PPC fixtures, not the real vector. Coverage includes actual
+stores and RFI, every one-byte mutation, one-cycle deadlines, zero quantum, physical-endian
+access/alias refusal, privilege checks, private-input lineage/generator failures and the real
+main-loop seam with checked entry/return logging. **177 ARMv7 tests**, audit, attribution and
+native runtime CTest **3/3** pass on Linux AArch64. The private observed vector has been emitted
+without executing it on Linux; its Vita compilation and real-game continuation still require
+the next clean source-bound build/trial. No physical Vita, Windows CI, rendering, FPS, runtime
+REL event or GX acceptance is claimed. Network/remote PR inspection remains unavailable under
+the offline mandate; cached remote branches were checked, and nothing was pushed.
