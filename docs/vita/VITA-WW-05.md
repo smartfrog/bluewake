@@ -237,7 +237,7 @@ a lingering process. Its short red/green loops are in `logs/private-{launch,gues
 The parent-symlink loop reproduced creation outside an owned fake profile, then prevented it with the
 existing no-follow directory-descriptor pattern. No real/shared profile was involved.
 
-The WW05 host suite currently has **254 tests**. Source-bound logs retain exact counts/commands for these,
+The WW05 host suite currently has **275 tests**. Source-bound logs retain exact counts/commands for these,
 native runtime CTest, 71 native FP cases and the eight direct baseline files. Audit, attribution,
 pin/scope/diff and clean-worktree checks accompany delivery. The pre-launch `1ba507c` checkpoint passed
 35 WW05 tests, 177 unchanged tests, 53 direct baseline tests, 71 native FP cases and 3/1/5 runtime/corpus/
@@ -1387,3 +1387,63 @@ instruction credits without fabricated time, masked external delivery and interr
 The new query response has not yet been exercised by the real guest. The shared desktop helper
 is covered by the same compiled store logic, but desktop gameplay and Windows CI were not run.
 Physical Vita, GX acceptance, rendering, FPS and runtime REL lifecycle remain untested.
+
+## Real inquiry completion reaches the lazy-FP unavailable vector
+
+Run `4e98fd0395524ed8be8bcfe3b974f4fe`, source `367172d2d942bd17c136339122e25ff504d9b086`,
+completes the observed drive inquiry into **`803F01A0`** and executes the next external
+vector/RFI. It reaches **36,583 edges, 6,795,844 reported cycles**, then stops at the real
+lazy-FP exception: `unhandled guest exception address=00000020 pc=00000800`.
+The saved faulting PC is **`802AE070`**, an actual `lfs`; SRR1=`00008032`, MSR=`00000000`,
+FPSCR=`00000004`. This is **FPU unavailable**, not a floating-point numerical mismatch.
+The closed, request/source/package-bound report is **FAIL**, `GX_FRONTIER complete=0`,
+zero FIFO bytes, `live=0`, `rendered=0`. Its final exception includes the host's subsequent
+PROGRAM failure bit; the captured original guest exception is exactly `00000020`.
+Both owned phases timeout after 600 seconds, TERM/exit -15 and `waited=true`; process
+**124/INCOMPLETE** remains separate from the guest failure. Build status zero, 119.081 s;
+static archive remains `9d1c59238cea4b83798f1c16b0549950d41ec0011a89e95591d5a307718aea08`.
+Exact-source **254 host tests, 177 ARMv7 tests**, audit, attribution and native runtime CTest
+**3/3** pass on Linux AArch64. VPK SHA-256:
+`466d75e390b06542fd713334bb97b9aca28723ab3f2a3f10633b49811a97ad6f`;
+report: `c14d3f323187019bef9dca88b6d9c722dc82c8cb0bec70c5192b438a0f18639c`;
+result: `492122d3a042ba85c136999a2bbabde3822517456a1adcb599028f58cbcb1792`;
+log: `7b203e74baffeac32fe6137061c9b6308a87b9b31262ec6eaa9547e734b9a08b`;
+closed LER journal: `169da8b7a0e0d3067e984a0701130bdf9916ce1c09ccf887d9004ec9f413b079`.
+
+The captured **152-byte** FP vector has the same verified DOL template lineage as the
+external vector, except the already installed exception-number word at offset 104 is
+`li r3,7`. Its SHA-256 is
+`a7537905d3a5cdeffa646f393bea89c8bcd48df2340ef1bd2a32c9da04904ae5`.
+Private `logs/fp-vector-lineage-367172d.json`, SHA-256
+`10b339e0f94d4acd89bcd30af9341a67271fdd8810efbddd681ef084f7213550`, retains the comparison.
+No game vector bytes are committed. The existing identity/lineage extractor, pinned Gekko
+emitter, physical-memory adapter and guarded dispatch are reused for **`00000800..00000894`**.
+Only the two observed vectors are authorized; the new private `--fp-vector` input is required,
+hashed and snapshotted with its generated source. The handoff accepts only the exact FP
+exception and physical supervisor state after checking every byte, and consumes that delivered
+exception without changing PC, SRR0/SRR1, MSR, FPSCR, FPRs or paired-single state. The guest's
+own stores, branch and RFI execute next. Checked handoff/entry/return logging failures remain
+explicit. No eager FPU enable, lazy-FP disable, desktop context shortcut or numeric patch is used.
+References at the unchanged RecompCore pin: `GXRuntime/src/core/cpu.c:396-406`,
+`GXRuntime/src/core/cpu_exception.c:9-36` and the existing pinned emitter/SDK template lineage.
+
+The actual faulting generated block prepays an instruction suffix of **16 cycles** that
+the FP exception never executes. WW05 now refunds only that outstanding suffix for the exact
+FP-unavailable exception before ending dispatch. It keeps the attempted instruction's credit,
+leaves other exception paths unchanged and clears the refunded suffix to prevent a second
+refund. A suffix larger than outstanding prepayment fails loudly. This changes accounting,
+not FP operations, emitter bytes or the module. The prior report's cycle count remains its
+recorded value, not a retroactively corrected measurement. The build receipt records lazy FP
+enabled and this suffix-refund policy separately from `fp_patch: null`.
+
+Retained red checks: `fp-vector-input-red.log`, `fp-vector-dispatch-red.log`,
+`fp-vector-credit-red.log`; intermediate fixture/build failures are retained too.
+`logs/fp-vector-credit-reviewed-host.log` passes **275 host tests**, including game-free
+generated FP vector stores/RFI, all byte mutations, unsupported states, one-cycle/zero budgets,
+exact-exception handoff, unchanged numeric state, checked logging and prepaid/precise/invalid/
+other-exception credit cases. The main-loop fixture credits **41**, not 57 cycles after the
+16-cycle refund. **177 ARMv7 tests**, audit, attribution and native runtime CTest **3/3** pass
+on Linux AArch64. The private real vector was emitted, not executed on Linux. Real lazy-FP
+handler execution still needs a clean Vita build and isolated trial; no GX acceptance,
+rendering, FPS, REL event, physical Vita or Windows CI is claimed. No image has been opened;
+the mandatory DVD integration rebase remains before the first actual disc-service access.

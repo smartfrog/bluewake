@@ -104,6 +104,8 @@ def main():
     parser.add_argument('--jobs', type=int, default=2)
     parser.add_argument('--external-vector', type=Path, default=OUTPUT / 'private/external-vector.bin',
                         help='exact private vector captured from the documented guest trial')
+    parser.add_argument('--fp-vector', type=Path, default=OUTPUT / 'private/fp-vector.bin',
+                        help='exact private FP-unavailable vector captured from the documented guest trial')
     args = parser.parse_args()
     if args.jobs < 1 or args.jobs > 4:
         parser.error('jobs must be between one and four')
@@ -160,8 +162,8 @@ def main():
     init_header = identity / 'ww05_dsp_init.h'
     init_header.write_text('static const unsigned char ww05_dsp_init_reference[128] = {' +
                             ','.join(str(value) for value in init_code) + '};\n')
-    from external_vector import OBSERVED_SHA256, TEMPLATE_SHA256, emit_external_vector
-    observed_vector = args.external_vector.read_bytes()
+    from external_vector import (OBSERVED_SHA256, FP_OBSERVED_SHA256, TEMPLATE_SHA256,
+                                 emit_external_vector, emit_fp_vector)
     vector_generator = output / 'vector-generator'
     build.run('vector-generator-configure', [cmake, '-S', ROOT / 'vita/feasibility/armv7/generator',
         '-B', vector_generator, '-G', 'Ninja', f'-DCMAKE_C_COMPILER={cc}',
@@ -169,9 +171,15 @@ def main():
         '-DCMAKE_DISABLE_FIND_PACKAGE_ZLIB=ON'])
     build.run('vector-generator-build', [cmake, '--build', vector_generator,
         '--target', 'ww_vector_emit', '-j', args.jobs])
-    vector_source = identity / 'ww05_external_vector.c'
-    emit_external_vector((private / 'main.dol').read_bytes(), observed_vector,
-                         vector_generator / 'ww_vector_emit', vector_source)
+    vectors = {}
+    for name, path, address, expected, emit in (
+            ('external_vector', args.external_vector, '00000500', OBSERVED_SHA256, emit_external_vector),
+            ('fp_vector', args.fp_vector, '00000800', FP_OBSERVED_SHA256, emit_fp_vector)):
+        observed = path.read_bytes()
+        vector_source = identity / f'ww05_{name}.c'
+        emit((private / 'main.dol').read_bytes(), observed, vector_generator / 'ww_vector_emit', vector_source)
+        vectors[name] = {'address': address, 'bytes': len(observed), 'sha256': expected,
+                         'template_sha256': TEMPLATE_SHA256, 'private_source_sha256': sha256(vector_source)}
     os.environ['VITASDK'] = str(STACK / 'vitasdk')
     vita = output / 'vita'
     build.run('vita-configure', [cmake, '-S', ROOT / 'vita/host', '-B', vita, '-G', 'Ninja',
@@ -187,17 +195,18 @@ def main():
     for path in (output / 'footprint.json', vita / 'ww05.map', vita / 'compile_commands.json'):
         shutil.copyfile(path, snapshot / path.name)
     shutil.copyfile(init_header, snapshot / init_header.name)
-    shutil.copyfile(vector_source, snapshot / vector_source.name)
-    shutil.copyfile(vector_source.with_suffix('.bin'), snapshot / 'ww05_external_vector.bin')
+    for name in vectors:
+        for suffix in ('.c', '.bin'):
+            vector_path = identity / f'ww05_{name}{suffix}'
+            shutil.copyfile(vector_path, snapshot / vector_path.name)
     receipt = json.dumps({'source': source, 'pins': PINS,
         'dsp_init': {'bytes': len(init_code), 'sha256': INIT_UCODE_SHA256,
                       'private_header_sha256': sha256(init_header)},
-        'external_vector': {'address': '00000500', 'bytes': len(observed_vector),
-                            'sha256': OBSERVED_SHA256, 'template_sha256': TEMPLATE_SHA256,
-                            'private_source_sha256': sha256(vector_source)},
+        **vectors,
         'composite_digest': digest, 'title': 'BWWG00005', 'method': 'startup-gx-v1',
         'artifacts': artifacts, 'config': {'static_module': True, 'aurora': False, 'aurora_recomp': False,
-        'optimization': 1, 'compiler_pass_disabled': 'tree-dominator-opts', 'fp_patch': None},
+        'optimization': 1, 'compiler_pass_disabled': 'tree-dominator-opts', 'fp_patch': None,
+        'lazy_fp': True, 'fp_exception_suffix_refund': True},
         'footprint_sha256': sha256(output / 'footprint.json'),
         'snapshot': str(snapshot)}, indent=2) + '\n'
     (snapshot / 'build-evidence.json').write_text(receipt)

@@ -577,8 +577,44 @@ bool ww_host_edge(void* user, CPUState* cpu, u32 address) {
     return false;
 }
 
+typedef struct {
+    u32 address;
+    const u8* reference;
+    void (*dispatch)(CPUState* cpu);
+} WwObservedVector;
+
+static const WwObservedVector* observed_vector(u32 address) {
+    static const WwObservedVector vectors[] = {
+        {WW05_EXTERNAL_VECTOR, ww05_external_vector_reference, func_00000500},
+        {WW05_FP_VECTOR, ww05_fp_vector_reference, func_00000800},
+    };
+    for (u32 index = 0u; index < sizeof(vectors) / sizeof(vectors[0]); ++index) {
+        if (address >= vectors[index].address && address < vectors[index].address + WW05_EXTERNAL_VECTOR_BYTES)
+            return &vectors[index];
+    }
+    return NULL;
+}
+
+static bool observed_vector_matches(const CPUState* cpu, const WwObservedVector* vector) {
+    return (cpu->pc & 3u) == 0u &&
+           (cpu->msr & (PPC_MSR_EE | PPC_MSR_PR | PPC_MSR_IR | PPC_MSR_DR | PPC_MSR_LE | PPC_MSR_IP | PPC_MSR_FP)) == 0u &&
+           cpu->ram != NULL && cpu->ram_size >= vector->address + WW05_EXTERNAL_VECTOR_BYTES &&
+           memcmp(cpu->ram + vector->address, vector->reference, WW05_EXTERNAL_VECTOR_BYTES) == 0;
+}
+
 bool ww_host_resume_exception(WwHost* host) {
     CPUState* cpu = &host->cpu;
+    if (cpu->exception == PPC_EXC_FP_UNAVAILABLE && cpu->pc == WW05_FP_VECTOR && host->module != NULL) {
+        if (!observed_vector_matches(cpu, observed_vector(cpu->pc)))
+            return false;
+        if (fprintf(stderr, "[fp-exception-resume] vector=%08X matched=1 srr0=%08X srr1=%08X msr=%08X\n",
+                    cpu->pc, cpu->srr0, cpu->srr1, cpu->msr) < 0) {
+            ww_host_fail(host, "FP exception handoff log write failed", cpu->pc, cpu->pc);
+            return false;
+        }
+        cpu->exception = 0u;
+        return true;
+    }
     const u32 source = 0x803077D0u;
     if (cpu->exception != PPC_EXC_SYSTEM_CALL || cpu->pc != PPC_VECTOR_SYSTEM_CALL ||
         host->module == NULL)
@@ -616,6 +652,19 @@ bool ww_host_resume_exception(WwHost* host) {
     return false;
 }
 
+u64 ww_host_end_dispatch(WwHost* host) {
+    CPUState* cpu = &host->cpu;
+    if (cpu->exception == PPC_EXC_FP_UNAVAILABLE && cpu->cycle_observation_suffix != 0u) {
+        const s64 unexecuted = (s64)cpu->cycle_observation_suffix;
+        if (cpu->downcount > -unexecuted)
+            ww_host_fail(host, "FP exception suffix exceeds outstanding prepayment", cpu->srr0, cpu->pc);
+        else
+            cpu->downcount += unexecuted;
+        cpu->cycle_observation_suffix = 0u;
+    }
+    return bluewake_cycle_domain_end_turn(&host->cycles, cpu);
+}
+
 int ww_host_dispatch(WwHost* host, u32 address) {
     if (host == NULL)
         return 0;
@@ -624,26 +673,24 @@ int ww_host_dispatch(WwHost* host, u32 address) {
         ww_host_fail(host, "dispatch requires a loaded module", address, cpu->pc);
         return 0;
     }
-    if (address >= WW05_EXTERNAL_VECTOR && address < WW05_EXTERNAL_VECTOR + WW05_EXTERNAL_VECTOR_BYTES &&
+    const WwObservedVector* vector = observed_vector(address);
+    if (vector != NULL &&
         !module_contains_address(host->module, address) &&
         !module_contains_address(host->module, canonical_dispatch_address(cpu, address))) {
-        if ((address & 3u) != 0u || cpu->pc != address || cpu->exception != 0u ||
-            (cpu->msr & (PPC_MSR_EE | PPC_MSR_PR | PPC_MSR_IR | PPC_MSR_DR | PPC_MSR_LE)) != 0u ||
-            cpu->ram == NULL || cpu->ram_size < WW05_EXTERNAL_VECTOR + WW05_EXTERNAL_VECTOR_BYTES ||
-            memcmp(cpu->ram + WW05_EXTERNAL_VECTOR, ww05_external_vector_reference, WW05_EXTERNAL_VECTOR_BYTES) != 0) {
-            ww_host_fail(host, "external vector requires the exact observed program and physical exception state", address, cpu->pc);
+        if (cpu->pc != address || cpu->exception != 0u || !observed_vector_matches(cpu, vector)) {
+            ww_host_fail(host, "exception vector requires the exact observed program and physical exception state", address, cpu->pc);
             return 0;
         }
-        if (fprintf(stderr, "[external-vector-dispatch] pc=%08X bytes=%u matched=1\n", address, WW05_EXTERNAL_VECTOR_BYTES) < 0) {
-            ww_host_fail(host, "external vector dispatch log write failed", address, cpu->pc);
+        if (fprintf(stderr, "[exception-vector-dispatch] vector=%08X pc=%08X bytes=%u matched=1\n", vector->address, address, WW05_EXTERNAL_VECTOR_BYTES) < 0) {
+            ww_host_fail(host, "exception vector dispatch log write failed", address, cpu->pc);
             return -1;
         }
         if (cpu->cycle_budget <= 0 || cpu->downcount <= -cpu->cycle_budget)
             return 1;
-        func_00000500(cpu);
-        if (fprintf(stderr, "[external-vector-return] input=%08X pc=%08X srr0=%08X srr1=%08X msr=%08X downcount=%lld\n",
+        vector->dispatch(cpu);
+        if (fprintf(stderr, "[exception-vector-return] input=%08X pc=%08X srr0=%08X srr1=%08X msr=%08X downcount=%lld\n",
                     address, cpu->pc, cpu->srr0, cpu->srr1, cpu->msr, (long long)cpu->downcount) < 0) {
-            ww_host_fail(host, "external vector return log write failed", address, cpu->pc);
+            ww_host_fail(host, "exception vector return log write failed", address, cpu->pc);
             return -1;
         }
         return 1;

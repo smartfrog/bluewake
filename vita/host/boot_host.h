@@ -68,6 +68,7 @@ bool ww_host_load(WwHost* host, const StaticRecompModuleDesc* module,
 bool ww_host_edge(void* user, CPUState* cpu, u32 address);
 bool ww_host_resume_exception(WwHost* host);
 int ww_host_dispatch(WwHost* host, u32 address);
+u64 ww_host_end_dispatch(WwHost* host);
 void ww_host_fail(WwHost* host, const char* error, u32 address, u32 pc);
 
 #endif

@@ -162,7 +162,7 @@ int fixture_run(int argc, char** argv) {
                 break;
             }
         }
-        bluewake_cycle_domain_end_turn(&host->cycles, &host->cpu);
+        ww_host_end_dispatch(host);
         ++turns;
         if (trace_dispatch)
             error |= fprintf(stderr, "[dispatch] stage=return turn=%llu pc=%08X cycles=%llu exception=%08X\n",

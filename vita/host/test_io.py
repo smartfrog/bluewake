@@ -68,8 +68,11 @@ class MainIoTest(unittest.TestCase):
             if interrupt == 'decrementer':
                 self.assertIn('[decrementer] stage=delivered vector=00000900', result.stderr.decode())
             if interrupt == 'vector' and not failure:
-                self.assertIn('[external-vector-dispatch] pc=00000500 bytes=152 matched=1', result.stderr.decode())
-                self.assertIn('[external-vector-return] input=00000510 pc=80001004', result.stderr.decode())
+                self.assertIn('[exception-vector-dispatch] vector=00000500 pc=00000500 bytes=152 matched=1', result.stderr.decode())
+                self.assertIn('[exception-vector-return] input=00000510 pc=80001004', result.stderr.decode())
+            if interrupt == 'fp-vector' and not failure:
+                self.assertIn('[fp-exception-resume] vector=00000800 matched=1 srr0=80001004', result.stderr.decode())
+                self.assertIn('[exception-vector-return] input=00000810 pc=80001004', result.stderr.decode())
             if interrupt == 'unsupported' and not failure:
                 log = result.stderr.decode()
                 self.assertIn('[exception] bits=00000001 pc=00000500 srr0=80001004', log)
@@ -135,6 +138,23 @@ class MainIoTest(unittest.TestCase):
 
     def test_generated_vector_return_log_failure_cannot_publish_a_closed_verdict(self):
         status, report = self.run_fixture(interrupt='vector', failure='external-return-log')
+        self.assertNotEqual(status, 0)
+        self.assertIsNone(report)
+
+    def test_real_lazy_fp_exception_runs_the_verified_fp_vector_without_eager_fp_or_numeric_changes(self):
+        status, report = self.run_fixture(interrupt='fp-vector')
+        self.assertEqual(status, 0)
+        self.assertIn('cycles=41\n', report)
+        self.assertTrue(report.endswith('END frontier=PASS live=0 rendered=0\n'))
+
+    def test_fp_exception_handoff_log_failure_cannot_publish_a_successful_guest_verdict(self):
+        status, report = self.run_fixture(interrupt='fp-vector', failure='fp-resume-log')
+        self.assertNotEqual(status, 0)
+        self.assertIn('STOP reason=FP exception handoff log write failed', report)
+        self.assertTrue(report.endswith('END frontier=FAIL live=0 rendered=0\n'))
+
+    def test_fp_vector_dispatch_log_failure_cannot_publish_a_closed_verdict(self):
+        status, report = self.run_fixture(interrupt='fp-vector', failure='external-dispatch-log')
         self.assertNotEqual(status, 0)
         self.assertIsNone(report)
 

@@ -13,11 +13,11 @@ from vector_fixture import external_vector_fixture
 sys.path.insert(0, str(test_host.ROOT / 'scripts/vita/ww05'))
 
 
-def synthetic_lineage():
+def synthetic_lineage(exception_number=4):
     source = bytearray([0xA5] * 152)
     struct.pack_into('>I', source, 104, 0x38600000)
     observed = bytearray(source)
-    struct.pack_into('>I', observed, 104, 0x38600004)
+    struct.pack_into('>I', observed, 104, 0x38600000 | exception_number)
     dol = bytearray(256) + source
     for offset, value in ((0, 256), (0x48, 0x80301D8C), (0x90, 152)):
         struct.pack_into('>I', dol, offset, value)
@@ -125,11 +125,14 @@ class ExternalVectorGeneratorTest(unittest.TestCase):
     def setUpClass(cls):
         test_host.StartupHostTest.setUpClass()
 
-    def emit(self, code):
+    def emit(self, code, vector=None):
         with tempfile.TemporaryDirectory(dir=test_host.OUT, prefix='vector-emit-') as directory:
             path = Path(directory) / 'synthetic.bin'
             path.write_bytes(code)
-            return subprocess.run([str(test_host.OUT / 'vector-generator/ww_vector_emit'), str(path)],
+            command = [str(test_host.OUT / 'vector-generator/ww_vector_emit'), str(path)]
+            if vector is not None:
+                command.append(vector)
+            return subprocess.run(command,
                                   capture_output=True, text=True)
 
     def test_pinned_emitter_generates_the_physical_vector_and_its_exact_reference(self):
@@ -148,6 +151,53 @@ class ExternalVectorGeneratorTest(unittest.TestCase):
         result = self.emit(external_vector_fixture() + b'\0')
         self.assertNotEqual(result.returncode, 0)
         self.assertEqual(result.stdout, '')
+
+    def test_pinned_emitter_uses_the_fp_unavailable_physical_vector_when_requested(self):
+        result = self.emit(external_vector_fixture(7), '00000800')
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn('void func_00000800(CPUState* ctx)', result.stdout)
+        self.assertIn('const u8 ww05_fp_vector_reference[152]', result.stdout)
+
+    def test_unobserved_vector_base_is_refused_before_emission(self):
+        result = self.emit(external_vector_fixture(), '00000700')
+        self.assertNotEqual(result.returncode, 0)
+        self.assertEqual(result.stdout, '')
+
+
+class FpVectorInputTest(unittest.TestCase):
+    def test_only_the_observed_exception_seven_patch_is_accepted(self):
+        import external_vector
+        dol, source, observed = synthetic_lineage(7)
+        with patch.object(external_vector, 'TEMPLATE_SHA256', hashlib.sha256(source).hexdigest()), \
+             patch.object(external_vector, 'FP_OBSERVED_SHA256', hashlib.sha256(observed).hexdigest()):
+            self.assertEqual(external_vector.extract_fp_vector(dol, observed), observed)
+
+    def test_unknown_fp_vector_is_refused(self):
+        import external_vector
+        dol, _, observed = synthetic_lineage(7)
+        with self.assertRaisesRegex(ValueError, 'identity'):
+            external_vector.extract_fp_vector(dol, observed)
+
+    def test_external_vector_cannot_be_substituted_for_the_fp_vector(self):
+        import external_vector
+        dol, source, observed = synthetic_lineage(4)
+        with patch.object(external_vector, 'TEMPLATE_SHA256', hashlib.sha256(source).hexdigest()), \
+             patch.object(external_vector, 'FP_OBSERVED_SHA256', hashlib.sha256(observed).hexdigest()):
+            with self.assertRaisesRegex(ValueError, 'lineage'):
+                external_vector.extract_fp_vector(dol, observed)
+
+    def test_validated_fp_input_is_emitted_at_its_observed_physical_base(self):
+        import external_vector
+        dol, source, observed = synthetic_lineage(7)
+        with tempfile.TemporaryDirectory(dir='/home/fred/projects/zeldaWWHDRecomp/build-f5', prefix='fp-vector-input-') as directory:
+            output = Path(directory) / 'generated.c'
+            with patch.object(external_vector, 'TEMPLATE_SHA256', hashlib.sha256(source).hexdigest()), \
+                 patch.object(external_vector, 'FP_OBSERVED_SHA256', hashlib.sha256(observed).hexdigest()), \
+                 patch('subprocess.run', return_value=subprocess.CompletedProcess([], 0, b'synthetic generated source')) as run:
+                external_vector.emit_fp_vector(dol, observed, Path('fixture-emitter'), output)
+                run.assert_called_once_with(['fixture-emitter', str(output.with_suffix('.bin')), '00000800'],
+                                            check=True, capture_output=True)
+            self.assertEqual(output.with_suffix('.bin').read_bytes(), observed)
 
 
 class ExternalVectorDispatchTest(unittest.TestCase):
@@ -183,6 +233,20 @@ class ExternalVectorDispatchTest(unittest.TestCase):
 
     def test_one_cycle_deadline_dispatches_resume_the_actual_next_instruction(self):
         self.probe('single-cycle')
+
+
+class FpVectorDispatchTest(ExternalVectorDispatchTest):
+    def probe(self, scenario):
+        subprocess.run([str(test_host.OUT / 'external_vector_probe'), scenario, 'fp'], check=True)
+
+    def test_real_fp_exception_is_consumed_only_after_verifying_the_vector_without_enabling_fp_or_changing_numeric_state(self):
+        self.probe('resume-valid')
+
+    def test_altered_fp_vector_cannot_consume_the_fp_exception(self):
+        self.probe('resume-corrupt')
+
+    def test_another_pending_exception_is_not_cleared_with_fp_unavailable(self):
+        self.probe('resume-other-exception')
 
 if __name__ == '__main__':
     unittest.main()

@@ -337,6 +337,31 @@ int main(int argc, char** argv) {
         host->cpu.instruction_fallback(&host->cpu, 0xFFFFFFFFu, host->cpu.pc);
         assert(host->cpu.pc == 0x80001000u);
         assert(host->error != NULL);
+    } else if (strncmp(argv[1], "fp-credit-", 10u) == 0) {
+        const bool prepaid = strcmp(argv[1], "fp-credit-prepaid") == 0;
+        const bool precise = strcmp(argv[1], "fp-credit-precise") == 0;
+        const bool invalid = strcmp(argv[1], "fp-credit-invalid") == 0;
+        const bool other = strcmp(argv[1], "fp-credit-other") == 0;
+        assert(prepaid || precise || invalid || other);
+        bluewake_cycle_domain_begin_turn(&host->cycles, &host->cpu);
+        bluewake_cycle_domain_prepare_dispatch(&host->cycles, &host->cpu);
+        host->cpu.msr = 0u;
+        assert(!ppc_fp_available(&host->cpu, 0x80001234u));
+        const s64 budget = host->cpu.cycle_budget;
+        host->cpu.downcount = prepaid || other ? -17 : -1;
+        host->cpu.cycle_observation_suffix = precise ? 0u : 16u;
+        if (other)
+            host->cpu.exception = PPC_EXC_PROGRAM;
+        assert(ww_host_end_dispatch(host) == (other ? 17u : 1u));
+        assert(host->cycles.absolute_cycles == (other ? 17u : 1u));
+        assert((host->error != NULL) == invalid);
+        if (invalid)
+            assert(host->error_address == 0x80001234u && host->error_pc == 0x800u);
+        assert(host->cpu.pc == 0x800u && host->cpu.srr0 == 0x80001234u && host->cpu.msr == 0u);
+        assert(host->cpu.cycle_observation_suffix == (other ? 16u : 0u));
+        assert(host->cpu.cycle_budget == budget && host->cpu.downcount == 0);
+        assert(ww_host_end_dispatch(host) == 0u);
+        assert((host->error != NULL) == invalid);
     } else if (strncmp(argv[1], "sprg-state-", 11u) == 0) {
         const u16 spr = (u16)strtoul(argv[1] + 11u, NULL, 10);
         assert(spr == 272u);

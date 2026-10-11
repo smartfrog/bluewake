@@ -127,6 +127,19 @@ static int dispatch(CPUState* cpu, u32 address) {
     }
     const char* interrupt = getenv("WW05_IO_IRQ");
     if (interrupt != NULL && address == 0x80001000u) {
+        if (strcmp(interrupt, "fp-vector") == 0) {
+            memcpy(cpu->ram + WW05_FP_VECTOR, ww05_fp_vector_reference, WW05_EXTERNAL_VECTOR_BYTES);
+            mem_write32(cpu, 0x800000C0u, 0x80002000u);
+            mem_write32(cpu, 0x80003010u, address + 4u);
+            cpu->fpr[0] = 123.25;
+            cpu->ps1[0] = -321.5;
+            cpu->fpscr = 4u;
+            cpu->msr &= ~PPC_MSR_FP;
+            cpu->downcount -= 28;
+            cpu->cycle_observation_suffix = 16u;
+            assert(!ppc_fp_available(cpu, address + 4u));
+            return 1;
+        }
         if (strcmp(interrupt, "unsupported") == 0) {
             for (u32 index = 0u; index < 256u; ++index)
                 cpu->ram[0x500u + index] = (u8)index;
@@ -165,10 +178,13 @@ static int dispatch(CPUState* cpu, u32 address) {
     }
     if (interrupt != NULL) {
         assert(address == 0x80001004u);
-        if (strcmp(interrupt, "vector") == 0) {
-            assert(cpu->gpr[3] == 4u && cpu->gpr[4] == 0x80002000u);
+        if (strcmp(interrupt, "vector") == 0 || strcmp(interrupt, "fp-vector") == 0) {
+            const bool fp = strcmp(interrupt, "fp-vector") == 0;
+            assert(cpu->gpr[3] == (fp ? 7u : 4u) && cpu->gpr[4] == 0x80002000u);
             assert(cpu->msr == (PPC_MSR_IR | PPC_MSR_DR));
             assert(mem_read32(cpu, 0x80002198u) == address);
+            if (fp)
+                assert(cpu->fpr[0] == 123.25 && cpu->ps1[0] == -321.5 && cpu->fpscr == 4u);
         } else {
             assert(cpu->msr & PPC_MSR_EE);
         }
@@ -189,7 +205,8 @@ const StaticRecompModuleDesc* staticrecomp_get_module(void) {
         .cpu_state_size = sizeof(CPUState), .game_id = "GZLE01", .entry_point = 0x80001000u,
         .dispatch = dispatch, .code_ranges = ranges, .num_code_ranges = 3u};
     const char* interrupt = getenv("WW05_IO_IRQ");
-    module.num_code_ranges = interrupt != NULL && strcmp(interrupt, "vector") == 0 ? 2u : 3u;
+    module.num_code_ranges = interrupt != NULL &&
+        (strcmp(interrupt, "vector") == 0 || strcmp(interrupt, "fp-vector") == 0) ? 2u : 3u;
     return &module;
 }
 
@@ -237,8 +254,9 @@ int __wrap_fprintf(FILE* stream, const char* format, ...) {
     if (stream == stderr &&
         ((strncmp(format, "[exception]", 11u) == 0 && failure("external-state-log")) ||
          (strncmp(format, "[exception-vector]", 18u) == 0 && failure("external-vector-log")) ||
-         (strncmp(format, "[external-vector-dispatch]", 26u) == 0 && failure("external-dispatch-log")) ||
-         (strncmp(format, "[external-vector-return]", 24u) == 0 && failure("external-return-log")))) {
+         (strncmp(format, "[exception-vector-dispatch]", 27u) == 0 && failure("external-dispatch-log")) ||
+         (strncmp(format, "[exception-vector-return]", 25u) == 0 && failure("external-return-log")) ||
+         (strncmp(format, "[fp-exception-resume]", 21u) == 0 && failure("fp-resume-log")))) {
         errno = EIO;
         return -1;
     }

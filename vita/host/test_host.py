@@ -25,6 +25,10 @@ class StartupHostTest(unittest.TestCase):
         binary.write_bytes(external_vector_fixture())
         with (OUT / 'ww05_external_vector.c').open('w') as stream:
             subprocess.run([str(generator / 'ww_vector_emit'), str(binary)], check=True, stdout=stream)
+        binary = OUT / 'synthetic-fp-vector.bin'
+        binary.write_bytes(external_vector_fixture(7))
+        with (OUT / 'ww05_fp_vector.c').open('w') as stream:
+            subprocess.run([str(generator / 'ww_vector_emit'), str(binary), '00000800'], check=True, stdout=stream)
         subprocess.run([str(STACK / 'bin/cmake'), '-S', str(ROOT / 'vita/host'), '-B', str(OUT),
                         '-G', 'Ninja', f'-DCMAKE_C_COMPILER={os.environ["CC"]}',
                         f'-DCMAKE_MAKE_PROGRAM={STACK}/bin/ninja',
@@ -59,6 +63,11 @@ class StartupHostTest(unittest.TestCase):
 
     def test_unknown_spr_fails(self):
         subprocess.run([str(OUT / 'host_probe'), 'unknown-spr'], check=True)
+
+    def test_fp_dispatch_credit_refunds_only_valid_prepaid_unexecuted_suffixes(self):
+        for shape in ('prepaid', 'precise', 'invalid', 'other'):
+            with self.subTest(shape=shape):
+                subprocess.run([str(OUT / 'host_probe'), f'fp-credit-{shape}'], check=True)
 
     def test_observed_sprg0_retains_privileged_words_without_creating_time(self):
         subprocess.run([str(OUT / 'host_probe'), 'sprg-state-272'], check=True)

@@ -34,7 +34,8 @@ if(WW05_TESTS_ONLY)
     file(WRITE "${CMAKE_CURRENT_BINARY_DIR}/ww05_dsp_init.h"
         "static const unsigned char ww05_dsp_init_reference[128] = {${synthetic_init_bytes}};\n")
     target_include_directories(ww05_services PRIVATE "${CMAKE_CURRENT_BINARY_DIR}")
-    target_sources(ww05_services PRIVATE "${CMAKE_CURRENT_BINARY_DIR}/ww05_external_vector.c")
+    target_sources(ww05_services PRIVATE "${CMAKE_CURRENT_BINARY_DIR}/ww05_external_vector.c"
+                                       "${CMAKE_CURRENT_BINARY_DIR}/ww05_fp_vector.c")
     add_executable(host_probe host_probe.c)
     target_compile_options(host_probe PRIVATE -UNDEBUG)
     target_link_libraries(host_probe PRIVATE ww05_services)
@@ -70,13 +71,15 @@ else()
         message(FATAL_ERROR "The real game target is Vita-only; host execution is not authorized")
     endif()
     foreach(input "${WW05_IDENTITY_DIR}/ww05_identity.h" "${WW05_IDENTITY_DIR}/ww05_dsp_init.h"
-                  "${WW05_IDENTITY_DIR}/ww05_external_vector.c" "${WW05_DOL}")
+                  "${WW05_IDENTITY_DIR}/ww05_external_vector.c"
+                  "${WW05_IDENTITY_DIR}/ww05_fp_vector.c" "${WW05_DOL}")
         if(NOT EXISTS "${input}")
             message(FATAL_ERROR "Missing verified private input: ${input}")
         endif()
     endforeach()
     target_include_directories(ww05_services PRIVATE "${WW05_IDENTITY_DIR}")
-    target_sources(ww05_services PRIVATE "${WW05_IDENTITY_DIR}/ww05_external_vector.c")
+    target_sources(ww05_services PRIVATE "${WW05_IDENTITY_DIR}/ww05_external_vector.c"
+                                       "${WW05_IDENTITY_DIR}/ww05_fp_vector.c")
     set(BLUEWAKE_STATIC_MODULE ON CACHE BOOL "" FORCE)
     set(COMPOSITE_OPTIMIZATION_LEVEL 1 CACHE STRING "" FORCE)
     add_subdirectory("${BLUEWAKE_ROOT}/cmake/composite" composite)
