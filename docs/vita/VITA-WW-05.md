@@ -230,7 +230,7 @@ a lingering process. Its short red/green loops are in `logs/private-{launch,gues
 The parent-symlink loop reproduced creation outside an owned fake profile, then prevented it with the
 existing no-follow directory-descriptor pattern. No real/shared profile was involved.
 
-The WW05 host suite currently has **105 tests**. Source-bound logs retain exact counts/commands for these,
+The WW05 host suite currently has **125 tests**. Source-bound logs retain exact counts/commands for these,
 native runtime CTest, 71 native FP cases and the eight direct baseline files. Audit, attribution,
 pin/scope/diff and clean-worktree checks accompany delivery. The pre-launch `1ba507c` checkpoint passed
 35 WW05 tests, 177 unchanged tests, 53 direct baseline tests, 71 native FP cases and 3/1/5 runtime/corpus/
@@ -586,3 +586,81 @@ diagnostics, with actual downcount and budget. This brackets the reused cycle-do
 without changing their source, budget or time accounting. `logs/handler-budget-{red,green}.log`
 observes missing diagnostics then passes all 105 host tests, including the native zero-cycle
 fallback continuation. The real RFI and complete GX frontier remain unproven.
+
+Run `eaa4fe4d392140d8a0375caf0ced3123` at `4d1f53500d909298b28b11976e84da73f5230544`
+logged turn-begun/dispatch-ready at `803077D4`, 143,810 cycles, downcount 0 and budget 256.
+Cycle preparation returned correctly. No next dispatch-entry line or closed report appeared;
+both owned phases stopped/reaped at 180 seconds, frontier UNAVAILABLE, process 124/INCOMPLETE.
+Result SHA-256: `111b80013717e896b8215190f0bf778ab3bac572052323589f44c22ddbd78219`;
+log SHA-256: `8c08b4f8d69da60640511ab21af3a4c2ca344ae1e382b12eca3daddd289eed0b`.
+
+A diagnostic retry `f6aceca225014c859c9269b7cc03cd52` used the same immutable source/package
+and fresh isolation. A private observer briefly stopped/detached only verified native threads
+of its own launcher descendant. Direct-child and same-bwrap-isolation probes passed; the
+initial probe mistakenly matched the wrapper's argv as a second child and was retained before
+correcting executable selection. The WW worker was sampled twice in anonymous generated code,
+with native frames through `DynarmicCPU::run`, `ThreadState::run_loop` and `thread_function`.
+This establishes active native JIT execution, not a particular PPC idle loop, DEC wait, saved
+ARM PC, complete handler/RFI or an emulator defect. A later extra capture found the process
+already reaped and acquired nothing. No emulator/backend/source mutation occurred. The private
+observer, argv/source/package identities, register/frame/map snapshots and self-check logs are
+retained. This intrusive diagnostic run is not a performance measurement.
+Its terminal result remains UNAVAILABLE/124/INCOMPLETE; result SHA-256 is
+`2802c65dc8d6558f6ff55d75583f937649528b53e1b3b91a38ab12ce3ee05189`, and native capture SHA-256
+is `877b8c6b6dd8eb3b50768bcb94c6ed3e3bc3fff6cb1ea99c781a284785005a72`.
+
+## Decrementer continuation
+
+The coordinator requested DEC support and testing the idle/timer hypothesis. That hypothesis
+is not yet confirmed: the seven-instruction syscall handler has no DEC read or idle instruction,
+`803077D4` is ORI, and its saved/exception MSR has EE clear. A latched timer cannot interrupt
+that handler until EE is re-enabled. The missing timer delivery is nevertheless a real host
+limitation: expiration previously set a host failure rather than taking vector `00000900`.
+
+The chosen clock remains the existing **12 charged guest core cycles per TB/DEC tick**, not a
+new frequency or host-wall-clock shortcut. The pinned reference's
+`Source/Core/Core/HW/SystemTimers.h:19-42` records core 486 MHz, bus 162 MHz, TB/DEC bus/4 and
+`TIMER_RATIO=12`; `GXRuntime/src/boot.c:16-22,71-72` installs those same core/bus frequencies.
+`PowerPC/PowerPC.cpp:194-195` supplies the deterministic reference DEC seed `FFFFFFFF`.
+These are local implementation/reference-clock evidence, not a newly measured physical clock.
+No network/manual download occurred, and the reference's suggested ratio-8 speed hack is not used.
+
+DEC now runs from that seed on the same fractional clock as TB, wrapping modulo 2^32 even
+after expiration. Crossing zero to `FFFFFFFF` latches a pending exception, not reaching zero;
+large elapsed intervals retain the crossing. A positive-to-negative software write also latches
+it, as in the pinned `Interpreter_SystemRegisters.cpp:438-445`. A positive rewrite is not an
+acknowledgement and cannot discard an existing pending event. Only exception delivery consumes
+the latch. Native SPR privilege gates and actual `mfspr`/`mtspr` fallback instructions are reused.
+
+The reused cycle-domain deadline bounds dispatch at DEC expiry. Completed guest edges flush
+their already executed charges once; SPR/MMIO observations still exclude their unexecuted
+instruction suffix. Credited cycles remain charged against the existing 256-cycle dispatch
+quantum, so edge observations do not perpetually reset its allowance. Zero-charge yields do
+not invent ticks or fast-forward a presumed idle loop. No POW/nap/wall-clock substitute is added.
+
+External PI interrupts retain priority. Pending DEC is delivered only with MSR[EE] set and no
+existing guest exception, through the pinned `ppc_take_exception` helper at vector `00000900`.
+SRR0 is the actual interrupted boundary; SRR1 and exception-mode MSR follow the same OEA helper
+as external interrupts. The local consumed DEC marker is `80`, distinct from the pinned CPU's
+other fault masks. There is no DEC bit in PI or a separate invented MSR enable: the reference's
+`PowerPC_Exceptions.cpp:137-186` uses EE, vectors and external-before-DEC priority directly.
+The guest must execute its installed vector/handler and real RFI; unsupported vector dispatch
+will still fail explicitly. The desktop context-writing/handler shortcut is not adopted.
+
+`[edge-progress]` now samples actual edge PC/cycles/TB/DEC/pending/EE from inside the composite
+dispatch, not just after its return. Narrow handler logs include the same timer state. This
+can distinguish an active inner-dispatch poll from the last outer-turn snapshot; neither native
+JIT activity nor a stale outer log is treated as proof that guest cycles stopped.
+
+The DEC red loop reproduced the missing seed, pending latch, deadline and delivery. The first
+green attempt incorrectly expected zero PI cause; the pinned PI reset cause is instead retained,
+and the corrected test checks that DEC leaves it unchanged. All failed logs remain private.
+`logs/decrementer-green-reference-pi.log` passes 121 tests; sampled edge-state red/green adds
+coverage, and `logs/decrementer-{edge-charge,turn-credit}-red.log` exposes stale-suffix and
+renewed-allowance errors in the first boundary implementation. The corrected final
+`logs/decrementer-boundaries-green.log` passes all **125 tests**, including reset/free running,
+fractional ticks, rollover, software-triggering writes, latch preservation, EE deferral,
+external priority, prior-fault preservation, OEA state/RFI, unchanged PI state, privilege,
+zero-charge behavior, edge credit, deadline/quantum and synthetic main-loop continuation.
+The synthetic vector/RFI fixture is characterization, not real OS-handler evidence. A fresh
+source-bound game trial is still required for the timer hypothesis and GX acceptance.

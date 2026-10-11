@@ -42,8 +42,10 @@ typedef struct WwHost {
     u64 backing_bytes;
     u32 alias_count;
     u64 edges;
+    u64 next_edge_progress;
     bool edge_stopped;
     bool decrementer_valid;
+    bool decrementer_pending;
 } WwHost;
 
 bool ww_host_init(WwHost* host);

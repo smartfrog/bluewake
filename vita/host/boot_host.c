@@ -10,6 +10,9 @@
 
 #define PPC_EXC_EXTERNAL 0x00000040u
 #define PPC_VECTOR_EXTERNAL 0x00500u
+#define PPC_EXC_DECREMENTER 0x00000080u
+#define PPC_VECTOR_DECREMENTER 0x00900u
+#define WW_HOST_CYCLES_PER_TIMEBASE_TICK 12u
 
 void ww_host_fail(WwHost* host, const char* error, u32 address, u32 pc) {
     if (host->error == NULL) {
@@ -35,14 +38,27 @@ static u32 canonical_dispatch_address(const CPUState* cpu, u32 address) {
 static void advance(CPUState* cpu, u64 cycles, void* user) {
     WwHost* host = user;
     const u64 total = cycles + host->clock_remainder;
-    const u64 ticks = total / 12u;
-    host->clock_remainder = (u32)(total % 12u);
+    const u64 ticks = total / WW_HOST_CYCLES_PER_TIMEBASE_TICK;
+    host->clock_remainder = (u32)(total % WW_HOST_CYCLES_PER_TIMEBASE_TICK);
     cpu->timebase += ticks;
     if (host->decrementer_valid) {
         if (ticks > host->decrementer)
-            ww_host_fail(host, "decrementer interrupt delivery unsupported before GX", 22u, cpu->pc);
+            host->decrementer_pending = true;
         host->decrementer -= (u32)ticks;
     }
+}
+
+static u64 deadline(const CPUState* cpu, void* user) {
+    const WwHost* host = user;
+    if (cpu->exception == 0u && (cpu->msr & PPC_MSR_EE) && host->decrementer_pending)
+        return 1u;
+    const u64 expiry = host->decrementer_valid ?
+        ((u64)host->decrementer + 1u) * WW_HOST_CYCLES_PER_TIMEBASE_TICK - host->clock_remainder : UINT64_MAX;
+    if (host->cycles.dispatch_cycles == 0u)
+        return expiry;
+    const u64 remaining = host->cycles.dispatch_cycles < (u64)host->cycles.cap ?
+        (u64)host->cycles.cap - host->cycles.dispatch_cycles : 1u;
+    return expiry < remaining ? expiry : remaining;
 }
 
 static void observe(CPUState* cpu) {
@@ -73,8 +89,11 @@ static void spr_write(CPUState* cpu, u16 spr, u32 value, u32 cia) {
         bluewake_cycle_domain_write_timebase(&host->cycles, cpu, spr, value);
     } else if (spr == 22u) {
         observe(cpu);
+        if ((host->decrementer & 0x80000000u) == 0u && (value & 0x80000000u) != 0u)
+            host->decrementer_pending = true;
         host->decrementer = value;
         host->decrementer_valid = true;
+        bluewake_cycle_domain_rebudget(&host->cycles, cpu);
     } else if (spr == 1008u) {
         host->hid0 = value;
     } else if (spr == 1017u) {
@@ -319,17 +338,38 @@ bool ww_host_edge(void* user, CPUState* cpu, u32 address) {
         host->edge_stopped = true;
         return true;
     }
+    // Composite edges follow completed blocks; only in-block observations exclude an instruction suffix.
+    bluewake_cycle_domain_flush(&host->cycles, cpu);
     refresh(host);
-    if (cpu->exception == 0u && (cpu->msr & PPC_MSR_EE) &&
-        dol_interrupts_external_pending(&host->interrupts)) {
-        bluewake_cycle_domain_flush(&host->cycles, cpu);
-        if (host->error != NULL) {
+    if (host->cycles.absolute_cycles >= host->next_edge_progress || (host->edges & 0xFFFFu) == 0u) {
+        if (fprintf(stderr, "[edge-progress] edges=%llu cycles=%llu pc=%08X tb=%llu dec=%08X pending=%u ee=%u downcount=%lld budget=%lld\n",
+                    (unsigned long long)host->edges, (unsigned long long)host->cycles.absolute_cycles,
+                    address, (unsigned long long)cpu->timebase, host->decrementer,
+                    host->decrementer_pending, (cpu->msr & PPC_MSR_EE) != 0u,
+                    (long long)cpu->downcount, (long long)cpu->cycle_budget) < 0) {
+            ww_host_fail(host, "edge progress log write failed", address, cpu->pc);
             host->edge_stopped = true;
             return true;
         }
-        ppc_take_exception(cpu, PPC_EXC_EXTERNAL, PPC_VECTOR_EXTERNAL, address, 0u);
-        cpu->exception &= ~PPC_EXC_EXTERNAL;
-        return true;
+        host->next_edge_progress = host->cycles.absolute_cycles + 65536u;
+    }
+    if (cpu->exception == 0u && (cpu->msr & PPC_MSR_EE)) {
+        const bool external = dol_interrupts_external_pending(&host->interrupts);
+        if (external || host->decrementer_pending) {
+            const u32 exception = external ? PPC_EXC_EXTERNAL : PPC_EXC_DECREMENTER;
+            const u32 vector = external ? PPC_VECTOR_EXTERNAL : PPC_VECTOR_DECREMENTER;
+            ppc_take_exception(cpu, exception, vector, address, 0u);
+            cpu->exception &= ~exception;
+            if (!external) {
+                host->decrementer_pending = false;
+                if (fprintf(stderr, "[decrementer] stage=delivered vector=%08X srr0=%08X srr1=%08X dec=%08X tb=%llu\n",
+                            cpu->pc, cpu->srr0, cpu->srr1, host->decrementer,
+                            (unsigned long long)cpu->timebase) < 0)
+                    ww_host_fail(host, "decrementer delivery log write failed", 22u, cpu->pc);
+            }
+            bluewake_cycle_domain_rebudget(&host->cycles, cpu);
+            return true;
+        }
     }
     if (bluewake_edge_maybe_intercept(address)) {
         ww_host_fail(host, "desktop interception unsupported; guest not skipped", address, cpu->pc);
@@ -395,7 +435,9 @@ bool ww_host_init(WwHost* host) {
     host->cpu.cache_control = cache_control;
     host->cpu.instruction_fallback = fallback;
     host->cpu.host_call = host_call;
-    bluewake_cycle_domain_init(&host->cycles, 256, advance, NULL, host);
+    host->decrementer = UINT32_MAX;
+    host->decrementer_valid = true;
+    bluewake_cycle_domain_init(&host->cycles, 256, advance, deadline, host);
     dol_interrupts_init(&host->interrupts);
     dol_di_init(&host->di);
     dol_di_set_command_callback(&host->di, di_command, host);

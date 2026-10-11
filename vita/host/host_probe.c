@@ -58,6 +58,162 @@ static void exi_sram_command(WwHost* host, u32 command) {
     host->cpu.external_write(&host->cpu, DOL_EXI_BASE + DOL_EXI_CONTROL_OFF, 0x35u, 4u);
 }
 
+static void charge_cycles(WwHost* host, u64 cycles) {
+    assert(cycles <= INT64_MAX);
+    bluewake_cycle_domain_begin_turn(&host->cycles, &host->cpu);
+    bluewake_cycle_domain_prepare_dispatch(&host->cycles, &host->cpu);
+    host->cpu.downcount = -(s64)cycles;
+    bluewake_cycle_domain_end_turn(&host->cycles, &host->cpu);
+}
+
+static void expect_decrementer_delivery(WwHost* host) {
+    const u32 pc = host->cpu.pc;
+    const u32 msr = host->cpu.msr;
+    assert(ww_host_edge(host, &host->cpu, pc));
+    assert(host->error == NULL && !host->edge_stopped);
+    assert(host->cpu.pc == 0x900u);
+    assert(host->cpu.srr0 == pc);
+    assert(host->cpu.srr1 == (msr & PPC_MSR_RFI_MASK));
+    assert(!(host->cpu.msr & PPC_MSR_EE));
+    assert(host->cpu.exception == 0u && !host->decrementer_pending);
+}
+
+static void probe_decrementer(WwHost* host, const char* scenario) {
+    CPUState* cpu = &host->cpu;
+    cpu->pc = 0x80001000u;
+    if (strcmp(scenario, "dec-reset") == 0) {
+        assert(ppc_mfspr(cpu, 22u, cpu->pc) == UINT32_MAX);
+        charge_cycles(host, 12u);
+        assert(ppc_mfspr(cpu, 22u, cpu->pc) == UINT32_MAX - 1u);
+        assert(cpu->timebase == 1u && !host->decrementer_pending);
+    } else if (strcmp(scenario, "dec-fallback") == 0) {
+        cpu->gpr[3] = 7u;
+        ppc_fallback_instruction(cpu, 0x7C7603A6u, cpu->pc);
+        assert(cpu->pc == 0x80001004u);
+        charge_cycles(host, 12u);
+        ppc_fallback_instruction(cpu, 0x7C7602A6u, cpu->pc);
+        assert(cpu->gpr[3] == 6u && cpu->pc == 0x80001008u);
+    } else if (strcmp(scenario, "dec-fractional") == 0) {
+        ppc_mtspr(cpu, 22u, 2u, cpu->pc);
+        charge_cycles(host, 5u);
+        charge_cycles(host, 6u);
+        assert(ppc_mfspr(cpu, 22u, cpu->pc) == 2u && cpu->timebase == 0u);
+        charge_cycles(host, 1u);
+        assert(ppc_mfspr(cpu, 22u, cpu->pc) == 1u && cpu->timebase == 1u);
+    } else if (strcmp(scenario, "dec-threshold") == 0) {
+        ppc_mtspr(cpu, 22u, 1u, cpu->pc);
+        charge_cycles(host, 12u);
+        assert(ppc_mfspr(cpu, 22u, cpu->pc) == 0u && !host->decrementer_pending);
+        charge_cycles(host, 12u);
+        assert(ppc_mfspr(cpu, 22u, cpu->pc) == UINT32_MAX && host->decrementer_pending);
+        assert(cpu->exception == 0u);
+    } else if (strcmp(scenario, "dec-wrap") == 0) {
+        ppc_mtspr(cpu, 22u, 5u, cpu->pc);
+        charge_cycles(host, ((1ull << 32u) + 7u) * 12u);
+        assert(ppc_mfspr(cpu, 22u, cpu->pc) == UINT32_MAX - 1u);
+        assert(cpu->timebase == (1ull << 32u) + 7u && host->decrementer_pending);
+    } else if (strcmp(scenario, "dec-negative-write") == 0) {
+        ppc_mtspr(cpu, 22u, 0u, cpu->pc);
+        ppc_mtspr(cpu, 22u, 0x80000000u, cpu->pc);
+        assert(host->decrementer_pending && cpu->exception == 0u);
+    } else if (strcmp(scenario, "dec-negative-rewrite") == 0) {
+        ppc_mtspr(cpu, 22u, UINT32_MAX, cpu->pc);
+        ppc_mtspr(cpu, 22u, 0x80000000u, cpu->pc);
+        assert(!host->decrementer_pending && cpu->exception == 0u);
+    } else if (strcmp(scenario, "dec-positive-rewrite") == 0) {
+        ppc_mtspr(cpu, 22u, 0u, cpu->pc);
+        charge_cycles(host, 12u);
+        ppc_mtspr(cpu, 22u, 100u, cpu->pc);
+        assert(host->decrementer_pending && host->decrementer == 100u);
+    } else if (strcmp(scenario, "dec-deadline") == 0) {
+        ppc_mtspr(cpu, 22u, 2u, cpu->pc);
+        charge_cycles(host, 5u);
+        bluewake_cycle_domain_begin_turn(&host->cycles, cpu);
+        bluewake_cycle_domain_prepare_dispatch(&host->cycles, cpu);
+        assert(cpu->cycle_budget == 31 && cpu->cycle_deadline_active);
+        cpu->downcount = -31;
+        bluewake_cycle_domain_end_turn(&host->cycles, cpu);
+        assert(host->decrementer_pending && cpu->timebase == 3u);
+    } else if (strcmp(scenario, "dec-disabled") == 0) {
+        ppc_mtspr(cpu, 22u, 0u, cpu->pc);
+        charge_cycles(host, 12u);
+        assert(!ww_host_edge(host, cpu, cpu->pc));
+        assert(cpu->pc == 0x80001000u && host->decrementer_pending);
+        cpu->msr |= PPC_MSR_EE;
+        expect_decrementer_delivery(host);
+    } else if (strcmp(scenario, "dec-edge-charge") == 0) {
+        ppc_mtspr(cpu, 22u, 9u, cpu->pc);
+        cpu->msr = PPC_MSR_EE;
+        cpu->downcount = -120;
+        cpu->cycle_observation_suffix = 24u;
+        expect_decrementer_delivery(host);
+        assert(cpu->timebase == 10u && host->cycles.absolute_cycles == 120u);
+        assert(bluewake_cycle_domain_end_turn(&host->cycles, cpu) == 0u);
+    } else if (strcmp(scenario, "dec-turn-credit") == 0) {
+        ppc_mtspr(cpu, 22u, 1000u, cpu->pc);
+        bluewake_cycle_domain_begin_turn(&host->cycles, cpu);
+        bluewake_cycle_domain_prepare_dispatch(&host->cycles, cpu);
+        cpu->downcount = -120;
+        assert(!ww_host_edge(host, cpu, cpu->pc));
+        assert(host->cycles.dispatch_cycles == 120u && cpu->downcount == 0);
+        assert(cpu->cycle_budget == 136);
+        assert(bluewake_cycle_domain_end_turn(&host->cycles, cpu) == 0u);
+    } else if (strcmp(scenario, "dec-rfi") == 0) {
+        const u32 msr = PPC_MSR_EE | PPC_MSR_FP | PPC_MSR_IR | PPC_MSR_DR | PPC_MSR_RI;
+        const u32 pi_cause = host->interrupts.pi_cause;
+        ppc_mtspr(cpu, 22u, 0u, cpu->pc);
+        charge_cycles(host, 12u);
+        cpu->msr = msr;
+        expect_decrementer_delivery(host);
+        assert(host->interrupts.pi_cause == pi_cause && host->interrupts.pi_mask == 0u);
+        assert(cpu->msr == 0u);
+        ppc_rfi(cpu, 0x80000940u);
+        assert(cpu->pc == 0x80001000u && cpu->msr == msr);
+        assert(!ww_host_edge(host, cpu, cpu->pc));
+    } else if (strcmp(scenario, "dec-external-priority") == 0) {
+        ppc_mtspr(cpu, 22u, 0u, cpu->pc);
+        charge_cycles(host, 12u);
+        cpu->external_write(cpu, DOL_PI_INTERRUPT_MASK, DOL_PI_CAUSE_SI, 4u);
+        cpu->external_write(cpu, DOL_SI_BASE + DOL_SI_COMCSR_OFF, 0xC0010301u, 4u);
+        cpu->msr = PPC_MSR_EE;
+        assert(ww_host_edge(host, cpu, cpu->pc));
+        assert(cpu->pc == 0x500u && host->decrementer_pending);
+        cpu->external_write(cpu, DOL_SI_BASE + DOL_SI_COMCSR_OFF, 0xC0010300u, 4u);
+        ppc_rfi(cpu, 0x80000540u);
+        expect_decrementer_delivery(host);
+    } else if (strcmp(scenario, "dec-prior-fault") == 0) {
+        ppc_mtspr(cpu, 22u, 0u, cpu->pc);
+        charge_cycles(host, 12u);
+        cpu->msr = PPC_MSR_EE;
+        cpu->exception = PPC_EXC_PROGRAM;
+        assert(!ww_host_edge(host, cpu, cpu->pc));
+        assert(cpu->pc == 0x80001000u && cpu->exception == PPC_EXC_PROGRAM);
+        assert(host->decrementer_pending);
+    } else if (strcmp(scenario, "dec-zero-charge") == 0) {
+        ppc_mtspr(cpu, 22u, 0u, cpu->pc);
+        cpu->msr = PPC_MSR_EE;
+        for (u32 index = 0u; index < 16u; ++index) {
+            charge_cycles(host, 0u);
+            assert(!ww_host_edge(host, cpu, cpu->pc));
+        }
+        assert(cpu->timebase == 0u && host->decrementer == 0u && !host->decrementer_pending);
+    } else if (strcmp(scenario, "dec-read-privilege") == 0) {
+        cpu->msr = PPC_MSR_PR;
+        ppc_mfspr(cpu, 22u, cpu->pc);
+        assert(cpu->exception == PPC_EXC_PROGRAM);
+        assert(cpu->program_exception == PPC_PROGRAM_PRIV);
+    } else if (strcmp(scenario, "dec-write-privilege") == 0) {
+        cpu->msr = PPC_MSR_PR;
+        ppc_mtspr(cpu, 22u, 7u, cpu->pc);
+        assert(cpu->exception == PPC_EXC_PROGRAM);
+        assert(cpu->program_exception == PPC_PROGRAM_PRIV);
+        assert(host->decrementer == UINT32_MAX);
+    } else {
+        assert(!"unknown decrementer scenario");
+    }
+    assert(host->error == NULL);
+}
+
 int main(int argc, char** argv) {
     assert(argc == 2);
     WwHost* host = calloc(1u, sizeof(*host));
@@ -118,6 +274,8 @@ int main(int argc, char** argv) {
         assert(host->cpu.exception & PPC_EXC_PROGRAM);
         host->cpu.msr &= ~PPC_MSR_PR;
         assert(ppc_mfspr(&host->cpu, 1017u, 0x803014ECu) == 0u);
+    } else if (strncmp(argv[1], "dec-", 4u) == 0) {
+        probe_decrementer(host, argv[1]);
     } else if (strcmp(argv[1], "clock") == 0) {
         bluewake_cycle_domain_begin_turn(&host->cycles, &host->cpu);
         bluewake_cycle_domain_prepare_dispatch(&host->cycles, &host->cpu);

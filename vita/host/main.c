@@ -21,10 +21,12 @@
 static bool log_handler_boundary(const WwHost* host, const char* stage) {
     if (host->cpu.pc < 0x803077D0u || host->cpu.pc >= 0x803077ECu)
         return false;
-    return fprintf(stderr, "[handler-boundary] stage=%s pc=%08X cycles=%llu exception=%08X msr=%08X hid0=%08X downcount=%lld budget=%lld\n",
+    return fprintf(stderr, "[handler-boundary] stage=%s pc=%08X cycles=%llu exception=%08X msr=%08X hid0=%08X downcount=%lld budget=%lld dec=%08X pending=%u tb=%llu\n",
                    stage, host->cpu.pc, (unsigned long long)host->cycles.absolute_cycles,
                    host->cpu.exception, host->cpu.msr, host->hid0,
-                   (long long)host->cpu.downcount, (long long)host->cpu.cycle_budget) < 0;
+                   (long long)host->cpu.downcount, (long long)host->cpu.cycle_budget,
+                   host->decrementer, host->decrementer_pending,
+                   (unsigned long long)host->cpu.timebase) < 0;
 }
 
 int fixture_run(int argc, char** argv) {

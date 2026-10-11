@@ -56,6 +56,8 @@ class MainIoTest(unittest.TestCase):
                 log = result.stderr.decode()
                 self.assertIn('[exception] bits=00000008 pc=00000C00 srr0=80001004', log)
                 self.assertIn('[exception-vector] address=00000C00', log)
+            if interrupt == 'decrementer':
+                self.assertIn('[decrementer] stage=delivered vector=00000900', result.stderr.decode())
             return result.returncode, report
 
     def test_synthetic_host_fixture_publishes_closed_report(self):
@@ -77,6 +79,12 @@ class MainIoTest(unittest.TestCase):
         self.assertNotEqual(status, 0)
         self.assertIn('STOP reason=unhandled guest exception address=00000008', report)
         self.assertNotIn('FP defect', report)
+
+    def test_synthetic_decrementer_handler_and_rfi_resume_the_main_dispatch_loop(self):
+        status, report = self.run_fixture(interrupt='decrementer')
+        self.assertEqual(status, 0)
+        self.assertIn('pc=80001004', report)
+        self.assertTrue(report.endswith('END frontier=PASS live=0 rendered=0\n'))
 
     def test_byte_identical_copied_syscall_handler_executes_before_rfi(self):
         status, report = self.run_fixture(syscall='valid')

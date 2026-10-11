@@ -56,8 +56,12 @@ static int dispatch(CPUState* cpu, u32 address) {
     }
     const char* interrupt = getenv("WW05_IO_IRQ");
     if (interrupt != NULL && address == 0x80001000u) {
-        cpu->external_write(cpu, DOL_PI_INTERRUPT_MASK, DOL_PI_CAUSE_SI, 4u);
-        cpu->external_write(cpu, DOL_SI_BASE + DOL_SI_COMCSR_OFF, 0xC0010301u, 4u);
+        if (strcmp(interrupt, "decrementer") == 0)
+            ppc_mtspr(cpu, 22u, 0u, address);
+        else {
+            cpu->external_write(cpu, DOL_PI_INTERRUPT_MASK, DOL_PI_CAUSE_SI, 4u);
+            cpu->external_write(cpu, DOL_SI_BASE + DOL_SI_COMCSR_OFF, 0xC0010301u, 4u);
+        }
         cpu->msr |= PPC_MSR_EE;
         cpu->pc = address + 4u;
         cpu->downcount -= 12;
@@ -65,10 +69,11 @@ static int dispatch(CPUState* cpu, u32 address) {
             assert(edge(edge_user, cpu, cpu->pc));
         return 1;
     }
-    if (interrupt != NULL && address == 0x500u) {
+    if (interrupt != NULL && (address == 0x500u || address == 0x900u)) {
         assert(cpu->srr0 == 0x80001004u);
         assert(!(cpu->msr & PPC_MSR_EE));
-        cpu->external_write(cpu, DOL_SI_BASE + DOL_SI_COMCSR_OFF, 0xC0010300u, 4u);
+        if (address == 0x500u)
+            cpu->external_write(cpu, DOL_SI_BASE + DOL_SI_COMCSR_OFF, 0xC0010300u, 4u);
         ppc_rfi(cpu, address);
         cpu->downcount -= 12;
         return 1;

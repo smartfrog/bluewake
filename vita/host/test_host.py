@@ -47,6 +47,65 @@ class StartupHostTest(unittest.TestCase):
     def test_timebase_uses_shared_cycle_domain(self):
         subprocess.run([str(OUT / 'host_probe'), 'clock'], check=True)
 
+    def test_decrementer_starts_at_the_reference_reset_value_and_counts(self):
+        subprocess.run([str(OUT / 'host_probe'), 'dec-reset'], check=True)
+
+    def test_decrementer_spr_instruction_fallbacks_read_and_write_the_counter(self):
+        subprocess.run([str(OUT / 'host_probe'), 'dec-fallback'], check=True)
+
+    def test_decrementer_and_timebase_share_fractional_clock_ticks(self):
+        subprocess.run([str(OUT / 'host_probe'), 'dec-fractional'], check=True)
+
+    def test_decrementer_expires_on_zero_to_negative_not_arrival_at_zero(self):
+        subprocess.run([str(OUT / 'host_probe'), 'dec-threshold'], check=True)
+
+    def test_decrementer_wraps_and_latches_across_more_than_one_counter_period(self):
+        subprocess.run([str(OUT / 'host_probe'), 'dec-wrap'], check=True)
+
+    def test_decrementer_positive_to_negative_write_latches_an_exception(self):
+        subprocess.run([str(OUT / 'host_probe'), 'dec-negative-write'], check=True)
+
+    def test_decrementer_negative_to_negative_write_does_not_latch_an_exception(self):
+        subprocess.run([str(OUT / 'host_probe'), 'dec-negative-rewrite'], check=True)
+
+    def test_rewriting_decrementer_does_not_acknowledge_an_existing_exception(self):
+        subprocess.run([str(OUT / 'host_probe'), 'dec-positive-rewrite'], check=True)
+
+    def test_decrementer_deadline_limits_dispatch_without_changing_the_clock_rate(self):
+        subprocess.run([str(OUT / 'host_probe'), 'dec-deadline'], check=True)
+
+    def test_decrementer_exception_is_deferred_until_msr_ee_is_enabled(self):
+        subprocess.run([str(OUT / 'host_probe'), 'dec-disabled'], check=True)
+
+    def test_completed_edge_credits_all_executed_cycles_without_a_stale_observation_suffix(self):
+        subprocess.run([str(OUT / 'host_probe'), 'dec-edge-charge'], check=True)
+
+    def test_edge_clock_observation_preserves_the_remaining_dispatch_quantum(self):
+        subprocess.run([str(OUT / 'host_probe'), 'dec-turn-credit'], check=True)
+
+    def test_edge_progress_exposes_timer_state_without_an_outer_dispatch_return(self):
+        result = subprocess.run([str(OUT / 'host_probe'), 'dec-disabled'], check=True, capture_output=True, text=True)
+        self.assertIn('[edge-progress]', result.stderr)
+        self.assertIn('dec=FFFFFFFF pending=1 ee=0', result.stderr)
+
+    def test_decrementer_vector_and_rfi_do_not_depend_on_a_pi_cause_or_mask(self):
+        subprocess.run([str(OUT / 'host_probe'), 'dec-rfi'], check=True)
+
+    def test_external_interrupt_has_priority_over_a_pending_decrementer(self):
+        subprocess.run([str(OUT / 'host_probe'), 'dec-external-priority'], check=True)
+
+    def test_decrementer_does_not_overwrite_an_existing_guest_exception(self):
+        subprocess.run([str(OUT / 'host_probe'), 'dec-prior-fault'], check=True)
+
+    def test_zero_charge_yields_do_not_invent_timer_ticks(self):
+        subprocess.run([str(OUT / 'host_probe'), 'dec-zero-charge'], check=True)
+
+    def test_decrementer_read_requires_supervisor_privilege(self):
+        subprocess.run([str(OUT / 'host_probe'), 'dec-read-privilege'], check=True)
+
+    def test_decrementer_write_requires_supervisor_privilege(self):
+        subprocess.run([str(OUT / 'host_probe'), 'dec-write-privilege'], check=True)
+
     def test_fifo_frontier_stops_at_edge(self):
         subprocess.run([str(OUT / 'host_probe'), 'frontier'], check=True)
 
