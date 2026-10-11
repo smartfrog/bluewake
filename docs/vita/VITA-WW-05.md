@@ -230,7 +230,7 @@ a lingering process. Its short red/green loops are in `logs/private-{launch,gues
 The parent-symlink loop reproduced creation outside an owned fake profile, then prevented it with the
 existing no-follow directory-descriptor pattern. No real/shared profile was involved.
 
-The WW05 host suite currently has **104 tests**. Source-bound logs retain exact counts/commands for these,
+The WW05 host suite currently has **105 tests**. Source-bound logs retain exact counts/commands for these,
 native runtime CTest, 71 native FP cases and the eight direct baseline files. Audit, attribution,
 pin/scope/diff and clean-worktree checks accompany delivery. The pre-launch `1ba507c` checkpoint passed
 35 WW05 tests, 177 unchanged tests, 53 direct baseline tests, 71 native FP cases and 3/1/5 runtime/corpus/
@@ -551,3 +551,23 @@ exceptions, pins or emulator behavior change. `logs/handoff-guard-red.log` and
 `logs/handoff-window-{red,green}.log` retain the reproduced missing diagnostics and all 104
 passing host tests. The window fixture charges synthetic time explicitly and cannot certify
 game behavior. A fresh source-bound private run is required to locate the missing return.
+
+Run `0d838dc7bfd447799464c6179e3a4d3c` at `034ce5736feeb0e611666378ac0b24ef61809094`
+reached turn 541, 143,810 cycles, SYSTEM_CALL vector `00000C00`, SRR0 `80303104`, SRR1
+`00000002`. The copied-handler guard returned matched=1. Turn 542 entered the compiled
+handler `803077D0` and returned at `803077D4`, exception=0, with unchanged absolute cycles.
+This proves the real `mfhid0` fallback ran and advanced PC, not that the rest of the handler or
+RFI ran. No next dispatch-entry line appeared. Frontier is still UNAVAILABLE and both owned
+processes stopped/reaped at 180 seconds with 124/INCOMPLETE. Result SHA-256 is
+`3c795f64007bb60f9deff1a62c3389bc1433223e06720ecd00b5e651fd023e47`; log SHA-256 is
+`791613da69a429a67d2ad2c579939c37282a72305345bd5634ae8922e2d1e7b4`.
+
+Native disassembly of this immutable artifact is retained in
+`logs/handoff-window-main-disassembly.log`; no invalid native branch or source-level loop
+has been established. The next checkpoint traces returned/checked/edge-enter/edge-return only
+while PC is inside the verified handler. Its synthetic main fixture now characterizes a real
+SPR-fallback callback yielding at the first instruction without charged cycles, followed by a
+separate synthetic RFI dispatch. The native fixture continues correctly; it does not reproduce
+the emulator hang or execute the full real handler. The red loop observes missing boundary
+diagnostics, not a native zero-cycle semantic failure. All 105 host tests pass in
+`logs/handler-boundary-green.log`. No guest/runtime/generator/emulator semantics changed.

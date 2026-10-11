@@ -48,6 +48,9 @@ class MainIoTest(unittest.TestCase):
             if syscall == 'trace-window':
                 self.assertIn('[dispatch] stage=enter turn=2 pc=803077D0', result.stderr.decode())
                 self.assertIn('[dispatch] stage=return turn=2 pc=80001004', result.stderr.decode())
+            if syscall == 'yielding-handler':
+                for stage in ('returned', 'checked', 'edge-enter', 'edge-return'):
+                    self.assertIn(f'[handler-boundary] stage={stage} pc=803077D4', result.stderr.decode())
             if exception:
                 log = result.stderr.decode()
                 self.assertIn('[exception] bits=00000008 pc=00000C00 srr0=80001004', log)
@@ -88,6 +91,12 @@ class MainIoTest(unittest.TestCase):
     def test_dispatch_window_identifies_the_compiled_handler_entry_and_return(self):
         status, report = self.run_fixture(syscall='trace-window')
         self.assertEqual(status, 0)
+        self.assertIn('END frontier=PASS', report)
+
+    def test_zero_cycle_spr_fallback_yield_continues_to_the_next_handler_instruction(self):
+        status, report = self.run_fixture(syscall='yielding-handler')
+        self.assertEqual(status, 0)
+        self.assertIn('pc=80001004', report)
         self.assertIn('END frontier=PASS', report)
 
     def test_changed_syscall_source_is_not_executed_using_stale_compiled_code(self):

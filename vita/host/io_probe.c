@@ -32,6 +32,18 @@ static int dispatch(CPUState* cpu, u32 address) {
         assert(cpu->srr0 == 0x80001004u);
         assert(cpu->srr1 == PPC_MSR_RI);
         assert(cpu->msr == 0u);
+        if (strcmp(syscall, "yielding-handler") == 0) {
+            ppc_fallback_instruction(cpu, 0x7D30FAA6u, address);
+            assert(cpu->pc == address + 4u);
+            return 1;
+        }
+        ppc_rfi(cpu, address);
+        cpu->downcount -= 12;
+        return 1;
+    }
+    if (syscall != NULL && strcmp(syscall, "yielding-handler") == 0 && address == 0x803077D4u) {
+        assert(cpu->exception == 0u && cpu->msr == 0u);
+        assert(cpu->srr0 == 0x80001004u && cpu->srr1 == PPC_MSR_RI);
         ppc_rfi(cpu, address);
         cpu->downcount -= 12;
         return 1;

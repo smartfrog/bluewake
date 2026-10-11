@@ -18,6 +18,14 @@
 #error "Real game execution is Vita-only and requires separate authorization"
 #endif
 
+static bool log_handler_boundary(const WwHost* host, const char* stage) {
+    if (host->cpu.pc < 0x803077D0u || host->cpu.pc >= 0x803077ECu)
+        return false;
+    return fprintf(stderr, "[handler-boundary] stage=%s pc=%08X cycles=%llu exception=%08X msr=%08X hid0=%08X\n",
+                   stage, host->cpu.pc, (unsigned long long)host->cycles.absolute_cycles,
+                   host->cpu.exception, host->cpu.msr, host->hid0) < 0;
+}
+
 int fixture_run(int argc, char** argv) {
     (void)argv;
     char token[33], source[41], package[65];
@@ -78,7 +86,16 @@ int fixture_run(int argc, char** argv) {
     u64 turns = 0u;
     u64 next_progress = 0u;
     while (loaded && !error && host->error == NULL && !host->edge_stopped) {
-        if (ww_host_edge(host, &host->cpu, host->cpu.pc)) {
+        if (log_handler_boundary(host, "edge-enter")) {
+            error = 1;
+            break;
+        }
+        const bool intercepted = ww_host_edge(host, &host->cpu, host->cpu.pc);
+        if (log_handler_boundary(host, "edge-return")) {
+            error = 1;
+            break;
+        }
+        if (intercepted) {
             if (host->edge_stopped)
                 break;
             continue;
@@ -100,6 +117,7 @@ int fixture_run(int argc, char** argv) {
             error |= fprintf(stderr, "[dispatch] stage=return turn=%llu pc=%08X cycles=%llu exception=%08X\n",
                              (unsigned long long)turns, host->cpu.pc,
                              (unsigned long long)host->cycles.absolute_cycles, host->cpu.exception) < 0;
+        error |= log_handler_boundary(host, "returned");
         if (host->cycles.absolute_cycles >= next_progress || (turns & 0xFFFFu) == 0u) {
             error |= fprintf(stderr, "[progress] turns=%llu edges=%llu cycles=%llu pc=%08X msr=%08X srr0=%08X exception=%08X\n",
                              (unsigned long long)turns, (unsigned long long)host->edges,
@@ -126,6 +144,7 @@ int fixture_run(int argc, char** argv) {
         }
         if (host->frontier.complete && !host->edge_stopped)
             ww_host_edge(host, &host->cpu, host->cpu.pc);
+        error |= log_handler_boundary(host, "checked");
     }
     bluewake_set_edge_service(NULL, NULL);
     error |= fprintf(report, "STATE entry=%08X pc=%08X sp=%08X edges=%llu exception=%08X cycles=%llu\n",
