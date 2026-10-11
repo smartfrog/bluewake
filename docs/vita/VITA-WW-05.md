@@ -571,3 +571,18 @@ separate synthetic RFI dispatch. The native fixture continues correctly; it does
 the emulator hang or execute the full real handler. The red loop observes missing boundary
 diagnostics, not a native zero-cycle semantic failure. All 105 host tests pass in
 `logs/handler-boundary-green.log`. No guest/runtime/generator/emulator semantics changed.
+
+Run `661b56e2c16d451caa20f68665552a67` at `edf1b0dbffa592fd5a28f4323ec026fb85eefcf0`
+again executed the handler's first fallback. Its returned/checked/edge-enter/edge-return lines
+all show PC `803077D4`, 143,810 cycles, MSR=0, exception=0 and HID0 `0000CA00`. The outer
+edge returned; it did not block in the interrupt refresh or interception lookup. No following
+dispatch entry appeared. Both phases timed out/stopped/reaped, frontier UNAVAILABLE,
+process 124/INCOMPLETE. Result SHA-256 is
+`ed4cdddcc3373970d01f297b22d6be940a2947449f0977647588a8cb87aa8101`; log SHA-256 is
+`509b63fa6df9a8189aa8d481cf946fff14882ed570c825367ba556aadeecb5af`.
+
+The next checkpoint adds turn-enter/turn-begun/dispatch-ready to the same narrow handler
+diagnostics, with actual downcount and budget. This brackets the reused cycle-domain calls
+without changing their source, budget or time accounting. `logs/handler-budget-{red,green}.log`
+observes missing diagnostics then passes all 105 host tests, including the native zero-cycle
+fallback continuation. The real RFI and complete GX frontier remain unproven.

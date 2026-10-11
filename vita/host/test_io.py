@@ -49,7 +49,8 @@ class MainIoTest(unittest.TestCase):
                 self.assertIn('[dispatch] stage=enter turn=2 pc=803077D0', result.stderr.decode())
                 self.assertIn('[dispatch] stage=return turn=2 pc=80001004', result.stderr.decode())
             if syscall == 'yielding-handler':
-                for stage in ('returned', 'checked', 'edge-enter', 'edge-return'):
+                for stage in ('returned', 'checked', 'edge-enter', 'edge-return', 'turn-enter',
+                              'turn-begun', 'dispatch-ready'):
                     self.assertIn(f'[handler-boundary] stage={stage} pc=803077D4', result.stderr.decode())
             if exception:
                 log = result.stderr.decode()

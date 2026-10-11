@@ -21,9 +21,10 @@
 static bool log_handler_boundary(const WwHost* host, const char* stage) {
     if (host->cpu.pc < 0x803077D0u || host->cpu.pc >= 0x803077ECu)
         return false;
-    return fprintf(stderr, "[handler-boundary] stage=%s pc=%08X cycles=%llu exception=%08X msr=%08X hid0=%08X\n",
+    return fprintf(stderr, "[handler-boundary] stage=%s pc=%08X cycles=%llu exception=%08X msr=%08X hid0=%08X downcount=%lld budget=%lld\n",
                    stage, host->cpu.pc, (unsigned long long)host->cycles.absolute_cycles,
-                   host->cpu.exception, host->cpu.msr, host->hid0) < 0;
+                   host->cpu.exception, host->cpu.msr, host->hid0,
+                   (long long)host->cpu.downcount, (long long)host->cpu.cycle_budget) < 0;
 }
 
 int fixture_run(int argc, char** argv) {
@@ -100,8 +101,20 @@ int fixture_run(int argc, char** argv) {
                 break;
             continue;
         }
+        if (log_handler_boundary(host, "turn-enter")) {
+            error = 1;
+            break;
+        }
         bluewake_cycle_domain_begin_turn(&host->cycles, &host->cpu);
+        if (log_handler_boundary(host, "turn-begun")) {
+            error = 1;
+            break;
+        }
         bluewake_cycle_domain_prepare_dispatch(&host->cycles, &host->cpu);
+        if (log_handler_boundary(host, "dispatch-ready")) {
+            error = 1;
+            break;
+        }
         const bool trace_dispatch = host->cycles.absolute_cycles >= 131072u &&
                                     host->cycles.absolute_cycles < 196608u && turns < 1024u;
         if (trace_dispatch && fprintf(stderr, "[dispatch] stage=enter turn=%llu pc=%08X cycles=%llu\n",
