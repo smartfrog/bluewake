@@ -2412,3 +2412,50 @@ not authentic game/GX acceptance. The next clean build/trial checks real continu
 Strict GX validation, pins, ABI, `BlueWakeRelData` and static archive are unchanged. Dynamic
 FIFO pointers, DVD/CMake, Windows ARAM and final counts remain tracked. Physical Vita,
 Windows CI, rendering, FPS, runtime REL and actual guest disc/file access remain unverified.
+
+## Real CP read-pointer-high continuation and observed high-watermark high
+
+Run `87fbfb99f347450f948346e3da9380f5`, source
+`1eff8b556029f151dd964d0a308d6e7168478f02`, passes CP read-pointer high and reaches
+**`CC00002A = 0009`**, halfword PC **`80321028`**. The closed guest **FAIL** has
+**64,248 edges, 7,140,042 cycles**, zero FIFO bytes, `GX_FRONTIER complete=0`, `live=0`,
+`rendered=0`. Build status zero in 124.821 s; archive unchanged. Both owned phases timeout
+at **600 s**, TERM/exit -15, `waited=true`; process **124/INCOMPLETE** remains distinct.
+`logs/cp-fifo-rptr-high-evidence-1eff8b5.json` independently checks plan/request/result
+source and package-hash equality, request-bound report, runtime VPK hash and closed LER.
+SHA-256:
+
+- VPK: `010672250a0e6be1120b76fa079217bacedfac745e873df6a7337f5ce5b185eb`;
+- report: `d3849eaab0bb57e94e0f9f179390a17b55eca9fd92848977a821ce50e9cb4bc0`;
+- result: `0a9058609cf6f7bf624993cb7f5c576186515a1edfc113af2c8a12fea9dd1260`;
+- log: `e53c5af186f23140c23810e0dd46dfbad9baa2e8b8124233c165a3eafcb1c81d`;
+- LER: `169da8b7a0e0d3067e984a0701130bdf9916ce1c09ccf887d9004ec9f413b079`.
+
+Exact clean-source checks for `1eff8b5` pass **320 host tests, 177 ARMv7 tests**, audit,
+attribution and runtime **CTest 3/3** on Linux AArch64 (`logs/checkpoint-1eff8b5.json`).
+The maintainer reports the preceding 62-commit milestone integrated into trunk at `f0a82ed`,
+with green suites. This is reported integration context, not an independently fetched trunk
+check; the private branch continues unchanged and no network/push/shared-profile access occurs.
+The existing DVD integration-before-disc-access and Windows verification debts remain open.
+
+The pin identifies **CP_FIFO_HI_WATERMARK_HI** at offset `2A`
+(`VideoCommon/CommandProcessor.h:69`) and directly maps CPHiWatermark's high halfword with
+the GameCube **`03FF`** mask (`CommandProcessor.cpp:131,147,159-163`). WW05 adds only
+this observed high address to the existing high-watermark selector. The shared halfword
+path assembles **`0009C000`**, preserving the opposite half; low/high reads remain
+**`C000` / `0009`**. No overflow status, IRQ, GP enable, FIFO bytes, consumption, pointer
+advancement, parser input or timer is invented.
+
+`logs/cp-fifo-high-watermark-high-red.log` reproduces high-watermark-high refusal and both
+assembly-order failures while preceding register parameters pass.
+`logs/cp-fifo-high-watermark-high-host-green.log` passes **320 host tests** on Linux AArch64,
+extending the shared descriptor and explicit parameterizations for reset, actual guest
+halfword hooks, masks, invalid-width retained-state preservation, independent values and
+credited-cycle/spent-quantum behavior. The existing halfword assembly test now includes the
+high watermark in both write orders and masked overwrites. Synthetic main-loop PASS is not
+authentic game/GX acceptance. The next clean source-bound build/trial checks continuation.
+
+Other unobserved CP accesses/enables and FIFO reset remain refused. Strict GX validation,
+pins, ABI, `BlueWakeRelData` and static archive are unchanged. Dynamic FIFO pointers,
+DVD/CMake, Windows ARAM and final counts remain tracked. Physical Vita, Windows CI,
+rendering, FPS, runtime REL and actual guest disc/file access remain unverified.

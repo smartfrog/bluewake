@@ -12,7 +12,8 @@ FIFO_REGISTERS = {'pi-fifo-base': 4, 'pi-fifo-end': 4, 'pi-fifo-wptr': 4,
                   'cp-fifo-base-low': 2, 'cp-fifo-end-low': 2, 'cp-fifo-wptr-low': 2,
                   'cp-fifo-rptr-low': 2, 'cp-fifo-high-watermark-low': 2,
                   'cp-fifo-low-watermark-low': 2, 'cp-fifo-base-high': 2, 'cp-fifo-end-high': 2,
-                  'cp-fifo-wptr-high': 2, 'cp-fifo-rptr-high': 2}
+                  'cp-fifo-wptr-high': 2, 'cp-fifo-rptr-high': 2,
+                  'cp-fifo-high-watermark-high': 2}
 
 
 class StartupHostTest(unittest.TestCase):
@@ -86,7 +87,7 @@ class StartupHostTest(unittest.TestCase):
         subprocess.run([str(OUT / 'host_probe'), 'pi-fifo-independent'], check=True)
 
     def test_cp_fifo_halfword_updates_preserve_the_other_half_in_either_write_order(self):
-        for register in ('base', 'end', 'wptr', 'rptr'):
+        for register in ('base', 'end', 'wptr', 'rptr', 'hiwater'):
             for order in ('low-first', 'high-first'):
                 with self.subTest(register=register, order=order):
                     subprocess.run([str(OUT / 'host_probe'), f'cp-{register}-halves-{order}'], check=True)

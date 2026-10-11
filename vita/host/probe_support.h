@@ -28,6 +28,7 @@ static inline const WwFifoProbeRegister* ww_probe_fifo_register(const char* name
         {"cp-fifo-rptr-low", 0xCC000038u, 0x80320FB0u, 0x9F60u, 0xFFE0u, 2u},
         {"cp-fifo-rptr-high", 0xCC00003Au, 0x80321018u, 0x42u, 0x03FFu, 2u},
         {"cp-fifo-high-watermark-low", 0xCC000028u, 0x80320FBCu, 0xC000u, 0xFFE0u, 2u},
+        {"cp-fifo-high-watermark-high", 0xCC00002Au, 0x80321028u, 9u, 0x03FFu, 2u},
         {"cp-fifo-low-watermark-low", 0xCC00002Cu, 0x80320FC8u, 0u, 0xFFE0u, 2u},
     };
     for (size_t index = 0u; index < sizeof(registers) / sizeof(registers[0]); ++index) {
