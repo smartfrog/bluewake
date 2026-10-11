@@ -2085,3 +2085,46 @@ Unobserved CP accesses/enables and reset remain refused. Strict GX validation, p
 the clean source-bound build/trial. DVD/CMake and Windows ARAM verification remain tracked;
 physical Vita, Windows CI, rendering, FPS, runtime REL and actual guest disc/file access
 remain unverified.
+
+## Real CP write-pointer-low continuation and observed read-pointer low
+
+Run `4ae5704882bb4a519ca717c42c141e7f`, source
+`1fc10014e7649f9f00f275cf9b414b99b0737fa4`, passes CP write-pointer low and reaches
+**`CC000038 = 9F60`**, halfword PC **`80320FB0`**. Its closed guest **FAIL** has
+**64,248 edges, 7,140,042 cycles**, zero FIFO bytes, `GX_FRONTIER complete=0`, `live=0`,
+`rendered=0`. Build status zero in 124.883 s; archive unchanged. Both owned phases timeout
+at 60 s, TERM/exit -15, `waited=true`; process **124/INCOMPLETE** remains distinct.
+`logs/cp-fifo-wptr-low-evidence-1fc1001.json` independently rechecks bindings and LER.
+SHA-256:
+
+- VPK: `0db448e3a851afcd76d0e025fc42326efdd69564b56ad76c666afeb237b63388`;
+- report: `923a3644fa544213b97f6a912f8e4597b0d09ccf77762e7db6f750a3f8141d31`;
+- result: `525edfaa0645e04f3ed36710b4a6326168b0e5fefb45aee3635fd2c3eeb409df`;
+- log: `e53c5af186f23140c23810e0dd46dfbad9baa2e8b8124233c165a3eafcb1c81d`;
+- LER: `169da8b7a0e0d3067e984a0701130bdf9916ce1c09ccf887d9004ec9f413b079`.
+
+The pin identifies **CP_FIFO_READ_POINTER_LO** at offset `38`
+(`VideoCommon/CommandProcessor.h:76`), resets CPReadPointer to zero
+(`CommandProcessor.cpp:35-48`) and writes its low halfword with **`FFE0`** (`298-302`).
+Without a GPU thread the low read directly uses CPReadPointer; with a GPU thread it uses
+SafeCPReadPointer. WW05 has no GPU worker and cannot enable GP reads/link, so its bounded
+configuration route uses the sourced single-threaded form, not a fake safe-pointer snapshot
+or asynchronous completion. The observed `9F60` stays `9F60` in independent CP read-pointer
+storage, selected through the existing scalar width/mask/cycle path.
+
+This does not consume FIFO data, advance either pointer, reset gather state, feed the GX
+parser or raise an interrupt. Genuine consumption and safe-pointer synchronization remain
+part of the later FIFO backend; they must not be inferred from this stored configuration.
+Unobserved high-pointer accesses/enables and FIFO resets remain explicit failures.
+
+`logs/cp-fifo-rptr-low-red.log` reproduces read-pointer-low refusal while preceding register
+parameters pass. `logs/cp-fifo-rptr-low-host-green.log` passes **318 host tests** on Linux
+AArch64. The shared test descriptor/parameterizations now cover this reset/store/mask,
+normal guest halfword memory hook, invalid-width retained-state preservation, independent
+CP/PI values and credited-cycle/spent-quantum behavior. Main-loop fixture PASS is synthetic,
+not real game/GX evidence. Clean source-bound compilation and authentic continuation are next.
+
+Strict GX validation, pins, ABI, `BlueWakeRelData` and static archive are unchanged. The
+documented dynamic-pointer, DVD/CMake, Windows ARAM and final-test-count debts remain open.
+Physical Vita, Windows CI, rendering, FPS, runtime REL and actual guest disc/file access
+remain unverified.
