@@ -35,6 +35,23 @@ class SyntheticImageTest(unittest.TestCase):
         self.assertEqual(image[0x500], make_synthetic_image.pattern(0x500))
         self.assertEqual(image[0x5FF], make_synthetic_image.pattern(0x5FF))
 
+    def test_large_image_adds_the_big_file_entry(self):
+        large = 0x2000
+        image = make_synthetic_image.build_image(large_bytes=large)
+        self.assertEqual(len(image), make_synthetic_image.LARGE_OFFSET + large)
+        fst_off, fst_size = struct.unpack_from('>II', image, 0x424)
+        self.assertEqual(fst_off, make_synthetic_image.FST_OFFSET)
+        entries = struct.unpack_from('>I', image, fst_off + 8)[0]
+        self.assertEqual(entries, len(make_synthetic_image.ENTRIES) + 1)
+        last = fst_off + (entries - 1) * 12
+        word0, start, length = struct.unpack_from('>III', image, last)
+        self.assertEqual(start, make_synthetic_image.LARGE_OFFSET)
+        self.assertEqual(length, large)
+        strings = image[fst_off + entries * 12:fst_off + fst_size]
+        name_end = strings.index(b'\0', word0 & 0xFFFFFF)
+        self.assertEqual(strings[word0 & 0xFFFFFF:name_end], b'big.bin')
+        self.assertEqual(image[start], make_synthetic_image.pattern(start))
+
     def test_write_image_creates_a_file(self):
         with tempfile.TemporaryDirectory(dir=OUT) as directory:
             path = make_synthetic_image.write_image(Path(directory) / 'image.iso')

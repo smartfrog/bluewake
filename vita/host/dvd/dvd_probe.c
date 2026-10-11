@@ -5,13 +5,15 @@
 // exercised on an in-memory image (no file, no game data).
 // real: the same pinned layer on a real image, cross-checked against an
 // independent FST oracle and direct reads, then measured for throughput.
-//
-// Prints one machine-readable line per check for test_dvd_probe.py.
+// Real mode writes its report both to stdout and to the given report path,
+// so the Vita3K guest can deliver evidence through ux0 when console output
+// is not captured.
 #include "dvd_fake_backend.h"
 
 #include "core/cpu.h"
 #include "gxruntime/dvd.h"
 
+#include <stdarg.h>
 #include <stdbool.h>
 #include <stdint.h>
 #include <stdio.h>
@@ -35,11 +37,26 @@
 #define REAL_READ_CAP_BYTES (256ull * 1024ull * 1024ull)
 
 static const char* g_label = "PROBE";
+static FILE* g_report;
 static unsigned failures;
+
+static void out(const char* format, ...) {
+    va_list arguments;
+    va_start(arguments, format);
+    vprintf(format, arguments);
+    va_end(arguments);
+    if (g_report != NULL) {
+        va_start(arguments, format);
+        vfprintf(g_report, format, arguments);
+        va_end(arguments);
+    }
+}
 
 static void check(bool condition, const char* message) {
     if (!condition) {
         fprintf(stderr, "%s FAIL: %s\n", g_label, message);
+        if (g_report != NULL)
+            fprintf(g_report, "%s FAIL: %s\n", g_label, message);
         failures++;
     }
 }
@@ -126,8 +143,8 @@ static const GuestCase GUEST_CASES[] = {
 static int run_synthetic(void) {
     g_label = "SYNTHETIC";
     build_synthetic_image();
-    printf("backend %s\n", bw_dvd_io_backend_name());
-    printf("image bytes=%u fst=%u entries=5\n", SYNTH_IMAGE_BYTES, SYNTH_FST_OFFSET);
+    out("backend %s\n", bw_dvd_io_backend_name());
+    out("image bytes=%u fst=%u entries=5\n", SYNTH_IMAGE_BYTES, SYNTH_FST_OFFSET);
     if (!dvd_open_image("fake.iso")) {
         fprintf(stderr, "SYNTHETIC FAIL: pinned dvd_open_image rejected the image\n");
         return 1;
@@ -145,8 +162,8 @@ static int run_synthetic(void) {
         uint32_t start = 0u;
         uint32_t length = 0u;
         const bool is_file = entry >= 0 && dvd_entry_info(entry, &start, &length);
-        printf("resolve %s %d %u %u\n", test->path, (int)entry, is_file ? start : 0u,
-               is_file ? length : 0u);
+        out("resolve %s %d %u %u\n", test->path, (int)entry, is_file ? start : 0u,
+            is_file ? length : 0u);
         check((int)entry == test->entry, "entry mismatch");
         if (test->entry >= 0 && is_file)
             check(start == test->start && length == test->length, "file info mismatch");
@@ -160,7 +177,7 @@ static int run_synthetic(void) {
         const bool ok = memcmp(cpu->ram + ram_offset, bw_fake_image.bytes + test->start,
                                test->length) == 0;
         const char* label = test->guest >= GC_RAM_UNCACHED ? "guest-uncached" : "guest";
-        printf("%s %s %s %u\n", label, test->path, ok ? "ok" : "mismatch", test->length);
+        out("%s %s %s %u\n", label, test->path, ok ? "ok" : "mismatch", test->length);
         check(ok, "guest copy differs from the image");
     }
 
@@ -174,16 +191,16 @@ static int run_synthetic(void) {
     u32 zeros = 0u;
     while (prefix + zeros < SYNTH_PAST_EOF_LENGTH && dst[prefix + zeros] == 0u)
         zeros++;
-    printf("guest-past-eof prefix=%u zeros=%u\n", prefix, zeros);
+    out("guest-past-eof prefix=%u zeros=%u\n", prefix, zeros);
     check(prefix == SYNTH_IMAGE_BYTES - SYNTH_PAST_EOF_DISC, "past-EOF prefix mismatch");
     check(zeros == SYNTH_PAST_EOF_LENGTH - prefix, "past-EOF zero fill mismatch");
 
     BwDvdIoStats stats;
     bw_dvd_io_stats(&stats);
-    printf("stats total=%llu chunk=%llu staging=%llu\n",
-           (unsigned long long)stats.total_read_bytes,
-           (unsigned long long)stats.max_chunk_bytes,
-           (unsigned long long)stats.staging_peak_bytes);
+    out("stats total=%llu chunk=%llu staging=%llu\n",
+        (unsigned long long)stats.total_read_bytes,
+        (unsigned long long)stats.max_chunk_bytes,
+        (unsigned long long)stats.staging_peak_bytes);
     check(stats.staging_peak_bytes == 0u, "staging bytes recorded");
 
     dvd_close_image();
@@ -192,7 +209,7 @@ static int run_synthetic(void) {
     bw_fake_release();
     if (failures != 0u)
         return 1;
-    printf("SYNTHETIC PASS\n");
+    out("SYNTHETIC PASS\n");
     return 0;
 }
 
@@ -361,14 +378,30 @@ static double seconds_between(const struct timespec* start, const struct timespe
 static const char* REAL_PATHS[] = {"framework.str", "RELS.arc", "res/Menu/Menu1.dat",
                                    "res/Msg/bmgres.arc"};
 
-static int run_real(const char* image_path, int extra_count, char** extra_paths) {
+static int finish_real(int status) {
+    if (g_report != NULL) {
+        fflush(g_report);
+        fclose(g_report);
+        g_report = NULL;
+    }
+    fflush(stdout);
+    return status;
+}
+
+static int run_real(const char* image_path, const char* report_path, int extra_count,
+                    char** extra_paths) {
     g_label = "REAL";
+    g_report = fopen(report_path, "wb");
+    if (g_report == NULL) {
+        fprintf(stderr, "REAL FAIL: cannot open the report file: %s\n", report_path);
+        return 2;
+    }
     Oracle oracle;
     if (!oracle_load(image_path, &oracle)) {
         fprintf(stderr, "REAL FAIL: cannot read the image header/FST\n");
         if (!dvd_open_image(image_path))
             fprintf(stderr, "REAL FAIL: pinned dvd_open_image rejected the image\n");
-        return 2;
+        return finish_real(2);
     }
     uint32_t largest_entry = 0u;
     uint32_t largest_start = 0u;
@@ -377,21 +410,22 @@ static int run_real(const char* image_path, int extra_count, char** extra_paths)
     if (!oracle_largest(&oracle, &largest_entry, &largest_start, &largest_length, &largest_name)) {
         fprintf(stderr, "REAL FAIL: the oracle found no file entry\n");
         oracle_release(&oracle);
-        return 2;
+        return finish_real(2);
     }
-    printf("oracle entries=%u files-largest=%s start=%u length=%u\n", oracle.entries, largest_name,
-           largest_start, largest_length);
-    printf("backend %s\n", bw_dvd_io_backend_name());
+    out("oracle entries=%u files-largest=%s start=%u length=%u\n", oracle.entries, largest_name,
+        largest_start, largest_length);
+    out("backend %s\n", bw_dvd_io_backend_name());
     if (!dvd_open_image(image_path)) {
         fprintf(stderr, "REAL FAIL: pinned dvd_open_image rejected the image\n");
         oracle_release(&oracle);
-        return 2;
+        return finish_real(2);
     }
     CPUState* cpu = (CPUState*)calloc(1u, sizeof(CPUState));
     if (cpu == NULL || !cpu_init(cpu)) {
         fprintf(stderr, "REAL FAIL: CPUState allocation failed\n");
         free(cpu);
-        return 2;
+        oracle_release(&oracle);
+        return finish_real(2);
     }
 
     const char** paths = extra_count > 0 ? (const char**)extra_paths : REAL_PATHS;
@@ -400,7 +434,11 @@ static int run_real(const char* image_path, int extra_count, char** extra_paths)
     unsigned char* sample = (unsigned char*)malloc(REAL_SAMPLE_BYTES);
     if (sample == NULL) {
         fprintf(stderr, "REAL FAIL: sample allocation failed\n");
-        return 2;
+        dvd_close_image();
+        cpu_free(cpu);
+        free(cpu);
+        oracle_release(&oracle);
+        return finish_real(2);
     }
     for (int p = 0; p < path_count; ++p) {
         const char* path = paths[p];
@@ -408,8 +446,8 @@ static int run_real(const char* image_path, int extra_count, char** extra_paths)
         uint32_t start = 0u;
         uint32_t length = 0u;
         const bool is_file = entry >= 0 && dvd_entry_info(entry, &start, &length);
-        printf("resolve %s %d %u %u\n", path, (int)entry, is_file ? start : 0u,
-               is_file ? length : 0u);
+        out("resolve %s %d %u %u\n", path, (int)entry, is_file ? start : 0u,
+            is_file ? length : 0u);
         const s32 oracle_entry = oracle_find(&oracle, path);
         bool match = oracle_entry == entry;
         if (match && entry >= 0) {
@@ -419,7 +457,7 @@ static int run_real(const char* image_path, int extra_count, char** extra_paths)
                 match = is_file && oracle_start(&oracle, (uint32_t)entry) == start &&
                         oracle_length(&oracle, (uint32_t)entry) == length;
         }
-        printf("pin-matches-oracle %s %s\n", path, match ? "ok" : "mismatch");
+        out("pin-matches-oracle %s %s\n", path, match ? "ok" : "mismatch");
         check(match, "pin resolution differs from the oracle");
         if (!is_file)
             continue;
@@ -427,7 +465,7 @@ static int run_real(const char* image_path, int extra_count, char** extra_paths)
         dvd_read_to_guest(cpu, GC_RAM_BASE + REAL_GUEST_OFFSET, start, sample_bytes);
         const bool ok = direct_read(&oracle, start, sample, sample_bytes) &&
                         memcmp(cpu->ram + REAL_GUEST_OFFSET, sample, sample_bytes) == 0;
-        printf("guest %s %s %u\n", path, ok ? "ok" : "mismatch", sample_bytes);
+        out("guest %s %s %u\n", path, ok ? "ok" : "mismatch", sample_bytes);
         check(ok, "guest sample differs from the direct read");
     }
 
@@ -438,7 +476,7 @@ static int run_real(const char* image_path, int extra_count, char** extra_paths)
                           tail);
         const bool ok = direct_read(&oracle, tail_offset, sample, tail) &&
                         memcmp(cpu->ram + REAL_GUEST_OFFSET + REAL_SAMPLE_BYTES, sample, tail) == 0;
-        printf("guest-tail %s %s %u\n", largest_name, ok ? "ok" : "mismatch", tail);
+        out("guest-tail %s %s %u\n", largest_name, ok ? "ok" : "mismatch", tail);
         check(ok, "largest-file tail differs from the direct read");
     }
 
@@ -460,16 +498,16 @@ static int run_real(const char* image_path, int extra_count, char** extra_paths)
         }
         clock_gettime(CLOCK_MONOTONIC, &end_time);
         const double seconds = seconds_between(&start_time, &end_time);
-        printf("throughput bytes=%llu seconds=%.3f mib_per_s=%.1f\n", read_bytes, seconds,
-               seconds > 0.0 ? (double)read_bytes / 1048576.0 / seconds : 0.0);
+        out("throughput bytes=%llu seconds=%.3f mib_per_s=%.1f\n", read_bytes, seconds,
+            seconds > 0.0 ? (double)read_bytes / 1048576.0 / seconds : 0.0);
     }
 
     BwDvdIoStats stats;
     bw_dvd_io_stats(&stats);
-    printf("stats total=%llu chunk=%llu staging=%llu\n",
-           (unsigned long long)stats.total_read_bytes,
-           (unsigned long long)stats.max_chunk_bytes,
-           (unsigned long long)stats.staging_peak_bytes);
+    out("stats total=%llu chunk=%llu staging=%llu\n",
+        (unsigned long long)stats.total_read_bytes,
+        (unsigned long long)stats.max_chunk_bytes,
+        (unsigned long long)stats.staging_peak_bytes);
     check(stats.staging_peak_bytes == 0u, "staging bytes recorded");
 
     free(sample);
@@ -478,16 +516,17 @@ static int run_real(const char* image_path, int extra_count, char** extra_paths)
     free(cpu);
     oracle_release(&oracle);
     if (failures != 0u)
-        return 1;
-    printf("REAL PASS\n");
-    return 0;
+        return finish_real(1);
+    out("REAL PASS\n");
+    return finish_real(0);
 }
 
 int main(int argc, char** argv) {
     if (argc == 2 && strcmp(argv[1], "synthetic") == 0)
         return run_synthetic();
-    if (argc >= 3 && strcmp(argv[1], "real") == 0)
-        return run_real(argv[2], argc - 3, argv + 3);
-    fprintf(stderr, "usage: dvd_probe synthetic\n       dvd_probe real <image.iso> [path...]\n");
+    if (argc >= 4 && strcmp(argv[1], "real") == 0)
+        return run_real(argv[2], argv[3], argc - 4, argv + 4);
+    fprintf(stderr, "usage: dvd_probe synthetic\n"
+                    "       dvd_probe real <image.iso> <report-path> [path...]\n");
     return 2;
 }

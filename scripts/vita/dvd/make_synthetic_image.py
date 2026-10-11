@@ -25,28 +25,39 @@ ENTRIES = (
     (14, 0x600, 0x100),
     (24, 0x800, 0x40),
 )
-STRINGS = b"\0boot.bin\0res\0asset.bin\0leaf.bin"
+STRINGS = b"\0boot.bin\0res\0asset.bin\0leaf.bin\0"
+LARGE_OFFSET = 0x1000
 
 
 def pattern(offset):
     return (offset * 7 + 3) & 0xFF
 
 
-def build_image():
-    image = bytearray(pattern(i) for i in range(DISC_SIZE))
+def build_image(large_bytes=0):
+    entries = list(ENTRIES)
+    strings = STRINGS
+    size = DISC_SIZE
+    if large_bytes:
+        # A large file after the FST so the throughput path has real data.
+        strings = strings + b"big.bin\0"
+        entries.append((len(STRINGS), LARGE_OFFSET, large_bytes))
+        entries[0] = (0x01000000, 0, len(entries))
+        size = LARGE_OFFSET + large_bytes
+    cycle = bytes(pattern(i) for i in range(256))
+    image = bytearray((cycle * (size // 256 + 1))[:size])
     struct.pack_into(">I", image, 0x1C, MAGIC)
-    struct.pack_into(">II", image, 0x424, FST_OFFSET, 5 * 12 + len(STRINGS))
-    fst = FST_OFFSET
-    for index, (word0, word1, word2) in enumerate(ENTRIES):
-        struct.pack_into(">III", image, fst + index * 12, word0, word1, word2)
-    image[fst + 5 * 12:fst + 5 * 12 + len(STRINGS)] = STRINGS
+    struct.pack_into(">II", image, 0x424, FST_OFFSET, len(entries) * 12 + len(strings))
+    for index, (word0, word1, word2) in enumerate(entries):
+        struct.pack_into(">III", image, FST_OFFSET + index * 12, word0, word1, word2)
+    start = FST_OFFSET + len(entries) * 12
+    image[start:start + len(strings)] = strings
     return bytes(image)
 
 
-def write_image(path):
+def write_image(path, large_bytes=0):
     path = Path(path)
     path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_bytes(build_image())
+    path.write_bytes(build_image(large_bytes))
     return path
 
 

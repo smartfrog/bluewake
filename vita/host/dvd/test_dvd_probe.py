@@ -88,7 +88,9 @@ class DvdProbeMissingImageTest(unittest.TestCase):
         build()
 
     def test_missing_image_fails_loudly(self):
-        result = subprocess.run([str(OUT / 'dvd_probe'), 'real', '/nonexistent/ww13.iso'],
+        report = OUT / 'missing-report.txt'
+        result = subprocess.run([str(OUT / 'dvd_probe'), 'real', '/nonexistent/ww13.iso',
+                                 str(report)],
                                 capture_output=True, text=True, timeout=30)
         self.assertEqual(result.returncode, 2, result.stdout + result.stderr)
         self.assertIn("no readable GameCube disc image at '/nonexistent/ww13.iso'", result.stderr)
@@ -98,16 +100,25 @@ class DvdProbeMissingImageTest(unittest.TestCase):
 @unittest.skipUnless(ISO.exists(), 'private disc image not available')
 class DvdProbeRealTest(unittest.TestCase):
     report = None
+    report_path = None
 
     @classmethod
     def setUpClass(cls):
         build()
-        cls.report = subprocess.run([str(OUT / 'dvd_probe'), 'real', str(ISO)],
+        cls.report_path = OUT / 'real-report.txt'
+        cls.report = subprocess.run([str(OUT / 'dvd_probe'), 'real', str(ISO),
+                                     str(cls.report_path)],
                                     capture_output=True, text=True, timeout=600)
 
     def test_real_image_passes(self):
         self.assertEqual(self.report.returncode, 0, self.report.stdout + self.report.stderr)
         self.assertIn('REAL PASS', self.report.stdout)
+
+    def test_the_report_file_carries_the_verdict(self):
+        content = self.report_path.read_text()
+        self.assertIn('REAL PASS', content)
+        self.assertIn('throughput bytes=', content)
+        self.assertIn('staging=0', content)
 
     def test_the_posix_transport_is_used(self):
         self.assertIn('backend host-posix', self.report.stdout)

@@ -53,10 +53,13 @@ def measure(iso, probe, out, label, paths):
         raise SystemExit(f'not a file: {iso}')
     out = Path(out)
     out.mkdir(parents=True, exist_ok=True)
-    result = subprocess.run([str(probe), 'real', str(iso), *paths],
+    report_path = out / 'report.txt'
+    result = subprocess.run([str(probe), 'real', str(iso), str(report_path), *paths],
                             capture_output=True, text=True, timeout=600)
-    (out / 'report.txt').write_text(result.stdout)
+    (out / 'stdout.txt').write_text(result.stdout)
     (out / 'stderr.txt').write_text(result.stderr)
+    if not report_path.is_file():
+        raise SystemExit(f"probe wrote no report file: {report_path}")
     values = parse(result.stdout)
     oracle = values['oracle']
     throughput = values['throughput']
@@ -72,6 +75,7 @@ def measure(iso, probe, out, label, paths):
         'probe': {'path': str(probe), 'sha256': sha256(probe),
                   'returncode': result.returncode, 'stdout': result.stdout,
                   'stderr': result.stderr},
+        'report': {'path': str(report_path), 'sha256': sha256(report_path)},
         'parsed': {
             'backend': values['backend'][0],
             'entries': int(oracle[0]),
