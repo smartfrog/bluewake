@@ -33,3 +33,6 @@ target_compile_options(gx_vita_tests PRIVATE -O2 -Wall -Wextra)
 add_executable(gx_cg_tests "${RENDERER_DIR}/gx_cg_tests.cpp")
 target_link_libraries(gx_cg_tests PRIVATE gx_vita GXRuntime::retail_gx_frontend)
 target_compile_options(gx_cg_tests PRIVATE -O2 -Wall -Wextra)
+
+add_executable(png_capture_tests png_capture_tests.c png_capture.c)
+target_compile_options(png_capture_tests PRIVATE -O2 -Wall -Wextra)
