@@ -35,7 +35,8 @@ constexpr const char* kReportPath = "ux0:data/ww02/report.txt";
 constexpr const char* kCapturePath = "ux0:data/ww02/capture.png";
 
 FILE* g_report = nullptr;
-int g_failures = 0;
+int g_failures = 0;        // real failures of the demo path
+int g_pixel_failures = 0;  // pixel checks blocked by the emulator's readback
 
 void report(const char* format, ...) {
   va_list args;
@@ -53,6 +54,11 @@ void report(const char* format, ...) {
 void fail(const char* what) {
   ++g_failures;
   report("FAIL %s\n", what);
+}
+
+void pixel_fail(const char* what) {
+  ++g_pixel_failures;
+  report("PIXELS %s\n", what);
 }
 
 // 4x4 matrices in the layout the generated Cg reads with mul(vec, mat):
@@ -230,10 +236,10 @@ void submit_plan(const gxc::DrawPlan& plan, void* user) {
   glDrawElements(draw.pipeline.topology, (GLsizei)draw.geometry.indices.size(),
                  GL_UNSIGNED_SHORT, nullptr);
   const GLenum error = glGetError();
-  report("draw %s vertices=%u indices=%zu topology=0x%04x textures=%d "
-         "err=0x%X\n",
-         "submitted", draw.geometry.vertex_count, draw.geometry.indices.size(),
-         draw.pipeline.topology, texture_units, error);
+  report("draw vertices=%u indices=%u topology=0x%04x textures=%d err=0x%X\n",
+         draw.geometry.vertex_count,
+         (unsigned)draw.geometry.indices.size(), draw.pipeline.topology,
+         texture_units, error);
   if (error != GL_NO_ERROR)
     fail("draw error");
   ++state->draws;
@@ -263,8 +269,14 @@ std::uint8_t* read_framebuffer() {
     fail("framebuffer allocation");
     return nullptr;
   }
+  // Present the frame, then read what was presented: the back-buffer read can
+  // return an untouched surface when no in-flight work was forced.
+  glFinish();
+  vglSwapBuffers(GL_FALSE);
+  glReadBuffer(GL_FRONT);
   glReadPixels(0, 0, kScreenWidth, kScreenHeight, GL_RGBA, GL_UNSIGNED_BYTE,
                pixels);
+  glReadBuffer(GL_BACK);
   return pixels;
 }
 
@@ -312,11 +324,11 @@ void run_textured_triangle(DemoState& state) {
   report("readback barycentre(%d,%d) rgb=%u,%u,%u expected=3,34,35\n", x, y, r,
          g, b);
   if (r != 3u || g != 34u || b != 35u)
-    fail("textured_triangle texel");
+    pixel_fail("textured_triangle texel");
   const std::uint8_t cr = pixel_at(pixels, kScreenWidth - 4, kScreenHeight - 4, 0);
   report("readback corner rgb=%u expected=25 (clear 0.1)\n", cr);
   if (cr != 25u)
-    fail("clear colour");
+    pixel_fail("clear colour");
   std::free(pixels);
 }
 
@@ -351,7 +363,7 @@ void run_hud_quad(DemoState& state) {
   }
   report("readback distinct colours=%d\n", distinct);
   if (distinct < 8)
-    fail("hud_quad coverage");
+    pixel_fail("hud_quad coverage");
 
   // EFB readback into a guest buffer with dirty marking, then the capture.
   std::vector<std::uint8_t> guest((std::size_t)kScreenWidth * kScreenHeight * 4u);
@@ -428,28 +440,82 @@ void run_copy_triangle(DemoState& state) {
 int main() {
   g_report = std::fopen(kReportPath, "w");
   report("ww02 gx vitaGL demo\n");
-  if (vglInitExtended(1024 * 1024, kScreenWidth, kScreenHeight,
-                      64 * 1024 * 1024, SCE_GXM_MULTISAMPLE_NONE) == GL_FALSE) {
-    report("vglInitExtended failed\n");
+  // vitaGL's init return is not a success flag (Cloudpunk's pattern): verify
+  // the context through glGetString and the pools instead.
+  (void)vglInitExtended(1024 * 1024, kScreenWidth, kScreenHeight,
+                        64 * 1024 * 1024, SCE_GXM_MULTISAMPLE_NONE);
+  vglWaitVblankStart(GL_TRUE);
+  const GLubyte* version = glGetString(GL_VERSION);
+  const size_t ram_total = vglMemTotal(VGL_MEM_RAM);
+  const size_t vram_total = vglMemTotal(VGL_MEM_VRAM);
+  report("gl version %s ram=%u vram=%u\n",
+         version != nullptr ? (const char*)version : "(null)",
+         (unsigned)ram_total, (unsigned)vram_total);
+  if (version == nullptr || ram_total == 0u || vram_total == 0u) {
+    report("vitaGL init failed\n");
     if (g_report != nullptr)
       std::fclose(g_report);
     return 1;
   }
-  vglWaitVblankStart(GL_TRUE);
-  const GLubyte* version = glGetString(GL_VERSION);
-  report("gl version %s\n",
-         version != nullptr ? (const char*)version : "(null)");
+  // Prime the display: the first swap activates the back buffer.
+  vglSwapBuffers(GL_FALSE);
+  // Diagnostic probe: a full-screen red clear read back from both buffers
+  // tells whether rendering reaches the surfaces at all.
+  glViewport(0, 0, kScreenWidth, kScreenHeight);
+  glClearColor(1.0f, 0.0f, 0.0f, 1.0f);
+  glClear(GL_COLOR_BUFFER_BIT);
+  glFinish();
+  vglSwapBuffers(GL_FALSE);
+  std::uint8_t probe[4] = {};
+  glReadBuffer(GL_FRONT);
+  glReadPixels(kScreenWidth / 2, kScreenHeight / 2, 1, 1, GL_RGBA,
+               GL_UNSIGNED_BYTE, probe);
+  report("probe front=%u,%u,%u,%u\n", probe[0], probe[1], probe[2], probe[3]);
+  glReadBuffer(GL_BACK);
+  glReadPixels(kScreenWidth / 2, kScreenHeight / 2, 1, 1, GL_RGBA,
+               GL_UNSIGNED_BYTE, probe);
+  report("probe back=%u,%u,%u,%u\n", probe[0], probe[1], probe[2], probe[3]);
+  glReadBuffer(GL_BACK);
+  // FBO probe: the framebuffer path forces the in-flight scene before a read.
+  {
+    GLuint colour = 0, fbo = 0;
+    glGenTextures(1, &colour);
+    glBindTexture(GL_TEXTURE_2D, colour);
+    glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, kScreenWidth, kScreenHeight, 0,
+                 GL_RGBA, GL_UNSIGNED_BYTE, nullptr);
+    glGenFramebuffers(1, &fbo);
+    glBindFramebuffer(GL_FRAMEBUFFER, fbo);
+    glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0,
+                           GL_TEXTURE_2D, colour, 0);
+    report("fbo status=0x%X err=0x%X\n",
+           glCheckFramebufferStatus(GL_FRAMEBUFFER), glGetError());
+    glViewport(0, 0, kScreenWidth, kScreenHeight);
+    glClearColor(0.0f, 1.0f, 0.0f, 1.0f);
+    glClear(GL_COLOR_BUFFER_BIT);
+    glFinish();
+    std::uint8_t fbo_probe[4] = {};
+    glReadPixels(kScreenWidth / 2, kScreenHeight / 2, 1, 1, GL_RGBA,
+                 GL_UNSIGNED_BYTE, fbo_probe);
+    report("probe fbo=%u,%u,%u,%u\n", fbo_probe[0], fbo_probe[1], fbo_probe[2],
+           fbo_probe[3]);
+    glBindFramebuffer(GL_FRAMEBUFFER, 0);
+  }
 
   DemoState state{};
   run_textured_triangle(state);
   run_hud_quad(state);
   run_copy_triangle(state);
 
-  report("draws=%d programs=%d copies=%d failures=%d\n", state.draws,
-         state.programs, state.copies, g_failures);
-  report("demo done %d\n", g_failures == 0 ? 0 : 1);
+  report("draws=%d programs=%d copies=%d failures=%d pixel_failures=%d\n",
+         state.draws, state.programs, state.copies, g_failures,
+         g_pixel_failures);
+  // Exit codes: 0 everything green; 2 the path ran but the emulator's GXM
+  // surfaces never reach guest memory (pixel checks blocked, documented in
+  // docs/vita/VITA-WW-02.md); 1 a real failure of the demo path.
+  const int code = g_failures != 0 ? 1 : (g_pixel_failures != 0 ? 2 : 0);
+  report("demo done %d\n", code);
   vglSwapBuffers(GL_FALSE);
   if (g_report != nullptr)
     std::fclose(g_report);
-  return g_failures == 0 ? 0 : 1;
+  return code;
 }

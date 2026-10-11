@@ -42,6 +42,40 @@ plug into later. It is not a general GX/Aurora rewrite and not a full renderer.
 - Build: `scripts/vita/gx/build.py` verifies the pinned RecompCore (`ddd031b`,
   pristine) and builds into the ignored `build-f2/ww02`.
 
+## Vita3K demo result (run `a29e7e27`-family, isolated profile)
+
+The Vita fixture (`vita/feasibility/gx/gx_vita_main.cpp`, VPK `ww02_gx_demo`,
+title `BWWG00002`) was built for ARM against the pinned frontend/gxcore and
+submitted through the Cloudpunk stack's no-splash vitaGL. The launcher
+(`scripts/vita/gx/launch.py`) follows the established isolated pattern: fresh
+private profile, staged firmware `vs0/sa0` and `libshacccg.suprx` (local
+system files, never committed), bwrap containment, no network, Wayland socket
+for the GUI (a short window appears while the demo runs).
+
+**What the emulator proved** (report `ux0:data/ww02/report.txt`, collected in
+the run's `evidence/`):
+
+- vitaGL initialises: `OpenGL ES 2.0 VitaGL`, RAM pool 64 MiB, VRAM pool
+  112 MiB. (`vglInitExtended`'s return is not a success flag; the fixture
+  checks `glGetString` and the pools, Cloudpunk's pattern.)
+- `libshacccg.suprx` loads and compiles the generated Cg: three programs
+  (vertex + fragment per scenario), including vitaGL's internal clear shader.
+- Three draws are submitted with no GL error; the EFB copy
+  (`glCopyTexSubImage2D`) runs with no GL error; the readback copies 544 rows
+  into the guest buffer with dirty marking; the PNG capture is written.
+
+**The blocker (emulator-side, documented, not a demo defect):** the rendered
+pixels never reach guest memory on this Vita3K build. A red full-screen clear
+reads back `0,0,0,0` from the back buffer, the front buffer and a complete
+FBO (`glCheckFramebufferStatus` = `0x8CD5`), with no GL error and no
+`sceGxmTransfer` in the log (the log shows only the benign stubs:
+`sceGxmMapFragment/VertexUsseMemory`, `sceGxmSetVisibilityBuffer`,
+`sceGxmVshInitialize`). The emitted `capture.png` is therefore black: it is
+kept as the blocker's evidence, not as a rendered image. Visual validation
+waits for physical hardware (or a Vita3K fix); the demo distinguishes
+`demo done 0` (all green) from `demo done 2` (path ran, pixel checks blocked),
+so a future run on hardware fails loudly if pixels are still wrong.
+
 ## PENDING (explicit, not silently dropped)
 
 | Area | State | Note |
@@ -50,9 +84,9 @@ plug into later. It is not a general GX/Aurora rewrite and not a full renderer.
 | HUD (2D draws) | **delivered (fixture)** | `hud_quad`: four screen-space vertices, two triangles, alpha blend, no depth. |
 | EFB copy → texture | **delivered (host)** | `translate_copy`: destination, format, source rectangle, write masks and the following clear; a display copy is refused with a reason. |
 | EFB readback to guest memory | **delivered (host logic)** | `copy_readback_to_guest`: RGBA8 rows into the guest stride with per-row dirty marking and bounds refusal. The device read (glReadPixels) comes with the Vita3K demo. |
-| Cg program generation | **bounded, delivered** | `vita/renderer/gx_cg.{h,cpp}`: untextured passthrough, textured passthrough, regular TEV combines (Prev/Tex/Raster/Zero/One/Half args, add/subtract, clamp, 1x/2x/4x scale, Regular and Colour texgens). Anything else is refused with a reason. |
-| Vita3K / device run | **PENDING** | No Vita3K run of this path yet; any run must use the isolated private-profile launcher pattern. |
-| Physical console | **PENDING** | No hardware measurement; emulator timings never extrapolate to hardware. |
+| Cg program generation | **bounded, delivered** | `vita/renderer/gx_cg.{h,cpp}`: untextured passthrough, textured passthrough, regular TEV combines (Prev/Tex/Raster/Zero/One/Half args, add/subtract, clamp, 1x/2x/4x scale, Regular and Colour texgens). Anything else is refused with a reason. Compiled by the Vita's Cg runtime in the demo. |
+| Vita3K / device run | **run delivered, pixels blocked** | The demo path runs on Vita3K (init, Cg compile, draws, copy, readback, capture); rendered pixels are not readable from guest memory on this emulator build. See the Vita3K section. |
+| Physical console | **PENDING** | No hardware measurement; emulator timings never extrapolate to hardware. The pixel checks must be re-run on hardware. |
 
 ## Known limits
 

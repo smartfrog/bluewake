@@ -27,6 +27,9 @@ ROOT = Path(__file__).resolve().parents[3]
 DEFAULT_BUILD = Path("/home/fred/projects/zeldaWWHDRecomp/build-f2/ww02")
 DEFAULT_STACK = Path("/home/fred/projects/zeldaWWHDRecomp/build-vita-tools/local-stack")
 CLOUDPUNK_STACK = Path("/home/fred/cloudpunk-vita/tools")
+# Cloudpunk's pinned no-splash vitaGL: the SDK library's startup splashscreen
+# crashes the emulator (SIGSEGV host) before the first draw.
+VITAGL_NO_SPLASH = CLOUDPUNK_STACK / "vita3k/vitagl-source/libvitaGL.a"
 TITLE_ID = "BWWG00002"
 FIRMWARE = Path("data/Vita3K/Vita3K")
 UX0_DATA = FIRMWARE / "ux0/data/ww02"
@@ -34,7 +37,7 @@ WRITABLE_DIRECTORIES = ("home", "config", "cache", "data", "state", "work", "xdg
 PHASE_TIMEOUT = 90.0
 REPORT_PREFIXES = ("ww02 ", "gl version", "scenario ", "draw ", "plan skipped",
                    "program refused", "readback", "capture written", "copy ",
-                   "draws=", "demo done", "FAIL")
+                   "draws=", "demo done", "FAIL", "PIXELS", "probe ", "fbo ")
 
 
 def sha256(path):
@@ -61,6 +64,7 @@ def build_vpk(build):
                     "-B", str(vpk_dir),
                     f"-DCMAKE_TOOLCHAIN_FILE={vitasdk}/share/vita.toolchain.cmake",
                     f"-DRECOMPCORE_DIR={find_recompcore()}",
+                    f"-DWW02_VITAGL_LIBRARY={VITAGL_NO_SPLASH}",
                     "-DCMAKE_BUILD_TYPE=Release"], env=env, check=True,
                    stdout=subprocess.DEVNULL)
     subprocess.run(["cmake", "--build", str(vpk_dir), "--target", "ww02_gx_demo.vpk"],
@@ -122,6 +126,28 @@ def run_phase(root, stack, name, arguments, timeout, wayland_socket):
             "status": status, "log": str(log)}
 
 
+def verify_staging(root, vpk):
+    """Validate the whole staged profile before any window is opened."""
+    required = [
+        root / FIRMWARE / "vs0" / "vsh",
+        root / FIRMWARE / "sa0",
+        root / FIRMWARE / "ur0/data/libshacccg.suprx",
+        root / "runtime/Vita3K",
+        root / "runtime" / vpk.name,
+        root / UX0_DATA,
+        root / "config/Vita3K/config.yml",
+    ]
+    missing = [str(path) for path in required if not path.exists()]
+    if missing:
+        raise SystemExit("staging incomplete: " + ", ".join(missing))
+    config = (root / "config/Vita3K/config.yml").read_text()
+    for key, value in (("initial-setup", "false"), ("show-welcome", "false"),
+                       ("check-for-updates-mode", "0"),
+                       ("warn-missing-firmware", "false")):
+        if f"{key}: {value}" not in config:
+            raise SystemExit(f"staging config not ready: {key} is not {value}")
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--output", default=os.environ.get("WW02_BUILD", str(DEFAULT_BUILD)))
@@ -160,16 +186,30 @@ def main():
     config_dir.mkdir(parents=True, exist_ok=True)
     (config_dir / "config.yml").write_text(
         "---\ninitial-setup: false\nshow-welcome: false\n"
-        "check-for-updates-mode: 0\nbackend-renderer: OpenGL\n"
+        "check-for-updates-mode: 0\nwarn-missing-firmware: false\n"
+        "backend-renderer: OpenGL\n"
         "pref-path: /run/ww03/data/Vita3K/Vita3K\nuser-id: 00\n"
         "user-name: BlueWake\ncpu-opt: true\ndiscord-rich-presence: false\n")
+    verify_staging(root, vpk)
 
     phases = [run_phase(root, stack, "install",
                         ["--console", "--backend-renderer", "OpenGL", vpk.name],
-                        args.timeout, args.wayland_socket),
-              run_phase(root, stack, "run",
-                        ["--backend-renderer", "OpenGL", "--installed-path", TITLE_ID],
                         args.timeout, args.wayland_socket)]
+    # The install phase rewrites the config with the stock welcome/update
+    # defaults, which stop the CLI from starting the content: restore them.
+    config_path = root / "config/Vita3K/config.yml"
+    text = config_path.read_text()
+    text = text.replace("show-welcome: true", "show-welcome: false")
+    text = text.replace("check-for-updates-mode: 1", "check-for-updates-mode: 0")
+    text = text.replace("warn-missing-firmware: true",
+                        "warn-missing-firmware: false")
+    if "warn-missing-firmware" not in text:
+        text += "warn-missing-firmware: false\n"
+    config_path.write_text(text)
+    verify_staging(root, vpk)
+    phases.append(run_phase(root, stack, "run",
+                            ["--backend-renderer", "OpenGL", "--installed-path", TITLE_ID],
+                            args.timeout, args.wayland_socket))
 
     report_path = root / UX0_DATA / "report.txt"
     capture_path = root / UX0_DATA / "capture.png"
@@ -177,7 +217,10 @@ def main():
     if report_path.is_file():
         report_lines = [line for line in report_path.read_text(errors="replace").splitlines()
                         if line.startswith(REPORT_PREFIXES)]
-    ok = any(line == "demo done 0" for line in report_lines)
+    done = [line for line in report_lines if line.startswith("demo done")]
+    code = int(done[0].split()[-1]) if done else 1
+    status = {0: "green", 2: "path-ok-pixels-blocked"}.get(code, "failed")
+    ok = code in (0, 2)
     evidence = {"report": None, "capture": None}
     if report_path.is_file():
         shutil.copyfile(report_path, root / "evidence/report.txt")
@@ -187,13 +230,14 @@ def main():
         evidence["capture"] = "evidence/capture.png"
 
     result = {"ticket": "VITA-WW-02", "run": root.name.removeprefix("vita3k-run-"),
-              "title": TITLE_ID, "ok": ok,
+              "title": TITLE_ID, "ok": ok, "status": status,
               "vpk": {"path": str(vpk), "sha256": sha256(vpk)},
               "phases": phases, "evidence": evidence,
               "report_lines": report_lines}
     (root / "evidence" / "result.json").write_text(json.dumps(result, indent=2) + "\n")
-    print(json.dumps({"run": result["run"], "ok": ok, "evidence": evidence,
-                      "report_lines": report_lines}, indent=2))
+    print(json.dumps({"run": result["run"], "ok": ok, "status": status,
+                      "evidence": evidence, "report_lines": report_lines},
+                     indent=2))
     return 0 if ok else 1
 
 

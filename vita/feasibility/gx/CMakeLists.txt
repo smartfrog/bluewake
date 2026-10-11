@@ -24,10 +24,14 @@ if(VITA)
     target_link_libraries(gx_vita PUBLIC GXRuntime::gxcore)
     target_include_directories(gx_vita PUBLIC "${RENDERER_DIR}")
 
+    # The Vita3K-friendly (no-splash) vitaGL archive can be supplied here; the
+    # default is the SDK's library.
+    set(WW02_VITAGL_LIBRARY "vitaGL" CACHE STRING "vitaGL library name or absolute archive path")
+
     add_executable(gx_vita_demo gx_vita_main.cpp png_capture.c)
     target_link_libraries(gx_vita_demo PRIVATE
         gx_vita GXRuntime::retail_gx_frontend
-        vitaGL vitashark SceShaccCgExt
+        ${WW02_VITAGL_LIBRARY} vitashark SceShaccCgExt
         SceShaccCg_stub_weak SceGxm_stub_weak SceDisplay_stub_weak
         SceLibKernel_stub SceIofilemgr_stub SceProcessmgr_stub
         SceSysmodule_stub_weak SceCommonDialog_stub_weak SceAppMgr_stub_weak
@@ -37,6 +41,9 @@ if(VITA)
         target_compile_options(${target} PRIVATE -mcpu=cortex-a9 -mfpu=neon
             -mfloat-abi=hard -O2 -Wall -Wextra)
     endforeach()
+    # vita-elf-create appends the SCE data (~3 KiB) at the end of segment 0 and
+    # fails when segment 1 starts too close: anchor the RW base with margin.
+    target_link_options(gx_vita_demo PRIVATE "-Wl,--section-start=.init_array=0x81100000")
 
     vita_create_self(eboot.bin gx_vita_demo)
     vita_create_vpk(ww02_gx_demo.vpk BWWG00002 eboot.bin VERSION 00.01
