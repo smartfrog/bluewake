@@ -102,6 +102,26 @@ class StartupHostTest(unittest.TestCase):
     def test_dsp_control_requires_halfword_access(self):
         subprocess.run([str(OUT / 'host_probe'), 'dsp-width'], check=True)
 
+    def test_ai_control_starts_with_the_pinned_stopped_clock(self):
+        subprocess.run([str(OUT / 'host_probe'), 'ai-stopped'], check=True)
+
+    def test_ai_interrupt_mask_is_retained(self):
+        subprocess.run([str(OUT / 'host_probe'), 'ai-mask'], check=True)
+
+    def test_ai_acknowledgements_do_not_create_interrupts(self):
+        subprocess.run([str(OUT / 'host_probe'), 'ai-ack'], check=True)
+
+    def test_ai_stopped_counter_reset_clears_its_command_bit(self):
+        subprocess.run([str(OUT / 'host_probe'), 'ai-reset-counter'], check=True)
+
+    def test_ai_stream_start_and_rate_changes_require_an_audio_backend(self):
+        for operation in ('start', 'rate'):
+            with self.subTest(operation=operation):
+                subprocess.run([str(OUT / 'host_probe'), 'ai-' + operation], check=True)
+
+    def test_ai_control_requires_word_access(self):
+        subprocess.run([str(OUT / 'host_probe'), 'ai-width'], check=True)
+
     def test_invalid_module_is_rejected_before_dol_io(self):
         subprocess.run([str(OUT / 'host_probe'), 'module'], check=True)
 

@@ -192,6 +192,8 @@ static u64 mmio_read(CPUState* cpu, u32 address, u8 size) {
         value = host->mi_interrupt_mask;
     else if (address == 0xCC00500Au && size == 2u)
         value = 0x0804u | host->dsp_interrupt_mask;
+    else if (address == 0xCC006C00u && size == 4u)
+        dol_audio_dma_ai_mmio_read(&host->audio, DOL_AUDIO_DMA_AI_CONTROL_OFF, size, &value);
     else if (interrupt_register(address, size, false))
         value = dol_interrupts_mmio_read(&host->interrupts, address, size);
     else if (size == 4u && (address & 3u) == 0u && in_range(address, size, DOL_DI_BASE, DOL_DI_REGISTER_BYTES))
@@ -231,6 +233,12 @@ static void mmio_write(CPUState* cpu, u32 address, u64 value, u8 size) {
             return;
         }
         host->dsp_interrupt_mask = (u16)value & 0x0150u;
+    } else if (address == 0xCC006C00u && size == 4u) {
+        if ((value & ~0x3Cull) != DOL_AUDIO_DMA_AI_CONTROL_INIT) {
+            ww_host_fail(host, "AI stream/rate change requires an audio backend", address, cpu->pc);
+            return;
+        }
+        dol_audio_dma_ai_mmio_write(&host->audio, DOL_AUDIO_DMA_AI_CONTROL_OFF, size, value & ~8ull);
     } else if (interrupt_register(address, size, true))
         dol_interrupts_mmio_write(&host->interrupts, address, size, value);
     else if (size == 4u && (address & 3u) == 0u && in_range(address, size, DOL_DI_BASE, DOL_DI_REGISTER_BYTES))
@@ -292,6 +300,7 @@ bool ww_host_init(WwHost* host) {
     dol_exi_init(&host->exi);
     dol_exi_set_transfer_callback(&host->exi, exi_transfer, host);
     dol_si_init(&host->si);
+    dol_audio_dma_init(&host->audio);
     DolGuestAddressResolver resolver;
     dol_guest_address_resolver_init(&resolver, &host->memory, &host->cpu);
     dol_gx_recomp_init(&host->gx, &resolver);

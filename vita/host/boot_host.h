@@ -10,6 +10,7 @@
 #include "gxruntime/exi.h"
 #include "gxruntime/interrupts.h"
 #include "gxruntime/si.h"
+#include "gxruntime/audio_dma.h"
 
 typedef struct WwHost {
     CPUState cpu;
@@ -21,6 +22,7 @@ typedef struct WwHost {
     DolDi di;
     DolExi exi;
     DolSiDevice si;
+    DolAudioDma audio;
     const StaticRecompModuleDesc* module;
     u32 l2cr;
     WwCodeGuard code_guard;

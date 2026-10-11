@@ -169,6 +169,30 @@ int main(int argc, char** argv) {
         host->cpu.external_read(&host->cpu, 0xCC00500Au, 4u);
         assert(host->error != NULL);
         assert(host->error_address == 0xCC00500Au);
+    } else if (strcmp(argv[1], "ai-stopped") == 0) {
+        assert(host->cpu.external_read(&host->cpu, 0xCC006C00u, 4u) == 0x42u);
+        assert(host->error == NULL);
+    } else if (strcmp(argv[1], "ai-mask") == 0) {
+        host->cpu.external_write(&host->cpu, 0xCC006C00u, 0x46u, 4u);
+        assert(host->error == NULL);
+        assert(host->cpu.external_read(&host->cpu, 0xCC006C00u, 4u) == 0x46u);
+    } else if (strcmp(argv[1], "ai-ack") == 0) {
+        host->cpu.external_write(&host->cpu, 0xCC006C00u, 0x4Eu, 4u);
+        assert(host->error == NULL);
+        assert(host->cpu.external_read(&host->cpu, 0xCC006C00u, 4u) == 0x46u);
+    } else if (strcmp(argv[1], "ai-reset-counter") == 0) {
+        host->cpu.external_write(&host->cpu, 0xCC006C00u, 0x62u, 4u);
+        assert(host->error == NULL);
+        assert(host->cpu.external_read(&host->cpu, 0xCC006C00u, 4u) == 0x42u);
+    } else if (strcmp(argv[1], "ai-start") == 0 || strcmp(argv[1], "ai-rate") == 0) {
+        const u32 value = strcmp(argv[1], "ai-start") == 0 ? 0x43u : 0x02u;
+        host->cpu.external_write(&host->cpu, 0xCC006C00u, value, 4u);
+        assert(host->error != NULL);
+        assert(host->error_address == 0xCC006C00u);
+    } else if (strcmp(argv[1], "ai-width") == 0) {
+        host->cpu.external_read(&host->cpu, 0xCC006C00u, 2u);
+        assert(host->error != NULL);
+        assert(host->error_address == 0xCC006C00u);
     } else if (strcmp(argv[1], "module") == 0) {
         StaticRecompModuleDesc module = {.abi_version = 99u, .dispatch = dispatch};
         BlueWakeRelData data = {0};

@@ -68,6 +68,11 @@ initial halt/init bits follow the pristine donor's `HW/DSP.cpp`, `HW/DSP.h` and
 `HW/DSPHLE/DSPHLE.cpp`; they are not a task-completion token. Clearing halt/init, requesting reset
 or another control operation fails explicitly because no DSP backend is installed. No mailbox,
 microcode, audio, ARAM DMA or fabricated DSP response is implemented.
+AI control at `CC006C00` reuses the pinned C audio-DMA register model with its initial `42` clock
+state. Only stopped-clock masks, acknowledgement and sample-counter reset are accepted; start,
+frequency changes, reserved bits, other registers and incorrect access widths fail explicitly.
+Acknowledgement strips the write-one-clear bit before storing the idle image. No streaming time,
+sample, DMA or AI interrupt completion is fabricated.
 The runtime offers ordinary guest PCs to the optional host-call hook before trying compiled code.
 An aligned address in the loaded descriptor's code ranges (including the dispatcher's physical/
 uncached aliases) is declined without changing PC or exceptions, so the original guest code runs.
@@ -225,7 +230,7 @@ a lingering process. Its short red/green loops are in `logs/private-{launch,gues
 The parent-symlink loop reproduced creation outside an owned fake profile, then prevented it with the
 existing no-follow directory-descriptor pattern. No real/shared profile was involved.
 
-The WW05 host suite currently has **66 tests**. Source-bound logs retain exact counts/commands for these,
+The WW05 host suite currently has **72 tests**. Source-bound logs retain exact counts/commands for these,
 native runtime CTest, 71 native FP cases and the eight direct baseline files. Audit, attribution,
 pin/scope/diff and clean-worktree checks accompany delivery. The pre-launch `1ba507c` checkpoint passed
 35 WW05 tests, 177 unchanged tests, 53 direct baseline tests, 71 native FP cases and 3/1/5 runtime/corpus/
@@ -304,3 +309,12 @@ stopped/reaped, process 124/INCOMPLETE. The next correction exposes only the sto
 control surface, with tests for initial state, masks, acknowledgement, reset/release refusal and
 width. The code-guard pointer offsets were also made explicit before forming pointers; existing
 cache-guard tests remain green. There is still no game-driven complete GX command claimed here.
+
+Run `216eb34b0d4641eca25751a8673659a5` at `41ac0b1b55b3a44f09f0af557989f5cf3260ec36`
+passed stopped DSP IRQ control and stopped at the following AI-control word read during IRQ
+masking: `unsupported MMIO read address=CC006C00 pc=80304810`. It retained 116,417 cycles and
+788 edges, terminal PC `8030464C`, SP `8040CF58`, zero FIFO bytes and frontier FAIL. Report
+SHA-256 is `71de57662a3c2633cab930659059384450540a39cc21030f513e1186cc36cf09`; both
+30-second phases stopped/reaped, process 124/INCOMPLETE. The next correction wires the pinned
+stopped AI control only, with tests for initial clock, masks, acknowledgement, counter-reset,
+stream/rate refusal and width. No real GX success is inferred from these register operations.
