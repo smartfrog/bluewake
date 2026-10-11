@@ -70,6 +70,7 @@ class BootReportTest(unittest.TestCase):
         series = boot_series([parse_boot_report(PASS_REPORT), parse_boot_report(FAIL_REPORT)])
         self.assertEqual((series['runs'], series['pass'], series['fail']), (2, 1, 1))
         self.assertEqual(series['rendered_frames'], 0)
+        self.assertEqual(series['sources'], ['b' * 40])
         self.assertEqual(series['edges'], {'min': 2, 'median': 395.0, 'max': 788})
         self.assertEqual(series['cycles'], {'min': 120, 'median': 58268.5, 'max': 116417})
 

@@ -90,6 +90,8 @@ def _fmt(value: float) -> str:
 def _boot_line(boot: dict) -> str:
     parts = [f"runs={boot['runs']}", f"pass={boot['pass']}", f"fail={boot['fail']}",
              f"rendered={boot['rendered_frames']}"]
+    if boot.get("sources"):
+        parts.append(f"sources={len(boot['sources'])}")
     if boot["edges"] is not None:
         parts.append(f"edges={boot['edges']['min']}..{boot['edges']['max']}")
     if boot["cycles"] is not None:

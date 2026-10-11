@@ -91,6 +91,7 @@ def boot_series(reports: list) -> dict:
         "pass": sum(1 for report in reports if report.verdict == "PASS"),
         "fail": sum(1 for report in reports if report.verdict == "FAIL"),
         "rendered_frames": sum(report.rendered for report in reports),
+        "sources": sorted({report.source for report in reports}),
         "edges": _stats(edges),
         "cycles": _stats(cycles),
     }
