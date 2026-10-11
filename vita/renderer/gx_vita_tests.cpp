@@ -318,6 +318,49 @@ int main() {
   }
 
   {
+    // EFB readback: a 2x2 RGBA8 rectangle copied into a wider guest stride,
+    // with the dirty-mark spans reported per row and the bounds refusal.
+    const std::uint8_t pixels[16] = {
+        1, 2, 3, 4, 5, 6, 7, 8,        // row 0
+        9, 10, 11, 12, 13, 14, 15, 16, // row 1
+    };
+    std::uint8_t guest[32];
+    std::memset(guest, 0xEE, sizeof guest);
+    gx_vita::EfbReadback rect{};
+    rect.width = 2u;
+    rect.height = 2u;
+    struct MarkState {
+      int count = 0;
+      std::uint32_t offsets[4] = {};
+      std::uint32_t sizes[4] = {};
+    };
+    MarkState marks;
+    auto mark = [](void* user, std::uint32_t offset, std::uint32_t size) {
+      auto* state = static_cast<MarkState*>(user);
+      if (state->count < 4) {
+        state->offsets[state->count] = offset;
+        state->sizes[state->count] = size;
+      }
+      ++state->count;
+    };
+    CHECK(gx_vita::copy_readback_to_guest(pixels, rect, 16u, guest,
+                                          sizeof guest, mark, &marks));
+    CHECK(marks.count == 2);
+    CHECK(marks.offsets[0] == 0u && marks.sizes[0] == 8u);
+    CHECK(marks.offsets[1] == 16u && marks.sizes[1] == 8u);
+    CHECK(guest[0] == 1u && guest[7] == 8u);
+    CHECK(guest[16] == 9u && guest[23] == 16u);
+    CHECK(guest[8] == 0xEEu && guest[15] == 0xEEu); // stride gap untouched
+    // 2 rows need 16 + 8 = 24 bytes: 20 is refused and writes nothing.
+    CHECK(!gx_vita::copy_readback_to_guest(pixels, rect, 16u, guest, 20u,
+                                           nullptr, nullptr));
+    gx_vita::EfbReadback empty{};
+    CHECK(!gx_vita::copy_readback_to_guest(pixels, empty, 16u, guest,
+                                           sizeof guest));
+    std::printf("readback ok rows=2 marks=%d\n", marks.count);
+  }
+
+  {
     // Golden hash: pinned for the pinned ShaderKey layout, so a pin change
     // that moves the key bytes fails here instead of silently re-keying Cg
     // programs. The zero key's hash and three distinct variants must differ.

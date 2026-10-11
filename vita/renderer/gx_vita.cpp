@@ -239,4 +239,28 @@ TranslatedCopy translate_copy(const gxc::EfbCopyCommand& cmd) {
   return out;
 }
 
+bool copy_readback_to_guest(const std::uint8_t* pixels,
+                            const EfbReadback& rect,
+                            std::uint32_t guest_stride, std::uint8_t* guest,
+                            std::size_t available, DirtyMarkFn mark,
+                            void* mark_user) {
+  if (pixels == nullptr || guest == nullptr || rect.width == 0u ||
+      rect.height == 0u)
+    return false;
+  const std::size_t row_bytes = static_cast<std::size_t>(rect.width) * 4u;
+  if (guest_stride < row_bytes)
+    return false;
+  const std::size_t needed =
+      static_cast<std::size_t>(rect.height - 1u) * guest_stride + row_bytes;
+  if (needed > available)
+    return false;
+  for (std::uint32_t row = 0; row < rect.height; ++row) {
+    std::memcpy(guest + static_cast<std::size_t>(row) * guest_stride,
+                pixels + static_cast<std::size_t>(row) * row_bytes, row_bytes);
+    if (mark != nullptr)
+      mark(mark_user, row * guest_stride, static_cast<std::uint32_t>(row_bytes));
+  }
+  return true;
+}
+
 } // namespace gx_vita

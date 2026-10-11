@@ -46,10 +46,10 @@ plug into later. It is not a general GX/Aurora rewrite and not a full renderer.
 
 | Area | State | Note |
 | --- | --- | --- |
-| Water / indirect stages | **PENDING** | `ShaderKey` carries indirect stages; no fixture or translation yet. Gaps surface through `GapCounters` (`indirect_ignored`). |
-| HUD (2D draws) | **PENDING** | Same direct-draw path as the fixtures; no dedicated fixture yet. |
-| EFB copy → texture | **PENDING** | `GxCoreSink` exposes `CopyObserver`/`EfbCopyCommand`; no fixture, no translation into a copy command yet. |
-| EFB readback to guest memory | **PENDING** | Required by the acceptance list; not implemented. |
+| Water / indirect stages | **decoded, refused** | The indirect stage is decoded (`ind_stages`, `ind_matrix_index`) and the bounded Cg generator refuses an active lookup with a reason (`GapCounters::indirect_ignored` stays the counter). No indirect rendering yet. |
+| HUD (2D draws) | **delivered (fixture)** | `hud_quad`: four screen-space vertices, two triangles, alpha blend, no depth. |
+| EFB copy → texture | **delivered (host)** | `translate_copy`: destination, format, source rectangle, write masks and the following clear; a display copy is refused with a reason. |
+| EFB readback to guest memory | **delivered (host logic)** | `copy_readback_to_guest`: RGBA8 rows into the guest stride with per-row dirty marking and bounds refusal. The device read (glReadPixels) comes with the Vita3K demo. |
 | Cg program generation | **bounded, delivered** | `vita/renderer/gx_cg.{h,cpp}`: untextured passthrough, textured passthrough, regular TEV combines (Prev/Tex/Raster/Zero/One/Half args, add/subtract, clamp, 1x/2x/4x scale, Regular and Colour texgens). Anything else is refused with a reason. |
 | Vita3K / device run | **PENDING** | No Vita3K run of this path yet; any run must use the isolated private-profile launcher pattern. |
 | Physical console | **PENDING** | No hardware measurement; emulator timings never extrapolate to hardware. |

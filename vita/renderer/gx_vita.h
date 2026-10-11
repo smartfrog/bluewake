@@ -154,6 +154,31 @@ struct TranslatedCopy {
 
 TranslatedCopy translate_copy(const gxruntime::gxcore::EfbCopyCommand& cmd);
 
+// --- EFB readback into guest memory ----------------------------------------
+//
+// The Vita backend reads an EFB rectangle as tightly packed RGBA8
+// (glReadPixels / vglReadPixels); this copies it into the guest range the
+// game will read, row by row, honouring the guest stride, and reports each
+// written span through the dirty-mark callback so the recompiled game's
+// memory view is coherent. Returns false (and writes nothing) when the
+// rectangle is empty or does not fit the available guest bytes.
+
+struct EfbReadback {
+  std::uint32_t x = 0;
+  std::uint32_t y = 0;
+  std::uint32_t width = 0;
+  std::uint32_t height = 0;
+};
+
+using DirtyMarkFn = void (*)(void* user, std::uint32_t offset,
+                             std::uint32_t size);
+
+bool copy_readback_to_guest(const std::uint8_t* pixels,
+                            const EfbReadback& rect,
+                            std::uint32_t guest_stride, std::uint8_t* guest,
+                            std::size_t available, DirtyMarkFn mark = nullptr,
+                            void* mark_user = nullptr);
+
 // FNV-1a 64 over the ShaderKey bytes; 0 is reserved for "no key".
 std::uint64_t shader_key_hash(const gxruntime::gxcore::ShaderKey& key);
 
