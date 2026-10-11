@@ -51,6 +51,13 @@ static void synthetic_dol(void) {
     assert(fclose(stream) == 0);
 }
 
+static void exi_sram_command(WwHost* host, u32 command) {
+    host->cpu.pc = 0x80309E1Cu;
+    host->cpu.external_write(&host->cpu, DOL_EXI_BASE + DOL_EXI_STATUS_OFF, 0x130u, 4u);
+    host->cpu.external_write(&host->cpu, DOL_EXI_BASE + DOL_EXI_IMMEDIATE_DATA_OFF, command, 4u);
+    host->cpu.external_write(&host->cpu, DOL_EXI_BASE + DOL_EXI_CONTROL_OFF, 0x35u, 4u);
+}
+
 int main(int argc, char** argv) {
     assert(argc == 2);
     WwHost* host = calloc(1u, sizeof(*host));
@@ -284,15 +291,64 @@ int main(int argc, char** argv) {
         assert(strstr(host->error, "ABI") != NULL);
         assert(host->alias_count == 0u);
     } else if (strcmp(argv[1], "exi-context") == 0) {
-        host->cpu.pc = 0x80309E1Cu;
-        host->cpu.external_write(&host->cpu, DOL_EXI_BASE + DOL_EXI_STATUS_OFF, 0x130u, 4u);
-        host->cpu.external_write(&host->cpu, DOL_EXI_BASE + DOL_EXI_IMMEDIATE_DATA_OFF, 0x20000100u, 4u);
-        host->cpu.external_write(&host->cpu, DOL_EXI_BASE + DOL_EXI_CONTROL_OFF, 0x35u, 4u);
+        exi_sram_command(host, 0x20000100u);
+        assert(host->error == NULL);
+        assert(!(host->exi.channels[0].control & DOL_EXI_CONTROL_TSTART));
+        assert(host->exi.channels[0].status & DOL_EXI_STATUS_TCINT);
+        assert(!(host->exi.channels[0].status & DOL_EXI_STATUS_EXT));
+    } else if (strcmp(argv[1], "exi-sram-dma") == 0) {
+        memset(host->cpu.ram + 0x1000u, 0xA5u, 128u);
+        exi_sram_command(host, 0x20000100u);
+        host->cpu.external_write(&host->cpu, DOL_EXI_BASE + DOL_EXI_STATUS_OFF, 0x13Cu, 4u);
+        host->cpu.external_write(&host->cpu, DOL_EXI_BASE + DOL_EXI_DMA_ADDRESS_OFF, 0x1020u, 4u);
+        host->cpu.external_write(&host->cpu, DOL_EXI_BASE + DOL_EXI_DMA_LENGTH_OFF, 64u, 4u);
+        host->cpu.external_write(&host->cpu, DOL_EXI_BASE + DOL_EXI_CONTROL_OFF, 3u, 4u);
+        assert(host->error == NULL);
+        assert(mem_read32(&host->cpu, 0x80001020u) == 0x002CFFD0u);
+        assert(mem_read8(&host->cpu, 0x80001020u + 19u) == 0x2Cu);
+        assert(mem_read32(&host->cpu, 0x8000101Cu) == 0xA5A5A5A5u);
+        assert(mem_read8(&host->cpu, 0x80001020u + 63u) == 0u);
+        assert(mem_read32(&host->cpu, 0x80001060u) == 0xA5A5A5A5u);
+        assert(dol_exi_interrupt_pending(&host->exi));
+        assert(host->interrupts.pi_cause & DOL_PI_CAUSE_EXI);
+    } else if (strcmp(argv[1], "exi-sram-immediate") == 0 || strcmp(argv[1], "exi-sram-reselect") == 0) {
+        exi_sram_command(host, 0x20000100u);
+        host->cpu.external_write(&host->cpu, DOL_EXI_BASE + DOL_EXI_CONTROL_OFF, 0x31u, 4u);
+        assert(host->error == NULL);
+        assert(host->cpu.external_read(&host->cpu, DOL_EXI_BASE + DOL_EXI_IMMEDIATE_DATA_OFF, 4u) == 0x002CFFD0u);
+        if (strcmp(argv[1], "exi-sram-reselect") == 0) {
+            host->cpu.external_write(&host->cpu, DOL_EXI_BASE + DOL_EXI_STATUS_OFF, 0u, 4u);
+            exi_sram_command(host, 0x20000100u);
+            host->cpu.external_write(&host->cpu, DOL_EXI_BASE + DOL_EXI_CONTROL_OFF, 0x31u, 4u);
+            assert(host->error == NULL);
+            assert(host->cpu.external_read(&host->cpu, DOL_EXI_BASE + DOL_EXI_IMMEDIATE_DATA_OFF, 4u) == 0x002CFFD0u);
+        }
+    } else if (strcmp(argv[1], "exi-sram-write") == 0) {
+        exi_sram_command(host, 0xA00005C0u);
+        host->cpu.external_write(&host->cpu, DOL_EXI_BASE + DOL_EXI_IMMEDIATE_DATA_OFF, 0x28000000u, 4u);
+        host->cpu.external_write(&host->cpu, DOL_EXI_BASE + DOL_EXI_CONTROL_OFF, 5u, 4u);
+        host->cpu.external_write(&host->cpu, DOL_EXI_BASE + DOL_EXI_STATUS_OFF, 0u, 4u);
+        exi_sram_command(host, 0x200005C0u);
+        host->cpu.external_write(&host->cpu, DOL_EXI_BASE + DOL_EXI_CONTROL_OFF, 1u, 4u);
+        assert(host->error == NULL);
+        assert(host->cpu.external_read(&host->cpu, DOL_EXI_BASE + DOL_EXI_IMMEDIATE_DATA_OFF, 4u) == 0x28000000u);
+    } else if (strcmp(argv[1], "exi-rom") == 0) {
+        exi_sram_command(host, 0u);
         assert(host->error != NULL);
-        assert(host->error_address == 2u);
-        assert(host->error_pc == 0x80309E1Cu);
         assert(host->exi.channels[0].control & DOL_EXI_CONTROL_TSTART);
-        assert(!(host->exi.channels[0].status & DOL_EXI_STATUS_TCINT));
+    } else if (strcmp(argv[1], "exi-bad-dma") == 0) {
+        exi_sram_command(host, 0x20000100u);
+        assert(host->error == NULL);
+        host->cpu.external_write(&host->cpu, DOL_EXI_BASE + DOL_EXI_DMA_ADDRESS_OFF, 0x01800000u, 4u);
+        host->cpu.external_write(&host->cpu, DOL_EXI_BASE + DOL_EXI_DMA_LENGTH_OFF, 64u, 4u);
+        host->cpu.external_write(&host->cpu, DOL_EXI_BASE + DOL_EXI_CONTROL_OFF, 3u, 4u);
+        assert(host->error != NULL);
+        assert(host->error_address == 0x01800000u);
+    } else if (strcmp(argv[1], "exi-bad-range") == 0) {
+        exi_sram_command(host, 0x200010C0u);
+        assert(host->error == NULL);
+        host->cpu.external_write(&host->cpu, DOL_EXI_BASE + DOL_EXI_CONTROL_OFF, 0x31u, 4u);
+        assert(host->error != NULL);
     } else if (strncmp(argv[1], "data-cache-", 11u) == 0) {
         const u32 xo = (u32)strtoul(argv[1] + 11u, NULL, 10);
         assert(xo == 54u || xo == 86u || xo == 470u);

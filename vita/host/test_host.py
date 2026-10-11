@@ -142,10 +142,31 @@ class StartupHostTest(unittest.TestCase):
     def test_si_transfer_requires_word_access(self):
         subprocess.run([str(OUT / 'host_probe'), 'si-width'], check=True)
 
-    def test_unsupported_exi_transfer_retains_transaction_context(self):
+    def test_exi_transfer_retains_transaction_context(self):
         result = subprocess.run([str(OUT / 'host_probe'), 'exi-context'], check=True, capture_output=True, text=True)
         self.assertIn('channel=0 chip_select=2 frequency_code=3 direction=1 length=4 dma=0', result.stderr)
         self.assertIn('dma_address=00000000 immediate=20000100 pc=80309E1C', result.stderr)
+
+    def test_exi_sram_dma_reads_shared_defaults_and_publishes_completion(self):
+        subprocess.run([str(OUT / 'host_probe'), 'exi-sram-dma'], check=True)
+
+    def test_exi_sram_immediate_read_uses_the_same_shared_device(self):
+        subprocess.run([str(OUT / 'host_probe'), 'exi-sram-immediate'], check=True)
+
+    def test_exi_deselection_resets_the_shared_sram_command(self):
+        subprocess.run([str(OUT / 'host_probe'), 'exi-sram-reselect'], check=True)
+
+    def test_exi_sram_writes_are_retained_only_in_the_private_session(self):
+        subprocess.run([str(OUT / 'host_probe'), 'exi-sram-write'], check=True)
+
+    def test_exi_unsupported_ipl_regions_do_not_return_fabricated_zero_bytes(self):
+        subprocess.run([str(OUT / 'host_probe'), 'exi-rom'], check=True)
+
+    def test_exi_sram_dma_rejects_unmapped_guest_memory(self):
+        subprocess.run([str(OUT / 'host_probe'), 'exi-bad-dma'], check=True)
+
+    def test_exi_sram_rejects_transfers_beyond_its_shared_image(self):
+        subprocess.run([str(OUT / 'host_probe'), 'exi-bad-range'], check=True)
 
     def test_si_completion_delivers_external_exception_at_next_edge(self):
         subprocess.run([str(OUT / 'host_probe'), 'irq-si'], check=True)

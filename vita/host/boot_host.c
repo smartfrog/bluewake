@@ -164,12 +164,50 @@ static DolDiCommandResult di_command(void* user, DolDiCommand* command) {
     return DOL_DI_COMMAND_ERROR;
 }
 
+static u8 sram_read8(void* user, u32 physical) {
+    WwHost* host = user;
+    return mem_read8(&host->cpu, physical | GC_RAM_BASE);
+}
+
+static void sram_write8(void* user, u32 physical, u8 value) {
+    WwHost* host = user;
+    mem_write8(&host->cpu, physical | GC_RAM_BASE, value);
+}
+
 static bool exi_transfer(void* user, DolExiTransfer* transfer) {
     WwHost* host = user;
     const u32 frequency = (host->exi.channels[transfer->channel].status & DOL_EXI_STATUS_CLK_MASK) >> 4u;
     fprintf(stderr, "[exi] channel=%u chip_select=%u frequency_code=%u direction=%u length=%u dma=%u dma_address=%08X immediate=%08X pc=%08X\n",
             transfer->channel, transfer->chip_select, frequency, transfer->direction,
             transfer->length, transfer->dma, transfer->dma_address, *transfer->immediate_data, host->cpu.pc);
+    if (transfer->channel == 0u && transfer->chip_select == 2u &&
+        transfer->direction <= DOL_EXI_TRANSFER_WRITE) {
+        BluewakeIplSram* sram = &host->sram;
+        if (!sram->command_latched) {
+            const u32 address = (*transfer->immediate_data & 0x7FFFFFFFu) >> 6u;
+            if (transfer->dma || transfer->direction != DOL_EXI_TRANSFER_WRITE ||
+                transfer->length != 4u || address < 0x800004u ||
+                address - 0x800004u >= BLUEWAKE_IPL_SRAM_SIZE) {
+                ww_host_fail(host, "IPL command requires an implemented SRAM region", *transfer->immediate_data, host->cpu.pc);
+                return false;
+            }
+        } else if (transfer->direction != (sram->write ? DOL_EXI_TRANSFER_WRITE : DOL_EXI_TRANSFER_READ) ||
+                   sram->cursor > BLUEWAKE_IPL_SRAM_SIZE ||
+                   transfer->length > BLUEWAKE_IPL_SRAM_SIZE - sram->cursor) {
+            ww_host_fail(host, "SRAM transfer direction/range unsupported", sram->cursor, host->cpu.pc);
+            return false;
+        }
+        const u32 physical = transfer->dma_address & 0x03FFFFE0u;
+        if (transfer->dma && (physical > host->cpu.ram_size || transfer->length > host->cpu.ram_size - physical)) {
+            ww_host_fail(host, "SRAM DMA requires mapped guest RAM", physical, host->cpu.pc);
+            return false;
+        }
+        bluewake_ipl_sram_write(sram, DOL_EXI_BASE + DOL_EXI_CONTROL_OFF,
+                               host->exi.channels[0].control, sram_read8, sram_write8, host);
+        if (!transfer->dma && transfer->direction == DOL_EXI_TRANSFER_READ)
+            *transfer->immediate_data = bluewake_ipl_sram_read(sram, DOL_EXI_BASE + DOL_EXI_IMMEDIATE_DATA_OFF);
+        return true;
+    }
     ww_host_fail(host, "EXI transfer unsupported", transfer->chip_select, host->cpu.pc);
     return false;
 }
@@ -253,9 +291,11 @@ static void mmio_write(CPUState* cpu, u32 address, u64 value, u8 size) {
         dol_interrupts_mmio_write(&host->interrupts, address, size, value);
     else if (size == 4u && (address & 3u) == 0u && in_range(address, size, DOL_DI_BASE, DOL_DI_REGISTER_BYTES))
         dol_di_mmio_write(&host->di, cpu, address, size, value);
-    else if (size == 4u && (address & 3u) == 0u && in_range(address, size, DOL_EXI_BASE, DOL_EXI_REGISTER_BYTES))
+    else if (size == 4u && (address & 3u) == 0u && in_range(address, size, DOL_EXI_BASE, DOL_EXI_REGISTER_BYTES)) {
+        if (address < DOL_EXI_BASE + DOL_EXI_CHANNEL_STRIDE && address != DOL_EXI_BASE + DOL_EXI_CONTROL_OFF)
+            bluewake_ipl_sram_write(&host->sram, address, (u32)value, sram_read8, sram_write8, host);
         dol_exi_mmio_write(&host->exi, cpu, address, size, value);
-    else if (size == 4u && (address & 3u) == 0u && in_range(address, size, DOL_SI_BASE, DOL_SI_REGISTER_BYTES)) {
+    } else if (size == 4u && (address & 3u) == 0u && in_range(address, size, DOL_SI_BASE, DOL_SI_REGISTER_BYTES)) {
         dol_si_mmio_write(&host->si, address, size, value);
         if (address == DOL_SI_BASE + DOL_SI_COMCSR_OFF && ((u32)value & DOL_SI_TSTART)) {
             const u32 channel = ((u32)value >> 1u) & 3u;
@@ -324,6 +364,7 @@ bool ww_host_init(WwHost* host) {
     dol_di_init(&host->di);
     dol_di_set_command_callback(&host->di, di_command, host);
     dol_exi_init(&host->exi);
+    bluewake_ipl_sram_init(&host->sram, "default");
     dol_exi_set_transfer_callback(&host->exi, exi_transfer, host);
     dol_si_init(&host->si);
     dol_audio_dma_init(&host->audio);

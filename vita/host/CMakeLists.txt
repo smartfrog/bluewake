@@ -16,6 +16,7 @@ target_compile_options(gxruntime PRIVATE -ffp-contract=off -fno-fast-math -fstac
 add_library(ww05_services STATIC boot_host.c gx_checkpoint.c code_guard.c
     "${BLUEWAKE_ROOT}/runtime/host/src/cycle_domain.c"
     "${BLUEWAKE_ROOT}/runtime/host/src/external_memory.c"
+    "${BLUEWAKE_ROOT}/runtime/host/src/ipl_sram.c"
     "${BLUEWAKE_ROOT}/runtime/host/src/interrupt_sources.c")
 target_include_directories(ww05_services PUBLIC "${CMAKE_CURRENT_SOURCE_DIR}"
     "${BLUEWAKE_ROOT}/runtime/host/src" "${BLUEWAKE_ROOT}/cmake/composite" "${ABI_DIR}")

@@ -6,6 +6,7 @@
 #include "gx_checkpoint.h"
 #include "code_guard.h"
 #include "cycle_domain.h"
+#include "ipl_sram.h"
 #include "gxruntime/di.h"
 #include "gxruntime/exi.h"
 #include "gxruntime/interrupts.h"
@@ -21,6 +22,7 @@ typedef struct WwHost {
     DolInterrupts interrupts;
     DolDi di;
     DolExi exi;
+    BluewakeIplSram sram;
     DolSiDevice si;
     DolAudioDma audio;
     const StaticRecompModuleDesc* module;
