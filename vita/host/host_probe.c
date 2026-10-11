@@ -193,14 +193,35 @@ int main(int argc, char** argv) {
         host->cpu.external_read(&host->cpu, 0xCC006C00u, 2u);
         assert(host->error != NULL);
         assert(host->error_address == 0xCC006C00u);
-    } else if (strcmp(argv[1], "si-transfer") == 0) {
+    } else if (strncmp(argv[1], "si-empty-", 9u) == 0 && argv[1][9] >= '0' && argv[1][9] <= '3') {
+        const u32 channel = (u32)strtoul(argv[1] + 9u, NULL, 10);
+        assert(channel < 4u);
         host->cpu.pc = 0x8030C1C0u;
-        host->cpu.external_write(&host->cpu, DOL_SI_BASE + DOL_SI_COMCSR_OFF, 0x40000201u, 4u);
+        host->cpu.external_write(&host->cpu, DOL_SI_BASE + DOL_SI_IO_BUFFER_OFF, 0x00ABCDEFu, 4u);
+        host->cpu.external_write(&host->cpu, DOL_SI_BASE + DOL_SI_COMCSR_OFF,
+                                 0xC0010301u | (channel << 1u), 4u);
+        assert(host->error == NULL);
+        assert(host->cpu.external_read(&host->cpu, DOL_SI_BASE + DOL_SI_COMCSR_OFF, 4u) ==
+               (0xE0010300u | (channel << 1u)));
+        assert(host->cpu.external_read(&host->cpu, DOL_SI_BASE + DOL_SI_STATUS_OFF, 4u) ==
+               (0x08000000u >> (channel * 8u)));
+        assert(host->cpu.external_read(&host->cpu, DOL_SI_BASE + DOL_SI_IO_BUFFER_OFF, 4u) == 0x00ABCDEFu);
+        assert(host->cpu.external_read(&host->cpu, DOL_SI_BASE + channel * 12u + 4u, 4u) == 0u);
+        assert(host->cpu.external_read(&host->cpu, DOL_SI_BASE + channel * 12u + 8u, 4u) == 0u);
+        assert(dol_si_interrupt_pending(&host->si));
+        assert(host->interrupts.pi_cause & DOL_PI_CAUSE_SI);
+    } else if (strcmp(argv[1], "si-empty-ack") == 0) {
+        host->cpu.external_write(&host->cpu, DOL_SI_BASE + DOL_SI_COMCSR_OFF, 0xC0010301u, 4u);
+        assert(host->error == NULL);
+        host->cpu.external_write(&host->cpu, DOL_SI_BASE + DOL_SI_COMCSR_OFF, 0xC0010300u, 4u);
+        assert(!dol_si_interrupt_pending(&host->si));
+        assert(!(host->interrupts.pi_cause & DOL_PI_CAUSE_SI));
+        assert(host->cpu.external_read(&host->cpu, DOL_SI_BASE + DOL_SI_COMCSR_OFF, 4u) == 0x60010300u);
+        host->cpu.external_write(&host->cpu, DOL_SI_BASE + DOL_SI_STATUS_OFF, 0x08000000u, 4u);
+        assert(host->cpu.external_read(&host->cpu, DOL_SI_BASE + DOL_SI_STATUS_OFF, 4u) == 0u);
+    } else if (strcmp(argv[1], "si-width") == 0) {
+        host->cpu.external_write(&host->cpu, DOL_SI_BASE + DOL_SI_COMCSR_OFF, 1u, 2u);
         assert(host->error != NULL);
-        assert(host->error_address == DOL_SI_BASE + DOL_SI_COMCSR_OFF);
-        assert(host->error_pc == 0x8030C1C0u);
-        assert(host->error_width == 4u);
-        assert(host->error_value == 0x40000201u);
         assert(dol_si_mmio_read(&host->si, DOL_SI_BASE + DOL_SI_COMCSR_OFF, 4u) == 0u);
     } else if (strcmp(argv[1], "module") == 0) {
         StaticRecompModuleDesc module = {.abi_version = 99u, .dispatch = dispatch};

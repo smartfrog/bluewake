@@ -122,8 +122,16 @@ class StartupHostTest(unittest.TestCase):
     def test_ai_control_requires_word_access(self):
         subprocess.run([str(OUT / 'host_probe'), 'ai-width'], check=True)
 
-    def test_si_transfer_is_reported_without_fabricating_completion(self):
-        subprocess.run([str(OUT / 'host_probe'), 'si-transfer'], check=True)
+    def test_empty_si_bus_completes_with_no_response_and_no_pad_data(self):
+        for channel in range(4):
+            with self.subTest(channel=channel):
+                subprocess.run([str(OUT / 'host_probe'), f'si-empty-{channel}'], check=True)
+
+    def test_empty_si_bus_errors_and_interrupts_can_be_acknowledged(self):
+        subprocess.run([str(OUT / 'host_probe'), 'si-empty-ack'], check=True)
+
+    def test_si_transfer_requires_word_access(self):
+        subprocess.run([str(OUT / 'host_probe'), 'si-width'], check=True)
 
     def test_invalid_module_is_rejected_before_dol_io(self):
         subprocess.run([str(OUT / 'host_probe'), 'module'], check=True)

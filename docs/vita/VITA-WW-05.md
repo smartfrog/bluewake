@@ -230,7 +230,7 @@ a lingering process. Its short red/green loops are in `logs/private-{launch,gues
 The parent-symlink loop reproduced creation outside an owned fake profile, then prevented it with the
 existing no-follow directory-descriptor pattern. No real/shared profile was involved.
 
-The WW05 host suite currently has **76 tests**. Source-bound logs retain exact counts/commands for these,
+The WW05 host suite currently has **78 tests**. Source-bound logs retain exact counts/commands for these,
 native runtime CTest, 71 native FP cases and the eight direct baseline files. Audit, attribution,
 pin/scope/diff and clean-worktree checks accompany delivery. The pre-launch `1ba507c` checkpoint passed
 35 WW05 tests, 177 unchanged tests, 53 direct baseline tests, 71 native FP cases and 3/1/5 runtime/corpus/
@@ -351,3 +351,23 @@ The final source-bound build/run/check receipts are retained under `build-f5/ww0
 by their own SHA/UUID, not retroactively attributed to this earlier attempt. Final offline review
 must include the added diagnostic fields in `sizeof(WwHost)` and the existing text snapshot
 inside the 96 MiB heap. Unknown residency, pool peak and native stack high-water remain unknown.
+
+## Empty SI bus continuation
+
+The final predecessor run `80767c8a43e746e390474e0d48aeb05d` at `3cb8942` retained the
+actual transfer write: `CC006434`, PC `8030C1C0`, width 4, value `C0010301`. It stopped at
+119,998 cycles and 968 edges with no FIFO bytes. This record supersedes no earlier evidence.
+
+The coordinator subsequently selected the empty SI bus: all four ports have no device.
+The host now reuses the pinned SI register model for TCINT, masks, lengths, channel selection
+and acknowledgement, adding the missing COMERR and selected-channel NOREP bits on transfer.
+The receive buffer and input registers are not populated with a controller identity or pad data.
+This follows the local pinned Dolphin reference (`HW/SI/SI.cpp:146-194` and
+`SI_DeviceNull.cpp:13-20`), including its synchronous absent-device completion. It is not a
+cycle-accurate serial timeout model. Both upstream pins and generated sources remain untouched.
+
+`logs/empty-si-red.log` reproduces the refused transfers for all four channels and acknowledgement.
+`logs/empty-si-green.log` passes all 78 host tests on Linux AArch64, including unchanged receive
+bytes, selected-channel NOREP, COMERR/TCINT, PI source publication, acknowledgement and width
+refusal. These synthetic tests do not establish real startup success; a new source-bound private
+build and trial must do that.

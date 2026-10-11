@@ -246,15 +246,15 @@ static void mmio_write(CPUState* cpu, u32 address, u64 value, u8 size) {
     else if (size == 4u && (address & 3u) == 0u && in_range(address, size, DOL_EXI_BASE, DOL_EXI_REGISTER_BYTES))
         dol_exi_mmio_write(&host->exi, cpu, address, size, value);
     else if (size == 4u && (address & 3u) == 0u && in_range(address, size, DOL_SI_BASE, DOL_SI_REGISTER_BYTES)) {
-        if (address == DOL_SI_BASE + DOL_SI_COMCSR_OFF && ((u32)value & DOL_SI_TSTART)) {
-            if (host->error == NULL) {
-                host->error_width = size;
-                host->error_value = value;
-            }
-            ww_host_fail(host, "SI transfer unsupported (no fabricated controller)", address, cpu->pc);
-            return;
-        }
         dol_si_mmio_write(&host->si, address, size, value);
+        if (address == DOL_SI_BASE + DOL_SI_COMCSR_OFF && ((u32)value & DOL_SI_TSTART)) {
+            const u32 channel = ((u32)value >> 1u) & 3u;
+            u8* status = host->si.regs + DOL_SI_STATUS_OFF;
+            u8* control = host->si.regs + DOL_SI_COMCSR_OFF;
+            // An empty port completes with COMERR/NOREP, leaving the receive buffer untouched.
+            write_be32(status, read_be32(status) | (0x08000000u >> (channel * 8u)));
+            write_be32(control, read_be32(control) | 0x20000000u);
+        }
     } else {
         ww_host_fail(host, "unsupported MMIO write", address, cpu->pc);
         return;
