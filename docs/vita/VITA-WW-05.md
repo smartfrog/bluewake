@@ -2324,3 +2324,45 @@ is not authentic game/GX evidence. The next clean source-bound build/trial check
 Strict GX validation, pins, ABI, `BlueWakeRelData` and static archive are unchanged. Dynamic
 FIFO pointers, DVD/CMake integration, Windows ARAM and final counts remain tracked. Physical
 Vita, Windows CI, rendering, FPS, runtime REL and actual guest disc/file access remain unverified.
+
+## Real empty-distance-high continuation and observed CP write-pointer high
+
+Run `d06b608256e140d3aa84aaeeb36518cf`, source
+`9c6026b71db2b755a59fa4d97000a69955371e6b`, passes the empty distance-high initialization
+and reaches **`CC000036 = 0042`**, halfword PC **`80321008`**. Its closed guest **FAIL**
+has **64,248 edges, 7,140,042 cycles**, zero FIFO bytes, `GX_FRONTIER complete=0`,
+`live=0`, `rendered=0`. Build status zero in 126.310 s; archive unchanged. Both owned
+phases timeout at 60 s, TERM/exit -15, `waited=true`; process **124/INCOMPLETE** remains
+separate. Bindings and LER are rechecked in
+`logs/cp-fifo-distance-high-evidence-9c6026b.json`. SHA-256:
+
+- VPK: `faa65ffb0513749da38203510d8de96d150ca0d97dc2dee000eefe91bda7db65`;
+- report: `cee29dea25d428c271c4c3f1fab1d24342c728782c5e0998e054c180867cd40c`;
+- result: `d1624da1763815f2bad6aedd22b77584c9b4ba02bcbc9b68814ffaa0a185264e`;
+- log: `e53c5af186f23140c23810e0dd46dfbad9baa2e8b8124233c165a3eafcb1c81d`;
+- LER: `169da8b7a0e0d3067e984a0701130bdf9916ce1c09ccf887d9004ec9f413b079`.
+
+Plan/request/result source and package-hash equality are also recorded in
+`logs/cp-fifo-distance-high-request-bindings-9c6026b.json`.
+
+The pin identifies **CP_FIFO_WRITE_POINTER_HI** at offset `36`
+(`VideoCommon/CommandProcessor.h:75`) and directly maps CPWritePointer's high halfword
+with the GameCube **`03FF`** mask (`CommandProcessor.cpp:131,153,159-163`). WW05 adds
+only this observed address to the existing CP write-pointer selector. The shared halfword
+path assembles **`00429F60`**, preserves the other half on overwrite and exposes low/high
+reads **`9F60` / `0042`**, without adding device logic or scheduling work.
+
+`logs/cp-fifo-wptr-high-red.log` reproduces high write-pointer refusal while earlier
+parameterizations and base/end assembly pass. `logs/cp-fifo-wptr-high-host-green.log`
+passes **319 host tests** on Linux AArch64. The existing assembly test now parameterizes
+base/end/write-pointer and both write orders, overwrites and reserved-bit masks. Shared
+tests retain reset/store, actual halfword guest memory hooks, invalid widths and real
+credited-cycle/spent-quantum checks. Main-loop fixture PASS is synthetic, not game/GX evidence.
+
+This is stored configuration, not gather-burst pointer advancement. The documented dynamic
+CP/PI pointer debt still requires the genuine gather/FIFO memory path. No GP enable, FIFO
+copy/consumption, parser input, timer, status or IRQ is invented. Other unobserved accesses/
+enables and FIFO reset remain refused. Strict GX validation, pins, ABI, `BlueWakeRelData`
+and static archive are unchanged. Authentic continuation awaits the clean source-bound
+build/trial; DVD/CMake, Windows ARAM and final counts remain tracked. Physical Vita,
+Windows CI, rendering, FPS, runtime REL and actual guest disc/file access remain unverified.

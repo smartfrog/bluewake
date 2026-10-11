@@ -543,17 +543,19 @@ int main(int argc, char** argv) {
         assert(host->cpu.external_read(&host->cpu, 0xCC000038u, 2u) == 0xA180u);
         assert(host->cpu.external_read(&host->cpu, 0xCC000028u, 2u) == 0x3200u);
         assert(host->cpu.external_read(&host->cpu, 0xCC00002Cu, 2u) == 0x5420u);
-    } else if (strncmp(argv[1], "cp-base-halves-", 15u) == 0 || strncmp(argv[1], "cp-end-halves-", 14u) == 0) {
+    } else if (strncmp(argv[1], "cp-base-halves-", 15u) == 0 || strncmp(argv[1], "cp-end-halves-", 14u) == 0 ||
+               strncmp(argv[1], "cp-wptr-halves-", 15u) == 0) {
         const bool end = strncmp(argv[1], "cp-end-halves-", 14u) == 0;
+        const bool wptr = strncmp(argv[1], "cp-wptr-halves-", 15u) == 0;
         const char* order = argv[1] + (end ? 14u : 15u);
         assert(strcmp(order, "low-first") == 0 || strcmp(order, "high-first") == 0);
         const bool high_first = strcmp(order, "high-first") == 0;
-        const u32 low_address = end ? 0xCC000024u : 0xCC000020u;
+        const u32 low_address = end ? 0xCC000024u : wptr ? 0xCC000034u : 0xCC000020u;
         const u32 high_address = low_address + 2u;
         const u32 high_value = end ? 0x4Cu : 0x42u;
         const u32 low_value = end ? 0x9F5Cu : 0x9F60u;
         const u32 masked_low = low_value & 0xFFE0u;
-        u32* full_value = end ? &host->cp_fifo_end : &host->cp_fifo_base;
+        u32* full_value = end ? &host->cp_fifo_end : wptr ? &host->cp_fifo_write_pointer : &host->cp_fifo_base;
         const DolInterrupts before = host->interrupts;
         host->cpu.external_write(&host->cpu, high_first ? high_address : low_address, high_first ? high_value : low_value, 2u);
         assert(host->error == NULL);
