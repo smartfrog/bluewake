@@ -15,7 +15,7 @@ class MainIoTest(unittest.TestCase):
     def setUpClass(cls):
         test_host.StartupHostTest.setUpClass()
 
-    def run_fixture(self, failure='', stale=False, interrupt=None):
+    def run_fixture(self, failure='', stale=False, interrupt=None, exception=False):
         with tempfile.TemporaryDirectory(dir=OUT, prefix='io-') as directory:
             root = Path(directory)
             data = bytearray(260)
@@ -29,9 +29,15 @@ class MainIoTest(unittest.TestCase):
             environment = dict(os.environ, WW05_IO_FAILURE=failure)
             if interrupt is not None:
                 environment['WW05_IO_IRQ'] = interrupt
+            if exception:
+                environment['WW05_IO_EXCEPTION'] = '1'
             result = subprocess.run([str(OUT / 'io_probe')], cwd=root,
                                     env=environment, capture_output=True, timeout=10)
             report = (root / 'ww05.report').read_text() if (root / 'ww05.report').exists() else None
+            if exception:
+                log = result.stderr.decode()
+                self.assertIn('[exception] bits=00000008 pc=00000C00 srr0=80001004', log)
+                self.assertIn('[exception-vector] address=00000C00', log)
             return result.returncode, report
 
     def test_synthetic_host_fixture_publishes_closed_report(self):
@@ -47,6 +53,12 @@ class MainIoTest(unittest.TestCase):
                 self.assertEqual(status, 0)
                 self.assertIn('pc=80001004', report)
                 self.assertTrue(report.endswith('END frontier=PASS live=0 rendered=0\n'))
+
+    def test_unhandled_system_call_is_not_mislabelled_as_an_fp_defect(self):
+        status, report = self.run_fixture(exception=True)
+        self.assertNotEqual(status, 0)
+        self.assertIn('STOP reason=unhandled guest exception address=00000008', report)
+        self.assertNotIn('FP defect', report)
 
     def test_write_failure_is_not_published(self):
         status, report = self.run_fixture('write')

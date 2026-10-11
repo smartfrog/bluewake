@@ -12,6 +12,10 @@ static BluewakeEdgeServiceFn edge;
 static void* edge_user;
 
 static int dispatch(CPUState* cpu, u32 address) {
+    if (getenv("WW05_IO_EXCEPTION") != NULL) {
+        ppc_system_call_exception(cpu, address);
+        return 1;
+    }
     const char* interrupt = getenv("WW05_IO_IRQ");
     if (interrupt != NULL && address == 0x80001000u) {
         cpu->external_write(cpu, DOL_PI_INTERRUPT_MASK, DOL_PI_CAUSE_SI, 4u);

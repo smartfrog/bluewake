@@ -230,7 +230,7 @@ a lingering process. Its short red/green loops are in `logs/private-{launch,gues
 The parent-symlink loop reproduced creation outside an owned fake profile, then prevented it with the
 existing no-follow directory-descriptor pattern. No real/shared profile was involved.
 
-The WW05 host suite currently has **95 tests**. Source-bound logs retain exact counts/commands for these,
+The WW05 host suite currently has **96 tests**. Source-bound logs retain exact counts/commands for these,
 native runtime CTest, 71 native FP cases and the eight direct baseline files. Audit, attribution,
 pin/scope/diff and clean-worktree checks accompany delivery. The pre-launch `1ba507c` checkpoint passed
 35 WW05 tests, 177 unchanged tests, 53 direct baseline tests, 71 native FP cases and 3/1/5 runtime/corpus/
@@ -455,3 +455,25 @@ retained a failed DMA mapping test; `logs/exi-sram-green-mapped.log` then passes
 including exact shared defaults, immediate/DMA reads, guarded byte boundaries, TCINT/PI,
 deselect/reselect, private writes, and refusal of unmapped DMA/out-of-range SRAM/other IPL regions.
 This is host contract evidence, not a claim of real GX execution.
+
+Run `d520d6ac10e64865afe8931a5dd67dcb` at `995406d36208420536da64c763b0865e1c7d7e52`
+completed the SRAM command and the 64-byte DMA to physical `003F0260`, then reached 143,810
+cycles and 1,289 edges. It stopped at PPC vector `00000C00` with initial exception bit `8`
+(SYSTEM_CALL). The host subsequently ORed PROGRAM (`1`) when refusing it; reported `9` is not
+two independently observed guest faults. Report SHA-256 is
+`48fb6d2f0f190e1d9c7a83f40b3c47d1762bc905961c5fea48ae123b4ab68f3f`.
+Both 60-second phases stopped/reaped; process 124/INCOMPLETE and frontier FAIL remain separate.
+
+`8` is the pinned CPU's exception-mask constant, not an edge-service number. The C emitter
+raises it through `ppc_system_call_exception`, saving CIA+4 in SRR0. The DOL contains only three
+SC instructions (`80301504`, `80303100`, `80303130`); two belong to data-cache flush/store
+paths and are ordinary OS synchronization, not panic by definition. The prior report lacks
+SRR0 and cannot establish which SC actually executed. No exception has yet been skipped.
+
+The misleading generic reason mentioning the accepted FP defect is now replaced with
+`unhandled guest exception`. The private log records exception bits, SRR0/SRR1, MSR, LR,
+selected GPRs, FPSCR/program cause, and 64 bytes at a RAM-backed exception vector. The SYSTEM_CALL
+bit and vector are not evidence of the Vita3K FP defect; attributing earlier control flow to FP
+without the saved CIA would also be unwarranted. The diagnostic checkpoint does not modify FP.
+The corrected synthetic red/green fixture checks this context and passes all 96 host tests;
+the earlier native-log-file fixture mistake and its failed attempts remain recorded.
