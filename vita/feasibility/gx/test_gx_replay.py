@@ -85,5 +85,33 @@ class TexturedTriangleTest(unittest.TestCase):
         self.assertEqual(texture["height"], "4")
 
 
+class Ci8TriangleTest(unittest.TestCase):
+    """A CI8 image through a 16-entry RGB5A3 TLUT: palette identity comes back."""
+
+    @classmethod
+    def setUpClass(cls):
+        if not find_replay().is_file():
+            raise unittest.SkipTest("gx_replay not built; run scripts/vita/gx/build.py")
+        cls.lines = parse_report(run_scenario("ci8_triangle"))
+
+    def test_plan_is_built(self):
+        self.assertEqual(self.lines["plan"][0][:2], ["ok=1", "vertices=3"])
+
+    def test_image_is_the_ci8_fixture(self):
+        texture = dict(field.split("=", 1) for field in self.lines["texture"][0])
+        self.assertEqual(texture["format"], "9")  # GX_TF_C8
+        self.assertEqual(texture["width"], "8")
+        self.assertEqual(texture["height"], "8")
+
+    def test_palette_is_the_fixture_tlut(self):
+        tlut = dict(field.split("=", 1) for field in self.lines["tlut"][0])
+        self.assertEqual(tlut["format"], "2")  # GX_TL_RGB5A3
+        self.assertEqual(tlut["entries"], "16")
+
+    def test_pipeline_is_textured(self):
+        pipeline = dict(field.split("=", 1) for field in self.lines["pipeline"][0])
+        self.assertEqual(pipeline["textured"], "1")
+
+
 if __name__ == "__main__":
     unittest.main()

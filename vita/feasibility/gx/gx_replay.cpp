@@ -98,6 +98,12 @@ struct FixtureContext {
 constexpr u32 kTextureBase = 0x1000u; // physical address of the fixture texture
 constexpr u32 kTextureWidth = 4u;
 constexpr u32 kTextureHeight = 4u;
+constexpr u32 kCi8Base = 0x800u;   // 8x8 CI8 indices, 64 bytes
+constexpr u32 kCi8Width = 8u;
+constexpr u32 kCi8Height = 8u;
+constexpr u32 kTlutBase = 0x1400u; // 16 RGB5A3 entries, 32 bytes
+constexpr u32 kTlutEntries = 16u;
+constexpr u32 kTlutTmem = 0x20u;
 
 bool resolve_mem1(void* user, u32 address, u32 size, DolGuestAddressSpace space,
                   DolGuestResourceKind resource, DolGuestResolvedRange* out) {
@@ -173,6 +179,51 @@ std::vector<std::uint8_t> build_textured_triangle() {
   return fifo;
 }
 
+// --- Scenario: one CI8 triangle through a 16-entry RGB5A3 TLUT ---------------
+//
+// GXLoadTexObj writes the palette first (LOAD_TLUT0 holds address >> 5,
+// LOAD_TLUT1 the TMEM offset and line count-1), then image0/image3 and
+// SETTLUT (TMEM offset | format << 10) for the CI8 image.
+
+std::vector<std::uint8_t> build_ci8_triangle() {
+  std::vector<std::uint8_t> fifo;
+  push_cp(fifo, DOL_GX_CP_REG_VCD_LO, 1u << 9u);
+  push_cp(fifo, DOL_GX_CP_REG_VCD_HI, 1u << 0u);
+  const std::uint32_t vat0 =
+      (1u << 0u) | (4u << 1u) | (1u << 21u) | (4u << 22u);
+  push_cp(fifo, DOL_GX_CP_REG_VAT_GRP0, vat0);
+  push_cp(fifo, DOL_GX_CP_REG_VAT_GRP1, 0u);
+  push_cp(fifo, DOL_GX_CP_REG_VAT_GRP2, 0u);
+
+  push_bp(fifo, DOL_GX_BP_REG_LOAD_TLUT0, kTlutBase >> 5u);
+  push_bp(fifo, DOL_GX_BP_REG_LOAD_TLUT1,
+          kTlutTmem | ((kTlutEntries / 16u) << 10u));
+  push_bp(fifo, DOL_GX_BP_REG_TX_SETIMAGE0,
+          tex_image0(kCi8Width, kCi8Height, 9u)); // GX_TF_C8
+  push_bp(fifo, DOL_GX_BP_REG_TX_SETIMAGE3, kCi8Base >> 5u);
+  push_bp(fifo, DOL_GX_BP_REG_TX_SETTLUT, kTlutTmem | (2u << 10u));
+
+  const std::vector<std::uint32_t> identity = {
+      0x3F800000u, 0u, 0u, 0u, 0u, 0x3F800000u,
+      0u, 0u, 0u, 0u, 0x3F800000u, 0u,
+  };
+  push_xf_block(fifo, 0x0000u, identity);
+  push_xf_f32(fifo, DOL_GX_XF_VIEWPORT_BASE,
+              {320.f, -240.f, 16777215.f, 342.f, 342.f, 16777215.f});
+  push_xf_f32(fifo, DOL_GX_XF_PROJECTION_BASE,
+              {1.f, 1.f, 0.1f, 1000.f, 0.f, 0.f});
+  push_xf_block(fifo, DOL_GX_XF_PROJECTION_TYPE, {0u});
+  push_xf_block(fifo, 0x103Fu, {1u});
+
+  push_draw(fifo, 0x90u, 3u,
+            {
+                0.f, 0.f, 0.f, 0.f, 0.f,
+                1.f, 0.f, 0.f, 1.f, 0.f,
+                0.f, 1.f, 0.f, 0.f, 1.f,
+            });
+  return fifo;
+}
+
 // --- Report -----------------------------------------------------------------
 
 void plan_observer(const gxc::DrawPlan& plan, void* user) {
@@ -217,6 +268,11 @@ void plan_observer(const gxc::DrawPlan& plan, void* user) {
     std::snprintf(line, sizeof line, "texture format=%u width=%u height=%u",
                   plan.tex_format, plan.tex_width, plan.tex_height);
     out->push_back(line);
+    if (plan.has_tlut) {
+      std::snprintf(line, sizeof line, "tlut format=%u entries=%u",
+                    plan.tlut_format, plan.tlut_entries);
+      out->push_back(line);
+    }
   }
 }
 
@@ -226,6 +282,16 @@ int run(const std::vector<std::uint8_t>& fifo) {
   // The 4x4 RGBA8 fixture texture: byte i = i & 0xFF.
   for (std::uint32_t i = 0; i < 64u; ++i)
     ctx.mem1[kTextureBase + i] = static_cast<std::uint8_t>(i);
+  // The 8x8 CI8 fixture texture: index i = i % 16.
+  for (std::uint32_t i = 0; i < 64u; ++i)
+    ctx.mem1[kCi8Base + i] = static_cast<std::uint8_t>(i % 16u);
+  // The 16-entry RGB5A3 palette: entry i = 0x8000 | i * 0x421 (a distinct
+  // value per entry, high bit set = opaque).
+  for (std::uint32_t i = 0; i < kTlutEntries; ++i) {
+    const std::uint16_t entry = static_cast<std::uint16_t>(0x8000u | (i * 0x421u));
+    ctx.mem1[kTlutBase + i * 2u] = static_cast<std::uint8_t>(entry >> 8u);
+    ctx.mem1[kTlutBase + i * 2u + 1u] = static_cast<std::uint8_t>(entry);
+  }
 
   ar::RetailGxFrontend frontend;
   DolGuestAddressResolver resolver;
@@ -268,6 +334,8 @@ int main(int argc, char** argv) {
   const std::string scenario = argv[1];
   if (scenario == "textured_triangle")
     return run(build_textured_triangle());
+  if (scenario == "ci8_triangle")
+    return run(build_ci8_triangle());
   std::fprintf(stderr, "unknown scenario: %s\n", scenario.c_str());
   return 2;
 }
