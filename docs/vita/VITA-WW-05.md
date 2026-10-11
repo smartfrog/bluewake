@@ -62,12 +62,15 @@ the allocation ledger; partial allocation and shutdown release them. This adds n
 The MI interrupt mask at `CC00401C` retains its five documented source bits through halfword
 read/write access. Other widths, reserved bits and all other MI services remain explicit failures;
 this does not enable memory-protection enforcement or fabricate an interrupt source.
-DSP control at `CC00500A` exposes the stopped, initialization-pending state `0804` and retains
-only the AID/ARAM/DSP interrupt masks. Acknowledgements cannot create pending interrupts. The
+DSP control at `CC00500A` initially exposes the stopped, initialization-pending state `0804` and retains
+the AID/ARAM/DSP interrupt masks. Acknowledgements cannot create pending interrupts. The
 initial halt/init bits follow the pristine donor's `HW/DSP.cpp`, `HW/DSP.h` and
-`HW/DSPHLE/DSPHLE.cpp`; they are not a task-completion token. Clearing halt/init, requesting reset
-or another control operation fails explicitly because no DSP backend is installed. No mailbox,
-microcode, audio, ARAM DMA or fabricated DSP response is implemented. ARAM configuration
+`HW/DSPHLE/DSPHLE.cpp`; they are not a task-completion token. Reset now has a fixed, guarded
+ROM selection model: it requires all 128 live init bytes to match the identified private reference.
+The reset bit clears without altering guest time. A stopped ROM does not expose its pending mail;
+verified ROM release exposes the documented `8071FEED`, whose busy latch clears on low-word read.
+Unknown code, external DSP interrupts, running/queued CPU-mail protocols and the init transfer
+still refuse explicitly. No DSP core, audio or ARAM DMA is implemented in this increment. ARAM configuration
 halfwords are implemented separately: AR_INFO (`CC005012`, mask `007F`, reset zero),
 read-only AR_MODE (`CC005016`, reset one), and AR_REFRESH (`CC00501A`, mask `07FF`, reset 156).
 The refresh image is a register value, not a new emulated clock frequency.
@@ -233,7 +236,7 @@ a lingering process. Its short red/green loops are in `logs/private-{launch,gues
 The parent-symlink loop reproduced creation outside an owned fake profile, then prevented it with the
 existing no-follow directory-descriptor pattern. No real/shared profile was involved.
 
-The WW05 host suite currently has **142 tests**. Source-bound logs retain exact counts/commands for these,
+The WW05 host suite currently has **155 tests**. Source-bound logs retain exact counts/commands for these,
 native runtime CTest, 71 native FP cases and the eight direct baseline files. Audit, attribution,
 pin/scope/diff and clean-worktree checks accompany delivery. The pre-launch `1ba507c` checkpoint passed
 35 WW05 tests, 177 unchanged tests, 53 direct baseline tests, 71 native FP cases and 3/1/5 runtime/corpus/
@@ -829,3 +832,63 @@ branch attribution checks pass. No DMA or ucode response is claimed from these s
 The unchanged ARMv7 suite passes 177 tests in `logs/aram-config-armv7-corrected.log`;
 the earlier `logs/aram-config-armv7.log` used the scripts directory and discovered zero tests,
 so it is retained as a failed command, not credited as validation.
+
+## Guarded DSP reset and ROM mailbox increment
+
+The 600-second run `65611f938cf442419e2096157797baa6` at
+`4785ea1bd4bec5b6533a0407ad36647c0b42dc1e` closes **FAIL** at the next actual operation:
+`DSP execution/reset requires a real DSP backend address=CC00500A pc=80302E6C`.
+The state remains 1,311 edges and 144,070 credited cycles; no GX bytes exist. Both owned
+emulator phases timeout/reap at 600 seconds: FAIL is a guest verdict, not process completion.
+The static archive remains `9d1c59238cea4b83798f1c16b0549950d41ec0011a89e95591d5a307718aea08`.
+The sampled guest log is only 5,348 bytes and its closed discriminant is `LER`.
+VPK SHA-256: `dc7483e117d323e32cfe45cb068185751f5b7121cd33c42122b2671998bd6542`;
+report: `1f33a8a25fade2a531602c8580bc233f347372765d7c3a26f2fc249af4c13709`;
+result: `854ffe6b7383b6cfea1b31484c3d95050c26ae68c1d33475aec329f1400596c3`;
+guest log: `b0cd47443b3b34ad6d9fee8d00d1df7d02a65264c78c8160341835ef1c4f1467`;
+journal: `169da8b7a0e0d3067e984a0701130bdf9916ce1c09ccf887d9004ec9f413b079`.
+At that exact SHA 142 host tests, 177 ARMv7 tests, native runtime CTest 3/3, audit and
+attribution passed on Linux AArch64. Physical Vita, Windows and rendering remain untested.
+
+The coordinator explicitly permits a documented, fixed-function init/ROM model, while keeping
+audio stopped and refusing all unidentified programs. Before granting reset, the host now
+compares **every byte** of the live init image at physical `01000000` with a private 128-byte
+reference. The build extracts that reference from exactly one complete DOL section at
+`8039F5B0` and checks SHA-256
+`5b873ee91f33b0884574b814d7f46d81e283394de91b8b2ea9073ac218dee350`.
+Only the private generated `identity/ww05_dsp_init.h` contains those bytes, and each preserved
+build keeps it with its hash in the receipt. No game bytes enter Git and no override is offered.
+The existing disc/DOL/tree/pin checks are unchanged. Native tests use a clearly synthetic
+0-to-127 reference, not the private game image, and cannot certify a real response.
+
+The reference identity is backed by the private static records
+`logs/init-ucode-static-4785ea1.json` and `logs/init-ucode-static-completed-4785ea1.json`
+(completed proof SHA-256 `a5192d1d63985f062134d96a34bea7801a7f20e0536d7060a37e0df98dbf2b51`).
+The actual copied program jumps to its init entry, scans ROM, clears DSP data memory, scans
+coefficient memory, waits for the outgoing mailbox, emits the documented init mail and halts.
+The classifier's excluded extended CLR was resolved against `DSP/DSPTables.cpp:259`; an
+initial lookup that also matched fallback/extension entries is recorded as a failed diagnostic.
+This is static source evidence, not a claim that the program executed on hardware.
+
+This increment implements reset, halted CPU/mailbox latches and **only the ROM greeting**:
+`8071FEED` from pinned `HW/DSPHLE/UCodes/ROM.cpp:31-34`. Reset/halt selection follows
+`HW/DSPHLE/DSPHLE.cpp:195-210` and `DSP/Interpreter/DSPInterpreter.cpp:225-244`; low-word
+consumption and high-word busy semantics follow `DSP/DSPHWInterface.cpp:32-72` and
+`HW/DSPHLE/MailHandler.cpp:38-68`. The ROM is the fixed on-chip reset mode, never a supplied
+or unknown task. No mail is visible while halted, no DSP/ARAM/AI interrupt is created, and
+no guest charge, clock rate or reset delay is invented. This models the documented handshake
+state transitions, not cycle-exact physical ROM latency. A pending unsupported CPU mail
+prevents release rather than being ignored. Later ROM boot-task commands and init transfer
+remain explicit stops; **`80544348` is not yet emitted by this implementation**. Dynamic Zelda
+audio requires the coordinator's separate backend decision, and AI stays stopped.
+
+`logs/dsp-fixed-reset-red.log` reproduces the rejected known reset and missing failure context;
+`logs/dsp-reference-red.log` records the absent reference extractor. The first green attempt
+also exposes the configure-only fixture's missing new private header and is retained. The
+fixture now supplies synthetic reference data, without weakening production's required input.
+`logs/dsp-fixed-queued-mail-red.log` reproduces an unsupported queued mail being allowed to
+release; the corrected model refuses it. `logs/dsp-fixed-reset-verified-green.log` passes
+155 host tests, including all 128 single-byte mutations, re-verification at release, halted
+mailbox consumption, zero-charge reset and ROM-mail/no-interrupt behavior.
+`logs/dsp-fixed-reset-armv7.log` passes 177 unchanged tests; audit passes. Rejected DSP writes
+now retain width/value in the existing strict report without adding GX evidence fields.

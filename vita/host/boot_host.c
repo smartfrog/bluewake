@@ -5,6 +5,7 @@
 #include "edge_intercept_table.h"
 #include "gxruntime/boot.h"
 #include "gxruntime/guest_memory_dirty.h"
+#include "ww05_dsp_init.h"
 
 #include <string.h>
 
@@ -280,8 +281,6 @@ static u64 mmio_read(CPUState* cpu, u32 address, u8 size) {
     }
     if (address == 0xCC00401Cu && size == 2u)
         value = host->mi_interrupt_mask;
-    else if (address == 0xCC00500Au && size == 2u)
-        value = 0x0804u | host->dsp_interrupt_mask;
     else if (address == 0xCC006C00u && size == 4u)
         dol_audio_dma_ai_mmio_read(&host->audio, DOL_AUDIO_DMA_AI_CONTROL_OFF, size, &value);
     else if (interrupt_register(address, size, false))
@@ -300,6 +299,14 @@ static u64 mmio_read(CPUState* cpu, u32 address, u8 size) {
     return value;
 }
 
+static void fail_mmio_write(WwHost* host, const char* error, u32 address, u64 value, u8 size) {
+    if (host->error == NULL) {
+        host->error_width = size;
+        host->error_value = value;
+    }
+    ww_host_fail(host, error, address, host->cpu.pc);
+}
+
 static void mmio_write(CPUState* cpu, u32 address, u64 value, u8 size) {
     WwHost* host = owner(cpu);
     if (in_range(address, size, 0xCC008000u, 0x20u)) {
@@ -311,25 +318,24 @@ static void mmio_write(CPUState* cpu, u32 address, u64 value, u8 size) {
         dol_guest_memory_write(&host->memory, address, size, value))
         return;
     observe(cpu);
-    if (ww_dsp_interface_write(&host->dsp, address, size, value)) {
+    const bool dsp_written = ww_dsp_interface_write(&host->dsp, cpu, address, size, value);
+    if (host->dsp.error != NULL) {
+        fail_mmio_write(host, host->dsp.error, address, value, size);
+        return;
+    }
+    if (dsp_written) {
         refresh(host);
         return;
     }
     if (address == 0xCC00401Cu && size == 2u) {
         if (value & ~0x1Full) {
-            ww_host_fail(host, "unsupported MI interrupt mask bits", address, cpu->pc);
+            fail_mmio_write(host, "unsupported MI interrupt mask bits", address, value, size);
             return;
         }
         host->mi_interrupt_mask = (u16)value;
-    } else if (address == 0xCC00500Au && size == 2u) {
-        if ((value & ~0x01F8ull) != 0x0804u) {
-            ww_host_fail(host, "DSP execution/reset requires a real DSP backend", address, cpu->pc);
-            return;
-        }
-        host->dsp_interrupt_mask = (u16)value & 0x0150u;
     } else if (address == 0xCC006C00u && size == 4u) {
         if ((value & ~0x3Cull) != DOL_AUDIO_DMA_AI_CONTROL_INIT) {
-            ww_host_fail(host, "AI stream/rate change requires an audio backend", address, cpu->pc);
+            fail_mmio_write(host, "AI stream/rate change requires an audio backend", address, value, size);
             return;
         }
         dol_audio_dma_ai_mmio_write(&host->audio, DOL_AUDIO_DMA_AI_CONTROL_OFF, size, value & ~8ull);
@@ -352,11 +358,7 @@ static void mmio_write(CPUState* cpu, u32 address, u64 value, u8 size) {
             write_be32(control, read_be32(control) | 0x20000000u);
         }
     } else {
-        if (host->error == NULL) {
-            host->error_width = size;
-            host->error_value = value;
-        }
-        ww_host_fail(host, "unsupported MMIO write", address, cpu->pc);
+        fail_mmio_write(host, "unsupported MMIO write", address, value, size);
         return;
     }
     refresh(host);
@@ -489,7 +491,7 @@ bool ww_host_init(WwHost* host) {
     dol_exi_set_transfer_callback(&host->exi, exi_transfer, host);
     dol_si_init(&host->si);
     dol_audio_dma_init(&host->audio);
-    ww_dsp_interface_init(&host->dsp);
+    ww_dsp_interface_init(&host->dsp, ww05_dsp_init_reference);
     DolGuestAddressResolver resolver;
     dol_guest_address_resolver_init(&resolver, &host->memory, &host->cpu);
     dol_gx_recomp_init(&host->gx, &resolver);

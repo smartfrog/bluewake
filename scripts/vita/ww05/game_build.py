@@ -153,6 +153,11 @@ def main():
     identity = output / 'identity'
     identity.mkdir(exist_ok=True)
     (identity / 'ww05_identity.h').write_text(f'#define WW05_SOURCE "{source}"\n')
+    from dsp_ucode import INIT_UCODE_SHA256, extract_init_ucode
+    init_code = extract_init_ucode((private / 'main.dol').read_bytes())
+    init_header = identity / 'ww05_dsp_init.h'
+    init_header.write_text('static const unsigned char ww05_dsp_init_reference[128] = {' +
+                           ','.join(str(value) for value in init_code) + '};\n')
     os.environ['VITASDK'] = str(STACK / 'vitasdk')
     vita = output / 'vita'
     build.run('vita-configure', [cmake, '-S', ROOT / 'vita/host', '-B', vita, '-G', 'Ninja',
@@ -167,7 +172,10 @@ def main():
     snapshot = Path(next(iter(artifacts))).parent
     for path in (output / 'footprint.json', vita / 'ww05.map', vita / 'compile_commands.json'):
         shutil.copyfile(path, snapshot / path.name)
+    shutil.copyfile(init_header, snapshot / init_header.name)
     receipt = json.dumps({'source': source, 'pins': PINS,
+        'dsp_init': {'bytes': len(init_code), 'sha256': INIT_UCODE_SHA256,
+                     'private_header_sha256': sha256(init_header)},
         'composite_digest': digest, 'title': 'BWWG00005', 'method': 'startup-gx-v1',
         'artifacts': artifacts, 'config': {'static_module': True, 'aurora': False, 'aurora_recomp': False,
         'optimization': 1, 'compiler_pass_disabled': 'tree-dominator-opts', 'fp_patch': None},

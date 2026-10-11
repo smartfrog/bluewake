@@ -23,6 +23,7 @@ class StaticModeTest(unittest.TestCase):
             options = [f'-DCMAKE_C_COMPILER={os.environ["CC"]}', '-DCOMPOSITE_OPTIMIZATION_LEVEL=0']
             if vita:
                 (output / 'ww05_identity.h').write_text('#define WW05_SOURCE "' + 'a' * 40 + '"\n')
+                (output / 'ww05_dsp_init.h').write_text('static const unsigned char ww05_dsp_init_reference[128] = {0};\n')
                 (output / 'synthetic.dol').write_bytes(b'synthetic configuration input only')
                 options = [f'-DCMAKE_TOOLCHAIN_FILE={STACK}/vitasdk/share/vita.toolchain.cmake',
                            f'-DRECOMPCORE_DIR={ROOT}/ref/vita-ww-01/RecompCore',

@@ -360,6 +360,66 @@ int main(int argc, char** argv) {
         host->cpu.external_read(&host->cpu, 0xCC00401Cu, 4u);
         assert(host->error != NULL);
         assert(host->error_address == 0xCC00401Cu);
+    } else if (strncmp(argv[1], "dsp-fixed-", 10u) == 0) {
+        for (u32 index = 0u; index < 128u; ++index)
+            host->cpu.ram[0x01000000u + index] = (u8)index;
+        if (strncmp(argv[1], "dsp-fixed-altered-", 18u) == 0) {
+            const u32 index = (u32)strtoul(argv[1] + 18u, NULL, 10);
+            assert(index < 128u);
+            host->cpu.ram[0x01000000u + index] ^= 1u;
+            host->cpu.external_write(&host->cpu, 0xCC00500Au, 0x0805u, 2u);
+            assert(host->error != NULL && host->error_address == 0xCC00500Au);
+            assert(host->error_width == 2u && host->error_value == 0x0805u);
+            assert(host->cpu.external_read(&host->cpu, 0xCC00500Au, 2u) == 0x0804u);
+        } else {
+            const u64 cycles = host->cycles.absolute_cycles;
+            const u64 tb = host->cpu.timebase;
+            host->cpu.external_write(&host->cpu, 0xCC00500Au, 0x08ADu, 2u);
+            assert(host->error == NULL);
+            assert(host->cpu.external_read(&host->cpu, 0xCC00500Au, 2u) == 0x0804u);
+            assert(host->cpu.external_read(&host->cpu, 0xCC005004u, 2u) == 0u);
+            assert(host->cpu.external_read(&host->cpu, 0xCC005006u, 2u) == 0u);
+            if (strcmp(argv[1], "dsp-fixed-reset") == 0) {
+                assert(host->cycles.absolute_cycles == cycles && host->cpu.timebase == tb);
+                assert(read_be32(host->audio.ai_regs) == DOL_AUDIO_DMA_AI_CONTROL_INIT);
+                assert(!dol_interrupts_external_pending(&host->interrupts));
+            } else if (strcmp(argv[1], "dsp-fixed-rom-mail") == 0) {
+                charge_cycles(host, 12u);
+                host->cpu.external_write(&host->cpu, 0xCC00500Au, 0x0800u, 2u);
+                assert(host->error == NULL && host->cpu.timebase == tb + 1u);
+                assert(host->cpu.external_read(&host->cpu, 0xCC005004u, 2u) == 0x8071u);
+                assert(host->cpu.external_read(&host->cpu, 0xCC005004u, 2u) == 0x8071u);
+                assert(host->cpu.external_read(&host->cpu, 0xCC005006u, 2u) == 0xFEEDu);
+                assert(host->cpu.external_read(&host->cpu, 0xCC005004u, 2u) == 0x0071u);
+                assert(host->cpu.external_read(&host->cpu, 0xCC005006u, 2u) == 0xFEEDu);
+                assert(!dol_interrupts_external_pending(&host->interrupts));
+            } else if (strcmp(argv[1], "dsp-fixed-halted-cpu-mail") == 0) {
+                host->cpu.external_write(&host->cpu, 0xCC005000u, 0x0040u, 2u);
+                assert(host->cpu.external_read(&host->cpu, 0xCC005000u, 2u) == 0x0040u);
+                host->cpu.external_write(&host->cpu, 0xCC005002u, 0x1234u, 2u);
+                assert(host->cpu.external_read(&host->cpu, 0xCC005000u, 2u) == 0x8040u);
+                assert(host->cpu.external_read(&host->cpu, 0xCC005002u, 2u) == 0x1234u);
+                assert(host->cpu.external_read(&host->cpu, 0xCC005000u, 2u) == 0x0040u);
+                assert(host->error == NULL);
+            } else if (strcmp(argv[1], "dsp-fixed-running-cpu-mail") == 0) {
+                host->cpu.external_write(&host->cpu, 0xCC00500Au, 0x0800u, 2u);
+                host->cpu.external_write(&host->cpu, 0xCC005002u, 0x1234u, 2u);
+                assert(host->error != NULL && host->error_address == 0xCC005002u);
+                assert(host->error_width == 2u && host->error_value == 0x1234u);
+            } else if (strcmp(argv[1], "dsp-fixed-queued-cpu-mail") == 0) {
+                host->cpu.external_write(&host->cpu, 0xCC005002u, 0x1234u, 2u);
+                host->cpu.external_write(&host->cpu, 0xCC00500Au, 0x0800u, 2u);
+                assert(host->error != NULL && host->error_address == 0xCC00500Au);
+                assert(host->cpu.external_read(&host->cpu, 0xCC005004u, 2u) == 0u);
+            } else if (strcmp(argv[1], "dsp-fixed-changed-after-reset") == 0) {
+                host->cpu.ram[0x0100007Fu] ^= 1u;
+                host->cpu.external_write(&host->cpu, 0xCC00500Au, 0x0800u, 2u);
+                assert(host->error != NULL && host->error_width == 2u);
+                assert(host->cpu.external_read(&host->cpu, 0xCC005004u, 2u) == 0u);
+            } else {
+                assert(!"unknown fixed DSP scenario");
+            }
+        }
     } else if (strcmp(argv[1], "dsp-stopped") == 0) {
         assert(host->cpu.external_read(&host->cpu, 0xCC00500Au, 2u) == 0x0804u);
         assert(host->error == NULL);

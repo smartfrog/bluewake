@@ -216,6 +216,29 @@ class StartupHostTest(unittest.TestCase):
             with self.subTest(channel=channel):
                 subprocess.run([str(OUT / 'host_probe'), f'si-empty-{channel}'], check=True)
 
+    def test_verified_init_allows_a_halted_dsp_reset_without_creating_time_or_audio(self):
+        subprocess.run([str(OUT / 'host_probe'), 'dsp-fixed-reset'], check=True)
+
+    def test_each_changed_init_byte_refuses_reset_before_any_mail(self):
+        for index in range(128):
+            with self.subTest(index=index):
+                subprocess.run([str(OUT / 'host_probe'), f'dsp-fixed-altered-{index}'], check=True)
+
+    def test_rom_mail_is_visible_only_after_halt_release_and_low_read_clears_its_latch(self):
+        subprocess.run([str(OUT / 'host_probe'), 'dsp-fixed-rom-mail'], check=True)
+
+    def test_halted_cpu_mailbox_uses_documented_high_low_latch_semantics(self):
+        subprocess.run([str(OUT / 'host_probe'), 'dsp-fixed-halted-cpu-mail'], check=True)
+
+    def test_unimplemented_running_rom_mail_is_not_consumed_or_answered(self):
+        subprocess.run([str(OUT / 'host_probe'), 'dsp-fixed-running-cpu-mail'], check=True)
+
+    def test_queued_unimplemented_rom_mail_prevents_release_instead_of_stalling_silently(self):
+        subprocess.run([str(OUT / 'host_probe'), 'dsp-fixed-queued-cpu-mail'], check=True)
+
+    def test_changed_init_after_reset_cannot_release_the_dsp_or_obtain_mail(self):
+        subprocess.run([str(OUT / 'host_probe'), 'dsp-fixed-changed-after-reset'], check=True)
+
     def test_empty_si_bus_errors_and_interrupts_can_be_acknowledged(self):
         subprocess.run([str(OUT / 'host_probe'), 'si-empty-ack'], check=True)
 
