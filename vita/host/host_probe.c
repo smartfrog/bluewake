@@ -534,6 +534,7 @@ int main(int argc, char** argv) {
         host->cpu.external_write(&host->cpu, 0xCC000028u, 0x321Fu, 2u);
         host->cpu.external_write(&host->cpu, 0xCC00002Au, 9u, 2u);
         host->cpu.external_write(&host->cpu, 0xCC00002Cu, 0x543Fu, 2u);
+        host->cpu.external_write(&host->cpu, 0xCC00002Eu, 5u, 2u);
         assert(host->error == NULL);
         assert(host->cpu.external_read(&host->cpu, 0xCC00300Cu, 4u) == 0x00429F60u);
         assert(host->cpu.external_read(&host->cpu, 0xCC003010u, 4u) == 0x004C9F40u);
@@ -546,23 +547,27 @@ int main(int argc, char** argv) {
         assert(host->cpu.external_read(&host->cpu, 0xCC00002Au, 2u) == 9u);
         assert(host->cp_fifo_high_watermark == 0x00093200u);
         assert(host->cpu.external_read(&host->cpu, 0xCC00002Cu, 2u) == 0x5420u);
+        assert(host->cpu.external_read(&host->cpu, 0xCC00002Eu, 2u) == 5u);
+        assert(host->cp_fifo_low_watermark == 0x00055420u);
     } else if (strncmp(argv[1], "cp-base-halves-", 15u) == 0 || strncmp(argv[1], "cp-end-halves-", 14u) == 0 ||
                strncmp(argv[1], "cp-wptr-halves-", 15u) == 0 || strncmp(argv[1], "cp-rptr-halves-", 15u) == 0 ||
-               strncmp(argv[1], "cp-hiwater-halves-", 18u) == 0) {
+               strncmp(argv[1], "cp-hiwater-halves-", 18u) == 0 || strncmp(argv[1], "cp-lowater-halves-", 18u) == 0) {
         const bool end = strncmp(argv[1], "cp-end-halves-", 14u) == 0;
         const bool wptr = strncmp(argv[1], "cp-wptr-halves-", 15u) == 0;
         const bool rptr = strncmp(argv[1], "cp-rptr-halves-", 15u) == 0;
         const bool hiwater = strncmp(argv[1], "cp-hiwater-halves-", 18u) == 0;
-        const char* order = argv[1] + (hiwater ? 18u : end ? 14u : 15u);
+        const bool lowater = strncmp(argv[1], "cp-lowater-halves-", 18u) == 0;
+        const char* order = argv[1] + (hiwater || lowater ? 18u : end ? 14u : 15u);
         assert(strcmp(order, "low-first") == 0 || strcmp(order, "high-first") == 0);
         const bool high_first = strcmp(order, "high-first") == 0;
-        const u32 low_address = hiwater ? 0xCC000028u : end ? 0xCC000024u : wptr ? 0xCC000034u :
-                                rptr ? 0xCC000038u : 0xCC000020u;
+        const u32 low_address = hiwater ? 0xCC000028u : lowater ? 0xCC00002Cu : end ? 0xCC000024u :
+                                wptr ? 0xCC000034u : rptr ? 0xCC000038u : 0xCC000020u;
         const u32 high_address = low_address + 2u;
-        const u32 high_value = hiwater ? 9u : end ? 0x4Cu : 0x42u;
-        const u32 low_value = hiwater ? 0xC000u : end ? 0x9F5Cu : 0x9F60u;
+        const u32 high_value = hiwater ? 9u : lowater ? 5u : end ? 0x4Cu : 0x42u;
+        const u32 low_value = hiwater ? 0xC000u : lowater ? 0u : end ? 0x9F5Cu : 0x9F60u;
         const u32 masked_low = low_value & 0xFFE0u;
-        u32* full_value = hiwater ? &host->cp_fifo_high_watermark : end ? &host->cp_fifo_end :
+        u32* full_value = hiwater ? &host->cp_fifo_high_watermark : lowater ? &host->cp_fifo_low_watermark :
+                          end ? &host->cp_fifo_end :
                           wptr ? &host->cp_fifo_write_pointer : rptr ? &host->cp_fifo_read_pointer : &host->cp_fifo_base;
         const DolInterrupts before = host->interrupts;
         host->cpu.external_write(&host->cpu, high_first ? high_address : low_address, high_first ? high_value : low_value, 2u);
