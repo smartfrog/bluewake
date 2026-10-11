@@ -90,7 +90,7 @@ def run_guest_watch(command, run_dir, timeout, report_path):
 
 
 def launch(vita3k, vpk, image, out_root, timeout, label, paths=(), libraries=None, firmware=None,
-           install_timeout=60):
+           install_timeout=60, wayland_socket=None):
     run_dir = Path(out_root) / f'vita3k-run-{label}-{uuid.uuid4().hex[:8]}'
     create_run(run_dir)
     runtime_sha = sha256(vita3k)
@@ -107,7 +107,8 @@ def launch(vita3k, vpk, image, out_root, timeout, label, paths=(), libraries=Non
     install_dir = run_dir / 'phases/install'
     (install_dir / 'evidence').mkdir(parents=True)
     install_command = sandbox_command(
-        run_dir, 'Vita3K', ['--console', '--backend-renderer', 'OpenGL', 'ww13.vpk'], libraries)
+        run_dir, 'Vita3K', ['--console', '--backend-renderer', 'OpenGL', 'ww13.vpk'], libraries,
+        wayland_socket=wayland_socket)
     install_status = run_owned(install_command, run_dir, install_timeout, evidence_root=install_dir)
     installed = (profile / 'ux0/app' / TITLE_ID / 'eboot.bin').is_file()
 
@@ -115,7 +116,7 @@ def launch(vita3k, vpk, image, out_root, timeout, label, paths=(), libraries=Non
     guest_command = sandbox_command(
         run_dir, 'Vita3K',
         ['--console', '--backend-renderer', 'OpenGL', '--installed-path', TITLE_ID, '-Z', app_args],
-        libraries)
+        libraries, wayland_socket=wayland_socket)
     guest_record, console = run_guest_watch(guest_command, run_dir, timeout, report_path)
     report = report_path.read_text(errors='replace') if report_path.is_file() else ''
     evidence = {
@@ -124,6 +125,7 @@ def launch(vita3k, vpk, image, out_root, timeout, label, paths=(), libraries=Non
         'vita3k': {'path': str(vita3k), 'sha256': runtime_sha},
         'libraries': str(libraries) if libraries else None,
         'firmware': str(firmware) if firmware else None,
+        'wayland_socket': str(wayland_socket) if wayland_socket else None,
         'vpk': {'path': str(vpk), 'sha256': sha256(vpk), 'title': TITLE_ID},
         'image': {'source': str(image), 'guest_path': PROBE_IMAGE,
                   'bytes': Path(image).stat().st_size},
@@ -151,11 +153,14 @@ def main():
     parser.add_argument('--label', default='probe')
     parser.add_argument('--timeout', type=int, default=300)
     parser.add_argument('--install-timeout', type=int, default=60)
+    parser.add_argument('--wayland-socket', type=Path, default=None,
+                        help='authorized display socket; without it the sandbox stays offscreen')
     parser.add_argument('--path', action='append', default=[], dest='paths',
                         help='disc path to resolve through the pin (repeatable)')
     args = parser.parse_args()
     evidence = launch(args.vita3k, args.vpk, args.image, args.out, args.timeout, args.label,
-                      args.paths, args.libraries, args.firmware, args.install_timeout)
+                      args.paths, args.libraries, args.firmware, args.install_timeout,
+                      args.wayland_socket)
     print(f"installed={evidence['install']['installed']} guest_exit={evidence['guest']['exit']} "
           f"pass={evidence['probe_pass']} run={evidence['run_directory']}")
     return 0 if evidence['probe_pass'] else 1

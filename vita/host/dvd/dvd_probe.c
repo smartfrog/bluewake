@@ -396,6 +396,7 @@ static int run_real(const char* image_path, const char* report_path, int extra_c
         fprintf(stderr, "REAL FAIL: cannot open the report file: %s\n", report_path);
         return 2;
     }
+    setvbuf(g_report, NULL, _IONBF, 0);
     Oracle oracle;
     if (!oracle_load(image_path, &oracle)) {
         fprintf(stderr, "REAL FAIL: cannot read the image header/FST\n");

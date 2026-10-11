@@ -11,9 +11,10 @@ against the private image with an independent FST oracle.
 
 **What is proven**: the seam compiles and links on the host and for ARMv7 with the SceIofilemgr
 transport; the pinned DVD layer works byte-identically through it; the real image's FST, entry numbers,
-offsets and guest copies cross-check against an independent reader; the host read budget is measured.
-**What is not**: no Vita3K guest execution ran — the emulator needs an authorized GL 4.4 display and the
-offscreen sandbox cannot provide one (see "Vita target"). No physical-Vita result, no gameplay, no FPS.
+offsets and guest copies cross-check against an independent reader; the host read budget is measured;
+and the guest probe ran in Vita3K through the **vita-sceio** transport (isolated profile, firmware
+staged, offscreen sandbox with the authorized Wayland socket), reporting REAL PASS with zero staging.
+**What is not**: no physical-Vita result, no gameplay, no FPS, no memory-card measurement.
 
 ## Inputs and scope
 
@@ -123,10 +124,24 @@ The lane's earlier probe: `python3 -m unittest test_disc_probe` → 3 tests gree
 | Staging memory | **0 bytes** |
 | Total bytes through the seam | 268,668,553 (throughput + samples + FST + header) |
 
-Evidence: `build-f13/ww13-seam/measure/real-host/` (`report.txt`, `stdout.txt`, `stderr.txt`,
-`evidence.json` with image hash, pin hash, probe hash, throughput and stats). The 3.9 GiB/s figure is
-**page-cached host I/O**, an upper bound, not memory-card throughput; a target figure needs the Vita3K
-guest run below.
+Guest (Vita3K, SceIofilemgr transport, game-free 64 MiB synthetic image with a `big.bin` entry):
+
+| Quantity | Value |
+| --- | ---: |
+| Verdict | REAL PASS, backend **vita-sceio** |
+| FST entries | 6 (oracle and pin agree; `boot.bin`, `res/asset.bin`, `res/leaf.bin` resolve) |
+| Guest copies | byte-identical to direct reads (48/256/64 bytes and the largest file's 4 KiB tail) |
+| Read for throughput | 67,108,864 bytes in 0.028 s → **2,270 MiB/s** |
+| Max chunk requested | 1,048,576 bytes (the cap) |
+| Staging memory | **0 bytes** |
+| Total bytes through the seam | 67,114,529 (throughput + samples + FST + header) |
+
+Evidence: `build-f13/ww13-seam/measure/real-host/` (host: `report.txt`, `stdout.txt`, `stderr.txt`,
+`evidence.json` with image hash, pin hash, probe hash, throughput and stats) and
+`build-f13/ww13-seam/vita3k/vita3k-run-guest-wayland-1-5f22078d/` (guest: `data/Vita3K/Vita3K/ux0/data/ww13/probe.report`,
+`evidence/ww13-evidence.json`, install and guest process records, console log). Both throughput figures
+are **host-page-cached** numbers: the host one is plain POSIX I/O, the guest one is the emulated
+SceIofilemgr layer reading a host file. Neither is memory-card throughput.
 
 ## Packaging
 
@@ -163,13 +178,14 @@ and link `ww13_dvd_io` + the `ww13_dvd_pin` object before `gxruntime`.
   profile per run, never the real HOME. Two phases (install the VPK, then run the installed title); the
   guest writes its report to `ux0:data/ww13/probe.report` because Vita3K does not relay guest stdout,
   and the launcher polls that file before stopping the emulator.
-- **Status: guest execution NOT RUN.** Vita3K requires an OpenGL 4.4 context; in the offscreen sandbox
-  context creation fails (`[create_gl_context]: Failed to create OpenGL context (need at least ver
-  4.4)`), Vulkan enumeration also fails there, and no headless compositor exists on this machine. The
-  established, documented execution path is the explicitly authorized Wayland socket
-  (`--wayland-socket /run/user/1000/wayland-0`, VITA-WW-03.md L343/390), which shows the emulator window
-  briefly; that authorization is pending. The install phase itself was exercised successfully in an
-  isolated profile (title installed with its eboot.bin and sce_sys).
+- **Status: guest execution PASS.** One bounded run (≤300 s deadline, guest phase 2.0 s) in a fresh
+  isolated profile: the VPK installed, the guest ran the probe on the synthetic image through the
+  **vita-sceio** transport and wrote its report to `ux0:data/ww13/probe.report` (REAL PASS, all
+  cross-checks ok, throughput and staging above). The sandbox is offscreen; Vita3K still requires a
+  GL 4.4 context, which the offscreen platform cannot create, so the run used the coordinator-authorized
+  Wayland socket (`--wayland-socket /run/user/1000/wayland-0`, VITA-WW-03.md L343/390); Vulkan
+  enumeration fails in the sandbox and no headless compositor exists on this machine. Every run is
+  recorded under `build-f13/ww13-seam/vita3k/`, never the real HOME.
 
 ## Reproduce
 
@@ -185,11 +201,18 @@ VITASDK=/home/fred/projects/zeldaWWHDRecomp/build-vita-tools/vitasdk \
   -G Ninja -DCMAKE_TOOLCHAIN_FILE=$VITASDK/share/vita.toolchain.cmake \
   -DRECOMPCORE_DIR=/tmp/opencode/ww13/ref/vita-ww-01/RecompCore -DWW13_TESTS_ONLY=OFF -DWW13_VITA=ON
 cmake --build /home/fred/projects/zeldaWWHDRecomp/build-f13/ww13-seam/vita-probe
+# bounded isolated guest run (authorized Wayland socket; offscreen without it):
+python3 scripts/vita/dvd/launch.py \
+  --vpk /home/fred/projects/zeldaWWHDRecomp/build-f13/ww13-seam/vita-probe/ww13.vpk \
+  --image /home/fred/projects/zeldaWWHDRecomp/build-f13/ww13-seam/vita3k/probe-64m.img \
+  --timeout 300 --wayland-socket /run/user/1000/wayland-0 \
+  --path boot.bin --path res/asset.bin --path res/leaf.bin
 ```
 
 ## Boundaries
 
-No Vita3K guest run, no physical Vita, no gameplay, no FPS, no memory-card measurement. The host
-throughput is page-cached. The seam covers the pinned DVD path only (the DOL loader and save/memory-card
-paths keep their existing host I/O). Integration, ticket handling and any display authorization remain
-with the coordinator.
+No physical Vita, no gameplay, no FPS, no memory-card measurement. Both throughput figures are
+host-page-cached. The seam covers the pinned DVD path only (the DOL loader and save/memory-card paths
+keep their existing host I/O). The guest run used the authorized Wayland socket because Vita3K cannot
+create a GL 4.4 context offscreen; it is a bounded probe run, not a game boot. Integration and ticket
+handling remain with the coordinator.
