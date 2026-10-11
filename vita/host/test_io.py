@@ -16,7 +16,8 @@ class MainIoTest(unittest.TestCase):
         test_host.StartupHostTest.setUpClass()
 
     def run_fixture(self, failure='', stale=False, interrupt=None, exception=False, syscall=None, progress=False,
-                    dispatch_trace=None, stale_dispatch=False, mmio_poll=False, aram_dma=False, dsp_init=False):
+                    dispatch_trace=None, stale_dispatch=False, mmio_poll=False, aram_dma=False, dsp_init=False,
+                    epilogue=False):
         with tempfile.TemporaryDirectory(dir=OUT, prefix='io-') as directory:
             root = Path(directory)
             data = bytearray(260)
@@ -46,11 +47,16 @@ class MainIoTest(unittest.TestCase):
                 environment['WW05_IO_ARAM_DMA'] = '1'
             if dsp_init:
                 environment['WW05_IO_DSP_INIT'] = '1'
+            if epilogue:
+                environment['WW05_IO_EPILOGUE'] = '1'
             result = subprocess.run([str(OUT / 'io_probe')], cwd=root,
                                     env=environment, capture_output=True, timeout=10)
             report = (root / 'ww05.report').read_text() if (root / 'ww05.report').exists() else None
             if progress:
                 self.assertIn('[progress] turns=1', result.stderr.decode())
+            if epilogue:
+                self.assertIn('[dispatch] stage=enter turn=2 pc=80328F84', result.stderr.decode())
+                self.assertIn('[dispatch] stage=return turn=2 pc=80001004', result.stderr.decode())
             if syscall == 'valid':
                 self.assertIn('[exception-handoff] stage=guard', result.stderr.decode())
                 self.assertIn('[exception-handoff] stage=guard-result matched=1', result.stderr.decode())
@@ -97,6 +103,12 @@ class MainIoTest(unittest.TestCase):
         status, report = self.run_fixture()
         self.assertEqual(status, 0)
         self.assertIn('platform=HOST', report)
+        self.assertTrue(report.endswith('END frontier=PASS live=0 rendered=0\n'))
+
+    def test_register_restore_boundary_reaches_the_module_dispatcher_without_eager_register_or_pc_changes(self):
+        status, report = self.run_fixture(epilogue=True)
+        self.assertEqual(status, 0)
+        self.assertIn('cycles=20\n', report)
         self.assertTrue(report.endswith('END frontier=PASS live=0 rendered=0\n'))
 
     def test_mmio_quantum_returns_through_the_real_chassis_before_a_fresh_dispatch(self):

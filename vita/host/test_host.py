@@ -64,6 +64,15 @@ class StartupHostTest(unittest.TestCase):
     def test_unknown_spr_fails(self):
         subprocess.run([str(OUT / 'host_probe'), 'unknown-spr'], check=True)
 
+    def test_module_owned_register_restore_edge_does_not_skip_or_synthesize_the_epilogue(self):
+        subprocess.run([str(OUT / 'host_probe'), 'epilogue-edge-compiled'], check=True)
+
+    def test_unowned_register_restore_edge_is_still_refused(self):
+        subprocess.run([str(OUT / 'host_probe'), 'epilogue-edge-unowned'], check=True)
+
+    def test_unimplemented_desktop_service_edges_are_still_refused(self):
+        subprocess.run([str(OUT / 'host_probe'), 'epilogue-edge-service'], check=True)
+
     def test_fp_dispatch_credit_refunds_only_valid_prepaid_unexecuted_suffixes(self):
         for shape in ('prepaid', 'precise', 'invalid', 'other'):
             with self.subTest(shape=shape):

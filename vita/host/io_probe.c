@@ -30,6 +30,31 @@ static int dispatch(CPUState* cpu, u32 address) {
     static bool polled;
     static u32 repeated_handlers;
     static bool init_started;
+    if (getenv("WW05_IO_EPILOGUE") != NULL) {
+        if (address == 0x80001000u) {
+            cpu->gpr[11] = 0x80002080u;
+            cpu->lr = address + 4u;
+            for (u32 reg = 27u; reg <= 31u; ++reg) {
+                cpu->gpr[reg] = 0xA5000000u | reg;
+                mem_write32(cpu, cpu->gpr[11] - (32u - reg) * 4u, 0xB6000000u | reg);
+            }
+            cpu->pc = 0x80328F84u;
+            cpu->downcount -= 2;
+            return 1;
+        }
+        if (address == 0x80328F84u) {
+            for (u32 reg = 27u; reg <= 31u; ++reg) {
+                assert(cpu->gpr[reg] == (0xA5000000u | reg));
+                cpu->gpr[reg] = mem_read32(cpu, cpu->gpr[11] - (32u - reg) * 4u);
+            }
+            cpu->pc = cpu->lr & ~3u;
+            cpu->downcount -= 6;
+            return 1;
+        }
+        assert(address == 0x80001004u);
+        for (u32 reg = 27u; reg <= 31u; ++reg)
+            assert(cpu->gpr[reg] == (0xB6000000u | reg));
+    }
     if (getenv("WW05_IO_DSP_INIT") != NULL && !polled) {
         if (!init_started) {
             init_started = true;
@@ -199,7 +224,8 @@ static int dispatch(CPUState* cpu, u32 address) {
 }
 
 const StaticRecompModuleDesc* staticrecomp_get_module(void) {
-    static const StaticRecompRange ranges[] = {{0x80001000u, 0x80001008u}, {0x803077D0u, 0x803077ECu}, {0x500u, 0x904u}};
+    static const StaticRecompRange ranges[] = {{0x80001000u, 0x80001008u}, {0x803077D0u, 0x803077ECu},
+        {0x500u, 0x904u}, {0x80328F84u, 0x80328F9Cu}};
     static StaticRecompModuleDesc module = {
         .abi_version = STATICRECOMP_ABI_VERSION, .cpu_abi_version = GXRUNTIME_CPU_ABI_VERSION,
         .cpu_state_size = sizeof(CPUState), .game_id = "GZLE01", .entry_point = 0x80001000u,
@@ -207,6 +233,8 @@ const StaticRecompModuleDesc* staticrecomp_get_module(void) {
     const char* interrupt = getenv("WW05_IO_IRQ");
     module.num_code_ranges = interrupt != NULL &&
         (strcmp(interrupt, "vector") == 0 || strcmp(interrupt, "fp-vector") == 0) ? 2u : 3u;
+    if (getenv("WW05_IO_EPILOGUE") != NULL)
+        module.num_code_ranges = 4u;
     return &module;
 }
 

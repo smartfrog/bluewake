@@ -337,6 +337,28 @@ int main(int argc, char** argv) {
         host->cpu.instruction_fallback(&host->cpu, 0xFFFFFFFFu, host->cpu.pc);
         assert(host->cpu.pc == 0x80001000u);
         assert(host->error != NULL);
+    } else if (strncmp(argv[1], "epilogue-edge-", 14u) == 0) {
+        const bool compiled = strcmp(argv[1], "epilogue-edge-compiled") == 0;
+        const bool unowned = strcmp(argv[1], "epilogue-edge-unowned") == 0;
+        const bool service = strcmp(argv[1], "epilogue-edge-service") == 0;
+        assert(compiled || unowned || service);
+        StaticRecompRange range = service ? (StaticRecompRange){0x803193ACu, 0x803193B0u} :
+                                           (StaticRecompRange){0x80328F84u, 0x80328F9Cu};
+        StaticRecompModuleDesc module = {.dispatch = dispatch, .code_ranges = &range, .num_code_ranges = 1u};
+        host->module = unowned ? NULL : &module;
+        host->cpu.pc = range.start;
+        host->cpu.lr = 0x8030141Cu;
+        host->cpu.gpr[11] = 0x8040CF60u;
+        for (u32 reg = 27u; reg <= 31u; ++reg)
+            host->cpu.gpr[reg] = 0xA5000000u | reg;
+        const CPUState before = host->cpu;
+        assert(ww_host_edge(host, &host->cpu, host->cpu.pc) == !compiled);
+        assert((host->error == NULL) == compiled && host->edge_stopped == !compiled);
+        assert(host->cpu.pc == before.pc && host->cpu.lr == before.lr && host->cpu.msr == before.msr);
+        assert(memcmp(host->cpu.gpr, before.gpr, sizeof(before.gpr)) == 0);
+        assert(host->cycles.absolute_cycles == 0u);
+        if (!compiled)
+            assert(host->error_address == before.pc && host->error_pc == before.pc);
     } else if (strncmp(argv[1], "fp-credit-", 10u) == 0) {
         const bool prepaid = strcmp(argv[1], "fp-credit-prepaid") == 0;
         const bool precise = strcmp(argv[1], "fp-credit-precise") == 0;

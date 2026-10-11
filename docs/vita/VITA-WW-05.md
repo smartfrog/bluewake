@@ -237,7 +237,7 @@ a lingering process. Its short red/green loops are in `logs/private-{launch,gues
 The parent-symlink loop reproduced creation outside an owned fake profile, then prevented it with the
 existing no-follow directory-descriptor pattern. No real/shared profile was involved.
 
-The WW05 host suite currently has **275 tests**. Source-bound logs retain exact counts/commands for these,
+The WW05 host suite currently has **279 tests**. Source-bound logs retain exact counts/commands for these,
 native runtime CTest, 71 native FP cases and the eight direct baseline files. Audit, attribution,
 pin/scope/diff and clean-worktree checks accompany delivery. The pre-launch `1ba507c` checkpoint passed
 35 WW05 tests, 177 unchanged tests, 53 direct baseline tests, 71 native FP cases and 3/1/5 runtime/corpus/
@@ -1447,3 +1447,52 @@ on Linux AArch64. The private real vector was emitted, not executed on Linux. Re
 handler execution still needs a clean Vita build and isolated trial; no GX acceptance,
 rendering, FPS, REL event, physical Vita or Windows CI is claimed. No image has been opened;
 the mandatory DVD integration rebase remains before the first actual disc-service access.
+
+## Real lazy-FP handler continues to an ordinary compiled register-restore epilogue
+
+Run `020d193834d449e2bc78cf4dc8a56817`, source `cdebb145c6004e22c1537580fa7305f96db7f321`,
+executes the exact guarded FP vector through `00000800 -> 00000804 -> 00000810` and its
+own RFI to **`80303EB8`**. The real SDK handler subsequently restores the faulting
+SRR0=`802AE070` with SRR1/MSR=`0000A032`: the **guest**, not the host, enables FP and
+continues. It reaches **36,707 edges, 6,803,154 credited cycles** and stops at the broad
+desktop-interception guard: `desktop interception unsupported; guest not skipped
+address=80328F84 pc=80328F84`. The closed source/request/package-bound report remains **FAIL**,
+`GX_FRONTIER complete=0`, zero FIFO bytes, `live=0`, `rendered=0`. Both owned phases timeout
+after 600 s, TERM/exit -15, `waited=true`; process **124/INCOMPLETE** remains separate.
+Build status zero, 124.473 seconds, static archive unchanged:
+`9d1c59238cea4b83798f1c16b0549950d41ec0011a89e95591d5a307718aea08`.
+Exact-source **275 host tests, 177 ARMv7 tests**, audit, attribution and native runtime CTest
+**3/3** pass on Linux AArch64. VPK SHA-256:
+`e4b39e9a650342fcc6b960ee7028284d062249a59f33fbe5423fd2e5a7573a1c`;
+report: `a7cc236c9edd02ceb3c8137762015e8fa16c7865746b5a7ce45338e31f7b547f`;
+result: `7817e6785d485ba0b2fdf3a43e77d6270a8f0dc10cc8f8f6b9646f3cb9a4ce9c`;
+log: `09d3a7f64a702cdc20b227086dc56044659fa72caa8a6117fbaea7cbdc98c250`;
+closed LER journal: `169da8b7a0e0d3067e984a0701130bdf9916ce1c09ccf887d9004ec9f413b079`.
+
+The loaded private DOL and unchanged translated chunk identify **`80328F84..80328F98`**
+as `_restgpr_27`: five `lwz` instructions restore r27-r31 from the frame addressed by r11,
+then `blr` returns through the real LR. It is already compiled in the static module.
+The shared interception table includes this PC for a **desktop collision observation**,
+not because this epilogue needs a host implementation. Shared `edge_intercepts.c:87-90`
+explicitly does not require a host observation boundary here; `main.c:1699-1718` documents
+the conditional GroundCross observer, which applies only to LR=`80246A04`. This run's LR
+is **`8030141C`**, an unrelated startup return. No collision state is manufactured.
+
+WW05 now allows only this **module-owned** register-restore boundary to continue through
+the original dispatcher. The edge service does not change PC, LR, registers or MSR, and
+does not restore the frame itself. Unowned epilogue entries and all other desktop-service
+keys still fail explicitly; device events and pending interrupts retain their existing
+priority. No blanket removal of the interception guard, emitted-code edit, native shortcut,
+new timing constant, FP change or static-module/pin change is made.
+
+`logs/register-restore-edge-red.log` reproduces the unwanted stop before the change.
+`logs/register-restore-edge-green.log` passes **279 host tests**, including preserved
+edge state, refusal of the unowned epilogue, refusal of a module-owned unsupported DSP
+service, and a game-free main-loop module fixture that performs five RAM loads and returns
+through LR only after the edge permits dispatch. Its register sentinels detect eager host
+restoration/skipping; its authored fixture credits 20 cycles, not real-game acceptance.
+**177 ARMv7 tests**, audit, attribution and native runtime CTest **3/3** pass on Linux AArch64.
+The real epilogue continuation still requires a clean Vita build/trial. No GX acceptance,
+rendering, FPS, runtime REL event, physical Vita or Windows CI is claimed. No disc image
+has been opened by the guest; the existing DVD seam and mandatory rebase remain deferred
+until the first actual disc-service access.
