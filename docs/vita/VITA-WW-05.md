@@ -59,6 +59,9 @@ fencing an invalidation. Unchanged text and data in mapped MEM1 are supported; c
 unverified mappings stop explicitly without advancing PC. There is no silent stale-code execution
 or retranslation claim. Snapshot bytes are a separate owner inside the 96 MiB heap and appear in
 the allocation ledger; partial allocation and shutdown release them. This adds no translated CPU.
+The MI interrupt mask at `CC00401C` retains its five documented source bits through halfword
+read/write access. Other widths, reserved bits and all other MI services remain explicit failures;
+this does not enable memory-protection enforcement or fabricate an interrupt source.
 The runtime offers ordinary guest PCs to the optional host-call hook before trying compiled code.
 An aligned address in the loaded descriptor's code ranges (including the dispatcher's physical/
 uncached aliases) is declined without changing PC or exceptions, so the original guest code runs.
@@ -216,7 +219,7 @@ a lingering process. Its short red/green loops are in `logs/private-{launch,gues
 The parent-symlink loop reproduced creation outside an owned fake profile, then prevented it with the
 existing no-follow directory-descriptor pattern. No real/shared profile was involved.
 
-The WW05 host suite currently has **57 tests**. Source-bound logs retain exact counts/commands for these,
+The WW05 host suite currently has **60 tests**. Source-bound logs retain exact counts/commands for these,
 native runtime CTest, 71 native FP cases and the eight direct baseline files. Audit, attribution,
 pin/scope/diff and clean-worktree checks accompany delivery. The pre-launch `1ba507c` checkpoint passed
 35 WW05 tests, 177 unchanged tests, 53 direct baseline tests, 71 native FP cases and 3/1/5 runtime/corpus/
@@ -275,3 +278,13 @@ frontier FAIL, process 124/INCOMPLETE, both 30-second phases stopped/reaped. Rep
 checked by tests for unchanged cached/physical/uncached text, non-code RAM, changed code refusing
 to advance, owned-snapshot accounting, partial-allocation cleanup and ordinary shutdown. It does
 not copy the desktop fallback's unconditional instruction skip.
+
+Run `2770acb8da7a4a6ea57548544a2623fa` at `46b262ceb50ee29e5f7106ac3675c43e3aa3e729`
+advanced 116,417 guest cycles and 788 edges. It passed the guarded cache invalidation, then stopped
+on a halfword MI interrupt-mask write: `unsupported MMIO write address=CC00401C pc=803047A4`;
+terminal PC `8030464C`, SP `8040CF58`, FIFO bytes zero, frontier FAIL. Report SHA-256 is
+`bbdf49a699103ce0fb8164580df55132999389ace7a06a11df7c55a118bc73c4`. Both 30-second Qt
+phases stopped/reaped, process 124/INCOMPLETE. The real allocation ledger now includes 3,364,032
+snapshot bytes and 64,389,684 total requested live owners inside the 96 MiB heap. Offline initial
+owners plus loader transient were conservatively estimated at 68,211,956 bytes, not a pool peak.
+The next correction adds only the MI mask, checked for readback, reserved-bit refusal and width.

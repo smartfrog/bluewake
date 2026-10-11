@@ -188,7 +188,9 @@ static u64 mmio_read(CPUState* cpu, u32 address, u8 size) {
         dol_guest_memory_read(&host->memory, address, size, &value))
         return value;
     observe(cpu);
-    if (interrupt_register(address, size, false))
+    if (address == 0xCC00401Cu && size == 2u)
+        value = host->mi_interrupt_mask;
+    else if (interrupt_register(address, size, false))
         value = dol_interrupts_mmio_read(&host->interrupts, address, size);
     else if (size == 4u && (address & 3u) == 0u && in_range(address, size, DOL_DI_BASE, DOL_DI_REGISTER_BYTES))
         value = dol_di_mmio_read(&host->di, address, size);
@@ -215,7 +217,13 @@ static void mmio_write(CPUState* cpu, u32 address, u64 value, u8 size) {
         dol_guest_memory_write(&host->memory, address, size, value))
         return;
     observe(cpu);
-    if (interrupt_register(address, size, true))
+    if (address == 0xCC00401Cu && size == 2u) {
+        if (value & ~0x1Full) {
+            ww_host_fail(host, "unsupported MI interrupt mask bits", address, cpu->pc);
+            return;
+        }
+        host->mi_interrupt_mask = (u16)value;
+    } else if (interrupt_register(address, size, true))
         dol_interrupts_mmio_write(&host->interrupts, address, size, value);
     else if (size == 4u && (address & 3u) == 0u && in_range(address, size, DOL_DI_BASE, DOL_DI_REGISTER_BYTES))
         dol_di_mmio_write(&host->di, cpu, address, size, value);

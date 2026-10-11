@@ -75,6 +75,15 @@ class StartupHostTest(unittest.TestCase):
     def test_unknown_mmio_write_fails(self):
         subprocess.run([str(OUT / 'host_probe'), 'unknown-write'], check=True)
 
+    def test_mi_interrupt_mask_is_retained(self):
+        subprocess.run([str(OUT / 'host_probe'), 'mi-mask'], check=True)
+
+    def test_unknown_mi_mask_bits_fail(self):
+        subprocess.run([str(OUT / 'host_probe'), 'mi-invalid-mask'], check=True)
+
+    def test_mi_interrupt_mask_requires_halfword_access(self):
+        subprocess.run([str(OUT / 'host_probe'), 'mi-width'], check=True)
+
     def test_invalid_module_is_rejected_before_dol_io(self):
         subprocess.run([str(OUT / 'host_probe'), 'module'], check=True)
 

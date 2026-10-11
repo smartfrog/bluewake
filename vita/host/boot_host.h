@@ -30,6 +30,7 @@ typedef struct WwHost {
     u32 clock_remainder;
     u32 decrementer;
     u32 hid0;
+    u16 mi_interrupt_mask;
     u64 alias_bytes;
     u64 backing_bytes;
     u32 alias_count;

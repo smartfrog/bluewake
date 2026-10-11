@@ -136,6 +136,18 @@ int main(int argc, char** argv) {
         host->cpu.external_write(&host->cpu, 0xCC00300Cu, 1u, 4u);
         assert(host->error != NULL);
         assert(host->error_address == 0xCC00300Cu);
+    } else if (strcmp(argv[1], "mi-mask") == 0) {
+        host->cpu.external_write(&host->cpu, 0xCC00401Cu, 0x15u, 2u);
+        assert(host->error == NULL);
+        assert(host->cpu.external_read(&host->cpu, 0xCC00401Cu, 2u) == 0x15u);
+    } else if (strcmp(argv[1], "mi-invalid-mask") == 0) {
+        host->cpu.external_write(&host->cpu, 0xCC00401Cu, 0x20u, 2u);
+        assert(host->error != NULL);
+        assert(host->error_address == 0xCC00401Cu);
+    } else if (strcmp(argv[1], "mi-width") == 0) {
+        host->cpu.external_read(&host->cpu, 0xCC00401Cu, 4u);
+        assert(host->error != NULL);
+        assert(host->error_address == 0xCC00401Cu);
     } else if (strcmp(argv[1], "module") == 0) {
         StaticRecompModuleDesc module = {.abi_version = 99u, .dispatch = dispatch};
         BlueWakeRelData data = {0};
