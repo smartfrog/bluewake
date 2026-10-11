@@ -53,3 +53,23 @@ bool ww_code_guard_matches(const WwCodeGuard* guard, const CPUState* cpu, u32 ad
     }
     return true;
 }
+
+bool ww_code_guard_copied_text_matches(const WwCodeGuard* guard, const CPUState* cpu,
+                                      u32 source, u32 destination, u32 size) {
+    if (cpu->ram == NULL || size == 0u || ((source | destination | size) & 3u) != 0u ||
+        source < GC_RAM_BASE || destination < GC_RAM_BASE ||
+        (u64)source - GC_RAM_BASE + size > cpu->ram_size ||
+        (u64)destination - GC_RAM_BASE + size > cpu->ram_size)
+        return false;
+    for (u32 index = 0u; index < DOL_NUM_TEXT; ++index) {
+        const u32 start = guard->layout.text_address[index];
+        const u32 length = guard->layout.text_size[index];
+        if (guard->text[index] == NULL || source < start || source - start > length ||
+            size > length - (source - start))
+            continue;
+        const u8* snapshot = guard->text[index] + (source - start);
+        return memcmp(snapshot, cpu->ram + (source - GC_RAM_BASE), size) == 0 &&
+               memcmp(snapshot, cpu->ram + (destination - GC_RAM_BASE), size) == 0;
+    }
+    return false;
+}

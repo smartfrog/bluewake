@@ -339,6 +339,31 @@ bool ww_host_edge(void* user, CPUState* cpu, u32 address) {
     return false;
 }
 
+bool ww_host_resume_exception(WwHost* host) {
+    CPUState* cpu = &host->cpu;
+    const u32 source = 0x803077D0u;
+    if (cpu->exception != PPC_EXC_SYSTEM_CALL || cpu->pc != PPC_VECTOR_SYSTEM_CALL ||
+        host->module == NULL ||
+        !ww_code_guard_copied_text_matches(&host->code_guard, cpu, source,
+                                           GC_RAM_BASE | PPC_VECTOR_SYSTEM_CALL, 28u))
+        return false;
+    for (u32 index = 0u; index < host->module->num_code_ranges; ++index) {
+        const StaticRecompRange* range = &host->module->code_ranges[index];
+        if (source < range->start || (u64)source + 28u > range->end)
+            continue;
+        if (fprintf(stderr, "[exception-resume] bits=%08X vector=%08X compiled=%08X srr0=%08X srr1=%08X\n",
+                    cpu->exception, cpu->pc, source, cpu->srr0, cpu->srr1) < 0) {
+            ww_host_fail(host, "exception handoff log write failed", source, cpu->pc);
+            return false;
+        }
+        // This verified cache handler has no PC-relative instructions; its RFI uses the saved SRR0.
+        cpu->exception = 0u;
+        cpu->pc = source;
+        return true;
+    }
+    return false;
+}
+
 bool ww_host_init(WwHost* host) {
     if (host == NULL)
         return false;

@@ -15,13 +15,17 @@ class MainIoTest(unittest.TestCase):
     def setUpClass(cls):
         test_host.StartupHostTest.setUpClass()
 
-    def run_fixture(self, failure='', stale=False, interrupt=None, exception=False):
+    def run_fixture(self, failure='', stale=False, interrupt=None, exception=False, syscall=None):
         with tempfile.TemporaryDirectory(dir=OUT, prefix='io-') as directory:
             root = Path(directory)
             data = bytearray(260)
             for offset, value in ((0, 256), (0x48, 0x80001000), (0x90, 4),
                                   (0xD8, 0x80002000), (0xDC, 256), (0xE0, 0x80001000)):
                 struct.pack_into('>I', data, offset, value)
+            if syscall is not None:
+                data.extend(bytes(range(1, 29)))
+                for offset, value in ((4, 260), (0x4C, 0x803077D0), (0x94, 28)):
+                    struct.pack_into('>I', data, offset, value)
             (root / 'synthetic.dol').write_bytes(data)
             (root / 'ww05.request').write_text(f'{"c" * 32} {"a" * 40} {"b" * 64}\n')
             if stale:
@@ -31,6 +35,8 @@ class MainIoTest(unittest.TestCase):
                 environment['WW05_IO_IRQ'] = interrupt
             if exception:
                 environment['WW05_IO_EXCEPTION'] = '1'
+            if syscall is not None:
+                environment['WW05_IO_SYSCALL'] = syscall
             result = subprocess.run([str(OUT / 'io_probe')], cwd=root,
                                     env=environment, capture_output=True, timeout=10)
             report = (root / 'ww05.report').read_text() if (root / 'ww05.report').exists() else None
@@ -59,6 +65,22 @@ class MainIoTest(unittest.TestCase):
         self.assertNotEqual(status, 0)
         self.assertIn('STOP reason=unhandled guest exception address=00000008', report)
         self.assertNotIn('FP defect', report)
+
+    def test_byte_identical_copied_syscall_handler_executes_before_rfi(self):
+        status, report = self.run_fixture(syscall='valid')
+        self.assertEqual(status, 0)
+        self.assertIn('pc=80001004', report)
+        self.assertTrue(report.endswith('END frontier=PASS live=0 rendered=0\n'))
+
+    def test_changed_syscall_vector_is_not_replaced_with_compiled_code(self):
+        status, report = self.run_fixture(syscall='vector-changed')
+        self.assertNotEqual(status, 0)
+        self.assertIn('END frontier=FAIL', report)
+
+    def test_changed_syscall_source_is_not_executed_using_stale_compiled_code(self):
+        status, report = self.run_fixture(syscall='source-changed')
+        self.assertNotEqual(status, 0)
+        self.assertIn('END frontier=FAIL', report)
 
     def test_write_failure_is_not_published(self):
         status, report = self.run_fixture('write')

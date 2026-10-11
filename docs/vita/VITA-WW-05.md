@@ -230,7 +230,7 @@ a lingering process. Its short red/green loops are in `logs/private-{launch,gues
 The parent-symlink loop reproduced creation outside an owned fake profile, then prevented it with the
 existing no-follow directory-descriptor pattern. No real/shared profile was involved.
 
-The WW05 host suite currently has **96 tests**. Source-bound logs retain exact counts/commands for these,
+The WW05 host suite currently has **99 tests**. Source-bound logs retain exact counts/commands for these,
 native runtime CTest, 71 native FP cases and the eight direct baseline files. Audit, attribution,
 pin/scope/diff and clean-worktree checks accompany delivery. The pre-launch `1ba507c` checkpoint passed
 35 WW05 tests, 177 unchanged tests, 53 direct baseline tests, 71 native FP cases and 3/1/5 runtime/corpus/
@@ -477,3 +477,31 @@ bit and vector are not evidence of the Vita3K FP defect; attributing earlier con
 without the saved CIA would also be unwarranted. The diagnostic checkpoint does not modify FP.
 The corrected synthetic red/green fixture checks this context and passes all 96 host tests;
 the earlier native-log-file fixture mistake and its failed attempts remain recorded.
+
+Run `706bfad5b01b4074b1046c3dcaa9a8c0` at `d41a7fa48b1ec5fc1cab881fe44c2538a1ffb0d4`
+identified the SC at `80303100` (DCFlushRange), with SRR0 `80303104`, SRR1 `00000002`,
+exception-mode MSR `00000000`, LR `80302E48`, r3 `81000080`, r4 `00000004`, and no program
+cause. The installed vector's first 28 bytes exactly match DOL text `803077D0..803077EC`.
+Its seven instructions read HID0 into r9, set bit 8 in r10, write HID0, execute ISYNC/SYNC,
+restore HID0 from r9, and RFI. Bit 8 here is HID0's control bit, not a syscall cause/service.
+This is an unconditional cache-synchronization syscall, not a panic or an FP instruction.
+Report SHA-256 is `82809264acf1c133e8a209368632a6a2eada96a70462f6604deb4123ba173910`;
+frontier FAIL and both 60-second phases stopped/reaped with 124/INCOMPLETE.
+
+The runtime already took the architectural exception and saved SRR0/SRR1 correctly. Re-taking
+it would overwrite the saved MSR with exception-mode MSR. The host now consumes only the
+SYSTEM_CALL marker at the low syscall vector, after verifying all 28 copied bytes against its
+original DOL text snapshot, verifying that the source is still unchanged, and checking that
+the entire original handler has compiled coverage. It then executes that original compiled
+handler, preserving SRR0/SRR1 for its real RFI. This is a guarded relocated-code handoff, not
+an immediate host RFI, skipped SC, interpreted substitute, or change to generated code/pins.
+The handler has no PC-relative instructions, so running its byte-identical original preserves
+its behavior; logs name both vector and compiled PC. Other vectors, changed copies/source,
+missing coverage and unrelated guest faults remain explicit stops. A generic remap of arbitrary
+exception handlers would not be safe without checking their relocation semantics.
+
+`logs/copied-syscall-red.log` reproduces rejection of an intact copied handler.
+`logs/copied-syscall-green.log` passes all 99 host tests, including synthetic handler dispatch
+before RFI, preservation of architectural SRR0/SRR1/MSR and refusal of changed vector/source.
+The fixture's compiled-handler stub is synthetic; only a new private game run can prove the
+real seven-instruction handler and subsequent GX frontier execute.

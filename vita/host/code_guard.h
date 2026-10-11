@@ -11,6 +11,8 @@ typedef struct {
 
 bool ww_code_guard_init(WwCodeGuard* guard, const CPUState* cpu, const DolLayout* layout);
 bool ww_code_guard_matches(const WwCodeGuard* guard, const CPUState* cpu, u32 address);
+bool ww_code_guard_copied_text_matches(const WwCodeGuard* guard, const CPUState* cpu,
+                                      u32 source, u32 destination, u32 size);
 void ww_code_guard_free(WwCodeGuard* guard);
 
 #endif

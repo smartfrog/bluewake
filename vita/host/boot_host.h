@@ -51,6 +51,7 @@ void ww_host_shutdown(WwHost* host);
 bool ww_host_load(WwHost* host, const StaticRecompModuleDesc* module,
                    const BlueWakeRelData* data, u32 count, const char* dol);
 bool ww_host_edge(void* user, CPUState* cpu, u32 address);
+bool ww_host_resume_exception(WwHost* host);
 void ww_host_fail(WwHost* host, const char* error, u32 address, u32 pc);
 
 #endif

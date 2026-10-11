@@ -12,6 +12,30 @@ static BluewakeEdgeServiceFn edge;
 static void* edge_user;
 
 static int dispatch(CPUState* cpu, u32 address) {
+    const char* syscall = getenv("WW05_IO_SYSCALL");
+    if (syscall != NULL && address == 0x80001000u) {
+        u8* source = cpu->ram + (0x803077D0u - GC_RAM_BASE);
+        memcpy(cpu->ram + 0xC00u, source, 28u);
+        if (strcmp(syscall, "vector-changed") == 0)
+            cpu->ram[0xC03u] ^= 1u;
+        if (strcmp(syscall, "source-changed") == 0)
+            source[3] ^= 1u;
+        cpu->msr = PPC_MSR_RI;
+        ppc_system_call_exception(cpu, address);
+        cpu->downcount -= 12;
+        return 1;
+    }
+    if (syscall != NULL && address == 0x803077D0u) {
+        assert(cpu->exception == 0u);
+        assert(cpu->srr0 == 0x80001004u);
+        assert(cpu->srr1 == PPC_MSR_RI);
+        assert(cpu->msr == 0u);
+        ppc_rfi(cpu, address);
+        cpu->downcount -= 12;
+        return 1;
+    }
+    if (syscall != NULL)
+        assert(address == 0x80001004u && cpu->msr == PPC_MSR_RI);
     if (getenv("WW05_IO_EXCEPTION") != NULL) {
         ppc_system_call_exception(cpu, address);
         return 1;
@@ -47,11 +71,11 @@ static int dispatch(CPUState* cpu, u32 address) {
 }
 
 const StaticRecompModuleDesc* staticrecomp_get_module(void) {
-    static const StaticRecompRange ranges[] = {{0x80001000u, 0x80001008u}};
+    static const StaticRecompRange ranges[] = {{0x80001000u, 0x80001008u}, {0x803077D0u, 0x803077ECu}};
     static const StaticRecompModuleDesc module = {
         .abi_version = STATICRECOMP_ABI_VERSION, .cpu_abi_version = GXRUNTIME_CPU_ABI_VERSION,
         .cpu_state_size = sizeof(CPUState), .game_id = "GZLE01", .entry_point = 0x80001000u,
-        .dispatch = dispatch, .code_ranges = ranges, .num_code_ranges = 1u};
+        .dispatch = dispatch, .code_ranges = ranges, .num_code_ranges = 2u};
     return &module;
 }
 

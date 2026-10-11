@@ -80,7 +80,7 @@ int fixture_run(int argc, char** argv) {
         bluewake_cycle_domain_end_turn(&host->cycles, &host->cpu);
         if (!dispatched)
             ww_host_fail(host, "dispatch rejected guest PC", host->cpu.pc, host->cpu.pc);
-        if (host->cpu.exception && host->error == NULL) {
+        if (host->cpu.exception && host->error == NULL && !ww_host_resume_exception(host)) {
             CPUState* cpu = &host->cpu;
             error |= fprintf(stderr, "[exception] bits=%08X pc=%08X srr0=%08X srr1=%08X msr=%08X lr=%08X r0=%08X r3=%08X r4=%08X r12=%08X fpscr=%08X program=%08X\n",
                              cpu->exception, cpu->pc, cpu->srr0, cpu->srr1, cpu->msr,
