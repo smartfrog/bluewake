@@ -93,6 +93,16 @@ class ScenarioTest(unittest.TestCase):
         result = evaluate_scenario([("save", "save.log", events), ("reload", "reload.log", reload_run())])
         self.assertIs(result["requirements"]["movement"]["observed"], False)
 
+    def test_a_consumed_record_from_another_session_does_not_count(self):
+        events = complete_run()
+        events.input_consumed = []
+        other = AcceptanceEvents(
+            input_consumed=[InputConsumed(retrace=130, hold=0, trig=0,
+                                          axes=0x00648000, us=500000)])
+        result = evaluate_scenario([("save", "save.log", events),
+                                    ("reload", "reload.log", other)])
+        self.assertIs(result["requirements"]["movement"]["observed"], False)
+
     def test_audio_that_became_silent_fails(self):
         events = complete_run()
         events.audio_silent = [AudioSilent(us=3000000)]

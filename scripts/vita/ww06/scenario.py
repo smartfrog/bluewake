@@ -33,8 +33,6 @@ from __future__ import annotations
 DEFAULT_DEADZONE = 30
 DEFAULT_MIN_FRAMES = 30
 
-REQUIREMENTS = ("movement", "camera", "audio", "transition", "save_reload")
-
 
 def evaluate_scenario(runs, deadzone: int = DEFAULT_DEADZONE,
                       min_frames: int = DEFAULT_MIN_FRAMES) -> dict:
@@ -68,22 +66,27 @@ def _deflected(frame, deadzone: int, axis: str) -> bool:
 
 def _axis_requirement(runs, deadzone: int, min_frames: int, axis: str,
                       label: str) -> dict:
-    frames = [frame for _, _, run in runs for frame in run.input_frames]
-    if not frames:
+    best = None
+    saw_frames = False
+    saw_channel_frames = False
+    for index, (_, _, session) in enumerate(runs):
+        saw_frames = saw_frames or bool(session.input_frames)
+        channel_frames = [frame for frame in session.input_frames if frame.channel == 0]
+        saw_channel_frames = saw_channel_frames or bool(channel_frames)
+        for run in _runs_of(channel_frames, deadzone, axis):
+            if best is None or len(run) > len(best[1]):
+                best = (index, run)
+    if not saw_frames:
         return _result(None, "not measured: no input-frame markers in the evidence")
-    channel_frames = [frame for frame in frames if frame.channel == 0]
-    if not channel_frames:
+    if not saw_channel_frames:
         return _result(False, "input frames exist but none on channel 0; the player's pad was not polled")
-    longest = None
-    for run in _runs_of(channel_frames, deadzone, axis):
-        if longest is None or len(run) > len(longest):
-            longest = run
+    index, longest = best
     if longest is None or len(longest) < min_frames:
         length = len(longest) if longest is not None else 0
         return _result(False, f"longest channel-0 {label} deflection is {length} frames, "
                               f"below the {min_frames}-frame minimum")
     first, last = longest[0], longest[-1]
-    consumed = [record for _, _, run in runs for record in run.input_consumed
+    consumed = [record for record in runs[index][2].input_consumed
                 if first.us <= record.us <= last.us]
     if not consumed:
         return _result(False, f"{label} deflected {len(longest)} frames but the guest's own "
