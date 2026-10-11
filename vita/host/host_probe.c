@@ -148,6 +148,27 @@ int main(int argc, char** argv) {
         host->cpu.external_read(&host->cpu, 0xCC00401Cu, 4u);
         assert(host->error != NULL);
         assert(host->error_address == 0xCC00401Cu);
+    } else if (strcmp(argv[1], "dsp-stopped") == 0) {
+        assert(host->cpu.external_read(&host->cpu, 0xCC00500Au, 2u) == 0x0804u);
+        assert(host->error == NULL);
+    } else if (strcmp(argv[1], "dsp-mask") == 0) {
+        host->cpu.external_write(&host->cpu, 0xCC00500Au, 0x0954u, 2u);
+        assert(host->error == NULL);
+        assert(host->cpu.external_read(&host->cpu, 0xCC00500Au, 2u) == 0x0954u);
+    } else if (strcmp(argv[1], "dsp-ack") == 0) {
+        host->cpu.external_write(&host->cpu, 0xCC00500Au, 0x09FCu, 2u);
+        assert(host->error == NULL);
+        assert(host->cpu.external_read(&host->cpu, 0xCC00500Au, 2u) == 0x0954u);
+    } else if (strcmp(argv[1], "dsp-reset") == 0 || strcmp(argv[1], "dsp-release") == 0) {
+        const u16 value = strcmp(argv[1], "dsp-reset") == 0 ? 0x0805u : 0x0004u;
+        host->cpu.external_write(&host->cpu, 0xCC00500Au, value, 2u);
+        assert(host->error != NULL);
+        assert(host->error_address == 0xCC00500Au);
+        assert(host->cpu.external_read(&host->cpu, 0xCC00500Au, 2u) == 0x0804u);
+    } else if (strcmp(argv[1], "dsp-width") == 0) {
+        host->cpu.external_read(&host->cpu, 0xCC00500Au, 4u);
+        assert(host->error != NULL);
+        assert(host->error_address == 0xCC00500Au);
     } else if (strcmp(argv[1], "module") == 0) {
         StaticRecompModuleDesc module = {.abi_version = 99u, .dispatch = dispatch};
         BlueWakeRelData data = {0};

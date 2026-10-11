@@ -62,6 +62,12 @@ the allocation ledger; partial allocation and shutdown release them. This adds n
 The MI interrupt mask at `CC00401C` retains its five documented source bits through halfword
 read/write access. Other widths, reserved bits and all other MI services remain explicit failures;
 this does not enable memory-protection enforcement or fabricate an interrupt source.
+DSP control at `CC00500A` exposes the stopped, initialization-pending state `0804` and retains
+only the AID/ARAM/DSP interrupt masks. Acknowledgements cannot create pending interrupts. The
+initial halt/init bits follow the pristine donor's `HW/DSP.cpp`, `HW/DSP.h` and
+`HW/DSPHLE/DSPHLE.cpp`; they are not a task-completion token. Clearing halt/init, requesting reset
+or another control operation fails explicitly because no DSP backend is installed. No mailbox,
+microcode, audio, ARAM DMA or fabricated DSP response is implemented.
 The runtime offers ordinary guest PCs to the optional host-call hook before trying compiled code.
 An aligned address in the loaded descriptor's code ranges (including the dispatcher's physical/
 uncached aliases) is declined without changing PC or exceptions, so the original guest code runs.
@@ -219,7 +225,7 @@ a lingering process. Its short red/green loops are in `logs/private-{launch,gues
 The parent-symlink loop reproduced creation outside an owned fake profile, then prevented it with the
 existing no-follow directory-descriptor pattern. No real/shared profile was involved.
 
-The WW05 host suite currently has **60 tests**. Source-bound logs retain exact counts/commands for these,
+The WW05 host suite currently has **66 tests**. Source-bound logs retain exact counts/commands for these,
 native runtime CTest, 71 native FP cases and the eight direct baseline files. Audit, attribution,
 pin/scope/diff and clean-worktree checks accompany delivery. The pre-launch `1ba507c` checkpoint passed
 35 WW05 tests, 177 unchanged tests, 53 direct baseline tests, 71 native FP cases and 3/1/5 runtime/corpus/
@@ -288,3 +294,13 @@ phases stopped/reaped, process 124/INCOMPLETE. The real allocation ledger now in
 snapshot bytes and 64,389,684 total requested live owners inside the 96 MiB heap. Offline initial
 owners plus loader transient were conservatively estimated at 68,211,956 bytes, not a pool peak.
 The next correction adds only the MI mask, checked for readback, reserved-bit refusal and width.
+
+Run `028141b0eb3b457597ba1dcd83f03857` at `308b64440e77386f4af21bb038a3fd132766746f`
+passed the MI mask and stopped on the following DSP-control halfword read during IRQ masking:
+`unsupported MMIO read address=CC00500A pc=803047C0`. It retained 116,417 cycles and 788 edges,
+terminal PC `8030464C`, SP `8040CF58`, zero FIFO bytes and frontier FAIL. Report SHA-256 is
+`6c094171eeef81d4420e0a88f11f2000432f95e6bd87e6bbed1e335ae2fd4deb`; both 30-second phases
+stopped/reaped, process 124/INCOMPLETE. The next correction exposes only the stopped DSP's IRQ
+control surface, with tests for initial state, masks, acknowledgement, reset/release refusal and
+width. The code-guard pointer offsets were also made explicit before forming pointers; existing
+cache-guard tests remain green. There is still no game-driven complete GX command claimed here.

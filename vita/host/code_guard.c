@@ -25,7 +25,7 @@ bool ww_code_guard_init(WwCodeGuard* guard, const CPUState* cpu, const DolLayout
         guard->text[index] = calloc(1u, size);
         if (guard->text[index] == NULL)
             goto failed;
-        memcpy(guard->text[index], cpu->ram + address - GC_RAM_BASE, size);
+        memcpy(guard->text[index], cpu->ram + (address - GC_RAM_BASE), size);
         guard->bytes += size;
     }
     return true;
@@ -47,8 +47,8 @@ bool ww_code_guard_matches(const WwCodeGuard* guard, const CPUState* cpu, u32 ad
         const u64 overlap_end = end < text_end ? end : text_end;
         if (overlap_start < overlap_end &&
             (guard->text[index] == NULL ||
-             memcmp(cpu->ram + overlap_start - GC_RAM_BASE,
-                    guard->text[index] + overlap_start - text_start, overlap_end - overlap_start) != 0))
+             memcmp(cpu->ram + (overlap_start - GC_RAM_BASE),
+                    guard->text[index] + (overlap_start - text_start), overlap_end - overlap_start) != 0))
             return false;
     }
     return true;

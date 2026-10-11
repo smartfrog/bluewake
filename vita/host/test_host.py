@@ -84,6 +84,24 @@ class StartupHostTest(unittest.TestCase):
     def test_mi_interrupt_mask_requires_halfword_access(self):
         subprocess.run([str(OUT / 'host_probe'), 'mi-width'], check=True)
 
+    def test_dsp_is_stopped_and_waiting_for_initialization(self):
+        subprocess.run([str(OUT / 'host_probe'), 'dsp-stopped'], check=True)
+
+    def test_dsp_irq_masks_preserve_stopped_state(self):
+        subprocess.run([str(OUT / 'host_probe'), 'dsp-mask'], check=True)
+
+    def test_dsp_acknowledgements_do_not_create_interrupts(self):
+        subprocess.run([str(OUT / 'host_probe'), 'dsp-ack'], check=True)
+
+    def test_dsp_reset_requires_a_real_backend(self):
+        subprocess.run([str(OUT / 'host_probe'), 'dsp-reset'], check=True)
+
+    def test_dsp_initialization_release_requires_a_real_backend(self):
+        subprocess.run([str(OUT / 'host_probe'), 'dsp-release'], check=True)
+
+    def test_dsp_control_requires_halfword_access(self):
+        subprocess.run([str(OUT / 'host_probe'), 'dsp-width'], check=True)
+
     def test_invalid_module_is_rejected_before_dol_io(self):
         subprocess.run([str(OUT / 'host_probe'), 'module'], check=True)
 

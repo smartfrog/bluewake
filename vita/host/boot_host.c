@@ -190,6 +190,8 @@ static u64 mmio_read(CPUState* cpu, u32 address, u8 size) {
     observe(cpu);
     if (address == 0xCC00401Cu && size == 2u)
         value = host->mi_interrupt_mask;
+    else if (address == 0xCC00500Au && size == 2u)
+        value = 0x0804u | host->dsp_interrupt_mask;
     else if (interrupt_register(address, size, false))
         value = dol_interrupts_mmio_read(&host->interrupts, address, size);
     else if (size == 4u && (address & 3u) == 0u && in_range(address, size, DOL_DI_BASE, DOL_DI_REGISTER_BYTES))
@@ -223,6 +225,12 @@ static void mmio_write(CPUState* cpu, u32 address, u64 value, u8 size) {
             return;
         }
         host->mi_interrupt_mask = (u16)value;
+    } else if (address == 0xCC00500Au && size == 2u) {
+        if ((value & ~0x01F8ull) != 0x0804u) {
+            ww_host_fail(host, "DSP execution/reset requires a real DSP backend", address, cpu->pc);
+            return;
+        }
+        host->dsp_interrupt_mask = (u16)value & 0x0150u;
     } else if (interrupt_register(address, size, true))
         dol_interrupts_mmio_write(&host->interrupts, address, size, value);
     else if (size == 4u && (address & 3u) == 0u && in_range(address, size, DOL_DI_BASE, DOL_DI_REGISTER_BYTES))
