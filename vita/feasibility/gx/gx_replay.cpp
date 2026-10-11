@@ -132,17 +132,14 @@ std::uint32_t tex_image0(std::uint16_t width, std::uint16_t height,
          ((format & 0xFu) << 20u);
 }
 
-// --- Scenario: one textured triangle, direct float32 position and tex0 -----
+// --- Shared stream setup ----------------------------------------------------
 //
-// VCD_LO bits 9-10: position type 1 (direct).
-// VCD_HI bits 0-1:  tex0 type 1 (direct).
-// VAT g0: bit 0 = position has 3 elements, bits 1-3 = format 4 (f32),
-//         bit 21 = tex0 has 2 elements, bits 22-24 = format 4 (f32).
-// The texture is a 4x4 RGBA8 pattern at physical 0x1000, bound through BP
-// image0/image3 (SETIMAGE3 holds address >> 5) with XF numTexGens = 1.
+// Direct float32 position + tex0 (VCD_LO bit 9 = position direct, VCD_HI
+// bit 0 = tex0 direct; VAT g0 bit 0 = 3 position elements, bits 1-3 = format
+// 4 f32, bit 21 = 2 tex0 elements, bits 22-24 = format 4 f32), an identity
+// position matrix, a viewport, a projection and one texgen.
 
-std::vector<std::uint8_t> build_textured_triangle() {
-  std::vector<std::uint8_t> fifo;
+void push_common_state(std::vector<std::uint8_t>& fifo) {
   push_cp(fifo, DOL_GX_CP_REG_VCD_LO, 1u << 9u);
   push_cp(fifo, DOL_GX_CP_REG_VCD_HI, 1u << 0u);
   const std::uint32_t vat0 =
@@ -151,13 +148,6 @@ std::vector<std::uint8_t> build_textured_triangle() {
   push_cp(fifo, DOL_GX_CP_REG_VAT_GRP1, 0u);
   push_cp(fifo, DOL_GX_CP_REG_VAT_GRP2, 0u);
 
-  push_bp(fifo, DOL_GX_BP_REG_TX_SETIMAGE0,
-          tex_image0(kTextureWidth, kTextureHeight, 6u)); // GX_TF_RGBA8
-  push_bp(fifo, DOL_GX_BP_REG_TX_SETIMAGE3, kTextureBase >> 5u);
-
-  // Identity position matrix (XF 0x0000), a viewport, a projection and one
-  // texgen so the draw carries its transform state (the plan keeps the raw
-  // values).
   const std::vector<std::uint32_t> identity = {
       0x3F800000u, 0u, 0u, 0u, 0u, 0x3F800000u,
       0u, 0u, 0u, 0u, 0x3F800000u, 0u,
@@ -169,13 +159,29 @@ std::vector<std::uint8_t> build_textured_triangle() {
               {1.f, 1.f, 0.1f, 1000.f, 0.f, 0.f});
   push_xf_block(fifo, DOL_GX_XF_PROJECTION_TYPE, {0u});
   push_xf_block(fifo, 0x103Fu, {1u}); // numTexGens
+}
 
+void push_triangle(std::vector<std::uint8_t>& fifo) {
   push_draw(fifo, 0x90u, 3u,
             {
                 0.f, 0.f, 0.f, 0.f, 0.f,
                 1.f, 0.f, 0.f, 1.f, 0.f,
                 0.f, 1.f, 0.f, 0.f, 1.f,
             });
+}
+
+// --- Scenario: one textured triangle, direct float32 position and tex0 -----
+//
+// The texture is a 4x4 RGBA8 pattern at physical 0x1000, bound through BP
+// image0/image3 (SETIMAGE3 holds address >> 5).
+
+std::vector<std::uint8_t> build_textured_triangle() {
+  std::vector<std::uint8_t> fifo;
+  push_common_state(fifo);
+  push_bp(fifo, DOL_GX_BP_REG_TX_SETIMAGE0,
+          tex_image0(kTextureWidth, kTextureHeight, 6u)); // GX_TF_RGBA8
+  push_bp(fifo, DOL_GX_BP_REG_TX_SETIMAGE3, kTextureBase >> 5u);
+  push_triangle(fifo);
   return fifo;
 }
 
@@ -187,14 +193,7 @@ std::vector<std::uint8_t> build_textured_triangle() {
 
 std::vector<std::uint8_t> build_ci8_triangle() {
   std::vector<std::uint8_t> fifo;
-  push_cp(fifo, DOL_GX_CP_REG_VCD_LO, 1u << 9u);
-  push_cp(fifo, DOL_GX_CP_REG_VCD_HI, 1u << 0u);
-  const std::uint32_t vat0 =
-      (1u << 0u) | (4u << 1u) | (1u << 21u) | (4u << 22u);
-  push_cp(fifo, DOL_GX_CP_REG_VAT_GRP0, vat0);
-  push_cp(fifo, DOL_GX_CP_REG_VAT_GRP1, 0u);
-  push_cp(fifo, DOL_GX_CP_REG_VAT_GRP2, 0u);
-
+  push_common_state(fifo);
   push_bp(fifo, DOL_GX_BP_REG_LOAD_TLUT0, kTlutBase >> 5u);
   push_bp(fifo, DOL_GX_BP_REG_LOAD_TLUT1,
           kTlutTmem | ((kTlutEntries / 16u) << 10u));
@@ -202,25 +201,30 @@ std::vector<std::uint8_t> build_ci8_triangle() {
           tex_image0(kCi8Width, kCi8Height, 9u)); // GX_TF_C8
   push_bp(fifo, DOL_GX_BP_REG_TX_SETIMAGE3, kCi8Base >> 5u);
   push_bp(fifo, DOL_GX_BP_REG_TX_SETTLUT, kTlutTmem | (2u << 10u));
+  push_triangle(fifo);
+  return fifo;
+}
 
-  const std::vector<std::uint32_t> identity = {
-      0x3F800000u, 0u, 0u, 0u, 0u, 0x3F800000u,
-      0u, 0u, 0u, 0u, 0x3F800000u, 0u,
-  };
-  push_xf_block(fifo, 0x0000u, identity);
-  push_xf_f32(fifo, DOL_GX_XF_VIEWPORT_BASE,
-              {320.f, -240.f, 16777215.f, 342.f, 342.f, 16777215.f});
-  push_xf_f32(fifo, DOL_GX_XF_PROJECTION_BASE,
-              {1.f, 1.f, 0.1f, 1000.f, 0.f, 0.f});
-  push_xf_block(fifo, DOL_GX_XF_PROJECTION_TYPE, {0u});
-  push_xf_block(fifo, 0x103Fu, {1u});
+// --- Scenario: depth, alpha and blending state on one textured triangle -----
+//
+// BP genMode: one texgen, cull back (bits 14-15 = 1).
+// BP zmode (0x40): depth test on, LEqual, depth update on.
+// BP cmode0 (0x41): blend on, src factor SrcAlpha (4) << 8, dst factor
+// InvSrcAlpha (5) << 5, color update (bit 3) and alpha update (bit 4).
+// BP PE_CONTROL (0x43): RGBA6_Z24, so the EFB target has an alpha channel and
+// the alpha update is effective (Dolphin's target_has_alpha gate).
 
-  push_draw(fifo, 0x90u, 3u,
-            {
-                0.f, 0.f, 0.f, 0.f, 0.f,
-                1.f, 0.f, 0.f, 1.f, 0.f,
-                0.f, 1.f, 0.f, 0.f, 1.f,
-            });
+std::vector<std::uint8_t> build_state_triangle() {
+  std::vector<std::uint8_t> fifo;
+  push_common_state(fifo);
+  push_bp(fifo, DOL_GX_BP_REG_GENMODE, (1u << 0u) | (1u << 14u));
+  push_bp(fifo, 0x40u, 1u | (3u << 1u) | (1u << 4u));
+  push_bp(fifo, 0x41u, 1u | (4u << 8u) | (5u << 5u) | (1u << 3u) | (1u << 4u));
+  push_bp(fifo, DOL_GX_BP_REG_PE_CONTROL, 1u);
+  push_bp(fifo, DOL_GX_BP_REG_TX_SETIMAGE0,
+          tex_image0(kTextureWidth, kTextureHeight, 6u));
+  push_bp(fifo, DOL_GX_BP_REG_TX_SETIMAGE3, kTextureBase >> 5u);
+  push_triangle(fifo);
   return fifo;
 }
 
@@ -260,9 +264,17 @@ void plan_observer(const gxc::DrawPlan& plan, void* user) {
   for (std::uint16_t index : plan.indices)
     indices += " " + std::to_string(index);
   out->push_back(indices);
-  std::snprintf(line, sizeof line, "pipeline textured=%u has_pos_mtx_idx=%u",
+  std::snprintf(line, sizeof line,
+                "pipeline textured=%u has_pos_mtx_idx=%u cull_mode=%u "
+                "depth_test=%u depth_func=%u depth_update=%u blend_enable=%u "
+                "src_factor=%u dst_factor=%u color_update=%u alpha_update=%u",
                 plan.pipeline.shader.textured,
-                plan.pipeline.shader.has_pos_mtx_idx);
+                plan.pipeline.shader.has_pos_mtx_idx,
+                plan.pipeline.cull_mode, plan.pipeline.depth_test,
+                plan.pipeline.depth_func, plan.pipeline.depth_update,
+                plan.pipeline.blend_enable, plan.pipeline.src_factor,
+                plan.pipeline.dst_factor, plan.pipeline.color_update,
+                plan.pipeline.alpha_update);
   out->push_back(line);
   if (plan.has_texture) {
     std::snprintf(line, sizeof line, "texture format=%u width=%u height=%u",
@@ -336,6 +348,8 @@ int main(int argc, char** argv) {
     return run(build_textured_triangle());
   if (scenario == "ci8_triangle")
     return run(build_ci8_triangle());
+  if (scenario == "state_triangle")
+    return run(build_state_triangle());
   std::fprintf(stderr, "unknown scenario: %s\n", scenario.c_str());
   return 2;
 }

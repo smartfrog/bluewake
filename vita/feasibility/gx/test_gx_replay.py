@@ -113,5 +113,34 @@ class Ci8TriangleTest(unittest.TestCase):
         self.assertEqual(pipeline["textured"], "1")
 
 
+class StateTriangleTest(unittest.TestCase):
+    """BP depth/alpha/blend state comes back in the pipeline key."""
+
+    @classmethod
+    def setUpClass(cls):
+        if not find_replay().is_file():
+            raise unittest.SkipTest("gx_replay not built; run scripts/vita/gx/build.py")
+        cls.lines = parse_report(run_scenario("state_triangle"))
+        cls.pipeline = dict(field.split("=", 1) for field in cls.lines["pipeline"][0])
+
+    def test_cull_mode_is_back(self):
+        self.assertEqual(self.pipeline["cull_mode"], "1")
+
+    def test_depth_state(self):
+        self.assertEqual(self.pipeline["depth_test"], "1")
+        self.assertEqual(self.pipeline["depth_func"], "3")  # LEqual
+        self.assertEqual(self.pipeline["depth_update"], "1")
+
+    def test_blend_state(self):
+        self.assertEqual(self.pipeline["blend_enable"], "1")
+        self.assertEqual(self.pipeline["src_factor"], "4")  # SrcAlpha
+        self.assertEqual(self.pipeline["dst_factor"], "5")  # InvSrcAlpha
+        self.assertEqual(self.pipeline["color_update"], "1")
+        self.assertEqual(self.pipeline["alpha_update"], "1")
+
+    def test_plan_still_carries_the_geometry(self):
+        self.assertEqual(self.lines["plan"][0][:2], ["ok=1", "vertices=3"])
+
+
 if __name__ == "__main__":
     unittest.main()
