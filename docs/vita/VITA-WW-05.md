@@ -1848,3 +1848,35 @@ preservation, independent retained words, credited-cycle/spent-quantum behavior 
 synthetic main-loop continuation. Strict GX acceptance and the module/CPU ABI are unchanged.
 Authentic continuation awaits the next clean build/trial; physical Vita, Windows CI,
 rendering, FPS, runtime REL events and actual guest disc access remain unverified.
+
+## Real PI FIFO end continuation and observed write pointer
+
+Run `a831a2e73d5d4c48a64ba952fbb12b97`, source
+`ed7d0e27a2bbfcffa1fd1b44d3625bd64095b65c`, passes PI FIFO end and reaches the word
+store **`CC003014 = 00429F60`**, PC **`80320F1C`**. The closed guest **FAIL** retains
+**64,235 edges, 7,139,922 cycles**, zero FIFO bytes, `GX_FRONTIER complete=0`, `live=0`,
+`rendered=0`. Build status zero, 124.869 s, static archive unchanged. Both owned phases
+timeout at 60 s, TERM/exit -15 and `waited=true`; process **124/INCOMPLETE** is separate.
+Bindings and LER are rechecked in `logs/pi-fifo-end-evidence-ed7d0e2.json`. SHA-256:
+
+- VPK: `aa8feef0263a10e5965a5dffa42b408de72510b614657ed040045eb755735557`;
+- report: `562da076da24a924862279ccd46b24faa267e9e6b93a3fb89be99492ba1e5865`;
+- result: `3af53c7f19fb83bbf14757a63c0d90331ad6adf30c71d83be5bb8ec0e99f219b`;
+- log: `a1ead70d7460d6a707edcf1dccf0d5630fbbc169c5181de549593f6863726e9d`;
+- LER: `169da8b7a0e0d3067e984a0701130bdf9916ce1c09ccf887d9004ec9f413b079`.
+
+The pin identifies **PI_FIFO_WPTR** at offset `14` (`HW/ProcessorInterface.h:56`), reset
+zero (`ProcessorInterface.cpp:47-54`), direct word read/write with **`FFFFFFE0`** (`90-91`).
+WW05 extends the existing scalar selector by one independently retained word; width, mask,
+cycle observation and failure routing remain shared with base/end. The observed value is
+already aligned and stays `00429F60`. This configures a register only: it does not manufacture
+gather-pipe output, guest-memory writes, pointer advancement, overflow, GPU work or interrupts.
+FIFO resets, CP enables and other unimplemented operations still fail.
+
+`logs/pi-fifo-wptr-red.log` reproduces write-pointer refusal with base/end still passing.
+`logs/pi-fifo-wptr-host-green.log` passes **310 host tests** on Linux AArch64; existing
+explicit parameterizations now cover base/end/write-pointer reset, stores, mask, invalid
+widths, retained-state isolation and credited-cycle/spent-quantum behavior. The synthetic
+main-loop fixture covers each configuration register without claiming real GX acceptance.
+Authentic continuation awaits the next clean build/trial. No physical Vita, Windows CI,
+rendering, FPS, runtime REL event or actual guest disc access is claimed.

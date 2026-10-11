@@ -356,6 +356,8 @@ static u32* pi_fifo_register(WwHost* host, u32 address) {
         return &host->pi_fifo_base;
     if (address == 0xCC003010u)
         return &host->pi_fifo_end;
+    if (address == 0xCC003014u)
+        return &host->pi_fifo_write_pointer;
     return NULL;
 }
 

@@ -33,6 +33,7 @@ typedef struct WwHost {
     u32 l2cr;
     u32 pi_fifo_base;
     u32 pi_fifo_end;
+    u32 pi_fifo_write_pointer;
     WwCodeGuard code_guard;
     const char* error;
     u32 error_address;

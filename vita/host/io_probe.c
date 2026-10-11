@@ -33,9 +33,10 @@ static int dispatch(CPUState* cpu, u32 address) {
     static bool init_started;
     const char* pi_fifo = getenv("WW05_IO_PI_FIFO");
     if (pi_fifo != NULL) {
-        assert(strcmp(pi_fifo, "base") == 0 || strcmp(pi_fifo, "end") == 0);
+        assert(strcmp(pi_fifo, "base") == 0 || strcmp(pi_fifo, "end") == 0 || strcmp(pi_fifo, "wptr") == 0);
         const bool end = strcmp(pi_fifo, "end") == 0;
-        const u32 address = end ? 0xCC003010u : 0xCC00300Cu;
+        const bool wptr = strcmp(pi_fifo, "wptr") == 0;
+        const u32 address = end ? 0xCC003010u : wptr ? 0xCC003014u : 0xCC00300Cu;
         const u32 value = end ? 0x004C9F5Cu : 0x00429F60u;
         cpu->external_write(cpu, address, value, 4u);
         if (cpu->exception != 0u)
