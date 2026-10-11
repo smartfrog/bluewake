@@ -188,7 +188,7 @@ package, copied runtime/assets/libraries/firmware/config and footprint identitie
 1. `/stack/vita3k/Vita3K --console --backend-renderer OpenGL ww05.vpk`
 2. `/stack/vita3k/Vita3K --backend-renderer OpenGL --installed-path BWWG00005`
 
-Each phase has a **≤60 s absolute monotonic deadline**, starting before Popen, with owned
+Each phase has a **≤180 s absolute monotonic deadline** (default 60 s), starting before Popen, with owned
 TERM/KILL/reap cleanup. This is a resource-safety timeout, not a process-count budget. The unchanged
 shared runner waits for exit or deadline; the closed WW05 report is collected only after owned cleanup.
 A forced Qt shutdown stays INCOMPLETE (124), independently retaining a verified guest frontier
@@ -230,7 +230,7 @@ a lingering process. Its short red/green loops are in `logs/private-{launch,gues
 The parent-symlink loop reproduced creation outside an owned fake profile, then prevented it with the
 existing no-follow directory-descriptor pattern. No real/shared profile was involved.
 
-The WW05 host suite currently has **99 tests**. Source-bound logs retain exact counts/commands for these,
+The WW05 host suite currently has **101 tests**. Source-bound logs retain exact counts/commands for these,
 native runtime CTest, 71 native FP cases and the eight direct baseline files. Audit, attribution,
 pin/scope/diff and clean-worktree checks accompany delivery. The pre-launch `1ba507c` checkpoint passed
 35 WW05 tests, 177 unchanged tests, 53 direct baseline tests, 71 native FP cases and 3/1/5 runtime/corpus/
@@ -505,3 +505,16 @@ exception handlers would not be safe without checking their relocation semantics
 before RFI, preservation of architectural SRR0/SRR1/MSR and refusal of changed vector/source.
 The fixture's compiled-handler stub is synthetic; only a new private game run can prove the
 real seven-instruction handler and subsequent GX frontier execute.
+
+Run `1ccc7aeaf2f8436cb1fc7bbfdf391ddf` at `38ad623918513f099fc1086ac3799ba44192e4b9`
+installed verified bytes but produced no closed report within the 60-second guest deadline.
+Both processes were stopped/reaped; `ww05.partial` and `ww05.log` were empty, and the launcher
+recorded status 2, frontier UNAVAILABLE, process 124/INCOMPLETE. This is not proof that the
+syscall handoff ran or that the guest progressed. The runtime log reaches opening the output
+files without a reported crash. This attempt and all files remain retained.
+
+The coordinator's original authorization allows 120–180-second deeper-startup trials. The
+WW05 plan now accepts finite positive deadlines up to 180 seconds, still using the unchanged
+owned TERM/KILL/reap runner and fresh isolated profiles. The red/green plan tests verify the
+new accepted boundary and reject zero, negative, excessive, infinite and NaN deadlines;
+all 101 host tests pass. A new bounded private attempt, not an unbounded wait, follows.

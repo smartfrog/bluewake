@@ -24,9 +24,13 @@ from fp_campaign import runtime_inputs
 RUNTIME_SHA256 = 'cea2b91f05d9d03bb577b9c414e0da54d3b234f97dc4b23537561e800b1fbf30'
 
 
+def validate_timeout(timeout):
+    if not math.isfinite(timeout) or not 0 < timeout <= 180:
+        raise ValueError('each phase deadline must be finite, positive and at most 180 seconds')
+
+
 def make_plan(root, args, source, package, run):
-    if not math.isfinite(args.timeout) or not 0 < args.timeout <= 60:
-        raise ValueError('each phase deadline must be finite, positive and at most 60 seconds')
+    validate_timeout(args.timeout)
     commands = {'install': ['--console', '--backend-renderer', 'OpenGL', 'ww05.vpk'],
                 'guest': ['--backend-renderer', 'OpenGL', '--installed-path', 'BWWG00005']}
     phases = {name: {'command': sandbox_command(root, 'Vita3K', command, args.libraries, args.wayland_socket),
@@ -79,8 +83,7 @@ def verify_package(evidence):
 
 
 def stage(args):
-    if not math.isfinite(args.timeout) or not 0 < args.timeout <= 60:
-        raise ValueError('each phase deadline must be finite, positive and at most 60 seconds')
+    validate_timeout(args.timeout)
     args.libraries = STACK / 'vita3k-env'
     source = subprocess.check_output(['git', 'rev-parse', 'HEAD'], cwd=ROOT, text=True).strip()
     if subprocess.check_output(['git', 'status', '--porcelain'], cwd=ROOT, text=True):

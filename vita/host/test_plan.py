@@ -14,6 +14,22 @@ sys.path.insert(0, str(ROOT / 'scripts/vita/armv7'))
 
 
 class PlanTest(unittest.TestCase):
+    def test_deeper_startup_allows_a_bounded_three_minute_phase(self):
+        import stage_plan
+        with tempfile.TemporaryDirectory(prefix='ww05-deadline-', dir='/home/fred/projects/zeldaWWHDRecomp/build-f5') as directory:
+            args = SimpleNamespace(libraries=None, wayland_socket=None, timeout=180)
+            plan = stage_plan.make_plan(Path(directory), args, 'a' * 40, 'b' * 64, 'c' * 32)
+            self.assertEqual(plan['phases']['install']['timeout_seconds'], 180)
+            self.assertEqual(plan['phases']['guest']['timeout_seconds'], 180)
+
+    def test_phase_deadlines_remain_finite_positive_and_bounded(self):
+        import stage_plan
+        for timeout in (0, -1, 181, float('inf'), float('nan')):
+            with self.subTest(timeout=timeout):
+                args = SimpleNamespace(libraries=None, wayland_socket=None, timeout=timeout)
+                with self.assertRaisesRegex(ValueError, 'deadline'):
+                    stage_plan.make_plan(Path('/unused'), args, 'a' * 40, 'b' * 64, 'c' * 32)
+
     def test_changed_elf_is_rejected_before_staging(self):
         import stage_plan
         with tempfile.TemporaryDirectory(prefix='ww05-package-', dir='/home/fred/projects/zeldaWWHDRecomp/build-f5') as directory:
