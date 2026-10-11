@@ -2280,3 +2280,47 @@ skip. Strict GX validation, pins, ABI, `BlueWakeRelData` and static archive are 
 The next clean source-bound build/trial checks authentic continuation. Dynamic pointers,
 DVD/CMake, Windows ARAM and final counts remain tracked. Physical Vita, Windows CI,
 rendering, FPS, runtime REL and actual guest disc/file access remain unverified.
+
+## Real CP end-high continuation and empty distance-high initialization
+
+Run `3ea0cf8c04d444aeb99cfbccea88f6a4`, source
+`6cb0dc34fa61d00d8d4572ee47497ff01800db08`, passes CP end high and reaches
+**`CC000032 = 0000`**, halfword PC **`80320FF8`**. Its closed guest **FAIL** has
+**64,248 edges, 7,140,042 cycles**, zero FIFO bytes, `GX_FRONTIER complete=0`, `live=0`,
+`rendered=0`. Build status zero in 125.487 s; archive unchanged. Both owned phases timeout
+at 60 s, TERM/exit -15, `waited=true`; process **124/INCOMPLETE** remains separate.
+Bindings and LER are rechecked in `logs/cp-fifo-end-high-evidence-6cb0dc3.json`. SHA-256:
+
+- VPK: `24994308f51710a96426917d70d86bbd988feace063796b1a313b379f9b35c10`;
+- report: `51dc14a54f36e7ec1ad2d7e5b2b258ef78dfba2f7cbcb4e3dbe3fb798d16f6ae`;
+- result: `290a1a28b4d006dd7d15a55a3b016561f513be17c4300244f314d694a6297014`;
+- log: `e53c5af186f23140c23810e0dd46dfbad9baa2e8b8124233c165a3eafcb1c81d`;
+- LER: `169da8b7a0e0d3067e984a0701130bdf9916ce1c09ccf887d9004ec9f413b079`.
+
+The pin identifies **CP_FIFO_RW_DISTANCE_HI** at offset `32`
+(`VideoCommon/CommandProcessor.h:73`). The high write synchronizes GPU register access,
+masks/replaces the high part and calls RunGpu (`CommandProcessor.cpp:290-296`). Sync calls
+the CPU consumer in single-threaded mode (`Fifo.cpp:579-587`), whose work loop requires both
+GPReadEnable and a nonzero distance (`435-443`). Both remain zero in WW05: CP enables are
+refused and the already-observed low-distance initialization is zero before FIFO input.
+
+WW05 extends the existing empty-distance guard to exactly this observed zero halfword high
+write, before any FIFO byte. It leaves the sourced empty/disabled reset state unchanged and
+does not skip the guest instruction or alter PC/cycle credit. Nonzero distance, wrong widths,
+any distance read and zero reset after FIFO input remain failures. No GPU timer/frequency,
+wakeup, consumption, safe-pointer completion or IRQ is fabricated. The pin can schedule/wake
+its backend in RunGpu (`Fifo.cpp:413-433`); that scheduling backend is not implemented here,
+and GP enable/queued execution remain unsupported rather than claiming a full GPU model.
+
+`logs/cp-fifo-distance-high-red.log` reproduces the rejected high-zero cases while control/
+low-distance cases pass. `logs/cp-fifo-distance-high-host-final-green.log` passes **319 host
+tests** on Linux AArch64. Shared explicit parameterizations cover both distance halves,
+normal guest halfword hooks, repeat zero stores, nonzero/width failures with actual context,
+credited cycles without quantum renewal, refused reads and preservation of pending synthetic
+FIFO bytes. The main-loop fixture covers both the individual high init and consecutive
+low/high zeros; unsupported distances cannot reach synthetic FIFO acceptance. Fixture PASS
+is not authentic game/GX evidence. The next clean source-bound build/trial checks continuation.
+
+Strict GX validation, pins, ABI, `BlueWakeRelData` and static archive are unchanged. Dynamic
+FIFO pointers, DVD/CMake integration, Windows ARAM and final counts remain tracked. Physical
+Vita, Windows CI, rendering, FPS, runtime REL and actual guest disc/file access remain unverified.

@@ -48,11 +48,17 @@ static int dispatch(CPUState* cpu, u32 address) {
         if (cpu->exception != 0u)
             return 1;
     }
-    const char* cp_distance = getenv("WW05_IO_CP_DISTANCE");
-    if (cp_distance != NULL) {
-        cpu->external_write(cpu, 0xCC000030u, strtoul(cp_distance, NULL, 0), 2u);
-        if (cpu->exception != 0u)
-            return 1;
+    static const struct {
+        const char* environment;
+        u32 address;
+    } distances[] = {{"WW05_IO_CP_DISTANCE", 0xCC000030u}, {"WW05_IO_CP_DISTANCE_HIGH", 0xCC000032u}};
+    for (size_t index = 0u; index < sizeof(distances) / sizeof(distances[0]); ++index) {
+        const char* value = getenv(distances[index].environment);
+        if (value != NULL) {
+            cpu->external_write(cpu, distances[index].address, strtoul(value, NULL, 0), 2u);
+            if (cpu->exception != 0u)
+                return 1;
+        }
     }
     if (getenv("WW05_IO_EXI") != NULL) {
         cpu->external_write(cpu, DOL_EXI_BASE + DOL_EXI_STATUS_OFF, 0x130u, 4u);

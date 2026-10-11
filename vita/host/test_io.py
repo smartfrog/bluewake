@@ -18,7 +18,7 @@ class MainIoTest(unittest.TestCase):
     def run_fixture(self, failure='', stale=False, interrupt=None, exception=False, syscall=None, progress=False,
                     dispatch_trace=None, stale_dispatch=False, mmio_poll=False, aram_dma=False, dsp_init=False,
                     cpu_boundary=None, exi=False, cp_control=None, fifo=None, prior_aram_transfers=None,
-                    cp_distance=None):
+                    cp_distance=None, cp_distance_high=None):
         with tempfile.TemporaryDirectory(dir=OUT, prefix='io-') as directory:
             root = Path(directory)
             data = bytearray(260)
@@ -58,6 +58,8 @@ class MainIoTest(unittest.TestCase):
                 environment['WW05_IO_CP_CONTROL'] = str(cp_control)
             if cp_distance is not None:
                 environment['WW05_IO_CP_DISTANCE'] = str(cp_distance)
+            if cp_distance_high is not None:
+                environment['WW05_IO_CP_DISTANCE_HIGH'] = str(cp_distance_high)
             if fifo is not None:
                 environment['WW05_IO_FIFO'] = fifo
             result = subprocess.run([str(OUT / 'io_probe')], cwd=root,
@@ -118,9 +120,10 @@ class MainIoTest(unittest.TestCase):
         self.assertTrue(report.endswith('END frontier=PASS live=0 rendered=0\n'))
 
     def test_disabled_cp_init_continues_guest_dispatch_before_the_host_only_fifo_fixture(self):
-        for register in ('cp_control', 'cp_distance'):
-            with self.subTest(register=register):
-                status, report = self.run_fixture(**{register: 0})
+        for configuration in ({'cp_control': 0}, {'cp_distance': 0}, {'cp_distance_high': 0},
+                              {'cp_distance': 0, 'cp_distance_high': 0}):
+            with self.subTest(configuration=configuration):
+                status, report = self.run_fixture(**configuration)
                 self.assertEqual(status, 0)
                 self.assertTrue(report.endswith('END frontier=PASS live=0 rendered=0\n'))
 
@@ -139,11 +142,13 @@ class MainIoTest(unittest.TestCase):
         self.assertTrue(report.endswith('END frontier=FAIL live=0 rendered=0\n'))
 
     def test_unsupported_cp_distance_cannot_reach_or_accept_the_fifo_fixture(self):
-        status, report = self.run_fixture(cp_distance=32)
-        self.assertNotEqual(status, 0)
-        self.assertIn('GX_FRONTIER complete=0', report)
-        self.assertIn('address=CC000030 pc=80001000 width=2 value=0000000000000020', report)
-        self.assertTrue(report.endswith('END frontier=FAIL live=0 rendered=0\n'))
+        for register, address in (('cp_distance', 'CC000030'), ('cp_distance_high', 'CC000032')):
+            with self.subTest(register=register):
+                status, report = self.run_fixture(**{register: 32})
+                self.assertNotEqual(status, 0)
+                self.assertIn('GX_FRONTIER complete=0', report)
+                self.assertIn(f'address={address} pc=80001000 width=2 value=0000000000000020', report)
+                self.assertTrue(report.endswith('END frontier=FAIL live=0 rendered=0\n'))
 
     def test_register_restore_boundary_reaches_the_module_dispatcher_without_eager_register_or_pc_changes(self):
         status, report = self.run_fixture(cpu_boundary='restore')

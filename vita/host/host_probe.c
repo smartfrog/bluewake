@@ -570,12 +570,14 @@ int main(int argc, char** argv) {
         assert(host->cpu.external_read(&host->cpu, high_address, 2u) == 0x03FFu);
         assert(memcmp(&before, &host->interrupts, sizeof(before)) == 0);
         assert(host->frontier.size == 0u && !host->frontier.complete && host->cycles.absolute_cycles == 0u);
-    } else if (strncmp(argv[1], "cp-control-", 11u) == 0 || strncmp(argv[1], "cp-distance-low-", 16u) == 0) {
+    } else if (strncmp(argv[1], "cp-control-", 11u) == 0 || strncmp(argv[1], "cp-distance-low-", 16u) == 0 ||
+               strncmp(argv[1], "cp-distance-high-", 17u) == 0) {
         const DolInterrupts before = host->interrupts;
-        const bool distance = strncmp(argv[1], "cp-distance-low-", 16u) == 0;
-        const char* scenario = argv[1] + (distance ? 16u : 11u);
-        const u32 address = distance ? 0xCC000030u : 0xCC000002u;
-        const u32 pc = distance ? 0x80320F98u : 0x80321308u;
+        const bool high = strncmp(argv[1], "cp-distance-high-", 17u) == 0;
+        const bool distance = high || strncmp(argv[1], "cp-distance-low-", 16u) == 0;
+        const char* scenario = argv[1] + (high ? 17u : distance ? 16u : 11u);
+        const u32 address = high ? 0xCC000032u : distance ? 0xCC000030u : 0xCC000002u;
+        const u32 pc = high ? 0x80320FF8u : distance ? 0x80320F98u : 0x80321308u;
         host->cpu.pc = pc;
         const bool credit = strcmp(scenario, "credit") == 0;
         const bool store = strcmp(scenario, "store") == 0;
@@ -599,7 +601,7 @@ int main(int argc, char** argv) {
         if (store) {
             host->cpu.gpr[3] = 0xCC000000u;
             host->cpu.gpr[0] = 0u;
-            mem_write16(&host->cpu, host->cpu.gpr[3] + (distance ? 48u : 2u), (u16)host->cpu.gpr[0]);
+            mem_write16(&host->cpu, host->cpu.gpr[3] + (high ? 50u : distance ? 48u : 2u), (u16)host->cpu.gpr[0]);
         } else if (read) {
             assert(distance);
             host->cpu.external_read(&host->cpu, address, width);
