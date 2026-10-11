@@ -237,7 +237,7 @@ a lingering process. Its short red/green loops are in `logs/private-{launch,gues
 The parent-symlink loop reproduced creation outside an owned fake profile, then prevented it with the
 existing no-follow directory-descriptor pattern. No real/shared profile was involved.
 
-The WW05 host suite currently has **251 tests**. Source-bound logs retain exact counts/commands for these,
+The WW05 host suite currently has **254 tests**. Source-bound logs retain exact counts/commands for these,
 native runtime CTest, 71 native FP cases and the eight direct baseline files. Audit, attribution,
 pin/scope/diff and clean-worktree checks accompany delivery. The pre-launch `1ba507c` checkpoint passed
 35 WW05 tests, 177 unchanged tests, 53 direct baseline tests, 71 native FP cases and 3/1/5 runtime/corpus/
@@ -1333,3 +1333,57 @@ without executing it on Linux; its Vita compilation and real-game continuation s
 the next clean source-bound build/trial. No physical Vita, Windows CI, rendering, FPS, runtime
 REL event or GX acceptance is claimed. Network/remote PR inspection remains unavailable under
 the offline mandate; cached remote branches were checked, and nothing was pushed.
+
+## Real vector/RFI continuation reaches the drive inquiry, not a disc read
+
+Run `e1f433bb14d4475aaf279bfbb0430f4f`, source `d6b439b11468292a89e2b6b096a01ae8a776a8ad`,
+records **four** exact-byte-guarded vector entries. Each yields at the pinned SPR fallbacks
+`00000500 -> 00000504 -> 00000510`, then executes the guest's conditional branch and real
+RFI to **`80304E24`**, with SRR0=`80304E24`, SRR1/MSR=`00000030` and 35 charged emitted
+cycles (0 + 2 + 33). No synthesized context or vector alias is used. The guest continues
+through its actual interrupt dispatch/return and reaches **36,486 edges, 6,794,728 cycles**.
+The strictly validated closed report remains **FAIL**, `GX_FRONTIER complete=0`, zero FIFO
+bytes and `live=0`. Actual STOP:
+`DVD command requires private disc service (not packaged) address=12000000 pc=8030EF44`.
+Both phases timeout at 600 s, TERM/exit -15 and `waited=true`; process **124/INCOMPLETE** is
+separate from that guest FAIL. Build status zero, 118.734 seconds, static archive still
+`9d1c59238cea4b83798f1c16b0549950d41ec0011a89e95591d5a307718aea08`.
+Exact-source **251 host tests, 177 ARMv7 tests**, audit, attribution and native runtime CTest
+**3/3** pass on Linux AArch64. VPK SHA-256:
+`6fd93c67b52530c976e57af0eacdff4470891463e3852fba5a5add0f7b806740`;
+report: `43cc1fc18226c0c98ca647f195ed63df477ba19d2cdf8ab53ecf3484f0ebc02b`;
+result: `5b58d64f76a268c7b2402281c5cd6f18b8f9f39a067e31777527d03e4b799f67`;
+log: `f09671cb2d5191ae37f982d11e7e8b5ec06981944abae3412096f5da7457fdfc`;
+closed LER journal: `169da8b7a0e0d3067e984a0701130bdf9916ce1c09ccf887d9004ec9f413b079`.
+
+Despite the old STOP wording, **0x12 is DVDLowInquiry, not ReadDiscID or a file read**.
+Pinned `HW/DVD/DVDInterface.h:40-44` distinguishes Inquiry (`12`) from Read (`A8`);
+`DVDInterface.cpp:495-504` supplies three fixed response words: `00000002`, `20060526`,
+`41000000`. That reference explicitly identifies them as observed Wii drive information,
+used by its GC and Wii command paths. They are the pinned device model's values, not a claim
+about the player's physical drive or bytes from the private ISO. The existing shared desktop
+callback already emits the same three words. The private SDK sequence at `8030EEF4` loads
+32, sets a read-DMA control of 3, and starts the query at `8030EF44`.
+
+This increment extracts those existing three stores into shared `runtime/host/src/di_inquiry.h`
+and reuses them from WW05 and the desktop callback. The desktop's surrounding validation,
+32-byte initialization and completion behavior are unchanged. WW05 supports only the observed
+exact command and **32-byte read DMA into actual bounded MEM1**, refusing unsupported modes,
+lengths, low-byte variants, overflow/out-of-RAM buffers and linked aliases before changing
+guest memory. It writes only the sourced **12 bytes** and preserves the reserved 20 bytes and
+neighbors, rather than manufacturing a 32-byte payload. Completion uses the existing pinned
+`GXRuntime/src/di.c:81-113` mechanism, including DMA length/address, TCINT, mask/EE gating and
+write-one-to-clear. No guest latency, frequency, drive/media state, disc ID, interrupt handler
+or game data is invented; no image is opened and the cover remains in its existing state.
+The checked inquiry record names the actual DMA destination and issuing PC. Unsupported
+commands still fail explicitly; actual disc/FST reads still require the `35f7c8a` integration
+and its proven I/O seam, with the mandatory rebase before the first actual image open.
+
+`logs/di-inquiry-red.log` reproduces the missing response and completion behavior through the
+real MMIO callback. `logs/di-inquiry-green.log` passes **254 host tests**, including exact
+sourced words, preserved padding/neighbors, parameterized rejected DMA shapes, 40 real fixture
+instruction credits without fabricated time, masked external delivery and interrupt clearing.
+**177 ARMv7 tests**, audit, attribution and native runtime CTest **3/3** pass on Linux AArch64.
+The new query response has not yet been exercised by the real guest. The shared desktop helper
+is covered by the same compiled store logic, but desktop gameplay and Windows CI were not run.
+Physical Vita, GX acceptance, rendering, FPS and runtime REL lifecycle remain untested.

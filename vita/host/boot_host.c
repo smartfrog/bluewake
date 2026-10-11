@@ -3,6 +3,7 @@
 #include "external_memory.h"
 #include "interrupt_sources.h"
 #include "external_vector.h"
+#include "di_inquiry.h"
 #include "edge_intercept_table.h"
 #include "gxruntime/boot.h"
 #include "gxruntime/guest_memory_dirty.h"
@@ -28,6 +29,15 @@ void ww_host_fail(WwHost* host, const char* error, u32 address, u32 pc) {
 
 static WwHost* owner(CPUState* cpu) {
     return cpu->external_user_data;
+}
+
+static bool linked_alias_overlaps(u32 address, u8 size) {
+    for (u8 offset = 0u; offset < size; ++offset) {
+        u8* alias;
+        if (ppc_guest_alias_resolve(address + offset, 1u, &alias, NULL))
+            return true;
+    }
+    return false;
 }
 
 static u32 canonical_dispatch_address(const CPUState* cpu, u32 address) {
@@ -258,6 +268,27 @@ static bool host_call(CPUState* cpu, u32 service) {
 
 static DolDiCommandResult di_command(void* user, DolDiCommand* command) {
     WwHost* host = user;
+    if (command->command[0] == 0x12000000u) {
+        const u32 physical = command->dma_address;
+        const u32 guest = GC_RAM_BASE | physical;
+        if (command->cpu != &host->cpu || host->cpu.ram == NULL ||
+            !command->dma || command->write || command->dma_length != 32u ||
+            physical > host->cpu.ram_size || 32u > host->cpu.ram_size - physical ||
+            get_ram_ptr(&host->cpu, guest, 32u, NULL) != host->cpu.ram + physical) {
+            ww_host_fail(host, "DI inquiry requires a 32-byte read DMA into real MEM1", command->command[0], host->cpu.pc);
+            return DOL_DI_COMMAND_ERROR;
+        }
+        if (linked_alias_overlaps(guest, 32u)) {
+            ww_host_fail(host, "DI inquiry DMA overlaps a linked alias", command->command[0], host->cpu.pc);
+            return DOL_DI_COMMAND_ERROR;
+        }
+        if (fprintf(stderr, "[di-inquiry] guest=%08X bytes=32 sourced=12 reserved=preserved pc=%08X\n", guest, host->cpu.pc) < 0) {
+            ww_host_fail(host, "DI inquiry trace write failed", command->command[0], host->cpu.pc);
+            return DOL_DI_COMMAND_ERROR;
+        }
+        bluewake_di_inquiry_write(command->cpu, guest);
+        return DOL_DI_COMMAND_COMPLETE;
+    }
     ww_host_fail(host, "DVD command requires private disc service (not packaged)", command->command[0], host->cpu.pc);
     return DOL_DI_COMMAND_ERROR;
 }
@@ -318,11 +349,8 @@ static bool external_memory_address(CPUState* cpu, u32 address, u8 size, u32* re
     *resolved = address;
     if (!(cpu->msr & PPC_MSR_DR) && in_range(address, size, 0u, cpu->ram_size)) {
         const u32 cached = address | GC_RAM_BASE;
-        u8* alias;
-        for (u8 offset = 0u; offset < size; ++offset) {
-            if (ppc_guest_alias_resolve(cached + offset, 1u, &alias, NULL))
-                return false;
-        }
+        if (linked_alias_overlaps(cached, size))
+            return false;
         *resolved = cached;
     }
     return true;

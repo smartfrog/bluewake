@@ -42,6 +42,7 @@
 #include "mouse_camera.h"
 #include "callback_delivery.h"
 #include "dvd_completion.h"
+#include "di_inquiry.h"
 #include "cycle_domain.h"
 #include "interrupt_sources.h"
 #include "delivery_digest.h"
@@ -2762,9 +2763,7 @@ static DolDiCommandResult host_di_command(void* user, DolDiCommand* command) {
             return DOL_DI_COMMAND_ERROR;
         for (u32 offset = 0; offset < 32u; offset += 4u)
             mem_write32(command->cpu, guest_address + offset, 0u);
-        mem_write32(command->cpu, guest_address + 0u, 0x00000002u);
-        mem_write32(command->cpu, guest_address + 4u, 0x20060526u);
-        mem_write32(command->cpu, guest_address + 8u, 0x41000000u);
+        bluewake_di_inquiry_write(command->cpu, guest_address);
         fprintf(stderr, "[dvd] DI inquiry guest=0x%08X length=%u\n",
                 guest_address, command->dma_length);
         return DOL_DI_COMMAND_COMPLETE;
