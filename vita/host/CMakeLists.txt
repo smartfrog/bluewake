@@ -40,7 +40,7 @@ if(WW05_TESTS_ONLY)
     target_compile_options(io_probe PRIVATE -fno-builtin)
     target_link_libraries(io_probe PRIVATE ww05_services)
     target_link_options(io_probe PRIVATE -Wl,--wrap=fopen -Wl,--wrap=fprintf -Wl,--wrap=fflush
-        -Wl,--wrap=fclose -Wl,--wrap=rename -Wl,--wrap=fixture_log_close)
+        -Wl,--wrap=fclose -Wl,--wrap=rename -Wl,--wrap=fixture_log_close -Wl,--wrap=setvbuf)
 else()
     if(NOT VITA)
         message(FATAL_ERROR "The real game target is Vita-only; host execution is not authorized")

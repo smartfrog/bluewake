@@ -96,6 +96,11 @@ static bool failure(const char* name) {
     return selected != NULL && strcmp(selected, name) == 0;
 }
 
+int __real_setvbuf(FILE* stream, char* buffer, int mode, size_t size);
+int __wrap_setvbuf(FILE* stream, char* buffer, int mode, size_t size) {
+    return stream == stderr && failure("stderr-buffer") ? -1 : __real_setvbuf(stream, buffer, mode, size);
+}
+
 FILE* __real_fopen(const char* path, const char* mode);
 FILE* __wrap_fopen(const char* path, const char* mode) {
     FILE* stream = __real_fopen(path, mode);

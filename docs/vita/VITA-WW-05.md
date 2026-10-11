@@ -230,7 +230,7 @@ a lingering process. Its short red/green loops are in `logs/private-{launch,gues
 The parent-symlink loop reproduced creation outside an owned fake profile, then prevented it with the
 existing no-follow directory-descriptor pattern. No real/shared profile was involved.
 
-The WW05 host suite currently has **101 tests**. Source-bound logs retain exact counts/commands for these,
+The WW05 host suite currently has **103 tests**. Source-bound logs retain exact counts/commands for these,
 native runtime CTest, 71 native FP cases and the eight direct baseline files. Audit, attribution,
 pin/scope/diff and clean-worktree checks accompany delivery. The pre-launch `1ba507c` checkpoint passed
 35 WW05 tests, 177 unchanged tests, 53 direct baseline tests, 71 native FP cases and 3/1/5 runtime/corpus/
@@ -518,3 +518,18 @@ WW05 plan now accepts finite positive deadlines up to 180 seconds, still using t
 owned TERM/KILL/reap runner and fresh isolated profiles. The red/green plan tests verify the
 new accepted boundary and reject zero, negative, excessive, infinite and NaN deadlines;
 all 101 host tests pass. A new bounded private attempt, not an unbounded wait, follows.
+
+Run `76d1f3f3ae2443c29a4445129ef3e79d` at `0f926a1f6e9906be015529bd7f24086056bd600b`
+also produced no closed report: both 180-second phases stopped/reaped, status 2, frontier
+UNAVAILABLE, empty log/partial. Its process log confirms the DOL was opened and closed, so
+empty buffered files alone cannot establish whether the native host or guest was looping.
+No progress or syscall success is inferred from this attempt.
+
+WW05 now makes its own stderr unbuffered, flushes the report header/allocation prefix before
+execution, and logs initialize/load/loaded stages plus sampled actual PC/MSR/SRR0, turn count,
+edges and absolute cycles. Progress logs occur after dispatch at 65,536-cycle intervals (and
+65,536-turn intervals for non-charging loops); they do not limit guest execution or fabricate
+time. A partial report remains non-certifying. Logging failures propagate to a negative exit,
+and the shared platform fixture and other profiles remain untouched.
+`logs/private-progress-{red,green}.log` verifies visible progress and refusal of stderr-buffer
+configuration failure; all 103 host tests pass before the next private diagnosis trial.

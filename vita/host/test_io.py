@@ -15,7 +15,7 @@ class MainIoTest(unittest.TestCase):
     def setUpClass(cls):
         test_host.StartupHostTest.setUpClass()
 
-    def run_fixture(self, failure='', stale=False, interrupt=None, exception=False, syscall=None):
+    def run_fixture(self, failure='', stale=False, interrupt=None, exception=False, syscall=None, progress=False):
         with tempfile.TemporaryDirectory(dir=OUT, prefix='io-') as directory:
             root = Path(directory)
             data = bytearray(260)
@@ -40,6 +40,8 @@ class MainIoTest(unittest.TestCase):
             result = subprocess.run([str(OUT / 'io_probe')], cwd=root,
                                     env=environment, capture_output=True, timeout=10)
             report = (root / 'ww05.report').read_text() if (root / 'ww05.report').exists() else None
+            if progress:
+                self.assertIn('[progress] turns=1', result.stderr.decode())
             if exception:
                 log = result.stderr.decode()
                 self.assertIn('[exception] bits=00000008 pc=00000C00 srr0=80001004', log)
@@ -81,6 +83,16 @@ class MainIoTest(unittest.TestCase):
         status, report = self.run_fixture(syscall='source-changed')
         self.assertNotEqual(status, 0)
         self.assertIn('END frontier=FAIL', report)
+
+    def test_dispatch_progress_is_visible_before_report_publication(self):
+        status, report = self.run_fixture(progress=True)
+        self.assertEqual(status, 0)
+        self.assertIn('END frontier=PASS', report)
+
+    def test_stderr_buffer_configuration_failure_is_not_silently_ignored(self):
+        status, report = self.run_fixture(failure='stderr-buffer')
+        self.assertNotEqual(status, 0)
+        self.assertIsNone(report)
 
     def test_write_failure_is_not_published(self):
         status, report = self.run_fixture('write')

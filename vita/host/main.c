@@ -29,11 +29,14 @@ int fixture_run(int argc, char** argv) {
         return 1;
     if (fixture_log_open("ww05"))
         return 1;
+    if (setvbuf(stderr, NULL, _IONBF, 0) != 0)
+        return fixture_log_close() != 0 ? 2 : 1;
     FILE* report = fopen(partial, "wx");
     if (report == NULL)
         return 1;
     int error = fprintf(report, "WW05 %s %s %s method=startup-gx-v1 phase=guest platform=%s\n",
-                        token, source, package, WW05_PLATFORM) < 0;
+                         token, source, package, WW05_PLATFORM) < 0;
+    error |= fflush(report) != 0 || ferror(report) != 0;
     if (error) {
         const int closed = fclose(report);
         const int logs = fixture_log_close();
@@ -53,8 +56,11 @@ int fixture_run(int argc, char** argv) {
     const StaticRecompModuleDesc* module = staticrecomp_get_module();
     u32 count;
     const BlueWakeRelData* data = staticrecomp_get_rel_data(&count);
-    bool initialized = ww_host_init(host);
-    bool loaded = initialized && ww_host_load(host, module, data, count, WW05_DOL_PATH);
+    error |= fprintf(stderr, "[host] stage=initialize\n") < 0;
+    bool initialized = !error && ww_host_init(host);
+    error |= fprintf(stderr, "[host] stage=load initialized=%u\n", initialized) < 0;
+    bool loaded = !error && initialized && ww_host_load(host, module, data, count, WW05_DOL_PATH);
+    error |= fprintf(stderr, "[host] stage=loaded loaded=%u pc=%08X\n", loaded, host->cpu.pc) < 0;
     if (!initialized)
         ww_host_fail(host, "CPU/VM/cache allocation failed", 0u, 0u);
     error |= fprintf(report, "ABI pointer=%u cpu=%u version=%u\n", fixture_abi.pointer_bytes,
@@ -67,7 +73,10 @@ int fixture_run(int argc, char** argv) {
                      (unsigned long long)host->alias_bytes, host->alias_count,
                       (unsigned long long)(sizeof(*host) + host->backing_bytes + host->code_guard.bytes + host->alias_bytes)) < 0;
     error |= fprintf(report, "UNKNOWN residency native_stack_highwater pool_peak GPU\n") < 0;
+    error |= fflush(report) != 0 || ferror(report) != 0;
     bluewake_set_edge_service(ww_host_edge, host);
+    u64 turns = 0u;
+    u64 next_progress = 0u;
     while (loaded && !error && host->error == NULL && !host->edge_stopped) {
         if (ww_host_edge(host, &host->cpu, host->cpu.pc)) {
             if (host->edge_stopped)
@@ -78,6 +87,14 @@ int fixture_run(int argc, char** argv) {
         bluewake_cycle_domain_prepare_dispatch(&host->cycles, &host->cpu);
         const int dispatched = module->dispatch(&host->cpu, host->cpu.pc);
         bluewake_cycle_domain_end_turn(&host->cycles, &host->cpu);
+        ++turns;
+        if (host->cycles.absolute_cycles >= next_progress || (turns & 0xFFFFu) == 0u) {
+            error |= fprintf(stderr, "[progress] turns=%llu edges=%llu cycles=%llu pc=%08X msr=%08X srr0=%08X exception=%08X\n",
+                             (unsigned long long)turns, (unsigned long long)host->edges,
+                             (unsigned long long)host->cycles.absolute_cycles,
+                             host->cpu.pc, host->cpu.msr, host->cpu.srr0, host->cpu.exception) < 0;
+            next_progress = host->cycles.absolute_cycles + 65536u;
+        }
         if (!dispatched)
             ww_host_fail(host, "dispatch rejected guest PC", host->cpu.pc, host->cpu.pc);
         if (host->cpu.exception && host->error == NULL && !ww_host_resume_exception(host)) {
