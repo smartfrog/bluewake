@@ -25,8 +25,8 @@ RUNTIME_SHA256 = 'cea2b91f05d9d03bb577b9c414e0da54d3b234f97dc4b23537561e800b1fbf
 
 
 def validate_timeout(timeout):
-    if not math.isfinite(timeout) or not 0 < timeout <= 180:
-        raise ValueError('each phase deadline must be finite, positive and at most 180 seconds')
+    if not math.isfinite(timeout) or not 0 < timeout <= 600:
+        raise ValueError('each phase deadline must be finite, positive and at most 600 seconds')
 
 
 def make_plan(root, args, source, package, run):

@@ -413,14 +413,15 @@ bool ww_host_resume_exception(WwHost* host) {
     if (cpu->exception != PPC_EXC_SYSTEM_CALL || cpu->pc != PPC_VECTOR_SYSTEM_CALL ||
         host->module == NULL)
         return false;
-    if (fprintf(stderr, "[exception-handoff] stage=guard vector=%08X source=%08X srr0=%08X\n",
+    const bool trace = ww_host_trace_syscall(host->syscall_resumes + 1u);
+    if (trace && fprintf(stderr, "[exception-handoff] stage=guard vector=%08X source=%08X srr0=%08X\n",
                 cpu->pc, source, cpu->srr0) < 0) {
         ww_host_fail(host, "exception handoff log write failed", source, cpu->pc);
         return false;
     }
     const bool matched = ww_code_guard_copied_text_matches(&host->code_guard, cpu, source,
                                                          GC_RAM_BASE | PPC_VECTOR_SYSTEM_CALL, 28u);
-    if (fprintf(stderr, "[exception-handoff] stage=guard-result matched=%u\n", matched) < 0) {
+    if (trace && fprintf(stderr, "[exception-handoff] stage=guard-result matched=%u\n", matched) < 0) {
         ww_host_fail(host, "exception handoff log write failed", source, cpu->pc);
         return false;
     }
@@ -430,8 +431,10 @@ bool ww_host_resume_exception(WwHost* host) {
         const StaticRecompRange* range = &host->module->code_ranges[index];
         if (source < range->start || (u64)source + 28u > range->end)
             continue;
-        if (fprintf(stderr, "[exception-resume] bits=%08X vector=%08X compiled=%08X srr0=%08X srr1=%08X\n",
-                    cpu->exception, cpu->pc, source, cpu->srr0, cpu->srr1) < 0) {
+        ++host->syscall_resumes;
+        if (trace && fprintf(stderr, "[exception-resume] bits=%08X vector=%08X compiled=%08X resume=%llu srr0=%08X srr1=%08X\n",
+                    cpu->exception, cpu->pc, source, (unsigned long long)host->syscall_resumes,
+                    cpu->srr0, cpu->srr1) < 0) {
             ww_host_fail(host, "exception handoff log write failed", source, cpu->pc);
             return false;
         }

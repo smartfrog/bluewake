@@ -19,14 +19,16 @@
 #endif
 
 static bool log_handler_boundary(const WwHost* host, const char* stage) {
-    if (host->cpu.pc < 0x803077D0u || host->cpu.pc >= 0x803077ECu)
+    if (host->cpu.pc < 0x803077D0u || host->cpu.pc >= 0x803077ECu ||
+        !ww_host_trace_syscall(host->syscall_resumes))
         return false;
-    return fprintf(stderr, "[handler-boundary] stage=%s pc=%08X cycles=%llu exception=%08X msr=%08X hid0=%08X downcount=%lld budget=%lld dec=%08X pending=%u tb=%llu\n",
+    return fprintf(stderr, "[handler-boundary] stage=%s pc=%08X cycles=%llu exception=%08X msr=%08X hid0=%08X downcount=%lld budget=%lld dec=%08X pending=%u tb=%llu resume=%llu srr0=%08X\n",
                    stage, host->cpu.pc, (unsigned long long)host->cycles.absolute_cycles,
                    host->cpu.exception, host->cpu.msr, host->hid0,
                    (long long)host->cpu.downcount, (long long)host->cpu.cycle_budget,
                    host->decrementer, host->decrementer_pending,
-                   (unsigned long long)host->cpu.timebase) < 0;
+                   (unsigned long long)host->cpu.timebase,
+                   (unsigned long long)host->syscall_resumes, host->cpu.srr0) < 0;
 }
 
 static int dispatch_marker(char marker) {
@@ -134,8 +136,7 @@ int fixture_run(int argc, char** argv) {
             error = 1;
             break;
         }
-        const bool trace_dispatch = probe_dispatch || (host->cycles.absolute_cycles >= 131072u &&
-                                     host->cycles.absolute_cycles < 196608u && turns < 1024u);
+        const bool trace_dispatch = probe_dispatch || turns < 8u || (turns + 1u) % 1000u == 0u;
         if (trace_dispatch && fprintf(stderr, "[dispatch] stage=enter turn=%llu pc=%08X cycles=%llu\n",
                                       (unsigned long long)(turns + 1u), host->cpu.pc,
                                       (unsigned long long)host->cycles.absolute_cycles) < 0) {
@@ -166,10 +167,11 @@ int fixture_run(int argc, char** argv) {
                              (unsigned long long)host->cycles.absolute_cycles, host->cpu.exception) < 0;
         error |= log_handler_boundary(host, "returned");
         if (host->cycles.absolute_cycles >= next_progress || (turns & 0xFFFFu) == 0u) {
-            error |= fprintf(stderr, "[progress] turns=%llu edges=%llu cycles=%llu pc=%08X msr=%08X srr0=%08X exception=%08X\n",
+            error |= fprintf(stderr, "[progress] turns=%llu edges=%llu cycles=%llu pc=%08X msr=%08X srr0=%08X exception=%08X resume=%llu\n",
                              (unsigned long long)turns, (unsigned long long)host->edges,
                              (unsigned long long)host->cycles.absolute_cycles,
-                             host->cpu.pc, host->cpu.msr, host->cpu.srr0, host->cpu.exception) < 0;
+                              host->cpu.pc, host->cpu.msr, host->cpu.srr0, host->cpu.exception,
+                              (unsigned long long)host->syscall_resumes) < 0;
             next_progress = host->cycles.absolute_cycles + 65536u;
         }
         if (!dispatched)

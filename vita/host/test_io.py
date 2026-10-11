@@ -70,6 +70,12 @@ class MainIoTest(unittest.TestCase):
                 self.assertIn('[edge] pc=803077DC', result.stderr.decode())
                 self.assertIn('[spr-fallback] stage=enter pc=803077D8 spr=1008', result.stderr.decode())
                 self.assertIn('[spr-fallback] stage=return pc=803077DC spr=1008', result.stderr.decode())
+            if syscall == 'repeated-handlers':
+                log = result.stderr.decode()
+                self.assertEqual(log.count('[exception-resume]'), 2)
+                self.assertIn('resume=1 srr0=80001004', log)
+                self.assertIn('resume=1000 srr0=80001004', log)
+                self.assertLess(log.count('[dispatch] stage=enter'), 12)
             return result.returncode, report
 
     def test_synthetic_host_fixture_publishes_closed_report(self):
@@ -130,6 +136,11 @@ class MainIoTest(unittest.TestCase):
         status, report = self.run_fixture(syscall='yielding-handler', dispatch_trace='LER')
         self.assertEqual(status, 0)
         self.assertEqual(len(report.splitlines()), 8)
+        self.assertIn('END frontier=PASS', report)
+
+    def test_repeated_syscall_handlers_are_sampled_with_the_real_resume_address(self):
+        status, report = self.run_fixture(syscall='repeated-handlers')
+        self.assertEqual(status, 0)
         self.assertIn('END frontier=PASS', report)
 
     def test_dispatch_marker_open_failure_prevents_report_publication(self):

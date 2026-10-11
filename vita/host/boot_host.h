@@ -43,11 +43,16 @@ typedef struct WwHost {
     u32 alias_count;
     u64 edges;
     u64 next_edge_progress;
+    u64 syscall_resumes;
     u32 dispatch_trace_remaining;
     bool edge_stopped;
     bool decrementer_valid;
     bool decrementer_pending;
 } WwHost;
+
+static inline bool ww_host_trace_syscall(u64 resume) {
+    return resume <= 1u || resume % 1000u == 0u;
+}
 
 bool ww_host_init(WwHost* host);
 void ww_host_shutdown(WwHost* host);

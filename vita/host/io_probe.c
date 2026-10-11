@@ -27,6 +27,7 @@ static int mmio_poll(CPUState* cpu, u32 address) {
 
 static int dispatch(CPUState* cpu, u32 address) {
     static bool polled;
+    static u32 repeated_handlers;
     if (getenv("WW05_IO_MMIO_POLL") != NULL && !polled) {
         polled = true;
         return bluewake_chassis_dispatch_loop(cpu, address, mmio_poll, edge, edge_user);
@@ -57,6 +58,8 @@ static int dispatch(CPUState* cpu, u32 address) {
             return 1;
         }
         ppc_rfi(cpu, address);
+        if (strcmp(syscall, "repeated-handlers") == 0 && ++repeated_handlers < 1001u)
+            cpu->pc = 0x80001000u;
         cpu->downcount -= 12;
         return 1;
     }
@@ -134,6 +137,7 @@ void bluewake_set_edge_service(BluewakeEdgeServiceFn callback, void* user) {
 
 static FILE* report;
 static FILE* dispatch_trace;
+static bool dispatch_marked;
 static bool failure(const char* name) {
     const char* selected = getenv("WW05_IO_FAILURE");
     return selected != NULL && strcmp(selected, name) == 0;
@@ -155,11 +159,13 @@ FILE* __wrap_fopen(const char* path, const char* mode) {
         report = stream;
     if (strcmp(path, "ww05.dispatch") == 0)
         dispatch_trace = stream;
+    if (strcmp(path, "ww05.dispatch") == 0 && stream != NULL)
+        dispatch_marked = true;
     return stream;
 }
 
 int __wrap_fprintf(FILE* stream, const char* format, ...) {
-    if (stream == stderr && strncmp(format, "[dispatch] stage=enter", 22u) == 0 &&
+    if (stream == stderr && dispatch_marked && strncmp(format, "[dispatch] stage=enter", 22u) == 0 &&
         failure("dispatch-entry-log")) {
         errno = EIO;
         return -1;

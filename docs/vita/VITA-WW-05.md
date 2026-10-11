@@ -230,7 +230,7 @@ a lingering process. Its short red/green loops are in `logs/private-{launch,gues
 The parent-symlink loop reproduced creation outside an owned fake profile, then prevented it with the
 existing no-follow directory-descriptor pattern. No real/shared profile was involved.
 
-The WW05 host suite currently has **135 tests**. Source-bound logs retain exact counts/commands for these,
+The WW05 host suite currently has **137 tests**. Source-bound logs retain exact counts/commands for these,
 native runtime CTest, 71 native FP cases and the eight direct baseline files. Audit, attribution,
 pin/scope/diff and clean-worktree checks accompany delivery. The pre-launch `1ba507c` checkpoint passed
 35 WW05 tests, 177 unchanged tests, 53 direct baseline tests, 71 native FP cases and 3/1/5 runtime/corpus/
@@ -777,3 +777,40 @@ real chassis header around the same one-cycle poll, yields after exactly 256 cre
 then resumes a fresh dispatch without crediting those cycles twice. All 135 host tests pass
 in `logs/mmio-quantum-chassis-green.log`. These tests establish host return/accounting only;
 a new real trial must reveal the DSP operation/error and cannot certify a synthetic frontier.
+
+Run `2c4b1c3c7454432f8134420a1831d859` at `481faf9a6aa8c89f73f60f4aa972b98ee2533c06`
+now closes a valid **FAIL** report instead of leaving the frontier unavailable. It logs the real
+post-RFI edge `80303104`, then returns at `80302ED4`, cycles 144,070, edges 1,311. The first
+error is `unsupported MMIO write address=CC005012 pc=80302E54`. Thus the host-quantum fix
+exposes the actual earlier failure; it does not complete the DSP operation or certify GX.
+The report releases all owned allocations (`live=0`). Both emulator phases still require the
+owned 180-second TERM/reap: guest FAIL and process 124/INCOMPLETE are distinct.
+VPK SHA-256: `61bf527aa5aa0d8f0b2e505a7f59a70512b9cc7e092cfbe61d54fc4dc53ae411`;
+report SHA-256: `178125b1608bef14d0419eff9a26df7e3d6f463205e1215c0546779c58953a9e`.
+The static archive remains byte-identical. At this SHA 135 host tests, 177 ARMv7 tests,
+audit and attribution passed on Linux AArch64; hardware/Windows/renderer remain untested.
+
+The coordinator also requested longer trials and lower per-pass log volume. WW05's opt-in
+maximum is now **600 seconds per phase**, default still 60, with unchanged owned TERM/KILL/
+reap and source/private-profile verification. This does not alter the unchanged campaign's
+limits. Handler logs/handoff details are sampled at the first verified syscall resume and
+every thousandth, recording the actual SRR0 and cumulative resume count. Ordinary dispatch
+logs cover the first eight turns and each thousandth; the first D4 closed L/E/R diagnostic
+and its bounded edge/fallback trace remain. No logging counter substitutes for guest cycles.
+`logs/long-trial-sampling-red.log` reproduced refusal of 600 seconds and 1,001 unsampled resume
+records. The green loop passes 137 host tests, including 1,001 game-free handoffs yielding
+only resume-1/resume-1000 samples with the real saved resume address and unchanged report.
+
+The suggested interpretation that `f74e1017` wrote until its final second was checked directly:
+its guest `process.log` has 138 sceIoWrite records and its last timestamp is `12:55:44.352`,
+while launch begins near `12:55:42` and process duration is 180.001 seconds. The truncated
+cache log's alternating 58/78-byte writes end earlier (`12:55:44.344`). These are not evidence
+of writes continuing throughout the timeout or repeated 180-second cache-handler passes.
+Native DSP-loop evidence and the new closed STOP supersede that volume hypothesis.
+
+The coordinator explicitly permits deterministic documented initialization-mail responses
+without emulating the DSP core, only at the corresponding identified-ucode transitions.
+Local pinned `DSPHLE/UCodes/INIT.cpp:19-22` supplies `80544348`, and `ROM.cpp:31-34` supplies
+`8071FEED`. Neither response has been implemented merely to satisfy a waiting guest. The
+next implementation begins with the observed AR_INFO configuration register, real DMA and
+explicit support boundaries; undocumented behavior or unknown ucode remains a refusal.
