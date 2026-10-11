@@ -30,7 +30,35 @@ static int dispatch(CPUState* cpu, u32 address) {
     static bool polled;
     static u32 repeated_handlers;
     static bool init_started;
-    if (getenv("WW05_IO_EPILOGUE") != NULL) {
+    const char* cpu_boundary = getenv("WW05_IO_CPU_BOUNDARY");
+    if (cpu_boundary != NULL && strcmp(cpu_boundary, "context") == 0) {
+        if (address == 0x80001000u) {
+            cpu->gpr[3] = 0x80002200u;
+            mem_write32(cpu, cpu->gpr[3] + 12u, 0x11223344u);
+            mem_write32(cpu, cpu->gpr[3] + 16u, 0x55667788u);
+            mem_write32(cpu, cpu->gpr[3] + 408u, address + 4u);
+            mem_write32(cpu, cpu->gpr[3] + 412u, PPC_MSR_FP | PPC_MSR_IR | PPC_MSR_DR);
+            cpu->srr0 = 0xDEADBEEFu;
+            cpu->srr1 = 0xA5A5A5A5u;
+            cpu->pc = 0x80303A50u;
+            cpu->downcount -= 2;
+            return 1;
+        }
+        if (address == 0x80303A50u) {
+            assert(cpu->gpr[3] == 0x80002200u && cpu->srr0 == 0xDEADBEEFu && cpu->srr1 == 0xA5A5A5A5u);
+            const u32 context = cpu->gpr[3];
+            ppc_mtspr(cpu, 26u, mem_read32(cpu, context + 408u), address);
+            ppc_mtspr(cpu, 27u, mem_read32(cpu, context + 412u), address);
+            cpu->gpr[4] = mem_read32(cpu, context + 16u);
+            cpu->gpr[3] = mem_read32(cpu, context + 12u);
+            ppc_rfi(cpu, address);
+            cpu->downcount -= 5;
+            return 1;
+        }
+        assert(address == 0x80001004u && cpu->gpr[3] == 0x11223344u && cpu->gpr[4] == 0x55667788u);
+        assert(cpu->msr == (PPC_MSR_FP | PPC_MSR_IR | PPC_MSR_DR) && cpu->exception == 0u);
+    } else if (cpu_boundary != NULL) {
+        assert(strcmp(cpu_boundary, "restore") == 0);
         if (address == 0x80001000u) {
             cpu->gpr[11] = 0x80002080u;
             cpu->lr = address + 4u;
@@ -225,7 +253,7 @@ static int dispatch(CPUState* cpu, u32 address) {
 
 const StaticRecompModuleDesc* staticrecomp_get_module(void) {
     static const StaticRecompRange ranges[] = {{0x80001000u, 0x80001008u}, {0x803077D0u, 0x803077ECu},
-        {0x500u, 0x904u}, {0x80328F84u, 0x80328F9Cu}};
+        {0x500u, 0x904u}, {0x80328F84u, 0x80328F9Cu}, {0x80303A50u, 0x80303B28u}};
     static StaticRecompModuleDesc module = {
         .abi_version = STATICRECOMP_ABI_VERSION, .cpu_abi_version = GXRUNTIME_CPU_ABI_VERSION,
         .cpu_state_size = sizeof(CPUState), .game_id = "GZLE01", .entry_point = 0x80001000u,
@@ -233,8 +261,8 @@ const StaticRecompModuleDesc* staticrecomp_get_module(void) {
     const char* interrupt = getenv("WW05_IO_IRQ");
     module.num_code_ranges = interrupt != NULL &&
         (strcmp(interrupt, "vector") == 0 || strcmp(interrupt, "fp-vector") == 0) ? 2u : 3u;
-    if (getenv("WW05_IO_EPILOGUE") != NULL)
-        module.num_code_ranges = 4u;
+    if (getenv("WW05_IO_CPU_BOUNDARY") != NULL)
+        module.num_code_ranges = 5u;
     return &module;
 }
 

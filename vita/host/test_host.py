@@ -70,6 +70,12 @@ class StartupHostTest(unittest.TestCase):
     def test_unowned_register_restore_edge_is_still_refused(self):
         subprocess.run([str(OUT / 'host_probe'), 'epilogue-edge-unowned'], check=True)
 
+    def test_module_owned_context_load_edge_preserves_cpu_state_until_the_guest_dispatches(self):
+        subprocess.run([str(OUT / 'host_probe'), 'epilogue-edge-context'], check=True)
+
+    def test_unowned_context_load_edge_is_still_refused(self):
+        subprocess.run([str(OUT / 'host_probe'), 'epilogue-edge-context-unowned'], check=True)
+
     def test_unimplemented_desktop_service_edges_are_still_refused(self):
         subprocess.run([str(OUT / 'host_probe'), 'epilogue-edge-service'], check=True)
 

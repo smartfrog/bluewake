@@ -569,8 +569,9 @@ bool ww_host_edge(void* user, CPUState* cpu, u32 address) {
             return true;
         }
     }
-    const bool compiled_register_restore = address == 0x80328F84u && module_contains_address(host->module, address);
-    if (bluewake_edge_maybe_intercept(address) && !compiled_register_restore) {
+    const bool compiled_cpu_boundary = (address == 0x80328F84u || address == 0x80303A50u) &&
+                                       module_contains_address(host->module, address);
+    if (bluewake_edge_maybe_intercept(address) && !compiled_cpu_boundary) {
         ww_host_fail(host, "desktop interception unsupported; guest not skipped", address, cpu->pc);
         host->edge_stopped = true;
         return true;

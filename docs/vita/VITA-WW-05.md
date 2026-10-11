@@ -237,7 +237,7 @@ a lingering process. Its short red/green loops are in `logs/private-{launch,gues
 The parent-symlink loop reproduced creation outside an owned fake profile, then prevented it with the
 existing no-follow directory-descriptor pattern. No real/shared profile was involved.
 
-The WW05 host suite currently has **279 tests**. Source-bound logs retain exact counts/commands for these,
+The WW05 host suite currently has **282 tests**. Source-bound logs retain exact counts/commands for these,
 native runtime CTest, 71 native FP cases and the eight direct baseline files. Audit, attribution,
 pin/scope/diff and clean-worktree checks accompany delivery. The pre-launch `1ba507c` checkpoint passed
 35 WW05 tests, 177 unchanged tests, 53 direct baseline tests, 71 native FP cases and 3/1/5 runtime/corpus/
@@ -1496,3 +1496,46 @@ The real epilogue continuation still requires a clean Vita build/trial. No GX ac
 rendering, FPS, runtime REL event, physical Vita or Windows CI is claimed. No disc image
 has been opened by the guest; the existing DVD seam and mandatory rebase remain deferred
 until the first actual disc-service access.
+
+## Real compiled epilogue continuation reaches OSLoadContext
+
+Run `3e3aa3e2c8db4bada470660f5ad05c98`, source `3cefb0b4fbfa234966b251d63b641dd87d377649`,
+passes the previously refused register-restore boundary and continues through genuine startup
+execution to **62,603 edges, 7,119,775 cycles**. The next STOP is
+`desktop interception unsupported; guest not skipped address=80303A50 pc=80303A50`.
+R3=`803A2960`, LR=`80307FB4`, MSR=`00000032`: the SDK has arrived at **OSLoadContext**
+with an actual RAM context. The validated closed report remains **FAIL**, zero FIFO bytes,
+`GX_FRONTIER complete=0`, `live=0`, `rendered=0`. Both owned phases timeout at 600 s,
+TERM/exit -15, `waited=true`; process **124/INCOMPLETE** is distinct from that guest verdict.
+Build status zero, 124.741 s; static archive unchanged:
+`9d1c59238cea4b83798f1c16b0549950d41ec0011a89e95591d5a307718aea08`.
+Exact-source **279 host tests, 177 ARMv7 tests**, audit, attribution and native runtime CTest
+**3/3** pass on Linux AArch64. VPK SHA-256:
+`8c386a650af462fbdd7c11dc893365f6e92bf1a2cbef413fd289f3c8a9bd4d2a`;
+report: `bc3e65dafa7c5b7d53e05afc853122262995b5a485ae4c0114a026ccd31e5174`;
+result: `4840378b6dba6aa85343f19d7fe9ee9e0d9729fed1ffe14a42066d3e337d4c03`;
+log: `96b7037dd5a17038f1043822e4480e296e7ae7f228770ac476ba16325738d221`;
+closed LER journal: `169da8b7a0e0d3067e984a0701130bdf9916ce1c09ccf887d9004ec9f413b079`.
+
+The unchanged generated `80303A50..80303B24` body performs the SDK's real context loads,
+LMW, GQR/CR/LR/CTR/XER restoration, MSR update, SRR0/SRR1 loads and **RFI**. The shared
+`edge_intercepts.h:50-55` makes its entry a desktop host boundary, but its CPU instructions
+are already in the module and supported by the pin. WW05 extends the existing narrow
+module-owned CPU-boundary allowance to exactly this entry. It does **not** import desktop
+context synthesis, skip the routine, force a return, manufacture context data, change FP
+semantics or enable an unobserved device. Before dispatch the host leaves PC, saved SRRs,
+MSR, GPRs, GQRs and numeric state alone. The already compiled guest routine is responsible
+for every context change; any unsupported instruction reached later still fails explicitly.
+Unowned context entries and all remaining service keys are still refused. Interrupt/device
+priority, clock/cycle accounting, static archive, composite digest, pins and ABI are unchanged.
+
+`logs/context-load-edge-red.log` reproduces the missing boundary permission.
+`logs/context-load-edge-green.log` passes **282 host tests**, including unchanged CPU state
+at the permitted edge, unowned-entry refusal and a game-free module/main-loop fixture that
+loads saved SRRs/registers from RAM and uses the pinned real RFI after entering its dispatcher.
+Its saved-state sentinels detect eager context synthesis; its authored 19-cycle fixture is
+not proof that the complete SDK routine has run. The register-restore fixture remains green.
+**177 ARMv7 tests**, audit, attribution and native runtime CTest **3/3** pass on Linux AArch64.
+Real OSLoadContext continuation still requires the next clean Vita build/trial. No physical
+Vita, Windows CI, GX acceptance, rendering, FPS or runtime REL lifecycle is claimed; guest
+disc/FST access still requires the existing DVD integration and mandatory rebase first.
