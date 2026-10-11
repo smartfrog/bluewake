@@ -172,6 +172,9 @@ inline void push_common_state(std::vector<std::uint8_t>& fifo) {
   push_cp(fifo, DOL_GX_CP_REG_VAT_GRP0, vat0);
   push_cp(fifo, DOL_GX_CP_REG_VAT_GRP1, 0u);
   push_cp(fifo, DOL_GX_CP_REG_VAT_GRP2, 0u);
+  // cmode0 as GXInit leaves it: colour and alpha updates on, blending off.
+  // A fixture that blends overwrites this with its own cmode0 afterwards.
+  push_bp(fifo, 0x41u, (1u << 3u) | (1u << 4u));
 
   const std::vector<std::uint32_t> identity = {
       0x3F800000u, 0u, 0u, 0u, 0u, 0x3F800000u,
