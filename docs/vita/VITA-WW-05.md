@@ -67,7 +67,10 @@ only the AID/ARAM/DSP interrupt masks. Acknowledgements cannot create pending in
 initial halt/init bits follow the pristine donor's `HW/DSP.cpp`, `HW/DSP.h` and
 `HW/DSPHLE/DSPHLE.cpp`; they are not a task-completion token. Clearing halt/init, requesting reset
 or another control operation fails explicitly because no DSP backend is installed. No mailbox,
-microcode, audio, ARAM DMA or fabricated DSP response is implemented.
+microcode, audio, ARAM DMA or fabricated DSP response is implemented. ARAM configuration
+halfwords are implemented separately: AR_INFO (`CC005012`, mask `007F`, reset zero),
+read-only AR_MODE (`CC005016`, reset one), and AR_REFRESH (`CC00501A`, mask `07FF`, reset 156).
+The refresh image is a register value, not a new emulated clock frequency.
 AI control at `CC006C00` reuses the pinned C audio-DMA register model with its initial `42` clock
 state. Only stopped-clock masks, acknowledgement and sample-counter reset are accepted; start,
 frequency changes, reserved bits, other registers and incorrect access widths fail explicitly.
@@ -230,7 +233,7 @@ a lingering process. Its short red/green loops are in `logs/private-{launch,gues
 The parent-symlink loop reproduced creation outside an owned fake profile, then prevented it with the
 existing no-follow directory-descriptor pattern. No real/shared profile was involved.
 
-The WW05 host suite currently has **137 tests**. Source-bound logs retain exact counts/commands for these,
+The WW05 host suite currently has **142 tests**. Source-bound logs retain exact counts/commands for these,
 native runtime CTest, 71 native FP cases and the eight direct baseline files. Audit, attribution,
 pin/scope/diff and clean-worktree checks accompany delivery. The pre-launch `1ba507c` checkpoint passed
 35 WW05 tests, 177 unchanged tests, 53 direct baseline tests, 71 native FP cases and 3/1/5 runtime/corpus/
@@ -814,3 +817,15 @@ Local pinned `DSPHLE/UCodes/INIT.cpp:19-22` supplies `80544348`, and `ROM.cpp:31
 `8071FEED`. Neither response has been implemented merely to satisfy a waiting guest. The
 next implementation begins with the observed AR_INFO configuration register, real DMA and
 explicit support boundaries; undocumented behavior or unknown ucode remains a refusal.
+
+The first DSP-interface increment only implements the three configuration halfwords above in
+`vita/host/dsp_interface.c`, leaving all transfer/control/mailbox behavior unchanged. Source:
+RecompCore `ddd031b2a7f45fcbda37a49daac9b308b8d95da1`, `Source/Core/Core/HW/DSP.cpp:147-149,
+167-168,181-210`. Unsupported widths and writes to AR_MODE fail without changing the register.
+Unknown MMIO writes now retain width/value as well as address/PC in the existing strict STOP
+format. `logs/aram-config-red.log` records five assertion failures before implementation;
+`logs/aram-config-green.log` records 142 passing host tests on Linux AArch64. The audit and
+branch attribution checks pass. No DMA or ucode response is claimed from these synthetic tests.
+The unchanged ARMv7 suite passes 177 tests in `logs/aram-config-armv7-corrected.log`;
+the earlier `logs/aram-config-armv7.log` used the scripts directory and discovered zero tests,
+so it is retained as a failed command, not credited as validation.

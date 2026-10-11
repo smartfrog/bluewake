@@ -13,7 +13,7 @@ set(BUILD_TESTING ${WW05_TESTS_ONLY} CACHE BOOL "" FORCE)
 add_subdirectory("${GXRUNTIME_DIR}" runtime)
 target_compile_options(gxruntime PRIVATE -ffp-contract=off -fno-fast-math -fstack-usage)
 
-add_library(ww05_services STATIC boot_host.c gx_checkpoint.c code_guard.c
+add_library(ww05_services STATIC boot_host.c gx_checkpoint.c code_guard.c dsp_interface.c
     "${BLUEWAKE_ROOT}/runtime/host/src/cycle_domain.c"
     "${BLUEWAKE_ROOT}/runtime/host/src/external_memory.c"
     "${BLUEWAKE_ROOT}/runtime/host/src/ipl_sram.c"

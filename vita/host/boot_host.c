@@ -274,6 +274,10 @@ static u64 mmio_read(CPUState* cpu, u32 address, u8 size) {
         dol_guest_memory_read(&host->memory, address, size, &value))
         return value;
     observe(cpu);
+    if (ww_dsp_interface_read(&host->dsp, address, size, &value)) {
+        refresh(host);
+        return value;
+    }
     if (address == 0xCC00401Cu && size == 2u)
         value = host->mi_interrupt_mask;
     else if (address == 0xCC00500Au && size == 2u)
@@ -307,6 +311,10 @@ static void mmio_write(CPUState* cpu, u32 address, u64 value, u8 size) {
         dol_guest_memory_write(&host->memory, address, size, value))
         return;
     observe(cpu);
+    if (ww_dsp_interface_write(&host->dsp, address, size, value)) {
+        refresh(host);
+        return;
+    }
     if (address == 0xCC00401Cu && size == 2u) {
         if (value & ~0x1Full) {
             ww_host_fail(host, "unsupported MI interrupt mask bits", address, cpu->pc);
@@ -344,6 +352,10 @@ static void mmio_write(CPUState* cpu, u32 address, u64 value, u8 size) {
             write_be32(control, read_be32(control) | 0x20000000u);
         }
     } else {
+        if (host->error == NULL) {
+            host->error_width = size;
+            host->error_value = value;
+        }
         ww_host_fail(host, "unsupported MMIO write", address, cpu->pc);
         return;
     }
@@ -477,6 +489,7 @@ bool ww_host_init(WwHost* host) {
     dol_exi_set_transfer_callback(&host->exi, exi_transfer, host);
     dol_si_init(&host->si);
     dol_audio_dma_init(&host->audio);
+    ww_dsp_interface_init(&host->dsp);
     DolGuestAddressResolver resolver;
     dol_guest_address_resolver_init(&resolver, &host->memory, &host->cpu);
     dol_gx_recomp_init(&host->gx, &resolver);

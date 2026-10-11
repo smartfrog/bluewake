@@ -47,6 +47,21 @@ class StartupHostTest(unittest.TestCase):
     def test_timebase_uses_shared_cycle_domain(self):
         subprocess.run([str(OUT / 'host_probe'), 'clock'], check=True)
 
+    def test_aram_configuration_registers_follow_the_pinned_reset_image(self):
+        subprocess.run([str(OUT / 'host_probe'), 'aram-config-defaults'], check=True)
+
+    def test_aram_info_masks_reserved_bits_without_changing_dsp_control(self):
+        subprocess.run([str(OUT / 'host_probe'), 'aram-info-mask'], check=True)
+
+    def test_aram_refresh_retains_only_the_pinned_register_mask(self):
+        subprocess.run([str(OUT / 'host_probe'), 'aram-refresh-mask'], check=True)
+
+    def test_aram_mode_is_read_only(self):
+        subprocess.run([str(OUT / 'host_probe'), 'aram-mode-read-only'], check=True)
+
+    def test_unsupported_aram_configuration_width_preserves_state_and_error_context(self):
+        subprocess.run([str(OUT / 'host_probe'), 'aram-config-width'], check=True)
+
     def test_decrementer_starts_at_the_reference_reset_value_and_counts(self):
         subprocess.run([str(OUT / 'host_probe'), 'dec-reset'], check=True)
 

@@ -298,6 +298,29 @@ int main(int argc, char** argv) {
         assert(host->cpu.exception & PPC_EXC_PROGRAM);
         host->cpu.msr &= ~PPC_MSR_PR;
         assert(ppc_mfspr(&host->cpu, 1017u, 0x803014ECu) == 0u);
+    } else if (strcmp(argv[1], "aram-config-defaults") == 0) {
+        assert(host->cpu.external_read(&host->cpu, 0xCC005012u, 2u) == 0u);
+        assert(host->cpu.external_read(&host->cpu, 0xCC005016u, 2u) == 1u);
+        assert(host->cpu.external_read(&host->cpu, 0xCC00501Au, 2u) == 156u);
+        assert(host->error == NULL);
+    } else if (strcmp(argv[1], "aram-info-mask") == 0) {
+        host->cpu.external_write(&host->cpu, 0xCC005012u, UINT16_MAX, 2u);
+        assert(host->cpu.external_read(&host->cpu, 0xCC005012u, 2u) == 0x007Fu);
+        assert(host->cpu.external_read(&host->cpu, 0xCC00500Au, 2u) == 0x0804u);
+        assert(host->error == NULL);
+    } else if (strcmp(argv[1], "aram-refresh-mask") == 0) {
+        host->cpu.external_write(&host->cpu, 0xCC00501Au, UINT16_MAX, 2u);
+        assert(host->cpu.external_read(&host->cpu, 0xCC00501Au, 2u) == 0x07FFu);
+        assert(host->error == NULL);
+    } else if (strcmp(argv[1], "aram-mode-read-only") == 0) {
+        host->cpu.external_write(&host->cpu, 0xCC005016u, 0u, 2u);
+        assert(host->error != NULL && host->error_address == 0xCC005016u);
+        assert(host->cpu.external_read(&host->cpu, 0xCC005016u, 2u) == 1u);
+    } else if (strcmp(argv[1], "aram-config-width") == 0) {
+        host->cpu.external_write(&host->cpu, 0xCC005012u, 0x12345678u, 4u);
+        assert(host->error != NULL && host->error_address == 0xCC005012u);
+        assert(host->error_width == 4u && host->error_value == 0x12345678u);
+        assert(host->cpu.external_read(&host->cpu, 0xCC005012u, 2u) == 0u);
     } else if (strncmp(argv[1], "dec-", 4u) == 0) {
         probe_decrementer(host, argv[1]);
     } else if (strcmp(argv[1], "clock") == 0) {

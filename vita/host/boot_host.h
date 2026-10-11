@@ -7,6 +7,7 @@
 #include "code_guard.h"
 #include "cycle_domain.h"
 #include "ipl_sram.h"
+#include "dsp_interface.h"
 #include "gxruntime/di.h"
 #include "gxruntime/exi.h"
 #include "gxruntime/interrupts.h"
@@ -25,6 +26,7 @@ typedef struct WwHost {
     BluewakeIplSram sram;
     DolSiDevice si;
     DolAudioDma audio;
+    WwDspInterface dsp;
     const StaticRecompModuleDesc* module;
     u32 l2cr;
     WwCodeGuard code_guard;
