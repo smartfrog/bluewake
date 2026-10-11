@@ -413,6 +413,31 @@ inline bool known_scenario(const std::string& name) {
          name == "hud_quad" || name == "indirect_triangle";
 }
 
+// Builds the named scenario's FIFO stream; empty for an unknown name.
+inline std::vector<std::uint8_t> build_scenario(const std::string& name) {
+  if (name == "textured_triangle")
+    return build_textured_triangle();
+  if (name == "ci8_triangle")
+    return build_ci8_triangle();
+  if (name == "state_triangle")
+    return build_state_triangle();
+  if (name == "cel_triangle")
+    return build_cel_triangle();
+  if (name == "lines_pair")
+    return build_lines_pair();
+  if (name == "subtract_triangle")
+    return build_subtract_triangle();
+  if (name == "dstalpha_triangle")
+    return build_dstalpha_triangle();
+  if (name == "copy_triangle")
+    return build_copy_triangle();
+  if (name == "hud_quad")
+    return build_hud_quad();
+  if (name == "indirect_triangle")
+    return build_indirect_triangle();
+  return {};
+}
+
 // Replays the named scenario through the pinned frontend and GxCoreSink. The
 // observer receives every plan; `copy_observer` (optional) receives resolved
 // EFB copy commands; `counters` (optional) receives the sink's gap counters.
@@ -422,28 +447,8 @@ inline bool replay_scenario(const std::string& name, PlanObserver observer,
                             gxc::GxCoreSink::CopyObserver copy_observer = nullptr,
                             void* copy_user = nullptr,
                             gxc::GapCounters* counters = nullptr) {
-  std::vector<std::uint8_t> fifo;
-  if (name == "textured_triangle")
-    fifo = build_textured_triangle();
-  else if (name == "ci8_triangle")
-    fifo = build_ci8_triangle();
-  else if (name == "state_triangle")
-    fifo = build_state_triangle();
-  else if (name == "cel_triangle")
-    fifo = build_cel_triangle();
-  else if (name == "lines_pair")
-    fifo = build_lines_pair();
-  else if (name == "subtract_triangle")
-    fifo = build_subtract_triangle();
-  else if (name == "dstalpha_triangle")
-    fifo = build_dstalpha_triangle();
-  else if (name == "copy_triangle")
-    fifo = build_copy_triangle();
-  else if (name == "hud_quad")
-    fifo = build_hud_quad();
-  else if (name == "indirect_triangle")
-    fifo = build_indirect_triangle();
-  else
+  std::vector<std::uint8_t> fifo = build_scenario(name);
+  if (fifo.empty())
     return false;
 
   FixtureContext ctx;
