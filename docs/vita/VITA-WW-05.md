@@ -1687,3 +1687,48 @@ claimed here. No physical Vita or Windows CI result is claimed.
 `BlueWakeRelData` is unchanged. Compile-time checks against `module_exports.h` pass with
 the native AArch64 and ARMv7 Vita compilers: `bytes` offset 16, natural pointer alignment,
 stride `16 + sizeof(pointer)`. Evidence: `logs/independent-review-rel-alignment.log`.
+
+## Real absent-HSP read continuation and observed 32-byte write
+
+Run `17f352955873432b9edc9af63eb566e9` is bound to clean source
+`4755b6d5127204cd07f0949617787b186adb0c4c`. Its real guest logs show the accepted read at
+`803176AC`, transfer **3**, main=`8040CD20`, ARAM=`01000000`, **32 bytes**, direction 1,
+and completion at **7,124,177 credited cycles**. The next actual request is main physical
+**`0040CDE0`**, ARAM=`01000000`, count **`00000020`** (write, 32 bytes), AR_INFO=`0063`,
+control=`0844`, PC **`80317758`**. It is still the SDK expansion probe, not an audio protocol.
+The closed report has **63,013 edges, 7,124,240 cycles**, `GX_FRONTIER complete=0`, zero
+FIFO bytes, `live=0`, `rendered=0`, and the explicit expansion/HSP STOP at that write.
+
+Guest **FAIL** is distinct from process **124/INCOMPLETE**: both owned emulator phases
+timeout after 600 seconds, exit -15 by TERM and have `waited=true`. Build status zero,
+124.815 s. Request/source/package bindings, closed report and LER journal were independently
+rechecked in `logs/absent-hsp-evidence-4755b6d.json`. SHA-256:
+
+- VPK: `895251ade3317f23b52c749445c322f5de7081b283e13b88b95b77405bc4cfe5`;
+- report: `88bdf5a96c2b974f9c1fd76e77621e198e692014d37380ee31a4ed2aedabd524`;
+- result: `d0ae5c2c655d553a85db5b900af7436954808e7c1c17012fce01e5d49492aa9f`;
+- log: `30d183944cb3103de84e24309871b849e46225c8f840cf1948a2e89e0ac9220d`;
+- LER: `169da8b7a0e0d3067e984a0701130bdf9916ce1c09ccf887d9004ec9f413b079`;
+- unchanged static archive: `9d1c59238cea4b83798f1c16b0549950d41ec0011a89e95591d5a307718aea08`.
+
+B1 commit `54e8d22` passes exact clean-SHA **288 host / 177 ARMv7** checks; B2 commit
+`e0200b0` passes **291 / 177**. Both also pass audit, attribution and native runtime CTest
+**3/3**. Their private checkpoint receipts retain the full SHA and commands.
+
+The next bounded increment accepts that observed **32-byte write** as well as the already
+verified read. The unchanged pin routes expansion writes through `HW/DSP.cpp:566-581`;
+the default absent device's `HW/HSP/HSP_DeviceNull.cpp:13-15` deliberately does nothing.
+The existing explicit shared absent-HSP helper already supports this direction and preserves
+both buffers. No new shared/desktop API, fake expansion memory, wrapping, zero fill, DSP
+mail or audio is added. Host selection remains restricted to ARAM=`01000000`, exactly
+32 bytes, AR_INFO=`0063`, HALT and complete real MEM1. Other addresses, lengths, layouts,
+running DSP and invalid ranges remain refused.
+
+`logs/absent-hsp-write-red.log` reproduces the refused write and incorrect continuation;
+`logs/absent-hsp-write-host-green.log` passes **295 host tests** on Linux AArch64. Halfword
+and word write triggers preserve nonzero source/ARAM sentinels, advance the real bookkeeping,
+stay busy for 246 credited cycles, and use existing completion/mask/acknowledgement. The
+checked record reports direction 0 and actual PC. A write-trace failure stops before an
+unrecorded transfer. Authentic continuation still needs the next clean build/trial.
+Physical Vita, Windows CI, rendering, FPS, runtime REL events and guest disc access remain
+unverified; DVD integration `35f7c8a` still precedes the first actual guest disc/file access.

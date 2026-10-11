@@ -139,6 +139,18 @@ class MainIoTest(unittest.TestCase):
         self.assertIn('STOP reason=ARAM absent HSP trace write failed', report)
         self.assertTrue(report.endswith('END frontier=FAIL live=0 rendered=0\n'))
 
+    def test_absent_hsp_write_continues_through_the_main_loop_only_after_credited_completion(self):
+        status, report = self.run_fixture(aram_dma='absent-hsp-write')
+        self.assertEqual(status, 0)
+        self.assertIn('cycles=258\n', report)
+        self.assertTrue(report.endswith('END frontier=PASS live=0 rendered=0\n'))
+
+    def test_absent_hsp_write_trace_failure_cannot_complete_an_unrecorded_transfer(self):
+        status, report = self.run_fixture(aram_dma='absent-hsp-write', failure='aram-absent-log')
+        self.assertNotEqual(status, 0)
+        self.assertIn('STOP reason=ARAM absent HSP trace write failed', report)
+        self.assertTrue(report.endswith('END frontier=FAIL live=0 rendered=0\n'))
+
     def test_mmio_quantum_returns_through_the_real_chassis_before_a_fresh_dispatch(self):
         status, report = self.run_fixture(mmio_poll=True)
         self.assertEqual(status, 0)

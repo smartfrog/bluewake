@@ -115,11 +115,11 @@ static bool aram_dma_write(WwDspInterface* dsp, CPUState* cpu, u32 address, u8 s
             if (fprintf(stderr, "[aram-expansion-request] main=%08X aram=%08X count=%08X ar_info=%04X control=%04X pc=%08X\n",
                         main_address, aram_address, count, dsp->ar_info, dsp->control, cpu->pc) < 0)
                 return reject(dsp, "ARAM expansion request trace write failed");
-            if (aram_address != ARAM_SIZE || count != 0x80000020u || dsp->ar_info != 0x63u ||
+            if (aram_address != ARAM_SIZE || (count != 0x80000020u && count != 32u) || dsp->ar_info != 0x63u ||
                 !(dsp->control & DSP_HALT))
                 return reject(dsp, "ARAM DMA expansion/HSP address not implemented");
-            if (fprintf(stderr, "[aram-hsp-absent] main=%08X aram=%08X bytes=32 direction=1 buffer=preserved pc=%08X\n",
-                        main_address, aram_address, cpu->pc) < 0)
+            if (fprintf(stderr, "[aram-hsp-absent] main=%08X aram=%08X bytes=32 direction=%u buffer=preserved pc=%08X\n",
+                        main_address, aram_address, count >> 31u, cpu->pc) < 0)
                 return reject(dsp, "ARAM absent HSP trace write failed");
             absent_hsp = true;
         }

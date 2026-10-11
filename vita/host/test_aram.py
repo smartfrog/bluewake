@@ -39,8 +39,18 @@ class AramDmaTest(unittest.TestCase):
     def test_observed_absent_hsp_read_preserves_buffers_and_uses_normal_busy_completion_and_acknowledgement(self):
         subprocess.run([str(test_host.OUT / 'aram_probe'), 'absent-hsp-read'], check=True)
 
+    def test_observed_absent_hsp_write_preserves_source_and_aram_with_normal_dma_bookkeeping(self):
+        for access in ('write', 'write-word'):
+            with self.subTest(access=access):
+                subprocess.run([str(test_host.OUT / 'aram_probe'), 'absent-hsp-' + access], check=True)
+
+    def test_absent_hsp_write_record_identifies_the_actual_direction_and_guest_pc(self):
+        result = subprocess.run([str(test_host.OUT / 'aram_probe'), 'absent-hsp-write'], check=True,
+                                capture_output=True, text=True)
+        self.assertIn('[aram-hsp-absent] main=0040CDE0 aram=01000000 bytes=32 direction=0 buffer=preserved pc=80317758', result.stderr)
+
     def test_unobserved_expansion_shapes_still_fail_before_changing_memory(self):
-        for shape in ('write', 'long', 'address', 'main'):
+        for shape in ('long', 'long-write', 'address', 'main'):
             with self.subTest(shape=shape):
                 subprocess.run([str(test_host.OUT / 'aram_probe'), f'absent-hsp-{shape}'], check=True)
 

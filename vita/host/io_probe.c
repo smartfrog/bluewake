@@ -117,12 +117,13 @@ static int dispatch(CPUState* cpu, u32 address) {
     if (getenv("WW05_IO_ARAM_DMA") != NULL && !polled) {
         polled = true;
         const char* mode = getenv("WW05_IO_ARAM_DMA");
-        const bool absent_hsp = strcmp(mode, "absent-hsp") == 0;
+        const bool absent_write = strcmp(mode, "absent-hsp-write") == 0;
+        const bool absent_hsp = absent_write || strcmp(mode, "absent-hsp") == 0;
         cpu->external_write(cpu, 0xCC005012u, absent_hsp ? 0x63u : 0x43u, 2u);
         cpu->external_write(cpu, 0xCC005020u, 0x1000u, 4u);
         cpu->external_write(cpu, 0xCC005024u,
                             absent_hsp || strcmp(mode, "hsp") == 0 ? 0x01000000u : 0u, 4u);
-        cpu->external_write(cpu, 0xCC005028u, absent_hsp ? 0x80000020u : 32u, 4u);
+        cpu->external_write(cpu, 0xCC005028u, absent_hsp && !absent_write ? 0x80000020u : 32u, 4u);
         if (cpu->exception != 0u)
             return 1;
         u32 reads = 0u;

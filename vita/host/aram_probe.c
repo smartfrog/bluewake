@@ -57,32 +57,39 @@ int main(int argc, char** argv) {
             aram[0x400u + index] = (u8)(255u - index);
         }
         if (strncmp(argv[1], "absent-hsp-", 11u) == 0) {
-            const bool valid = strcmp(argv[1], "absent-hsp-read") == 0;
-            const bool write = strcmp(argv[1], "absent-hsp-write") == 0;
-            const bool long_read = strcmp(argv[1], "absent-hsp-long") == 0;
+            const bool word = strcmp(argv[1], "absent-hsp-write-word") == 0;
+            const bool long_write = strcmp(argv[1], "absent-hsp-long-write") == 0;
+            const bool write = strcmp(argv[1], "absent-hsp-write") == 0 || word || long_write;
+            const bool valid = strcmp(argv[1], "absent-hsp-read") == 0 || (write && !long_write);
+            const bool long_read = strcmp(argv[1], "absent-hsp-long") == 0 || long_write;
             const bool other_address = strcmp(argv[1], "absent-hsp-address") == 0;
             const bool main_outside = strcmp(argv[1], "absent-hsp-main") == 0;
-            assert(valid || write || long_read || other_address || main_outside);
-            host->cpu.pc = 0x803176ACu;
-            memset(host->cpu.ram + 0x0040CD00u, 0xA5u, 128u);
+            assert(valid || long_read || other_address || main_outside);
+            host->cpu.pc = write ? 0x80317758u : 0x803176ACu;
+            const u32 main = write ? 0x0040CDE0u : 0x0040CD20u;
+            memset(host->cpu.ram + 0x0040CD00u, 0xA5u, 256u);
             memset(aram, 0xB6u, 64u);
             write_register(host, WW_DSP_AR_INFO, 0x63u, 2u);
             write_register(host, DOL_PI_INTERRUPT_MASK, DOL_PI_CAUSE_DSP, 4u);
             write_register(host, WW_DSP_CONTROL, 0x0844u, 2u);
-            write_register(host, 0xCC005020u, main_outside ? 0x01800000u : 0x0040CD20u, 4u);
+            write_register(host, 0xCC005020u, main_outside ? 0x01800000u : main, 4u);
             write_register(host, 0xCC005024u, other_address ? 0x01100000u : 0x01000000u, 4u);
-            write_register(host, 0xCC005028u, write ? 0u : 0x8000u, 2u);
-            write_register(host, 0xCC00502Au, long_read ? 64u : 32u, 2u);
+            if (word) {
+                write_register(host, 0xCC005028u, 32u, 4u);
+            } else {
+                write_register(host, 0xCC005028u, write ? 0u : 0x8000u, 2u);
+                write_register(host, 0xCC00502Au, long_read ? 64u : 32u, 2u);
+            }
             assert((host->error == NULL) == valid);
-            for (u32 index = 0u; index < 128u; ++index)
+            for (u32 index = 0u; index < 256u; ++index)
                 assert(host->cpu.ram[0x0040CD00u + index] == 0xA5u);
             for (u32 index = 0u; index < 64u; ++index)
                 assert(aram[index] == 0xB6u);
             if (valid) {
                 assert(host->dsp.aram.transfer_count == 1u && host->cycles.absolute_cycles == 0u);
-                assert(read_register(host, 0xCC005020u, 4u) == 0x0040CD40u);
+                assert(read_register(host, 0xCC005020u, 4u) == main + 32u);
                 assert(read_register(host, 0xCC005024u, 4u) == 0x01000020u);
-                assert(read_register(host, 0xCC005028u, 4u) == 0x80000000u);
+                assert(read_register(host, 0xCC005028u, 4u) == (write ? 0u : 0x80000000u));
                 assert(read_register(host, WW_DSP_CONTROL, 2u) == 0x0A44u);
                 charge_cycles(host, 245u);
                 assert(!dol_interrupts_external_pending(&host->interrupts));
@@ -93,7 +100,7 @@ int main(int argc, char** argv) {
                 assert(!dol_interrupts_external_pending(&host->interrupts));
                 assert(host->dsp.dsp_mailbox == 0u && read_be32(host->audio.ai_regs) == DOL_AUDIO_DMA_AI_CONTROL_INIT);
             } else {
-                assert(host->error_pc == 0x803176ACu && host->error_address == 0xCC00502Au);
+                assert(host->error_pc == host->cpu.pc && host->error_address == 0xCC00502Au);
                 assert(host->dsp.aram.transfer_count == 0u && host->dsp.aram_cycles_remaining == 0u);
             }
         } else if (strcmp(argv[1], "to-aram") == 0) {
