@@ -33,6 +33,7 @@
 namespace {
 
 struct DrawRecord {
+  gx_vita::Geometry geometry;
   std::uint32_t vertex_count = 0;
   std::size_t index_count = 0;
   std::uint16_t topology = 0;
@@ -76,6 +77,7 @@ public:
     if (draw_error != nullptr)
       return draw_error;
     DrawRecord record;
+    record.geometry = draw.geometry;
     record.vertex_count = draw.geometry.vertex_count;
     record.index_count = draw.geometry.indices.size();
     record.topology = draw.pipeline.topology;
@@ -164,9 +166,164 @@ std::vector<std::uint8_t> frame_with_display_copy() {
   return fifo;
 }
 
+float vertex_float(const DrawRecord& draw, std::uint32_t vertex,
+                   std::uint32_t offset) {
+  float value;
+  std::memcpy(&value, draw.geometry.vertices.data() +
+                         vertex * gx_fixture::gxc::kVertexStrideBytes + offset,
+              sizeof value);
+  return value;
+}
+
+int primitive_coverage() {
+  struct Case {
+    std::uint8_t opcode;
+    std::uint16_t count;
+    std::uint16_t topology;
+    std::vector<std::uint16_t> indices;
+  };
+  const Case cases[] = {
+      {0x80, 4, gx_vita::kGlTriangles, {0, 1, 2, 2, 3, 0}},
+      {0x90, 3, gx_vita::kGlTriangles, {0, 1, 2}},
+      {0x98, 5, gx_vita::kGlTriangles, {0, 1, 2, 2, 1, 3, 2, 3, 4}},
+      {0xA0, 5, gx_vita::kGlTriangles, {0, 1, 2, 0, 2, 3, 0, 3, 4}},
+      {0xA8, 4, gx_vita::kGlLines, {0, 1, 2, 3}},
+      {0xB0, 4, gx_vita::kGlLines, {0, 1, 1, 2, 2, 3}},
+      {0xB8, 2, gx_vita::kGlPoints, {0, 1}},
+  };
+  for (const Case& test : cases) {
+    for (std::uint8_t vat = 0; vat < 8; ++vat) {
+      Fixture fixture;
+      RecordingBackend backend;
+      WwRenderer* renderer = nullptr;
+      WwRendererConfig config = fixture.config();
+      CHECK(ww_renderer_create(&renderer, &config, &backend) == nullptr);
+      std::vector<std::uint8_t> fifo;
+      gx_fixture::push_common_state(fifo);
+      gx_fixture::push_cp(fifo, 0x60, 0);
+      gx_fixture::push_cp(fifo, 0x70 + vat, 1u | (4u << 1));
+      gx_fixture::push_cp(fifo, 0x80 + vat, 0);
+      gx_fixture::push_cp(fifo, 0x90 + vat, 0);
+      std::vector<float> vertices;
+      for (std::uint16_t v = 0; v < test.count; ++v)
+        vertices.insert(vertices.end(), {float(v), float(v + 1), -float(v)});
+      gx_fixture::push_draw(fifo, test.opcode | vat, test.count, vertices);
+      for (std::uint8_t byte : fifo)
+        CHECK(ww_renderer_write(renderer, &byte, 1) == nullptr);
+      CHECK(backend.draws.size() == 1);
+      const DrawRecord& draw = backend.draws[0];
+      CHECK(draw.geometry.indices == test.indices);
+      CHECK(draw.topology == test.topology);
+      CHECK(draw.vertex_count == test.count);
+      CHECK(vertex_float(draw, test.count - 1, 0) == float(test.count - 1));
+      WwRendererStats stats{};
+      ww_renderer_stats(renderer, &stats);
+      CHECK(stats.plans_skipped == 0 && stats.programs_refused == 0);
+      ww_renderer_destroy(renderer);
+    }
+  }
+  std::printf("renderer primitive coverage ok: 7 families x 8 VAT, byte-split\n");
+  return 0;
+}
+
+int indexed_vertex_coverage() {
+  for (std::uint8_t index_type : {2, 3}) {
+    Fixture fixture;
+    RecordingBackend backend;
+    WwRenderer* renderer = nullptr;
+    WwRendererConfig config = fixture.config();
+    CHECK(ww_renderer_create(&renderer, &config, &backend) == nullptr);
+    std::vector<std::uint8_t> array;
+    for (float value : {2.f, 3.f, 4.f, 5.f, 6.f, 7.f, 8.f, 9.f, 10.f})
+      gx_fixture::push_f32(array, value);
+    std::memcpy(fixture.memory.mem1.data() + 0x2000, array.data(), array.size());
+    std::vector<std::uint8_t> fifo;
+    gx_fixture::push_common_state(fifo);
+    gx_fixture::push_cp(fifo, 0x50, index_type << 9);
+    gx_fixture::push_cp(fifo, 0x60, 0);
+    gx_fixture::push_cp(fifo, 0xA0, 0x2000);
+    gx_fixture::push_cp(fifo, 0xB0, 12);
+    gx_fixture::push_u8(fifo, 0x90);
+    gx_fixture::push_u16(fifo, 3);
+    for (std::uint16_t index : {2, 0, 1}) {
+      if (index_type == 2)
+        gx_fixture::push_u8(fifo, index);
+      else
+        gx_fixture::push_u16(fifo, index);
+    }
+    const char* error = ww_renderer_write(renderer, fifo.data(), fifo.size());
+    if (error != nullptr)
+      std::fprintf(stderr, "indexed position: %s\n", error);
+    CHECK(error == nullptr);
+    CHECK(backend.draws.size() == 1);
+    CHECK(vertex_float(backend.draws[0], 0, 0) == 8.f);
+    CHECK(vertex_float(backend.draws[0], 1, 4) == 3.f);
+    CHECK(vertex_float(backend.draws[0], 2, 8) == 7.f);
+    ww_renderer_destroy(renderer);
+  }
+  std::printf("renderer indexed position supply ok: index8/index16\n");
+  return 0;
+}
+
+int indexed_xf_coverage() {
+  for (std::uint8_t opcode : {0x20, 0x28, 0x30, 0x38}) {
+    Fixture fixture;
+    RecordingBackend backend;
+    WwRenderer* renderer = nullptr;
+    WwRendererConfig config = fixture.config();
+    CHECK(ww_renderer_create(&renderer, &config, &backend) == nullptr);
+    std::vector<std::uint8_t> matrix;
+    for (float value : {1.f, 0.f, 0.f, 4.f, 0.f, 1.f, 0.f, 5.f,
+                        0.f, 0.f, 1.f, 6.f})
+      gx_fixture::push_f32(matrix, value);
+    std::memcpy(fixture.memory.mem1.data() + 0x2000, matrix.data(), matrix.size());
+    std::vector<std::uint8_t> fifo;
+    gx_fixture::push_common_state(fifo);
+    const std::uint8_t array = 12 + (opcode - 0x20) / 8;
+    gx_fixture::push_cp(fifo, 0xA0 + array, 0x2000);
+    gx_fixture::push_cp(fifo, 0xB0 + array, 48);
+    gx_fixture::push_u8(fifo, opcode);
+    gx_fixture::push_u32(fifo, 11u << 12);
+    gx_fixture::push_triangle(fifo);
+    CHECK(ww_renderer_write(renderer, fifo.data(), fifo.size()) == nullptr);
+    CHECK(backend.draws.size() == 1);
+    CHECK(backend.draws[0].position_matrix[3] == 4.f);
+    CHECK(backend.draws[0].position_matrix[7] == 5.f);
+    CHECK(backend.draws[0].position_matrix[11] == 6.f);
+    ww_renderer_destroy(renderer);
+  }
+  std::printf("renderer indexed XF supply ok: all four arrays\n");
+  return 0;
+}
+
+int display_list_coverage() {
+  Fixture fixture;
+  RecordingBackend backend;
+  WwRenderer* renderer = nullptr;
+  WwRendererConfig config = fixture.config();
+  CHECK(ww_renderer_create(&renderer, &config, &backend) == nullptr);
+  auto list = gx_fixture::build_hud_quad();
+  list.resize((list.size() + 31u) & ~31u, 0);
+  std::memcpy(fixture.memory.mem1.data() + 0x2000, list.data(), list.size());
+  std::vector<std::uint8_t> fifo = {0, 0x48, 0x40};
+  gx_fixture::push_u32(fifo, 0x80002000);
+  gx_fixture::push_u32(fifo, list.size());
+  CHECK(ww_renderer_write(renderer, fifo.data(), fifo.size()) == nullptr);
+  CHECK(backend.draws.size() == 1);
+  CHECK(backend.draws[0].geometry.indices ==
+        std::vector<std::uint16_t>({0, 1, 2, 2, 3, 0}));
+  ww_renderer_destroy(renderer);
+  std::printf("renderer display list with padding/invalidate ok\n");
+  return 0;
+}
+
 } // namespace
 
 int main() {
+  CHECK(primitive_coverage() == 0);
+  CHECK(indexed_vertex_coverage() == 0);
+  CHECK(indexed_xf_coverage() == 0);
+  CHECK(display_list_coverage() == 0);
   {
     // Create refuses a missing memory view and a missing backend loudly.
     WwRenderer* renderer = nullptr;
