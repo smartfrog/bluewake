@@ -148,10 +148,12 @@ else()
         target_link_directories(ww05_host PRIVATE "${WW05_RENDERER_SDK}/lib")
     endif()
     target_link_libraries(ww05_host PRIVATE gGZLE01_recomp ww05_services
+        SceLibKernel_stub SceIofilemgr_stub SceProcessmgr_stub SceSysmem_stub)
+    target_link_libraries(ww_renderer PUBLIC
         "${WW05_VITAGL_LIBRARY}" vitashark SceShaccCgExt SceShaccCg_stub_weak SceGxm_stub_weak
         SceDisplay_stub_weak SceSysmodule_stub_weak SceCommonDialog_stub_weak SceAppMgr_stub_weak
         SceCtrl_stub_weak SceKernelDmacMgr_stub_weak taihen_stub_weak mathneon m
-        SceLibKernel_stub SceIofilemgr_stub SceProcessmgr_stub SceSysmem_stub)
+        SceLibKernel_stub SceIofilemgr_stub SceProcessmgr_stub)
     target_compile_options(ww05_host PRIVATE -O2 -ffp-contract=off -fno-fast-math -fstack-usage)
     target_link_options(ww05_host PRIVATE "-Wl,-Map=${CMAKE_CURRENT_BINARY_DIR}/ww05.map")
     foreach(target gxruntime ww05_services ww13_dvd_io ww13_dvd_pin gGZLE01_recomp ww05_host ww_renderer)

@@ -16,6 +16,7 @@
 
 #ifdef __vita__
 
+#include "ww_renderer.h"
 #include "ww_renderer_backend.h"
 
 #include <vitaGL.h>

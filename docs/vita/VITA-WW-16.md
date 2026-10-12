@@ -58,3 +58,19 @@ without changing WW05's compiler or either pin. The build receipt also truthfull
 records `aurora_recomp=true` for the pinned frontend (Aurora itself remains off).
 The renderer/GX regression suite rebuilt from this worktree passes **73 tests**
 in private `build-f5/ww16-gx`; this is synthetic, not a visible game frame.
+
+## Unit 3: link the real backend through the C interface
+
+The restart preserved the compiled game objects. The resumed build reached the
+real ARM link and stopped at an undefined `ww_renderer_vita_backend` (private
+`logs/vita-build-71.log`): the backend did not include its C-facing declaration,
+so it exported a mangled C++ name. Including `ww_renderer.h` fixes the ABI.
+The renderer's vitaGL support libraries are now its transitive dependencies,
+after its archive on the host link line, rather than preceding its unresolved
+references.
+
+A focused ARM compile/symbol regression test failed with zero C symbols before
+the fix and passes with exactly one afterward. **429 host tests pass**, and
+`cmake --build .../ww05/vita --target ww05_host -j 4` now links the actual ARM
+host successfully (`logs/ww16-renderer-link-smoke.log`). The committed private
+VPK rebuild and isolated continuation remain the next gates. No pixel claimed.
