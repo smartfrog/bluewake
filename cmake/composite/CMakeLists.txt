@@ -25,10 +25,10 @@ option(BLUEWAKE_FIXED_MEM1 "Use module-owned guest RAM (requires fixed CPU)" OFF
 if(BLUEWAKE_FIXED_MEM1 AND NOT BLUEWAKE_FIXED_CPU)
   message(FATAL_ERROR "Fixed MEM1 requires BLUEWAKE_FIXED_CPU")
 endif()
-set(COMPOSITE_OPTIMIZATION_LEVEL "2" CACHE STRING "Generated composite optimization level (0, 1, or 2)")
-set_property(CACHE COMPOSITE_OPTIMIZATION_LEVEL PROPERTY STRINGS 0 1 2)
-if(NOT COMPOSITE_OPTIMIZATION_LEVEL MATCHES "^[012]$")
-  message(FATAL_ERROR "COMPOSITE_OPTIMIZATION_LEVEL must be 0, 1, or 2")
+set(COMPOSITE_OPTIMIZATION_LEVEL "2" CACHE STRING "Generated composite optimization level (0, 1, 2, or 3)")
+set_property(CACHE COMPOSITE_OPTIMIZATION_LEVEL PROPERTY STRINGS 0 1 2 3)
+if(NOT COMPOSITE_OPTIMIZATION_LEVEL MATCHES "^[0-3]$")
+  message(FATAL_ERROR "COMPOSITE_OPTIMIZATION_LEVEL must be 0, 1, 2, or 3")
 endif()
 set(COMPOSITE_O1_FALLBACK_SOURCES
   "chunks_d_a_npc_so_148/chunk_0000_rel1_C10800F4.c;chunks_dol/chunk_0140_text1_802316E0.c;chunks_dol/chunk_0202_text1_803296E0.c"

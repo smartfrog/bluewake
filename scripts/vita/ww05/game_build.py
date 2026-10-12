@@ -104,6 +104,8 @@ def main():
     parser.add_argument('--out', type=Path, default=OUTPUT)
     parser.add_argument('--prepare-only', action='store_true')
     parser.add_argument('--jobs', type=int, default=2)
+    parser.add_argument('--opt-level', choices=('1', '2', '3'), default='1',
+                        help='translated module optimization level (default matches the verified private module)')
     parser.add_argument('--external-vector', type=Path, default=OUTPUT / 'private/external-vector.bin',
                         help='exact private vector captured from the documented guest trial')
     parser.add_argument('--fp-vector', type=Path, default=OUTPUT / 'private/fp-vector.bin',
@@ -192,7 +194,8 @@ def main():
                                  f'-DCMAKE_MAKE_PROGRAM={ninja}', '-DCMAKE_BUILD_TYPE=Release',
                                  f'-DRECOMPCORE_DIR={sources["RecompCore"]}', f'-DCOMPOSITE_DIR={composite}',
                                   f'-DWW05_IDENTITY_DIR={identity}', f'-DWW05_DOL={private}/main.dol',
-                                  f'-DWW05_VITAGL_LIBRARY={vitagl}', f'-DWW05_RENDERER_SDK={renderer_sdk}'])
+                                  f'-DWW05_VITAGL_LIBRARY={vitagl}', f'-DWW05_RENDERER_SDK={renderer_sdk}',
+                                  f'-DWW05_MODULE_OPT_LEVEL={args.opt_level}'])
     build.run('vita-build', [cmake, '--build', vita, '-j', args.jobs])
     from inspect_build import inspect
     inspect(vita)
@@ -214,7 +217,7 @@ def main():
         **vectors,
         'composite_digest': digest, 'title': 'BWWG00005', 'method': 'startup-gx-v1',
         'artifacts': artifacts, 'config': {'static_module': True, 'aurora': False, 'aurora_recomp': True,
-        'optimization': 1, 'compiler_pass_disabled': 'tree-dominator-opts', 'fp_patch': None,
+        'optimization': int(args.opt_level), 'compiler_pass_disabled': 'tree-dominator-opts', 'fp_patch': None,
         'lazy_fp': True, 'fp_exception_suffix_refund': True},
         'footprint_sha256': sha256(output / 'footprint.json'),
         'snapshot': str(snapshot)}, indent=2) + '\n'

@@ -1,6 +1,7 @@
 import json
 import os
 from pathlib import Path
+import re
 import subprocess
 import tempfile
 import unittest
@@ -10,7 +11,7 @@ STACK = Path('/home/fred/projects/zeldaWWHDRecomp/build-vita-tools/local-stack')
 
 
 class StaticModeTest(unittest.TestCase):
-    def configure(self, static, vita=False):
+    def configure(self, static, vita=False, module_level=None):
         with tempfile.TemporaryDirectory(prefix='build-ww05-static-', dir=ROOT) as directory:
             output = Path(directory)
             source = output / 'generated'
@@ -30,6 +31,8 @@ class StaticModeTest(unittest.TestCase):
                 options = [f'-DCMAKE_TOOLCHAIN_FILE={STACK}/vitasdk/share/vita.toolchain.cmake',
                            f'-DRECOMPCORE_DIR={ROOT}/ref/vita-ww-01/RecompCore',
                            f'-DWW05_IDENTITY_DIR={output}', f'-DWW05_DOL={output}/synthetic.dol']
+                if module_level is not None:
+                    options.append(f'-DWW05_MODULE_OPT_LEVEL={module_level}')
             environment = {**os.environ, 'VITASDK': str(STACK / 'vitasdk')}
             subprocess.run([str(STACK / 'bin/cmake'), '-S', str(ROOT / ('vita/host' if vita else 'cmake/composite')),
                             '-B', str(output / 'build'), '-G', 'Ninja',
@@ -65,6 +68,14 @@ class StaticModeTest(unittest.TestCase):
         runtime = [row for row in commands if '/GXRuntime/src/' in row['file']]
         self.assertTrue(runtime)
         self.assertTrue(all('-fno-tree-dominator-opts' not in row['command'] for row in runtime))
+
+    def test_vita_module_optimization_level_selects_the_chunk_codegen(self):
+        commands, _ = self.configure(True, vita=True, module_level=3)
+        chunks = [row for row in commands if row['file'].endswith('/chunks_dol/chunk.c')]
+        self.assertEqual(len(chunks), 1)
+        levels = re.findall(r'-O\d', chunks[0]['command'])
+        self.assertEqual(levels[-1], '-O3')
+        self.assertIn('-fno-tree-dominator-opts', chunks[0]['command'])
 
     def test_vita_boot_aggregator_compiles_the_pinned_dvd_through_the_existing_seam(self):
         commands, ninja = self.configure(True, vita=True)
