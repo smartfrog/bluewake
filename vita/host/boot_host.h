@@ -35,6 +35,7 @@ typedef struct WwHost {
     WwBatContract bat;
     const StaticRecompModuleDesc* module;
     u32 l2cr;
+    u32 wpar;
     u32 pi_fifo_base;
     u32 pi_fifo_end;
     u32 pi_fifo_write_pointer;

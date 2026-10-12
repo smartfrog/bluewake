@@ -18,7 +18,7 @@ class MainIoTest(unittest.TestCase):
     def run_fixture(self, failure='', stale=False, interrupt=None, exception=False, syscall=None, progress=False,
                     dispatch_trace=None, stale_dispatch=False, mmio_poll=False, aram_dma=False, dsp_init=False,
                     cpu_boundary=None, exi=False, cp_control=None, fifo=None, prior_aram_transfers=None,
-                    cp_distance=None, cp_distance_high=None, cp_clear=None, consumer=False):
+                    cp_distance=None, cp_distance_high=None, cp_clear=None, consumer=False, wpar=None):
         with tempfile.TemporaryDirectory(dir=OUT, prefix='io-') as directory:
             root = Path(directory)
             data = bytearray(260)
@@ -60,6 +60,8 @@ class MainIoTest(unittest.TestCase):
                 environment['WW05_IO_CP_CLEAR'] = str(cp_clear)
             if consumer:
                 environment['WW05_IO_CONSUMER'] = '1'
+            if wpar is not None:
+                environment['WW05_IO_WPAR'] = str(wpar)
             if cp_distance is not None:
                 environment['WW05_IO_CP_DISTANCE'] = str(cp_distance)
             if cp_distance_high is not None:
@@ -162,6 +164,27 @@ class MainIoTest(unittest.TestCase):
         self.assertNotEqual(status, 0)
         self.assertIn('GX_FRONTIER complete=0', report)
         self.assertIn('STOP reason=CP consume trace write failed', report)
+        self.assertTrue(report.endswith('END frontier=FAIL live=0 rendered=0\n'))
+
+    def test_observed_wpar_configuration_continues_through_the_synthetic_memory_fifo_path(self):
+        status, report = self.run_fixture(wpar=0x0C008000, consumer=True)
+        self.assertEqual(status, 0)
+        self.assertIn('GX_FRONTIER complete=1 opcode=61 bytes=5', report)
+        self.assertIn('hex=6141123456\n', report)
+        self.assertTrue(report.endswith('END frontier=PASS live=0 rendered=0\n'))
+
+    def test_unimplemented_wpar_redirection_cannot_reach_the_fifo_fixture(self):
+        status, report = self.run_fixture(wpar=0x0C008020, consumer=True)
+        self.assertNotEqual(status, 0)
+        self.assertIn('GX_FRONTIER complete=0', report)
+        self.assertIn('address=00000399 pc=80001000 width=4 value=000000000C008020', report)
+        self.assertTrue(report.endswith('END frontier=FAIL live=0 rendered=0\n'))
+
+    def test_wpar_trace_failure_closes_fail_before_the_fifo_fixture(self):
+        status, report = self.run_fixture(wpar=0x0C008000, consumer=True, failure='wpar-log')
+        self.assertNotEqual(status, 0)
+        self.assertIn('GX_FRONTIER complete=0', report)
+        self.assertIn('STOP reason=WPAR trace write failed address=00000399', report)
         self.assertTrue(report.endswith('END frontier=FAIL live=0 rendered=0\n'))
 
     def test_unsupported_cp_enable_cannot_reach_or_accept_the_fifo_fixture(self):

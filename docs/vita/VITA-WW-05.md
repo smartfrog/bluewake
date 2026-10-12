@@ -2773,3 +2773,75 @@ No real disc/file access, VI retrace, presentation or live REL is claimed. DVD i
 integration counts, Windows CI and physical Vita checks remain open. No network, push,
 shared-profile change or other-worktree mutation occurred; open PRs cannot be refreshed
 under the offline constraint, and only local remote-branch metadata was inspected.
+
+## GPRead crossed; the next SPR is WPAR, not PMC1
+
+Run `6dc6549baafa4b8a99a4c3e6547f69b0`, clean source
+`625c4bbcb41d444aeb6623e015bf2577012833e4`, passes the authentic **GPRead `0015`**
+and reaches **`unsupported SPR write address=00000399 pc=80301578`**. Report addresses
+are hexadecimal (`main.c` uses `%08X`): **`0x399 = 921 = WPAR`**, not decimal 953
+(PMC1, **`0x3B9`**). The guest log records **`r3=0C008000`**, the actual argument to
+the WPAR store, and `lr=8031FB94`. Private translated code independently identifies
+the instruction as `mtwpar r3`. No PMC/MMCR access has been observed; a speculative
+performance-counter backend does not address this STOP and is not added.
+
+The closed guest **FAIL** now has **64,278 edges, 7,140,396 cycles**, SP `8040CEB0`,
+still zero command bytes, `GX_FRONTIER complete=0`, `live=0`, `rendered=0`. This proves
+GPRead activation passed, **not** authentic gather transport or first-command acceptance.
+Build status zero in 115.823 s; archive unchanged. Both owned emulator phases timeout
+at **600 s**, TERM/exit -15, `waited=true`; process **124/INCOMPLETE** is separate.
+`logs/cp-gpread-consumer-evidence-625c4bb.json` independently verifies plan/request/result
+bindings, request-bound report, runtime package and closed LER. SHA-256:
+
+- VPK: `a5377635ba7e016b7f23bd9e656c8cb1d4ac9ca577b78f6510e5526b1a74c55b`;
+- report: `1ef313fc3f570e5fc6ab710d458b7ae7d59cfe7b791bd241017d7bed5a3c2fd0`;
+- result: `99c70e9f67fb767094d8dd92629f98f529a1587c113b7b179adaa99046d00823`;
+- log: `633c6fcdb02aca40dde0e49be7645a1795a7f5d04ed741c22fd83b68b3cbd4cb`;
+- LER: `169da8b7a0e0d3067e984a0701130bdf9916ce1c09ccf887d9004ec9f413b079`.
+
+Exact clean `625c4bb` checks pass **372 host tests, 177 ARMv7 tests**, audit,
+attribution and runtime **CTest 3/3** on Linux AArch64 (`logs/checkpoint-625c4bb.json`).
+The correct SPR identity comes from pinned `PowerPC/Gekko.h:891,897-914` and
+`GXRuntime/graphics/aurora/include/dolphin/base/PPCArch.h:100,269-270`: WPAR addresses
+a 32-byte gather destination and BNE is read-only. `StaticRecompCore_Hooks.cpp:204-208,
+237-238,272-274` retains the write and resets the gather count. `PowerPC.cpp:140-143`
+supplies the zero SPR reset. `GPFifo.cpp:61-83` quotes the processor manual: BNE checks
+outstanding buffer transfers; partial blocks flush only when actual writes fill 32 bytes.
+
+WW05 retains only the observed physical **`0C008000`** WPAR configuration. It reuses
+the existing input-history guard and requires no prior gather/frontier bytes or transfers
+and zero CP distance; repeated cold-empty stores are harmless. Its gather is already
+empty, so no bytes, counters, provenance or pointers need resetting. Unobserved addresses,
+reserved bits, written BNE and reconfiguration after input refuse with the original
+**four-byte SPR value and PC**. The checked `[wpar]` record is written before retained
+state changes; trace failure cannot commit configuration. Existing MMIO gather routing
+remains fixed; redirection into arbitrary guest memory is not implemented.
+
+Readback combines the retained address with **BNE = actual retained gather size != 0**.
+This deliberately does **not** copy the pinned `IsBNE()` stub's unconditional false
+(`GPFifo.cpp:73-77` explicitly labels that workaround). Fully committed 32-byte transfers
+leave no gather data outstanding in this synchronous host, so BNE clears even when those
+bytes remain queued in CP MEM1 with GPRead disabled. Reads never fabricate a drain, GPU
+consumption, pointer update or timing. Both SPR reads and writes credit the real emitted
+cycle prefix and cannot renew an exhausted quantum. PMC/MMCR and other unknown SPRs
+remain unsupported rather than frozen clocks or silently acknowledged counters.
+
+Retained failures `logs/wpar-config-red.log` reproduce the missing read/store, equivalent
+instruction fallback, BNE, refusal context and main-loop continuation. The separate
+`logs/wpar-config-main-trace-red.log` reproduces the missing main-loop fault injection.
+`logs/wpar-config-host-final-green.log` passes **384 host tests** on Linux AArch64:
+zero reset, normal and instruction-fallback writes, repeated cold setup, genuine partial
+buffer BNE, BNE clear with queued CP memory, post-input refusals, address/reserved-bit
+refusals, trace failure before commit, unchanged memory/pointers/provenance/IRQ/checkpoint,
+spent-quantum credit, and a regression distinguishing decimal PMC1 from hexadecimal WPAR.
+Synthetic main-loop transport reaches exact **`hex=6141123456`** after WPAR initialization;
+redirection or a failed WPAR trace closes FAIL before any command. These remain game-free
+checks, not authentic GX success.
+
+The next clean source-bound build/trial tests actual continuation beyond this WPAR store.
+Keep source fixed until supervision closes; retain the external **600-second** emulator
+phase bound. Strict GX parsing, CPU ABI, FP behavior, pins, composite, `BlueWakeRelData`,
+DOL and static archive are unchanged. Audio remains stopped/silent. First actual disc/file
+access still requires DVD integration `35f7c8a`; live REL, VI retrace, presentation, Windows
+ARAM verification, final integration counts, Windows CI and physical Vita remain open.
+No network, push, shared profile, protected build tree or other worktree was changed.

@@ -32,6 +32,14 @@ static int dispatch(CPUState* cpu, u32 address) {
     static bool polled;
     static u32 repeated_handlers;
     static bool init_started;
+    const char* wpar = getenv("WW05_IO_WPAR");
+    if (wpar != NULL) {
+        const u32 value = strtoul(wpar, NULL, 0);
+        ppc_mtspr(cpu, 921u, value, address);
+        if (cpu->exception != 0u)
+            return 1;
+        assert(ppc_mfspr(cpu, 921u, address) == value && cpu->exception == 0u);
+    }
     const char* fifo = getenv("WW05_IO_FIFO");
     if (fifo != NULL) {
         const char* scenario;
@@ -389,6 +397,7 @@ int __wrap_fprintf(FILE* stream, const char* format, ...) {
          (strncmp(format, "[aram-expansion-request]", 24u) == 0 && failure("aram-expansion-log")) ||
          (strncmp(format, "[aram-hsp-absent]", 17u) == 0 && failure("aram-absent-log")) ||
          (strncmp(format, "[cp-consume]", 12u) == 0 && failure("cp-consume-log")) ||
+         (strncmp(format, "[wpar]", 6u) == 0 && failure("wpar-log")) ||
          (strncmp(format, "[exi]", 5u) == 0 && failure("exi-log")))) {
         errno = EIO;
         return -1;

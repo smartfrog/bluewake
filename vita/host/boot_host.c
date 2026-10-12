@@ -113,6 +113,8 @@ static void observe(CPUState* cpu) {
     close_spent_quantum(host, cpu);
 }
 
+static bool fifo_has_input(const WwHost* host);
+
 static u32 spr_read(CPUState* cpu, u16 spr, u32 cia) {
     WwHost* host = owner(cpu);
     if (spr == 272u)
@@ -126,6 +128,10 @@ static u32 spr_read(CPUState* cpu, u16 spr, u32 cia) {
         return host->hid0;
     if (spr == 1017u)
         return host->l2cr;
+    if (spr == 921u) {
+        observe(cpu);
+        return host->wpar | (host->gather.size != 0u ? 1u : 0u);
+    }
     if (spr == 22u || spr == 268u || spr == 269u) {
         observe(cpu);
         return spr == 22u ? host->decrementer :
@@ -139,6 +145,23 @@ static void spr_write(CPUState* cpu, u16 spr, u32 value, u32 cia) {
     WwHost* host = owner(cpu);
     if (spr == 272u) {
         host->sprg0 = value;
+    } else if (spr == 921u) {
+        observe(cpu);
+        if (host->error != NULL)
+            return;
+        const char* error = NULL;
+        if (value != 0x0C008000u || fifo_has_input(host) || host->cp_fifo_distance != 0u)
+            error = "WPAR requires observed empty gather configuration; redirection or post-input reset not implemented";
+        else if (fprintf(stderr, "[wpar] spr=921 address=%08X bne=0 gather_bytes=%u cp_distance=%u pc=%08X\n",
+                         value, host->gather.size, host->cp_fifo_distance, cia) < 0)
+            error = "WPAR trace write failed";
+        if (error != NULL) {
+            host->error_width = 4u;
+            host->error_value = value;
+            ww_host_fail(host, error, spr, cia);
+            return;
+        }
+        host->wpar = value;
     } else if (spr == 284u || spr == 285u) {
         bluewake_cycle_domain_write_timebase(&host->cycles, cpu, spr, value);
     } else if (spr == 22u) {
