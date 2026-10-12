@@ -43,25 +43,6 @@ static u32 command_bytes(u8* bytes, const char* kind) {
     return 5u + words * 4u;
 }
 
-static void produce(WwHost* host, const u8* bytes, u32 start, u32 end, u8 width) {
-    for (u32 offset = start; offset < end; offset += width) {
-        u64 value = 0u;
-        for (u8 index = 0u; index < width; ++index)
-            value = (value << 8u) | bytes[offset + index];
-        host->cpu.pc = 0x80001000u + (offset / width) * 4u;
-        host->cpu.gpr[1] = 0x817FFF00u - offset;
-        switch (width) {
-        case 1u: mem_write8(&host->cpu, 0xCC008000u, (u8)value); break;
-        case 2u: mem_write16(&host->cpu, 0xCC008000u, (u16)value); break;
-        case 4u: mem_write32(&host->cpu, 0xCC008000u, (u32)value); break;
-        case 8u: mem_write64(&host->cpu, 0xCC008000u, value); break;
-        default: assert(false);
-        }
-        if (host->error != NULL)
-            break;
-    }
-}
-
 int main(int argc, char** argv) {
     assert(argc == 2);
     WwHost* host = calloc(1u, sizeof(*host));
@@ -99,7 +80,7 @@ int main(int argc, char** argv) {
         const u32 total = (required + 31u) & ~31u;
         enable(host);
         assert(host->error == NULL);
-        produce(host, bytes, 0u, total, width);
+        ww_probe_gather_bytes(host, bytes, 0u, total, width);
         assert(host->error == NULL && host->frontier.complete && host->frontier.size == required);
         assert(memcmp(host->frontier.bytes, bytes, required) == 0 && host->gx.fifo.size == required);
         assert(host->frontier.pc == 0x80001000u && host->frontier.sp == 0x817FFF00u);
@@ -122,7 +103,7 @@ int main(int argc, char** argv) {
         command_bytes(bytes, "bp");
         enable(host);
         assert(host->error == NULL);
-        produce(host, bytes, 0u, 8u, 8u);
+        ww_probe_gather_bytes(host, bytes, 0u, 8u, 8u);
         assert(host->error == NULL && host->gather.size == 8u && !host->frontier.complete);
         assert(host->frontier.size == 0u && host->gx.fifo.size == 0u && host->fifo_capture.read_bytes == 0u);
         assert(host->cp_fifo_read_pointer == 0x1000u && host->cp_fifo_write_pointer == 0x1000u);
@@ -131,13 +112,13 @@ int main(int argc, char** argv) {
         write_be32(bytes + 1u, 0x00070000u);
         enable(host);
         assert(host->error == NULL);
-        produce(host, bytes, 0u, 31u, 1u);
+        ww_probe_gather_bytes(host, bytes, 0u, 31u, 1u);
         host->cpu.pc = 0x80002000u;
         host->cpu.gpr[1] = 0x817FF000u;
         mem_write64(&host->cpu, 0xCC008000u, read_be64(bytes + 31u));
         assert(host->error == NULL && host->gather.size == 7u && host->frontier.size == 32u);
         assert(!host->frontier.complete && host->fifo_capture.read_bytes == 32u);
-        produce(host, bytes, 39u, 64u, 1u);
+        ww_probe_gather_bytes(host, bytes, 39u, 64u, 1u);
         assert(host->error == NULL && host->frontier.complete && host->frontier.size == 37u);
         assert(memcmp(host->frontier.bytes, bytes, 37u) == 0);
         assert(host->frontier.pc == 0x80001000u && host->frontier.sp == 0x817FFF00u);
@@ -151,13 +132,13 @@ int main(int argc, char** argv) {
             host->pi_fifo_write_pointer = host->cp_fifo_write_pointer = host->cp_fifo_read_pointer = 0x1060u;
         enable(host);
         assert(host->error == NULL);
-        produce(host, bytes, 0u, 32u, 1u);
+        ww_probe_gather_bytes(host, bytes, 0u, 32u, 1u);
         assert(host->error == NULL && host->frontier.size == 32u && !host->frontier.complete);
         const u32 prior = wrap ? 0x1000u : 0x1020u;
         assert(host->cp_fifo_read_pointer == prior && host->cp_fifo_distance == 0u);
         if (!wrap)
             mem_write16(&host->cpu, 0xCC000002u, 0x14u);
-        produce(host, bytes, 32u, 64u, 1u);
+        ww_probe_gather_bytes(host, bytes, 32u, 64u, 1u);
         if (!wrap) {
             assert(!host->frontier.complete && host->cp_fifo_read_pointer == prior && host->cp_fifo_distance == 32u);
             enable(host);
@@ -179,7 +160,7 @@ int main(int argc, char** argv) {
             bytes[0] = 0x10u;
             write_be32(bytes + 1u, 0x00FF0000u);
         }
-        produce(host, bytes, 0u, two ? 64u : 32u, 1u);
+        ww_probe_gather_bytes(host, bytes, 0u, two ? 64u : 32u, 1u);
         assert(host->error == NULL && !host->frontier.complete && host->cp_fifo_distance == (two ? 64u : 32u));
         assert(host->fifo_capture.count == (two ? 64u : 32u));
         if (strcmp(scenario, "memory-changed") == 0)

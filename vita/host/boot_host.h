@@ -22,6 +22,7 @@ typedef struct WwHost {
     DolGuestMemory memory;
     DolGxRecompState gx;
     WwGxCheckpoint frontier;
+    WwGxStream stream;
     WwGatherPipe gather;
     WwFifoCapture fifo_capture;
     BluewakeCycleDomain cycles;
@@ -91,5 +92,6 @@ u64 ww_host_end_dispatch(WwHost* host);
 void ww_host_fail(WwHost* host, const char* error, u32 address, u32 pc);
 bool ww_host_linked_alias_overlaps(u32 address, u32 size);
 DolDiCommandResult ww_host_di_read(WwHost* host, DolDiCommand* command);
+const char* ww_gx_stream_write(WwHost* host, u8 byte, const WwFifoOrigin* origin, u32 trailing);
 
 #endif

@@ -32,6 +32,11 @@ static int dispatch(CPUState* cpu, u32 address) {
     static bool polled;
     static u32 repeated_handlers;
     static bool init_started;
+    if (getenv("WW05_IO_CONSUMER") != NULL && address == 0x80001008u) {
+        cpu->pc = address;
+        cpu->external_read(cpu, 0xCC000006u, 2u);
+        return 1;
+    }
     const char* wpar = getenv("WW05_IO_WPAR");
     if (wpar != NULL) {
         const u32 value = strtoul(wpar, NULL, 0);

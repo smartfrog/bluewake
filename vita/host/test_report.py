@@ -12,6 +12,7 @@ class ReportTest(unittest.TestCase):
         module = importlib.util.module_from_spec(spec)
         spec.loader.exec_module(module)
         self.validate = module.validate
+        self.module = module
         self.content = f'''WW05 {TOKEN} {SOURCE} {PACKAGE} method=startup-gx-v1 phase=guest platform=VITA
 ABI pointer=4 cpu=3496 version=6
 ALLOC host=800000 mem1=25165824 vm=33554432 cache=16384 aliases=12 alias_count=2 owned_live=59536652
@@ -24,6 +25,36 @@ END frontier=PASS live=0 rendered=0
 
     def test_closed_frontier_is_not_a_rendered_scene(self):
         self.assertEqual(self.validate(self.content, TOKEN, SOURCE, PACKAGE), 'PASS')
+
+    def continuation_report(self):
+        return self.content.replace('STOP reason=first complete GX command; no renderer address=00000000 pc=00000000',
+                                    'GX_STREAM mode=continue decoded=1 logged=1 limit=64 pending=0 read_bytes=32\n'
+                                    'STOP reason=unsupported MMIO read address=CC000006 pc=80001008')
+
+    def test_continuation_keeps_first_frontier_pass_separate_from_later_service_failure(self):
+        self.assertEqual(self.validate(self.continuation_report(), TOKEN, SOURCE, PACKAGE, continue_gx=64), 'PASS')
+
+    def test_continuation_cannot_be_accepted_as_the_default_first_command_mode(self):
+        with self.assertRaises(ValueError):
+            self.validate(self.continuation_report(), TOKEN, SOURCE, PACKAGE)
+
+    def test_continuation_report_must_match_its_opt_in_limit_and_real_counters(self):
+        for old, new in (('limit=64', 'limit=32'), ('decoded=1', 'decoded=0'),
+                         ('logged=1', 'logged=2'), ('read_bytes=32', 'read_bytes=0'),
+                         ('pending=0', 'pending=1026')):
+            with self.subTest(new=new), self.assertRaises(ValueError):
+                self.validate(self.continuation_report().replace(old, new), TOKEN, SOURCE, PACKAGE, continue_gx=64)
+
+    def test_command_journal_must_bind_its_first_record_to_the_frontier(self):
+        journal = '[gx-command] index=1 opcode=61 bytes=5 pc=80001000 completion_pc=80001004 sp=817FFF00 hex=61FEFFFFFF\n'
+        self.assertEqual(self.module.validate_commands(journal, self.continuation_report(), 64), 1)
+
+    def test_journal_rejects_missing_reordered_changed_or_unframed_command_evidence(self):
+        journal = '[gx-command] index=1 opcode=61 bytes=5 pc=80001000 completion_pc=80001004 sp=817FFF00 hex=61FEFFFFFF\n'
+        for content in ('', journal.replace('index=1', 'index=2'), journal.replace('61FEFFFFFF', '610F0000FF'),
+                        journal.replace('bytes=5', 'bytes=4'), journal + journal):
+            with self.subTest(content=content), self.assertRaises(ValueError):
+                self.module.validate_commands(content, self.continuation_report(), 64)
 
     def test_truncated_report_is_rejected(self):
         with self.assertRaises(ValueError):

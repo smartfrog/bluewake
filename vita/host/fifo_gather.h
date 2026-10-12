@@ -26,6 +26,7 @@ typedef struct WwFifoCapture {
     u32 read_bytes;
     u32 first_pointer;
     u64 transfers;
+    u64 total_read_bytes;
 } WwFifoCapture;
 
 struct WwHost;

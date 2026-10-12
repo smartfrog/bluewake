@@ -2920,3 +2920,67 @@ The next unit is opt-in post-frontier command observation, keeping the verified 
 first-command behavior intact. No renderer, live VI/REL/FPS, physical Vita or Windows
 runtime execution is claimed. Shared Windows ARAM validation and final exact integration
 counts remain tracked until the final checks actually run.
+
+## Opt-in post-frontier continuation
+
+The DVD/rebase checkpoint **`abdafa6`** passes exact clean-source checks on Linux AArch64:
+**392 host tests, 177 ARMv7 tests, 29 DVD tests, runtime CTest 3/3**, audit and attribution.
+The DVD tests were redirected into a new `build-f5/services-tests/dvd-integration-abdafa6`
+output tree; no other worker's `build-f13` output was changed. Receipt:
+`logs/checkpoint-abdafa6.json`. The module archive remains unchanged.
+
+The default frontier remains stop-after-first-command. A separate **opt-in** launch mode,
+`--continue-gx N` (1..256), writes an exclusive `ww05.continue` containing the same token,
+source and package plus the canonical journal limit. Missing means disabled; malformed,
+unbound or stale opt-ins refuse. The host still accepts no guest command-line arguments.
+There is no internal guest execution cap and no requirement to ask again before a fresh
+isolated attempt. External owned-process deadlines remain at most **600 seconds per phase**.
+
+In continuation mode:
+
+- the existing consumer reads actual 32-byte MEM1 blocks with the same ring, byte,
+  alias, pointer/distance, IRQ and writer-provenance checks;
+- each byte goes through a current-command checkpoint and the **unchanged strict framer**
+  and pinned parser, preserving CP/BP/XF state between commands. Only the current framing
+  buffer is cleared after a successful command; the parser's FIFO/trace/state is never reset;
+- the first accepted checkpoint is copied once to the frontier, including its writer
+  PC/SP, completion PC, exact bytes and trailing-byte count. Later failures do not erase it;
+- `[gx-command]` records the first N commands, with sequence, opcode, length, writer PC/SP,
+  completion PC and exact `hex=`. Reaching N stops logging, **not** parsing or execution;
+- consumed byte origins are compacted after a complete real block read, allowing later
+  blocks to reuse the bounded provenance queue. The 1,056-byte queue limit becomes an
+  explicit refusal for unconsumed continuation input, not permission to drop provenance;
+- reader and decoded-command totals cannot wrap. Journal failures are explicit refusals;
+  a command whose journal failed is not certified. Real completed block reads retain their
+  pointer/distance effects even when later framing/logging refuses;
+- unsupported commands/draw framing, full pinned FIFO/trace, active unsupported CP IRQs
+  and other real services remain explicit stops. No renderer, GPU completion, draw, audio,
+  controller response or disc data is invented to keep execution going.
+
+The closed report adds one `GX_STREAM` record (decoded, logged, limit, pending bytes,
+actual bytes read). The first-frontier PASS is separated from the **later guest STOP**
+and process return code. A later service failure returns nonzero even when the immutable
+first frontier remains PASS. The offline validator requires the planned mode, consistent
+counts, all journal records in sequence and the first journal record byte-for-byte and
+PC/SP-identical to the frontier. Default-mode validation remains strict and unchanged.
+
+The optional `--disc PRIVATE.iso` binds the **already verified input image read-only** at
+WW13's `ux0:data/bluewake/GZLE01.iso`, in the new isolated sandbox only. The launcher hashes
+the image against the private input receipt and before/after both phases, creates only an
+empty bind target, and never copies game data into the VPK or a writable shared profile.
+The guest opens it only if actual DI execution requests a supported read.
+
+Retained red checks: `logs/gx-stream-red.log`, `gx-stream-observable-red.log`,
+`gx-stream-main-plan-red.log`, `gx-stream-launch-red.log`, `gx-stream-disc-stage-red.log`.
+Intermediate failing fixtures/builds are also retained. The final working-tree host suite
+passes **416 tests** (`logs/gx-stream-delivery-host-green.log`), including continued CP/BP/XF
+state, journal-limit-without-execution-limit, later blocks, split commands/ring wrap,
+64 blocks through reused provenance, unknown opcodes, trace/counter refusal, the actual
+main-loop/report path, stale/malformed requests and readonly sandbox disc binding.
+Synthetic PASS still does not count as authentic acceptance. Clean exact-SHA checks and
+an authentic continuation trial follow this tested unit's commit.
+
+Windows compiler/runtime/CI is unavailable in this offline Linux AArch64 environment;
+no Windows ARAM result is claimed. The required shared-ARAM Windows check is now listed in
+`docs/WINDOWS_TASKS.md`. No genuine VI retrace, presentation, live REL event or FPS marker
+has occurred; no physical Vita rendering or standalone hardware STOP bound is claimed.

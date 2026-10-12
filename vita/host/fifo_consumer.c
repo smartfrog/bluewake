@@ -8,7 +8,7 @@ const char* ww_fifo_consume_first(WwHost* host) {
         return host->error;
     if (host->frontier.error != NULL)
         return host->frontier.error;
-    if ((host->cp_control & 1u) == 0u || host->frontier.complete)
+    if ((host->cp_control & 1u) == 0u || (host->frontier.complete && !host->stream.enabled))
         return NULL;
     if ((host->cp_control & 0x10u) == 0u)
         return "CP reader requires the implemented linked FIFO";
@@ -16,9 +16,10 @@ const char* ww_fifo_consume_first(WwHost* host) {
         return "CP reader requires pending CP IRQ service not implemented";
 
     WwFifoCapture* capture = &host->fifo_capture;
-    if (host->frontier.size != 0u && capture->read_bytes == 0u)
+    if (host->frontier.size != 0u && capture->read_bytes == 0u &&
+        (!host->stream.enabled || host->stream.decoded == 0u))
         return "CP reader cannot continue an unsourced checkpoint prefix";
-    while (host->cp_fifo_distance != 0u && !host->frontier.complete) {
+    while (host->cp_fifo_distance != 0u && (host->stream.enabled || !host->frontier.complete)) {
         CPUState* cpu = &host->cpu;
         const u32 physical = host->cp_fifo_read_pointer;
         if (!ww_fifo_mem1_ring_valid(cpu, host->cp_fifo_base, host->cp_fifo_end, physical))
@@ -45,6 +46,8 @@ const char* ww_fifo_consume_first(WwHost* host) {
             return "CP read cannot consume a linked alias";
         if (capture->transfers == UINT64_MAX)
             return "CP read transfer counter exhausted";
+        if (capture->total_read_bytes > UINT64_MAX - 32u)
+            return "CP read byte counter exhausted";
 
         u8 bytes[32];
         memcpy(bytes, cpu->ram + physical, sizeof(bytes));
@@ -66,9 +69,20 @@ const char* ww_fifo_consume_first(WwHost* host) {
         host->cp_fifo_distance = distance;
         capture->read_bytes += 32u;
         capture->transfers = transfer;
+        capture->total_read_bytes += 32u;
         for (u32 index = 0u; index < sizeof(bytes); ++index) {
-            if (!ww_gx_write(&host->frontier, &host->gx, bytes[index], 1u, origins[index].pc, origins[index].sp))
+            if (host->stream.enabled) {
+                const char* error = ww_gx_stream_write(host, bytes[index], origins + index, 31u - index);
+                if (error != NULL)
+                    return error;
+            } else if (!ww_gx_write(&host->frontier, &host->gx, bytes[index], 1u, origins[index].pc, origins[index].sp))
                 return host->frontier.error;
+        }
+        if (host->stream.enabled) {
+            capture->count -= 32u;
+            memmove(capture->origins, capture->origins + 32u, capture->count * sizeof(capture->origins[0]));
+            capture->read_bytes = 0u;
+            capture->first_pointer = next;
         }
     }
     return NULL;

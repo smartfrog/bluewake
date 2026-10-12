@@ -42,12 +42,40 @@ static int dispatch_marker(char marker) {
     return error;
 }
 
+static int continuation_limit(const char* token, const char* source, const char* package, u32* limit) {
+    const char* path = WW05_DIRECTORY "ww05.continue";
+    *limit = 0u;
+    if (diagnostic_absent(path))
+        return 0;
+    struct stat info;
+    if (lstat(path, &info) != 0 || !S_ISREG(info.st_mode))
+        return 1;
+    FILE* stream = fopen(path, "r");
+    if (stream == NULL)
+        return 1;
+    char content[160] = {0}, expected[160];
+    const size_t size = fread(content, 1u, sizeof(content) - 1u, stream);
+    int error = ferror(stream) != 0 || !feof(stream);
+    error |= fclose(stream) != 0;
+    unsigned count = 0u;
+    if (error || strlen(content) != size || sscanf(content, "%*32s %*40s %*64s %u", &count) != 1 ||
+        count == 0u || count > 256u)
+        return 1;
+    if (snprintf(expected, sizeof(expected), "%s %s %s %u\n", token, source, package, count) < 0 ||
+        strcmp(content, expected) != 0)
+        return 1;
+    *limit = count;
+    return 0;
+}
+
 int fixture_run(int argc, char** argv) {
     (void)argv;
     char token[33], source[41], package[65];
+    u32 command_log_limit;
     const char* partial = WW05_DIRECTORY "ww05.partial";
     const char* complete = WW05_DIRECTORY "ww05.report";
     if (argc > 1 || diagnostic_request(WW05_DIRECTORY "ww05.request", WW05_SOURCE, token, source, package) ||
+        continuation_limit(token, source, package, &command_log_limit) ||
         !diagnostic_absent(partial) || !diagnostic_absent(complete) ||
         !diagnostic_absent(WW05_DIRECTORY "ww05.log") ||
         !diagnostic_absent(WW05_DIRECTORY "ww05.dispatch"))
@@ -83,6 +111,8 @@ int fixture_run(int argc, char** argv) {
     const BlueWakeRelData* data = staticrecomp_get_rel_data(&count);
     error |= fprintf(stderr, "[host] stage=initialize\n") < 0;
     bool initialized = !error && ww_host_init(host);
+    host->stream.enabled = command_log_limit != 0u;
+    host->stream.log_limit = command_log_limit;
     error |= fprintf(stderr, "[host] stage=load initialized=%u\n", initialized) < 0;
     bool loaded = !error && initialized && ww_host_load(host, module, data, count, WW05_DOL_PATH);
     error |= fprintf(stderr, "[host] stage=loaded loaded=%u pc=%08X\n", loaded, host->cpu.pc) < 0;
@@ -195,7 +225,7 @@ int fixture_run(int argc, char** argv) {
             }
             ww_host_fail(host, "unhandled guest exception", cpu->exception, cpu->pc);
         }
-        if (host->frontier.complete && !host->edge_stopped)
+        if (host->frontier.complete && !host->stream.enabled && !host->edge_stopped)
             ww_host_edge(host, &host->cpu, host->cpu.pc);
         error |= log_handler_boundary(host, "checked");
     }
@@ -211,14 +241,21 @@ int fixture_run(int argc, char** argv) {
                      (unsigned long long)frontier->trailing_bytes, host->edge_stopped) < 0;
     for (u32 i = 0u; i < frontier->size; ++i)
         error |= fprintf(report, "%02X", frontier->bytes[i]) < 0;
-    error |= fprintf(report, "\nSTOP reason=%s address=%08X pc=%08X",
+    error |= fprintf(report, "\n") < 0;
+    if (host->stream.enabled)
+        error |= fprintf(report, "GX_STREAM mode=continue decoded=%llu logged=%u limit=%u pending=%u read_bytes=%llu\n",
+                         (unsigned long long)host->stream.decoded, host->stream.logged, host->stream.log_limit,
+                         host->stream.command.size, (unsigned long long)host->fifo_capture.total_read_bytes) < 0;
+    error |= fprintf(report, "STOP reason=%s address=%08X pc=%08X",
                       host->error != NULL ? host->error : "first complete GX command; no renderer",
                       host->error_address, host->error_pc) < 0;
     if (host->error_width != 0u)
         error |= fprintf(report, " width=%u value=%016llX", host->error_width,
                          (unsigned long long)host->error_value) < 0;
     error |= fprintf(report, "\n") < 0;
-    bool success = loaded && frontier->complete && host->edge_stopped && host->error == NULL;
+    const bool success = loaded && frontier->complete &&
+        (host->stream.enabled || (host->edge_stopped && host->error == NULL));
+    const bool failed = !success || host->error != NULL;
     ww_host_shutdown(host);
     free(host);
     error |= fixture_log_close();
@@ -228,5 +265,5 @@ int fixture_run(int argc, char** argv) {
         const int closed = fclose(report);
         return closed != 0 || error;
     }
-    return fixture_publish_report(report, partial, complete) || !success;
+    return fixture_publish_report(report, partial, complete) || failed;
 }

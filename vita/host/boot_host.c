@@ -645,7 +645,7 @@ bool ww_host_edge(void* user, CPUState* cpu, u32 address) {
             return true;
         }
     }
-    if (host->frontier.complete || host->error != NULL) {
+    if ((host->frontier.complete && !host->stream.enabled) || host->error != NULL) {
         host->edge_stopped = true;
         return true;
     }

@@ -82,6 +82,66 @@ class PrivateLaunchTest(unittest.TestCase):
         self.assertTrue(result['frontier_verified'])
         self.assertFalse(result['rendered'])
 
+    def test_continuation_request_and_closed_journal_certify_frontier_despite_later_guest_stop(self):
+        from test_report import ReportTest
+        oracle = ReportTest()
+        oracle.setUp()
+        body = oracle.continuation_report().split('\n', 1)[1]
+        self.plan['continue_gx'] = 64
+        self.fake("app=root/'data/Vita3K/Vita3K/ux0/app/BWWG00005'\napp.mkdir(parents=True)\n"
+                  "with zipfile.ZipFile('ww05.vpk') as archive: archive.extractall(app)\n",
+                  "directory=root/'data/Vita3K/Vita3K/ux0/data/bluewake-ww-fixture'\n"
+                  "token,source,package=(directory/'ww05.request').read_text().split()\n"
+                  "assert (directory/'ww05.continue').read_text()==f'{token} {source} {package} 64\\n'\n"
+                  "header=f'WW05 {token} {source} {package} method=startup-gx-v1 phase=guest platform=VITA\\n'\n"
+                  f"(directory/'ww05.report').write_text(header+{body!r})\n"
+                  "(directory/'ww05.log').write_text('[gx-command] index=1 opcode=61 bytes=5 pc=80001000 "
+                  "completion_pc=80001004 sp=817FFF00 hex=61FEFFFFFF\\n')\nsys.exit(1)")
+        status, result = self.run_fake()
+        self.assertEqual(status, 1)
+        self.assertTrue(result['frontier_verified'])
+        self.assertEqual(result['commands_verified'], 1)
+        self.assertEqual(result['completion'], 'COMPLETE')
+
+    def test_stale_opt_in_is_preserved_and_prevents_a_fresh_request(self):
+        import launch
+        from fp_launch import REPORT_DIRECTORY
+        directory = self.root / REPORT_DIRECTORY
+        directory.mkdir(parents=True)
+        (directory / 'ww05.continue').write_text('preserve this opt-in')
+        with self.assertRaisesRegex(ValueError, 'preexisting WW05'):
+            launch.fresh_request(self.root, 'a' * 40, 'b' * 64, 64)
+        self.assertFalse((directory / 'ww05.request').exists())
+        self.assertEqual((directory / 'ww05.continue').read_text(), 'preserve this opt-in')
+
+    def test_default_mode_never_creates_a_continuation_request(self):
+        import launch
+        from fp_launch import REPORT_DIRECTORY
+        launch.fresh_request(self.root, 'a' * 40, 'b' * 64)
+        self.assertFalse((self.root / REPORT_DIRECTORY / 'ww05.continue').exists())
+
+    def test_optional_disc_is_read_only_inside_the_guest_sandbox_and_never_modified(self):
+        from stage_plan import make_plan, sha256
+        image = self.root.parent / 'fixture.iso'
+        image.write_bytes(b'private disc fixture')
+        destination = self.root / 'data/Vita3K/Vita3K/ux0/data/bluewake/GZLE01.iso'
+        destination.parent.mkdir(parents=True)
+        destination.touch()
+        args = SimpleNamespace(timeout=2, libraries=None, wayland_socket=None, disc=image)
+        command = make_plan(self.root, args, 'a' * 40, 'b' * 64, 'c' * 32)['phases']['guest']['command']
+        command[command.index('/stack/vita3k/Vita3K')] = '/stack/vita3k/Fake'
+        self.plan['phases']['guest']['command'] = command
+        self.successful_fake("disc=root/'data/Vita3K/Vita3K/ux0/data/bluewake/GZLE01.iso'\n"
+                             "assert disc.read_bytes()==b'private disc fixture'\n"
+                             "try: disc.write_bytes(b'forbidden')\n"
+                             "except OSError as error: assert error.errno==30\n"
+                             "else: raise AssertionError('disc must be read only')")
+        before = sha256(image)
+        status, result = self.run_fake()
+        self.assertEqual(status, 0)
+        self.assertEqual(sha256(image), before)
+        self.assertEqual(destination.read_bytes(), b'')
+
     def test_installed_dol_mismatch_withholds_guest(self):
         self.fake("app=root/'data/Vita3K/Vita3K/ux0/app/BWWG00005'\napp.mkdir(parents=True)\n"
                   "with zipfile.ZipFile('ww05.vpk') as archive: archive.extractall(app)\n"

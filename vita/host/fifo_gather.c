@@ -47,6 +47,8 @@ const char* ww_fifo_gather_write(WwHost* host, u64 value, u8 size) {
             return "linked gather burst exceeds unconsumed CP ring capacity";
         if (capture->count > WW_FIFO_ORIGIN_BYTES || (capture->count & 31u) != 0u)
             return "invalid retained FIFO origin count";
+        if (host->stream.enabled && capture->count == WW_FIFO_ORIGIN_BYTES)
+            return "continued FIFO writer provenance queue is full";
         if (capture->count == 0u && (capture->read_bytes != 0u || host->cp_fifo_distance != 0u ||
                                     host->cp_fifo_read_pointer != physical))
             return "first linked gather burst requires the observed empty CP read position";

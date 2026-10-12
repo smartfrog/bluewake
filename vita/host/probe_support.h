@@ -64,4 +64,23 @@ static inline void ww_probe_fifo_setup(WwHost* host, bool linked) {
     memset(host->cpu.ram + 0xFE0u, 0xA5u, 192u);
 }
 
+static inline void ww_probe_gather_bytes(WwHost* host, const u8* bytes, u32 start, u32 end, u8 width) {
+    for (u32 offset = start; offset < end; offset += width) {
+        u64 value = 0u;
+        for (u8 index = 0u; index < width; ++index)
+            value = (value << 8u) | bytes[offset + index];
+        host->cpu.pc = 0x80001000u + (offset / width) * 4u;
+        host->cpu.gpr[1] = 0x817FFF00u - offset;
+        switch (width) {
+        case 1u: mem_write8(&host->cpu, 0xCC008000u, (u8)value); break;
+        case 2u: mem_write16(&host->cpu, 0xCC008000u, (u16)value); break;
+        case 4u: mem_write32(&host->cpu, 0xCC008000u, (u32)value); break;
+        case 8u: mem_write64(&host->cpu, 0xCC008000u, value); break;
+        default: assert(false);
+        }
+        if (host->error != NULL)
+            break;
+    }
+}
+
 #endif
