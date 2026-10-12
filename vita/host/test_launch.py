@@ -317,6 +317,23 @@ class PrivateLaunchTest(unittest.TestCase):
         self.assertIn('synthetic source read failure', result['error'])
         self.assertIn('RuntimeError', result['traceback'])
 
+    def test_baseline_does_not_allow_the_current_launcher_checkpoint_to_change(self):
+        import launch
+        self.plan['launcher_source'] = 'b' * 40
+        with patch('subprocess.check_output', return_value='c' * 40 + '\n'):
+            with self.assertRaisesRegex(ValueError, 'source checkpoint'):
+                launch.verify_inputs(self.root, self.plan)
+
+    def test_selected_baseline_receipt_must_remain_byte_identical(self):
+        import launch
+        path = self.root / 'evidence/snapshot-receipt.json'
+        path.write_text('changed receipt')
+        self.plan.update(launcher_source='b' * 40, build_evidence_path=str(path), build_evidence_sha256='f' * 64)
+        with patch('subprocess.check_output', side_effect=['b' * 40 + '\n', '']), \
+             patch.object(launch, 'checked_sources'):
+            with self.assertRaisesRegex(ValueError, 'build receipt changed'):
+                launch.verify_inputs(self.root, self.plan)
+
     def test_request_parent_symlink_cannot_create_outside_profile(self):
         import launch
 

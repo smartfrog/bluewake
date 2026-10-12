@@ -732,3 +732,35 @@ return timeout, not inactive. Audit, attribution and whitespace checks pass.
 No guest code, ABI, graphics, timer, source pin or composite digest changes in
 this unit. The baseline uses a preserved receipt/package, not a rebuild with a
 different guest SHA; launcher and guest provenance will be recorded separately.
+
+## Unit 21: replay a saved baseline without rewriting either source identity
+
+Delegated choice: replay the **original archived VPK**, not a new rebuild bearing
+a different guest commit label. `--baseline-build` selects an explicit preserved
+`artifacts-*/build-evidence.json`. Its full guest commit must be an ancestor of the
+current clean launcher checkpoint; errors/unrelated commits are refused. Pins,
+composite digest, snapshot footprint, all artifact hashes and the packaged
+SELF/SFO/DOL still pass their existing checks. The selected receipt is rehashed
+before/after each phase; the launcher itself must remain at its recorded clean
+SHA. Ordinary launches still require HEAD == build source, with both the ordinary
+offline footprint and its preserved snapshot checked. No HEAD/source test is
+bypassed or patched out.
+
+Plan/execution/result record **guest source separately from launcher source**.
+The guest request/report uses the real compiled guest source. Immutable snapshot
+footprint replaces the moving latest-build footprint only for an explicit
+baseline. The previous `2e8deb1cc2b04a221efbbfa60ab1e64bb109cd81` receipt is
+`artifacts-26970c401eac46e5a2790f54f3f2dd93/build-evidence.json`; it predates VI
+support, so this trial cannot enable the new clock. The finished VI build and
+current source branch remain untouched. A new isolated profile is mandatory.
+
+Linux AArch64: **551 host tests pass** (`logs/ww16-baseline-source-final.log`),
+with red evidence in `logs/ww16-baseline-source-red.log`. Tests check explicit
+ancestry, default stale-build refusal, matching default checkpoint, Git failure,
+changed footprint/pins/composite, misplaced receipt, changed current launcher
+and mutated selected receipt. Audit, attribution and whitespace checks pass.
+This launcher-only correction deliberately does **not rebuild the old guest**:
+the requested authentic replay must use its already verified exact artifact.
+The watched trial follows at the longer authorized 600-second ceiling, with
+inactivity requiring **both silence and low CPU**; an explicit deadline, if hit,
+will still be reported as timeout, never a spontaneous crash or certified boot.

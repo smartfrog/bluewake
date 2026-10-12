@@ -13,12 +13,12 @@ import sys
 import uuid
 import zipfile
 
-from game_build import OUTPUT, ROOT, STACK, checked_sources, sha256
+from game_build import OUTPUT, ROOT, STACK, PINS, COMPOSITE_DIGEST, checked_sources, sha256
 
 sys.path.insert(0, str(ROOT / 'scripts/vita/armv7'))
 from fp_launch import create_run, evidence_file, reject_symlinks, sandbox_command, stage_runtime
 from fp_libraries import file_identity, library_identity
-from fp_profile import config_identity, stage_firmware
+from fp_profile import config_identity, stage_firmware, read_profile_file
 from fp_campaign import runtime_inputs
 from activity import CpuIdleWindow
 
@@ -131,20 +131,52 @@ def verify_package(evidence):
     return vpk, paths['ww05.vpk'][1]['sha256']
 
 
+def checked_build_receipt(path, launcher_source, baseline=False):
+    path = reject_symlinks(path)
+    evidence = json.loads(read_profile_file(path, 1024 * 1024, owned=True))
+    source = evidence['source']
+    if not isinstance(source, str) or len(source) != 40 or any(c not in '0123456789abcdef' for c in source):
+        raise ValueError('build source must be a full commit identity')
+    if evidence['pins'] != PINS:
+        raise ValueError('baseline build pins differ from the verified runtime')
+    if evidence['composite_digest'] != COMPOSITE_DIGEST:
+        raise ValueError('baseline composite identity differs')
+    snapshot = reject_symlinks(Path(evidence['snapshot']))
+    if snapshot.parent != OUTPUT or not snapshot.name.startswith('artifacts-'):
+        raise ValueError('build snapshot must stay in the owned artifact directory')
+    if baseline:
+        if path != snapshot / 'build-evidence.json':
+            raise ValueError('baseline receipt must be the preserved snapshot receipt')
+        ancestry = subprocess.run(['git', 'merge-base', '--is-ancestor', source, launcher_source],
+                                  cwd=ROOT, capture_output=True, text=True)
+        if ancestry.returncode == 1:
+            raise ValueError('baseline source is not an ancestor of the launcher')
+        if ancestry.returncode != 0:
+            raise RuntimeError('cannot verify baseline ancestry: ' + ancestry.stderr)
+    elif source != launcher_source:
+        raise ValueError('build is not at the delivery SHA')
+    footprint = snapshot / 'footprint.json'
+    if sha256(reject_symlinks(footprint)) != evidence['footprint_sha256']:
+        raise ValueError('snapshot footprint evidence changed')
+    if not baseline and sha256(OUTPUT / 'footprint.json') != evidence['footprint_sha256']:
+        raise ValueError('offline footprint evidence changed')
+    return evidence
+
+
 def stage(args):
     validate_timeout(args.timeout)
     CpuIdleWindow(getattr(args, 'idle_timeout', 30), 0.05)
     validate_continuation(getattr(args, 'continue_gx', 0))
     args.libraries = STACK / 'vita3k-env'
-    source = subprocess.check_output(['git', 'rev-parse', 'HEAD'], cwd=ROOT, text=True).strip()
+    launcher_source = subprocess.check_output(['git', 'rev-parse', 'HEAD'], cwd=ROOT, text=True).strip()
     if subprocess.check_output(['git', 'status', '--porcelain'], cwd=ROOT, text=True):
         raise ValueError('plan requires an immutable clean delivery checkpoint')
     checked_sources()
-    evidence = json.loads((OUTPUT / 'build-evidence.json').read_text())
-    if evidence['source'] != source:
-        raise ValueError('build is not at the delivery SHA')
-    if sha256(OUTPUT / 'footprint.json') != evidence['footprint_sha256']:
-        raise ValueError('offline footprint evidence changed')
+    baseline_path = getattr(args, 'baseline_build', None)
+    receipt_path = Path(baseline_path) if baseline_path is not None else OUTPUT / 'build-evidence.json'
+    evidence = checked_build_receipt(receipt_path, launcher_source, baseline=baseline_path is not None)
+    source = evidence['source']
+    footprint_path = Path(evidence['snapshot']) / 'footprint.json'
     if resource.getrlimit(resource.RLIMIT_FSIZE) != (resource.RLIM_INFINITY, resource.RLIM_INFINITY):
         raise ValueError('RLIMIT_FSIZE must remain unlimited for the copied emulator')
     vpk, package = verify_package(evidence)
@@ -170,8 +202,10 @@ def stage(args):
                 staged_runtime=library_identity(root / 'runtime', allow_symlinks=False),
                 firmware=firmware, private_config=config_identity(root), runtime_libraries=libraries,
                 wayland_socket=str(args.wayland_socket), build_evidence=evidence,
-                source_vpk=str(vpk), build_evidence_sha256=sha256(OUTPUT / 'build-evidence.json'),
-                footprint=json.loads((OUTPUT / 'footprint.json').read_text()))
+                source_vpk=str(vpk), build_evidence_sha256=sha256(receipt_path),
+                build_evidence_path=str(receipt_path), baseline_build=baseline_path is not None,
+                launcher_source=launcher_source, footprint_path=str(footprint_path),
+                footprint=json.loads(footprint_path.read_text()))
     plan['disc'] = disc
     (root / 'phases').mkdir(mode=0o700)
     for name, entry in plan['phases'].items():

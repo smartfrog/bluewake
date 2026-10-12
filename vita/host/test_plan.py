@@ -136,5 +136,73 @@ class PlanTest(unittest.TestCase):
             self.assertEqual(plan['phases']['guest']['timeout_seconds'], 60)
 
 
+class BaselineBuildTest(unittest.TestCase):
+    def setUp(self):
+        import stage_plan
+        from game_build import PINS, COMPOSITE_DIGEST
+        self.temporary = tempfile.TemporaryDirectory(dir='/tmp/opencode', prefix='ww16-baseline-')
+        self.addCleanup(self.temporary.cleanup)
+        self.output = Path(self.temporary.name)
+        self.snapshot = self.output / 'artifacts-fixture'
+        self.snapshot.mkdir()
+        (self.snapshot / 'footprint.json').write_text('{}\n')
+        (self.output / 'footprint.json').write_text('{}\n')
+        self.evidence = {'source': 'a' * 40, 'snapshot': str(self.snapshot), 'pins': PINS,
+                         'composite_digest': COMPOSITE_DIGEST,
+                         'footprint_sha256': stage_plan.sha256(self.snapshot / 'footprint.json')}
+        self.path = self.snapshot / 'build-evidence.json'
+
+    def select(self, baseline=True, ancestor_status=0):
+        import stage_plan
+        self.path.write_text(json.dumps(self.evidence))
+        with patch.object(stage_plan, 'OUTPUT', self.output), \
+             patch('subprocess.run', return_value=SimpleNamespace(returncode=ancestor_status, stderr='synthetic git error')) as run:
+            result = stage_plan.checked_build_receipt(self.path, 'b' * 40, baseline)
+        return result, run
+
+    def test_explicit_ancestor_build_keeps_its_guest_source_separate_from_the_launcher(self):
+        evidence, run = self.select()
+        self.assertEqual(evidence['source'], 'a' * 40)
+        self.assertIn(['git', 'merge-base', '--is-ancestor', 'a' * 40, 'b' * 40], run.call_args.args)
+
+    def test_default_delivery_does_not_accept_a_stale_guest_build(self):
+        with self.assertRaisesRegex(ValueError, 'delivery SHA'):
+            self.select(baseline=False)
+
+    def test_default_delivery_still_accepts_the_matching_checkpoint(self):
+        self.evidence['source'] = 'b' * 40
+        evidence, run = self.select(baseline=False)
+        self.assertEqual(evidence['source'], 'b' * 40)
+        run.assert_not_called()
+
+    def test_unrelated_commit_cannot_be_selected_as_the_baseline(self):
+        with self.assertRaisesRegex(ValueError, 'ancestor'):
+            self.select(ancestor_status=1)
+
+    def test_a_git_ancestry_error_is_not_treated_as_authorized(self):
+        with self.assertRaisesRegex(RuntimeError, 'ancestry'):
+            self.select(ancestor_status=128)
+
+    def test_changed_snapshot_footprint_is_refused(self):
+        (self.snapshot / 'footprint.json').write_text('changed')
+        with self.assertRaisesRegex(ValueError, 'footprint'):
+            self.select()
+
+    def test_different_pins_are_refused(self):
+        self.evidence['pins'] = {}
+        with self.assertRaisesRegex(ValueError, 'pins'):
+            self.select()
+
+    def test_different_composite_identity_is_refused(self):
+        self.evidence['composite_digest'] = 'f' * 64
+        with self.assertRaisesRegex(ValueError, 'composite'):
+            self.select()
+
+    def test_a_receipt_outside_its_saved_snapshot_cannot_be_used_as_a_baseline(self):
+        self.path = self.output / 'copied-receipt.json'
+        with self.assertRaisesRegex(ValueError, 'preserved snapshot'):
+            self.select()
+
+
 if __name__ == '__main__':
     unittest.main()
