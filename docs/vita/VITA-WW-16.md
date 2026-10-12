@@ -1019,3 +1019,56 @@ The actual ARM host links (`logs/ww16-gpu-finish-arm-link.log`); audit, attribut
 and whitespace checks pass. A clean committed VI build and watched authentic
 continuation are next. Do not claim a finished GPU job until that attempt reaches
 the successful completion log, or a visible pixel from a submission alone.
+
+## Unit 29: completion correctly refuses an unclassified retained tail
+
+Committed VI build **`c198346`** succeeds. Watched attempt
+**`555a9cabdde3450e8fcaef8f764612ef`** reaches the same GXDrawDone caller, then
+closes with **`GX draw-done requires all captured FIFO work to be consumed`**.
+No successful GPU-finish log is present and **no PE finish was published**.
+The frontier remains **24,302,469 cycles / 1,171 decoded commands / one real
+plan/draw/program / zero copies/presentations/refusals/gaps**. The closed report
+and 64 journal entries certify; install 1.30 s / guest 12.05 s, followed by the
+known shutdown exit **133**, not an inactivity kill.
+
+The old completion guard grouped gather, CP distance, retained provenance and
+partial command into one refusal. This report does **not** identify which count
+is nonzero or prove the retained bytes are NOPs. Keep that uncertainty explicit.
+The additional **83 FP launcher tests pass**
+(`logs/ww16-gpu-finish-fp-tests.log`). Disassembly of the certified ARM artifact
+confirms the linked glFinish actually branches through **sceGxmFinish**, rather
+than relying only on a source-directory assumption.
+
+## Unit 30: distinguish sourced inert GXFlush padding from unfinished work
+
+The authentic unchanged composite provides the narrow candidate: **GXDrawDone**
+writes BP `45000002`, then calls **GXFlush (`80322980`)** at `80322C10`. GXFlush
+loads zero and performs eight FIFO **stw** writes at **`803229A8..803229C4`**,
+then executes the real sync helper. Its stack is the caller's SP minus 8. The
+pinned GX parser's `case 0x00` is NOP. With the existing real 32-byte gather
+behavior, this guest-written 32-byte flush can leave up to 31 bytes of its own
+NOP suffix gathered after all rendering commands have already been consumed.
+Such NOPs have no unsubmitted rendering work; they need not be manufactured,
+submitted early or discarded to wait for the actual GPU jobs.
+
+The completion guard now permits **only** this inert suffix: every retained byte
+and origin byte is zero, each writer PC matches its exact suffix position in
+those eight stores, and each writer SP matches GXFlush's real stack relation.
+All CP distance/capture/read/partial-command counts must still be zero. The
+gather bytes, origins, count and transfer counters remain **unchanged**. Other
+bytes, provenance or stack shapes stop before a backend finish or PE event.
+No padding is added, bounds enlarged or commands replayed early.
+
+A bounded **first-completion frontier capture** records all pending counts and
+up to the existing 32 gather bytes with writer provenance; it also captures a
+refusal if a later completion fails. It is not a per-frame byte logger. The next
+authentic run must establish whether this candidate is the actual retained
+tail; this unit does not retroactively claim that evidence for attempt 555a.
+
+Linux AArch64: **577 host tests pass** (`logs/ww16-gpu-nop-tail-green.log`),
+including all 31 possible suffix lengths with bitwise unchanged gather state,
+non-NOP/origin/PC/SP refusals and frontier-log failure before backend work.
+The suffix test is red before this guard (`logs/ww16-gpu-nop-tail-red.log`). ARM
+host links (`logs/ww16-gpu-nop-tail-arm-link.log`); audit, attribution and whitespace
+checks pass. The renderer completion primitive and pins are unchanged. Commit,
+rebuild with VI and run a fresh watched continuation to classify the real tail.

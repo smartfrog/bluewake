@@ -37,6 +37,19 @@ class GpuFinishTest(unittest.TestCase):
     def test_later_fifo_work_requires_a_new_confirmed_backend_finish(self):
         self.probe('new-work')
 
+    def test_exact_sourced_flush_nop_suffix_stays_gathered_without_blocking_submitted_gpu_work(self):
+        for size in range(1, 32):
+            with self.subTest(size=size):
+                self.probe('flush-padding-' + str(size))
+
+    def test_non_nop_or_unsourced_gather_suffix_still_blocks_completion(self):
+        for shape in ('byte', 'origin', 'pc', 'sp'):
+            with self.subTest(shape=shape):
+                self.probe('bad-padding-' + shape)
+
+    def test_failed_frontier_capture_stops_before_backend_completion(self):
+        self.probe('frontier-trace-failure')
+
     def test_only_the_owned_observed_draw_done_caller_and_queue_are_supported(self):
         for shape in ('unowned', 'bad-caller', 'bad-queue', 'bad-sda', 'aliased-queue'):
             with self.subTest(shape=shape):
