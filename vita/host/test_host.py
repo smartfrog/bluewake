@@ -189,6 +189,17 @@ class StartupHostTest(unittest.TestCase):
     def test_unimplemented_desktop_service_edges_are_still_refused(self):
         subprocess.run([str(OUT / 'host_probe'), 'epilogue-edge-service'], check=True)
 
+    def test_owned_observed_retrace_wait_executes_guest_sleep_code_without_a_fake_wakeup(self):
+        subprocess.run([str(OUT / 'host_probe'), 'epilogue-edge-retrace'], check=True)
+
+    def test_unowned_retrace_sleep_code_is_not_accepted(self):
+        subprocess.run([str(OUT / 'host_probe'), 'epilogue-edge-retrace-unowned'], check=True)
+
+    def test_other_sleep_callers_queues_and_sda_bases_are_still_refused(self):
+        for shape in ('bad-caller', 'bad-queue', 'bad-sda', 'alias'):
+            with self.subTest(shape=shape):
+                subprocess.run([str(OUT / 'host_probe'), 'epilogue-edge-retrace-' + shape], check=True)
+
     def test_fp_dispatch_credit_refunds_only_valid_prepaid_unexecuted_suffixes(self):
         for shape in ('prepaid', 'precise', 'invalid', 'other'):
             with self.subTest(shape=shape):

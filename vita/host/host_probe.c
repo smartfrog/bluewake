@@ -356,15 +356,23 @@ int main(int argc, char** argv) {
         assert(host->cpu.pc == 0x80001000u);
         assert(host->error != NULL);
     } else if (strncmp(argv[1], "epilogue-edge-", 14u) == 0) {
+        const bool retrace = strncmp(argv[1], "epilogue-edge-retrace", 21u) == 0;
         const bool context = strcmp(argv[1], "epilogue-edge-context") == 0 ||
                              strcmp(argv[1], "epilogue-edge-context-unowned") == 0;
         const bool compiled = strcmp(argv[1], "epilogue-edge-compiled") == 0 ||
-                              strcmp(argv[1], "epilogue-edge-context") == 0;
+                              strcmp(argv[1], "epilogue-edge-context") == 0 ||
+                              strcmp(argv[1], "epilogue-edge-retrace") == 0;
         const bool unowned = strcmp(argv[1], "epilogue-edge-unowned") == 0 ||
-                             strcmp(argv[1], "epilogue-edge-context-unowned") == 0;
-        const bool service = strcmp(argv[1], "epilogue-edge-service") == 0;
+                             strcmp(argv[1], "epilogue-edge-context-unowned") == 0 ||
+                             strcmp(argv[1], "epilogue-edge-retrace-unowned") == 0;
+        const bool service = strcmp(argv[1], "epilogue-edge-service") == 0 ||
+                             strcmp(argv[1], "epilogue-edge-retrace-bad-caller") == 0 ||
+                             strcmp(argv[1], "epilogue-edge-retrace-bad-queue") == 0 ||
+                             strcmp(argv[1], "epilogue-edge-retrace-bad-sda") == 0 ||
+                             strcmp(argv[1], "epilogue-edge-retrace-alias") == 0;
         assert(compiled || unowned || service);
-        StaticRecompRange range = service ? (StaticRecompRange){0x803193ACu, 0x803193B0u} :
+        StaticRecompRange range = retrace ? (StaticRecompRange){0x80308A9Cu, 0x80308AA0u} :
+                                  service ? (StaticRecompRange){0x803193ACu, 0x803193B0u} :
                                   context ? (StaticRecompRange){0x80303A50u, 0x80303B28u} :
                                             (StaticRecompRange){0x80328F84u, 0x80328F9Cu};
         StaticRecompModuleDesc module = {.dispatch = dispatch, .code_ranges = &range, .num_code_ranges = 1u};
@@ -373,11 +381,20 @@ int main(int argc, char** argv) {
         host->cpu.lr = 0x8030141Cu;
         host->cpu.gpr[11] = 0x8040CF60u;
         host->cpu.gpr[3] = 0x803A2960u;
+        if (retrace) {
+            host->cpu.lr = strcmp(argv[1], "epilogue-edge-retrace-bad-caller") == 0 ? 0x80322C38u : 0x80313A2Cu;
+            host->cpu.gpr[3] = strcmp(argv[1], "epilogue-edge-retrace-bad-queue") == 0 ? 0x803F7C9Cu : 0x803F7B44u;
+            host->cpu.gpr[13] = strcmp(argv[1], "epilogue-edge-retrace-bad-sda") == 0 ? 0x8040E0E0u : 0x803FE0E0u;
+            if (strcmp(argv[1], "epilogue-edge-retrace-alias") == 0)
+                assert(ppc_guest_alias_add(0x803F7B44u, 8u, NULL));
+        }
         host->cpu.srr0 = 0x802AE070u;
         host->cpu.srr1 = 0x0000A032u;
         for (u32 reg = 27u; reg <= 31u; ++reg)
             host->cpu.gpr[reg] = 0xA5000000u | reg;
         const CPUState before = host->cpu;
+        const DolInterrupts interrupts_before = host->interrupts;
+        const u32 queue_before = mem_read32(&host->cpu, 0x803F7B44u);
         assert(ww_host_edge(host, &host->cpu, host->cpu.pc) == !compiled);
         assert((host->error == NULL) == compiled && host->edge_stopped == !compiled);
         assert(host->cpu.pc == before.pc && host->cpu.lr == before.lr && host->cpu.msr == before.msr);
@@ -386,6 +403,8 @@ int main(int argc, char** argv) {
         assert(memcmp(host->cpu.gqr, before.gqr, sizeof(before.gqr)) == 0);
         assert(memcmp(host->cpu.fpr, before.fpr, sizeof(before.fpr)) == 0 && host->cpu.fpscr == before.fpscr);
         assert(host->cycles.absolute_cycles == 0u);
+        assert(memcmp(&interrupts_before, &host->interrupts, sizeof(interrupts_before)) == 0);
+        assert(mem_read32(&host->cpu, 0x803F7B44u) == queue_before);
         if (!compiled)
             assert(host->error_address == before.pc && host->error_pc == before.pc);
     } else if (strncmp(argv[1], "fp-credit-", 10u) == 0) {
