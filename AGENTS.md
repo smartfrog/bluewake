@@ -97,6 +97,14 @@ certificates or profiles, or console keys. Test with copies of saves, and never 
 Say what you ran and on what device. A build that compiles is not a game that plays, and CI is not
 hardware. If you could not test something, say so plainly.
 
+## Watch the runs you start
+
+Never start an emulator run and passively wait out its timeout. Watch the run while it lives:
+tail the log and check the process CPU (a healthy boot runs near 100% CPU; near 0% means it is
+hung). A run whose log is silent and whose CPU has been near zero for more than about 30 seconds
+is a hang: abort it early and keep the partial log as evidence. A timeout is a ceiling for the
+slow healthy path, never a waiting plan.
+
 ## When to stop and ask
 
 Ask Chris before anything that is hard to undo: publishing or deleting a release, deleting branches,
