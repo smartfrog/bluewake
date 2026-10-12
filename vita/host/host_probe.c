@@ -344,9 +344,9 @@ int main(int argc, char** argv) {
     } else if (strcmp(argv[1], "frontier") == 0) {
         host->cpu.pc = 0x80001000u;
         host->cpu.gpr[1] = 0x817FFF00u;
-        host->cpu.external_write(&host->cpu, 0xCC008000u, 0x61u, 1u);
+        assert(ww_gx_write(&host->frontier, &host->gx, 0x61u, 1u, host->cpu.pc, host->cpu.gpr[1]));
         assert(!ww_host_edge(host, &host->cpu, host->cpu.pc));
-        host->cpu.external_write(&host->cpu, 0xCC008000u, 0xFEFFFFFFu, 4u);
+        assert(ww_gx_write(&host->frontier, &host->gx, 0xFEFFFFFFu, 4u, host->cpu.pc, host->cpu.gpr[1]));
         assert(ww_host_edge(host, &host->cpu, host->cpu.pc));
         assert(host->edge_stopped);
         assert(host->frontier.complete);
@@ -532,7 +532,9 @@ int main(int argc, char** argv) {
         host->cpu.external_write(&host->cpu, 0xCC000034u, 0xEF5Fu, 2u);
         host->cpu.external_write(&host->cpu, 0xCC000038u, 0xA19Fu, 2u);
         host->cpu.external_write(&host->cpu, 0xCC000028u, 0x321Fu, 2u);
+        host->cpu.external_write(&host->cpu, 0xCC00002Au, 9u, 2u);
         host->cpu.external_write(&host->cpu, 0xCC00002Cu, 0x543Fu, 2u);
+        host->cpu.external_write(&host->cpu, 0xCC00002Eu, 5u, 2u);
         assert(host->error == NULL);
         assert(host->cpu.external_read(&host->cpu, 0xCC00300Cu, 4u) == 0x00429F60u);
         assert(host->cpu.external_read(&host->cpu, 0xCC003010u, 4u) == 0x004C9F40u);
@@ -542,22 +544,31 @@ int main(int argc, char** argv) {
         assert(host->cpu.external_read(&host->cpu, 0xCC000034u, 2u) == 0xEF40u);
         assert(host->cpu.external_read(&host->cpu, 0xCC000038u, 2u) == 0xA180u);
         assert(host->cpu.external_read(&host->cpu, 0xCC000028u, 2u) == 0x3200u);
+        assert(host->cpu.external_read(&host->cpu, 0xCC00002Au, 2u) == 9u);
+        assert(host->cp_fifo_high_watermark == 0x00093200u);
         assert(host->cpu.external_read(&host->cpu, 0xCC00002Cu, 2u) == 0x5420u);
+        assert(host->cpu.external_read(&host->cpu, 0xCC00002Eu, 2u) == 5u);
+        assert(host->cp_fifo_low_watermark == 0x00055420u);
     } else if (strncmp(argv[1], "cp-base-halves-", 15u) == 0 || strncmp(argv[1], "cp-end-halves-", 14u) == 0 ||
-               strncmp(argv[1], "cp-wptr-halves-", 15u) == 0 || strncmp(argv[1], "cp-rptr-halves-", 15u) == 0) {
+               strncmp(argv[1], "cp-wptr-halves-", 15u) == 0 || strncmp(argv[1], "cp-rptr-halves-", 15u) == 0 ||
+               strncmp(argv[1], "cp-hiwater-halves-", 18u) == 0 || strncmp(argv[1], "cp-lowater-halves-", 18u) == 0) {
         const bool end = strncmp(argv[1], "cp-end-halves-", 14u) == 0;
         const bool wptr = strncmp(argv[1], "cp-wptr-halves-", 15u) == 0;
         const bool rptr = strncmp(argv[1], "cp-rptr-halves-", 15u) == 0;
-        const char* order = argv[1] + (end ? 14u : 15u);
+        const bool hiwater = strncmp(argv[1], "cp-hiwater-halves-", 18u) == 0;
+        const bool lowater = strncmp(argv[1], "cp-lowater-halves-", 18u) == 0;
+        const char* order = argv[1] + (hiwater || lowater ? 18u : end ? 14u : 15u);
         assert(strcmp(order, "low-first") == 0 || strcmp(order, "high-first") == 0);
         const bool high_first = strcmp(order, "high-first") == 0;
-        const u32 low_address = end ? 0xCC000024u : wptr ? 0xCC000034u : rptr ? 0xCC000038u : 0xCC000020u;
+        const u32 low_address = hiwater ? 0xCC000028u : lowater ? 0xCC00002Cu : end ? 0xCC000024u :
+                                wptr ? 0xCC000034u : rptr ? 0xCC000038u : 0xCC000020u;
         const u32 high_address = low_address + 2u;
-        const u32 high_value = end ? 0x4Cu : 0x42u;
-        const u32 low_value = end ? 0x9F5Cu : 0x9F60u;
+        const u32 high_value = hiwater ? 9u : lowater ? 5u : end ? 0x4Cu : 0x42u;
+        const u32 low_value = hiwater ? 0xC000u : lowater ? 0u : end ? 0x9F5Cu : 0x9F60u;
         const u32 masked_low = low_value & 0xFFE0u;
-        u32* full_value = end ? &host->cp_fifo_end : wptr ? &host->cp_fifo_write_pointer :
-                          rptr ? &host->cp_fifo_read_pointer : &host->cp_fifo_base;
+        u32* full_value = hiwater ? &host->cp_fifo_high_watermark : lowater ? &host->cp_fifo_low_watermark :
+                          end ? &host->cp_fifo_end :
+                          wptr ? &host->cp_fifo_write_pointer : rptr ? &host->cp_fifo_read_pointer : &host->cp_fifo_base;
         const DolInterrupts before = host->interrupts;
         host->cpu.external_write(&host->cpu, high_first ? high_address : low_address, high_first ? high_value : low_value, 2u);
         assert(host->error == NULL);
@@ -602,14 +613,23 @@ int main(int argc, char** argv) {
         const u32 address = high ? 0xCC000032u : distance ? 0xCC000030u : 0xCC000002u;
         const u32 pc = high ? 0x80320FF8u : distance ? 0x80320F98u : 0x80321308u;
         host->cpu.pc = pc;
-        const bool credit = strcmp(scenario, "credit") == 0;
-        const bool store = strcmp(scenario, "store") == 0;
+        const bool credit = strcmp(scenario, "credit") == 0 || strcmp(scenario, "mask-credit") == 0;
+        const bool store = strcmp(scenario, "store") == 0 || strcmp(scenario, "mask-store") == 0;
+        const bool masked = !distance && strncmp(scenario, "mask", 4u) == 0;
+        const bool clear_mask = strcmp(scenario, "mask-clear") == 0;
+        const bool reset = strcmp(scenario, "reset") == 0;
         const bool queued = strcmp(scenario, "queued") == 0;
         const bool read = strcmp(scenario, "read") == 0;
         const bool bad_value = strncmp(scenario, "value-", 6u) == 0;
         const bool bad_width = strncmp(scenario, "width-", 6u) == 0;
-        const u64 value = bad_value ? strtoul(scenario + 6u, NULL, 0) : 0u;
-        const u8 width = bad_width ? (u8)strtoul(scenario + 6u, NULL, 0) : 2u;
+        const bool bad_read = strncmp(scenario, "read-width-", 11u) == 0;
+        const u64 value = bad_value ? strtoul(scenario + 6u, NULL, 0) : masked ? 4u : 0u;
+        const u8 width = bad_width ? (u8)strtoul(scenario + 6u, NULL, 0) :
+                         bad_read ? (u8)strtoul(scenario + 11u, NULL, 0) : 2u;
+        if (!distance && (bad_value || bad_width || bad_read)) {
+            host->cpu.external_write(&host->cpu, address, 4u, 2u);
+            assert(host->error == NULL);
+        }
         if (queued) {
             assert(distance);
             assert(ww_gx_write(&host->frontier, &host->gx, 0x10u, 1u, pc - 4u, host->cpu.gpr[1]));
@@ -621,24 +641,34 @@ int main(int argc, char** argv) {
             bluewake_cycle_domain_prepare_dispatch(&host->cycles, &host->cpu);
             host->cpu.downcount -= 256;
         }
-        if (store) {
+        if (reset) {
+            assert(!distance && host->cpu.external_read(&host->cpu, address, 2u) == 0u);
+        } else if (store) {
             host->cpu.gpr[3] = 0xCC000000u;
-            host->cpu.gpr[0] = 0u;
+            host->cpu.gpr[0] = (u32)value;
             mem_write16(&host->cpu, host->cpu.gpr[3] + (high ? 50u : distance ? 48u : 2u), (u16)host->cpu.gpr[0]);
-        } else if (read) {
-            assert(distance);
+        } else if (read || bad_read) {
+            assert(distance || bad_read);
             host->cpu.external_read(&host->cpu, address, width);
         } else {
             host->cpu.external_write(&host->cpu, address, value, width);
         }
-        if (bad_value || bad_width || queued || read) {
+        if (bad_value || bad_width || bad_read || queued || read) {
             assert(host->error != NULL && host->error_address == address && host->error_pc == pc);
-            if (!read)
+            if (!read && !bad_read)
                 assert(host->error_width == width && host->error_value == value);
+            if (!distance)
+                assert(host->cpu.external_read(&host->cpu, address, 2u) == 4u);
         } else {
             assert(host->error == NULL && host->cpu.exception == 0u);
-            host->cpu.external_write(&host->cpu, address, 0u, 2u);
+            host->cpu.external_write(&host->cpu, address, value, 2u);
             assert(host->error == NULL);
+            if (!distance)
+                assert(host->cpu.external_read(&host->cpu, address, 2u) == value);
+            if (clear_mask) {
+                host->cpu.external_write(&host->cpu, address, 0u, 2u);
+                assert(host->error == NULL && host->cpu.external_read(&host->cpu, address, 2u) == 0u);
+            }
         }
         assert(memcmp(&before, &host->interrupts, sizeof(before)) == 0);
         assert(memcmp(&frontier, &host->frontier, sizeof(frontier)) == 0);

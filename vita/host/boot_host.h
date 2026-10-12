@@ -4,6 +4,7 @@
 #include "module_exports.h"
 #include "module_cpu_contract.h"
 #include "gx_checkpoint.h"
+#include "fifo_gather.h"
 #include "code_guard.h"
 #include "cycle_domain.h"
 #include "ipl_sram.h"
@@ -21,6 +22,9 @@ typedef struct WwHost {
     DolGuestMemory memory;
     DolGxRecompState gx;
     WwGxCheckpoint frontier;
+    WwGxStream stream;
+    WwGatherPipe gather;
+    WwFifoCapture fifo_capture;
     BluewakeCycleDomain cycles;
     DolInterrupts interrupts;
     DolDi di;
@@ -32,6 +36,7 @@ typedef struct WwHost {
     WwBatContract bat;
     const StaticRecompModuleDesc* module;
     u32 l2cr;
+    u32 wpar;
     u32 pi_fifo_base;
     u32 pi_fifo_end;
     u32 pi_fifo_write_pointer;
@@ -41,6 +46,7 @@ typedef struct WwHost {
     u32 cp_fifo_read_pointer;
     u32 cp_fifo_high_watermark;
     u32 cp_fifo_low_watermark;
+    u32 cp_fifo_distance;
     WwCodeGuard code_guard;
     const char* error;
     u32 error_address;
@@ -51,6 +57,7 @@ typedef struct WwHost {
     u32 decrementer;
     u32 hid0;
     u32 sprg0;
+    u16 cp_control;
     u16 mi_interrupt_mask;
     u16 mi_unknown1;
     u16 mi_protection;
@@ -59,6 +66,7 @@ typedef struct WwHost {
     u32 alias_count;
     u64 edges;
     u64 exi_transfers;
+    u64 disc_reads;
     u64 next_edge_progress;
     u64 syscall_resumes;
     u32 dispatch_trace_remaining;
@@ -66,6 +74,7 @@ typedef struct WwHost {
     bool decrementer_valid;
     bool decrementer_pending;
     bool aram_owned;
+    bool disc_owned;
 } WwHost;
 
 static inline bool ww_host_trace_syscall(u64 resume) {
@@ -81,5 +90,8 @@ bool ww_host_resume_exception(WwHost* host);
 int ww_host_dispatch(WwHost* host, u32 address);
 u64 ww_host_end_dispatch(WwHost* host);
 void ww_host_fail(WwHost* host, const char* error, u32 address, u32 pc);
+bool ww_host_linked_alias_overlaps(u32 address, u32 size);
+DolDiCommandResult ww_host_di_read(WwHost* host, DolDiCommand* command);
+const char* ww_gx_stream_write(WwHost* host, u8 byte, const WwFifoOrigin* origin, u32 trailing);
 
 #endif

@@ -12,7 +12,8 @@ FIFO_REGISTERS = {'pi-fifo-base': 4, 'pi-fifo-end': 4, 'pi-fifo-wptr': 4,
                   'cp-fifo-base-low': 2, 'cp-fifo-end-low': 2, 'cp-fifo-wptr-low': 2,
                   'cp-fifo-rptr-low': 2, 'cp-fifo-high-watermark-low': 2,
                   'cp-fifo-low-watermark-low': 2, 'cp-fifo-base-high': 2, 'cp-fifo-end-high': 2,
-                  'cp-fifo-wptr-high': 2, 'cp-fifo-rptr-high': 2}
+                  'cp-fifo-wptr-high': 2, 'cp-fifo-rptr-high': 2,
+                  'cp-fifo-high-watermark-high': 2, 'cp-fifo-low-watermark-high': 2}
 
 
 class StartupHostTest(unittest.TestCase):
@@ -86,7 +87,7 @@ class StartupHostTest(unittest.TestCase):
         subprocess.run([str(OUT / 'host_probe'), 'pi-fifo-independent'], check=True)
 
     def test_cp_fifo_halfword_updates_preserve_the_other_half_in_either_write_order(self):
-        for register in ('base', 'end', 'wptr', 'rptr'):
+        for register in ('base', 'end', 'wptr', 'rptr', 'hiwater', 'lowater'):
             for order in ('low-first', 'high-first'):
                 with self.subTest(register=register, order=order):
                     subprocess.run([str(OUT / 'host_probe'), f'cp-{register}-halves-{order}'], check=True)
@@ -108,7 +109,10 @@ class StartupHostTest(unittest.TestCase):
 
     def test_cp_enables_and_unobserved_distances_fail_with_the_actual_write_context(self):
         for register in ('control', 'distance-low', 'distance-high'):
-            for value in (1, 2, 4, 8, 16, 32, 64, 65535):
+            values = (1, 2, 5, 8, 16, 32, 64, 68, 65535)
+            if register != 'control':
+                values = (*values, 4, 20, 21)
+            for value in values:
                 with self.subTest(register=register, value=value):
                     subprocess.run([str(OUT / 'host_probe'), f'cp-{register}-value-{value}'], check=True)
 
@@ -122,6 +126,19 @@ class StartupHostTest(unittest.TestCase):
         for register in ('control', 'distance-low', 'distance-high'):
             with self.subTest(register=register):
                 subprocess.run([str(OUT / 'host_probe'), f'cp-{register}-credit'], check=True)
+
+    def test_cp_control_reset_reads_as_zero_without_gp_or_irq_activity(self):
+        subprocess.run([str(OUT / 'host_probe'), 'cp-control-reset'], check=True)
+
+    def test_observed_cp_overflow_mask_retains_state_without_gp_fifo_or_irq_activity(self):
+        for scenario in ('mask', 'mask-store', 'mask-credit', 'mask-clear'):
+            with self.subTest(scenario=scenario):
+                subprocess.run([str(OUT / 'host_probe'), f'cp-control-{scenario}'], check=True)
+
+    def test_cp_control_read_rejects_widths_without_altering_the_overflow_mask(self):
+        for width in (1, 4, 8):
+            with self.subTest(width=width):
+                subprocess.run([str(OUT / 'host_probe'), f'cp-control-read-width-{width}'], check=True)
 
     def test_cp_distance_zero_cannot_discard_already_observed_fifo_input(self):
         for part in ('low', 'high'):
@@ -302,7 +319,7 @@ class StartupHostTest(unittest.TestCase):
     def test_decrementer_write_requires_supervisor_privilege(self):
         subprocess.run([str(OUT / 'host_probe'), 'dec-write-privilege'], check=True)
 
-    def test_fifo_frontier_stops_at_edge(self):
+    def test_synthetic_checkpoint_feed_stops_at_edge(self):
         subprocess.run([str(OUT / 'host_probe'), 'frontier'], check=True)
 
     def test_unknown_instruction_is_not_skipped(self):

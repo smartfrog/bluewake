@@ -14,6 +14,49 @@ sys.path.insert(0, str(ROOT / 'scripts/vita/armv7'))
 
 
 class PlanTest(unittest.TestCase):
+    def test_optional_disc_staging_keeps_a_verified_identity_and_creates_only_an_empty_bind_target(self):
+        import stage_plan
+        with tempfile.TemporaryDirectory(dir='/home/fred/projects/zeldaWWHDRecomp/build-f5', prefix='ww05-disc-') as directory:
+            root = Path(directory)
+            image = root / 'private.iso'
+            image.write_bytes(b'verified private fixture')
+            record = stage_plan.stage_disc(root / 'run', image, stage_plan.sha256(image))
+            self.assertEqual(record['identity']['sha256'], stage_plan.sha256(image))
+            self.assertEqual((root / 'run' / record['install_path']).read_bytes(), b'')
+
+    def test_optional_disc_rejects_a_different_image_before_creating_an_install_target(self):
+        import stage_plan
+        with tempfile.TemporaryDirectory(dir='/home/fred/projects/zeldaWWHDRecomp/build-f5', prefix='ww05-disc-') as directory:
+            root = Path(directory)
+            image = root / 'private.iso'
+            image.write_bytes(b'different private fixture')
+            with self.assertRaisesRegex(ValueError, 'verified WW05 input'):
+                stage_plan.stage_disc(root / 'run', image, 'a' * 64)
+            self.assertFalse((root / 'run').exists())
+    def test_continuation_is_opt_in_and_has_a_command_log_limit_not_an_execution_limit(self):
+        import stage_plan
+        args = SimpleNamespace(libraries=None, wayland_socket=None, timeout=600, continue_gx=64, disc=None)
+        plan = stage_plan.make_plan(Path('/unused'), args, 'a' * 40, 'b' * 64, 'c' * 32)
+        self.assertEqual(plan['continue_gx'], 64)
+        self.assertIn('no guest execution cap', plan['continuation_policy'])
+
+    def test_continuation_log_limit_is_bounded(self):
+        import stage_plan
+        for limit in (-1, 257):
+            with self.subTest(limit=limit), self.assertRaises(ValueError):
+                stage_plan.make_plan(Path('/unused'), SimpleNamespace(timeout=600, continue_gx=limit),
+                                     'a' * 40, 'b' * 64, 'c' * 32)
+
+    def test_optional_disc_is_bound_read_only_at_the_existing_ww13_install_path(self):
+        import stage_plan
+        args = SimpleNamespace(libraries=None, wayland_socket=None, timeout=600, continue_gx=64,
+                               disc=Path('/private/input.iso'))
+        plan = stage_plan.make_plan(Path('/private/run'), args, 'a' * 40, 'b' * 64, 'c' * 32)
+        for phase in plan['phases'].values():
+            command = phase['command']
+            index = command.index('/private/input.iso')
+            self.assertEqual(command[index - 1:index + 2], ['--ro-bind', '/private/input.iso',
+                             '/run/ww03/data/Vita3K/Vita3K/ux0/data/bluewake/GZLE01.iso'])
     def test_deeper_startup_allows_a_bounded_three_minute_phase(self):
         import stage_plan
         with tempfile.TemporaryDirectory(prefix='ww05-deadline-', dir='/home/fred/projects/zeldaWWHDRecomp/build-f5') as directory:

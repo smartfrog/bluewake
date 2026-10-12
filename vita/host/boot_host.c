@@ -8,6 +8,7 @@
 #include "gxruntime/boot.h"
 #include "gxruntime/guest_memory_dirty.h"
 #include "gxruntime/aram.h"
+#include "gxruntime/dvd.h"
 #include "ww05_dsp_init.h"
 
 #include <string.h>
@@ -31,8 +32,8 @@ static WwHost* owner(CPUState* cpu) {
     return cpu->external_user_data;
 }
 
-static bool linked_alias_overlaps(u32 address, u8 size) {
-    for (u8 offset = 0u; offset < size; ++offset) {
+bool ww_host_linked_alias_overlaps(u32 address, u32 size) {
+    for (u32 offset = 0u; offset < size; ++offset) {
         u8* alias;
         if (ppc_guest_alias_resolve(address + offset, 1u, &alias, NULL))
             return true;
@@ -113,6 +114,8 @@ static void observe(CPUState* cpu) {
     close_spent_quantum(host, cpu);
 }
 
+static bool fifo_has_input(const WwHost* host);
+
 static u32 spr_read(CPUState* cpu, u16 spr, u32 cia) {
     WwHost* host = owner(cpu);
     if (spr == 272u)
@@ -126,6 +129,10 @@ static u32 spr_read(CPUState* cpu, u16 spr, u32 cia) {
         return host->hid0;
     if (spr == 1017u)
         return host->l2cr;
+    if (spr == 921u) {
+        observe(cpu);
+        return host->wpar | (host->gather.size != 0u ? 1u : 0u);
+    }
     if (spr == 22u || spr == 268u || spr == 269u) {
         observe(cpu);
         return spr == 22u ? host->decrementer :
@@ -139,6 +146,23 @@ static void spr_write(CPUState* cpu, u16 spr, u32 value, u32 cia) {
     WwHost* host = owner(cpu);
     if (spr == 272u) {
         host->sprg0 = value;
+    } else if (spr == 921u) {
+        observe(cpu);
+        if (host->error != NULL)
+            return;
+        const char* error = NULL;
+        if (value != 0x0C008000u || fifo_has_input(host) || host->cp_fifo_distance != 0u)
+            error = "WPAR requires observed empty gather configuration; redirection or post-input reset not implemented";
+        else if (fprintf(stderr, "[wpar] spr=921 address=%08X bne=0 gather_bytes=%u cp_distance=%u pc=%08X\n",
+                         value, host->gather.size, host->cp_fifo_distance, cia) < 0)
+            error = "WPAR trace write failed";
+        if (error != NULL) {
+            host->error_width = 4u;
+            host->error_value = value;
+            ww_host_fail(host, error, spr, cia);
+            return;
+        }
+        host->wpar = value;
     } else if (spr == 284u || spr == 285u) {
         bluewake_cycle_domain_write_timebase(&host->cycles, cpu, spr, value);
     } else if (spr == 22u) {
@@ -278,7 +302,7 @@ static DolDiCommandResult di_command(void* user, DolDiCommand* command) {
             ww_host_fail(host, "DI inquiry requires a 32-byte read DMA into real MEM1", command->command[0], host->cpu.pc);
             return DOL_DI_COMMAND_ERROR;
         }
-        if (linked_alias_overlaps(guest, 32u)) {
+        if (ww_host_linked_alias_overlaps(guest, 32u)) {
             ww_host_fail(host, "DI inquiry DMA overlaps a linked alias", command->command[0], host->cpu.pc);
             return DOL_DI_COMMAND_ERROR;
         }
@@ -289,8 +313,7 @@ static DolDiCommandResult di_command(void* user, DolDiCommand* command) {
         bluewake_di_inquiry_write(command->cpu, guest);
         return DOL_DI_COMMAND_COMPLETE;
     }
-    ww_host_fail(host, "DVD command requires private disc service (not packaged)", command->command[0], host->cpu.pc);
-    return DOL_DI_COMMAND_ERROR;
+    return ww_host_di_read(host, command);
 }
 
 static u8 sram_read8(void* user, u32 physical) {
@@ -356,9 +379,9 @@ static u32* fifo_register(WwHost* host, u32 address, u8 size) {
         return &host->cp_fifo_base;
     if ((address == 0xCC000024u || address == 0xCC000026u) && size == 2u)
         return &host->cp_fifo_end;
-    if (address == 0xCC000028u && size == 2u)
+    if ((address == 0xCC000028u || address == 0xCC00002Au) && size == 2u)
         return &host->cp_fifo_high_watermark;
-    if (address == 0xCC00002Cu && size == 2u)
+    if ((address == 0xCC00002Cu || address == 0xCC00002Eu) && size == 2u)
         return &host->cp_fifo_low_watermark;
     if ((address == 0xCC000034u || address == 0xCC000036u) && size == 2u)
         return &host->cp_fifo_write_pointer;
@@ -383,7 +406,7 @@ static bool external_memory_address(CPUState* cpu, u32 address, u8 size, u32* re
     *resolved = address;
     if (!(cpu->msr & PPC_MSR_DR) && in_range(address, size, 0u, cpu->ram_size)) {
         const u32 cached = address | GC_RAM_BASE;
-        if (linked_alias_overlaps(cached, size))
+        if (ww_host_linked_alias_overlaps(cached, size))
             return false;
         *resolved = cached;
     }
@@ -405,6 +428,10 @@ static void refresh(WwHost* host) {
     close_spent_quantum(host, &host->cpu);
 }
 
+static bool fifo_has_input(const WwHost* host) {
+    return host->frontier.size != 0u || host->gather.size != 0u || host->gather.transfers != 0u;
+}
+
 static u64 mmio_read(CPUState* cpu, u32 address, u8 size) {
     WwHost* host = owner(cpu);
     u64 value;
@@ -421,13 +448,19 @@ static u64 mmio_read(CPUState* cpu, u32 address, u8 size) {
         refresh(host);
         return value;
     }
-    if (address == 0xCC00003Au && size == 2u && host->frontier.size != 0u) {
+    if (address == 0xCC00003Au && size == 2u && fifo_has_input(host) && (host->cp_control & 1u) == 0u) {
         ww_host_fail(host, "CP read pointer sync requires empty disabled init; FIFO processor backend not implemented", address, cpu->pc);
         return 0u;
     }
     u32* fifo = fifo_register(host, address, size);
     if (fifo != NULL)
         value = size == 2u ? (u16)(*fifo >> ((address & 2u) != 0u ? 16u : 0u)) : *fifo;
+    else if (address == 0xCC000002u && size == 2u)
+        value = host->cp_control;
+    else if (address == 0xCC000004u && size == 2u)
+        value = 0u;
+    else if ((address == 0xCC000030u || address == 0xCC000032u) && size == 2u && (host->cp_control & 1u) != 0u)
+        value = (u16)(host->cp_fifo_distance >> (address == 0xCC000032u ? 16u : 0u));
     else if (address == 0xCC00401Cu && size == 2u)
         value = host->mi_interrupt_mask;
     else if (address == 0xCC004020u && size == 2u)
@@ -465,8 +498,15 @@ static void fail_mmio_write(WwHost* host, const char* error, u32 address, u64 va
 static void mmio_write(CPUState* cpu, u32 address, u64 value, u8 size) {
     WwHost* host = owner(cpu);
     if (in_range(address, size, 0xCC008000u, 0x20u)) {
-        if (!ww_gx_write(&host->frontier, &host->gx, value, size, cpu->pc, cpu->gpr[1]))
-            ww_host_fail(host, host->frontier.error, address, cpu->pc);
+        observe(cpu);
+        if (host->error != NULL)
+            return;
+        const char* error = ww_fifo_gather_write(host, value, size);
+        if (error == NULL)
+            error = ww_fifo_consume_first(host);
+        if (error != NULL)
+            fail_mmio_write(host, error, address, value, size);
+        close_spent_quantum(host, cpu);
         return;
     }
     u32 memory_address;
@@ -508,19 +548,35 @@ static void mmio_write(CPUState* cpu, u32 address, u64 value, u8 size) {
     }
     u32* fifo = fifo_register(host, address, size);
     if (address == 0xCC000002u && size == 2u) {
-        if (value != 0u) {
-            fail_mmio_write(host, "CP control requires disabled init; FIFO processor backend not implemented", address, value, size);
+        if (value != 0u && value != 4u && value != 0x14u && value != 0x15u) {
+            fail_mmio_write(host, "CP control requests an unimplemented FIFO mode or interrupt mask", address, value, size);
+            return;
+        }
+        host->cp_control = (u16)value;
+        const char* error = ww_fifo_consume_first(host);
+        if (error != NULL) {
+            fail_mmio_write(host, error, address, value, size);
+            return;
+        }
+    } else if (address == 0xCC000004u && size == 2u) {
+        if (value != 3u || (host->cp_control & 1u) != 0u || host->cp_fifo_distance != 0u ||
+            fifo_has_input(host) || (dol_interrupts_pi_cause(&host->interrupts) & DOL_PI_CAUSE_CP) != 0u) {
+            fail_mmio_write(host, "CP clear requires observed idle overflow/underflow acknowledgement; active FIFO or CP IRQ handling not implemented", address, value, size);
             return;
         }
     } else if ((address == 0xCC000030u || address == 0xCC000032u) && size == 2u) {
-        if (value != 0u || host->frontier.size != 0u) {
+        if (value != 0u || host->cp_fifo_distance != 0u || fifo_has_input(host)) {
             fail_mmio_write(host, "CP FIFO distance requires empty disabled init; FIFO processor backend not implemented", address, value, size);
             return;
         }
-    } else if (address == 0xCC00003Au && size == 2u && host->frontier.size != 0u) {
+    } else if (address == 0xCC00003Au && size == 2u && fifo_has_input(host)) {
         fail_mmio_write(host, "CP read pointer sync requires empty disabled init; FIFO processor backend not implemented", address, value, size);
         return;
     } else if (fifo != NULL) {
+        if (fifo_has_input(host)) {
+            fail_mmio_write(host, "FIFO reconfiguration after input requires a processor synchronization backend", address, value, size);
+            return;
+        }
         if (size == 2u) {
             const u32 shift = (address & 2u) != 0u ? 16u : 0u;
             const u32 mask = shift != 0u ? 0x03FFu : 0xFFE0u;
@@ -589,7 +645,7 @@ bool ww_host_edge(void* user, CPUState* cpu, u32 address) {
             return true;
         }
     }
-    if (host->frontier.complete || host->error != NULL) {
+    if ((host->frontier.complete && !host->stream.enabled) || host->error != NULL) {
         host->edge_stopped = true;
         return true;
     }
@@ -811,6 +867,10 @@ bool ww_host_init(WwHost* host) {
 }
 
 void ww_host_shutdown(WwHost* host) {
+    if (host->disc_owned) {
+        dvd_close_image();
+        host->disc_owned = false;
+    }
     if (host->aram_owned) {
         aram_free();
         host->aram_owned = false;

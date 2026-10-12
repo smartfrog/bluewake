@@ -3,8 +3,10 @@
 
 #include "gxruntime/gx_recomp.h"
 
+enum { WW_GX_MAX_COMMAND_BYTES = 1025u };
+
 typedef struct WwGxCheckpoint {
-    u8 bytes[1025];
+    u8 bytes[WW_GX_MAX_COMMAND_BYTES];
     u32 size;
     u32 required;
     u32 pc;
@@ -14,6 +16,14 @@ typedef struct WwGxCheckpoint {
     bool complete;
     const char* error;
 } WwGxCheckpoint;
+
+typedef struct WwGxStream {
+    WwGxCheckpoint command;
+    u64 decoded;
+    u32 logged;
+    u32 log_limit;
+    bool enabled;
+} WwGxStream;
 
 bool ww_gx_write(WwGxCheckpoint* checkpoint, DolGxRecompState* gx,
                  u64 value, u8 size, u32 pc, u32 sp);

@@ -37,7 +37,8 @@ def inspect(build):
     if not stacks or stacks[0]['bytes'] >= 262144:
         raise ValueError('compiled frame cannot fit the explicitly reserved worker stack')
     symbols = records['symbols']
-    for symbol in ('cpu_init', 'cpu_free', 'ppc_guest_alias_add', 'staticrecomp_get_module', 'dolrecomp_indirect_dispatch'):
+    for symbol in ('cpu_init', 'cpu_free', 'ppc_guest_alias_add', 'staticrecomp_get_module', 'dolrecomp_indirect_dispatch',
+                   'dvd_open_image', 'dvd_read_to_guest', 'bw_dvd_fopen', 'bw_dvd_fread'):
         if len(re.findall(r'^[0-9a-fA-F]+\s+[0-9a-fA-F]+\s+[A-Za-z]\s+' + symbol + r'$', symbols, re.M)) != 1:
             raise ValueError('single runtime/dispatch owner violated: ' + symbol)
     data = (OUTPUT / 'composite/rel_data.inc').read_text()

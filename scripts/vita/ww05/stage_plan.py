@@ -16,8 +16,8 @@ import zipfile
 from game_build import OUTPUT, ROOT, STACK, checked_sources, sha256
 
 sys.path.insert(0, str(ROOT / 'scripts/vita/armv7'))
-from fp_launch import create_run, evidence_file, sandbox_command, stage_runtime
-from fp_libraries import library_identity
+from fp_launch import create_run, evidence_file, reject_symlinks, sandbox_command, stage_runtime
+from fp_libraries import file_identity, library_identity
 from fp_profile import config_identity, stage_firmware
 from fp_campaign import runtime_inputs
 
@@ -29,15 +29,44 @@ def validate_timeout(timeout):
         raise ValueError('each phase deadline must be finite, positive and at most 600 seconds')
 
 
+def validate_continuation(limit):
+    if not 0 <= limit <= 256:
+        raise ValueError('continuation journal limit must be 1..256, or zero for the default frontier')
+
+
+def stage_disc(root, path, expected_sha256):
+    path = reject_symlinks(path)
+    identity = file_identity(path)
+    if identity['sha256'] != expected_sha256:
+        raise ValueError('optional disc does not match the verified WW05 input image')
+    destination = root / 'data/Vita3K/Vita3K/ux0/data/bluewake/GZLE01.iso'
+    destination.parent.mkdir(parents=True, mode=0o700)
+    with destination.open('xb'):
+        pass
+    return {'path': str(path), 'identity': identity, 'install_path': str(destination.relative_to(root)),
+            'transport': 'readonly sandbox bind of verified private disc; no game data in VPK or writable copy'}
+
+
 def make_plan(root, args, source, package, run):
     validate_timeout(args.timeout)
+    limit = getattr(args, 'continue_gx', 0)
+    validate_continuation(limit)
     commands = {'install': ['--console', '--backend-renderer', 'OpenGL', 'ww05.vpk'],
                 'guest': ['--backend-renderer', 'OpenGL', '--installed-path', 'BWWG00005']}
     phases = {name: {'command': sandbox_command(root, 'Vita3K', command, args.libraries, args.wayland_socket),
                      'timeout_seconds': args.timeout,
                      'evidence_root': str(root / 'phases' / name)}
               for name, command in commands.items()}
+    disc = getattr(args, 'disc', None)
+    if disc is not None:
+        for phase in phases.values():
+            index = phase['command'].index('/stack/vita3k/Vita3K')
+            phase['command'][index:index] = ['--ro-bind', str(disc),
+                '/run/ww03/data/Vita3K/Vita3K/ux0/data/bluewake/GZLE01.iso']
     return {'ticket': 'VITA-WW-05', 'method': 'startup-gx-v1', 'title': 'BWWG00005',
+            'continue_gx': limit,
+            'continuation_policy': 'opt-in; journal first N commands; no guest execution cap; '
+                                   'preserve first frontier; stop on unsupported behavior or owned phase deadline',
             'run': run, 'source': source, 'vpk_sha256': package,
             'real_execution': False, 'retry': 'fresh private profile for every attempt', 'phases': phases,
             'cwd': str(root / 'work'), 'sandbox_cwd': '/stack/vita3k',
@@ -84,6 +113,7 @@ def verify_package(evidence):
 
 def stage(args):
     validate_timeout(args.timeout)
+    validate_continuation(getattr(args, 'continue_gx', 0))
     args.libraries = STACK / 'vita3k-env'
     source = subprocess.check_output(['git', 'rev-parse', 'HEAD'], cwd=ROOT, text=True).strip()
     if subprocess.check_output(['git', 'status', '--porcelain'], cwd=ROOT, text=True):
@@ -106,6 +136,10 @@ def stage(args):
         raise ValueError('staged private package changed')
     firmware = stage_firmware(root, STACK / 'firmware')
     libraries = library_identity(args.libraries)
+    disc = None
+    if getattr(args, 'disc', None) is not None:
+        disc = stage_disc(root, args.disc, json.loads((OUTPUT / 'inputs.json').read_text())['disc_sha256'])
+        args.disc = Path(disc['path'])
     plan = make_plan(root, args, source, package, run)
     plan.update(runtime_sha256=RUNTIME_SHA256,
                 runtime_source='observed-banner:bbd5c36;local-RPATH-relocation;mapping:UNVERIFIED',
@@ -116,6 +150,7 @@ def stage(args):
                 wayland_socket=str(args.wayland_socket), build_evidence=evidence,
                 source_vpk=str(vpk), build_evidence_sha256=sha256(OUTPUT / 'build-evidence.json'),
                 footprint=json.loads((OUTPUT / 'footprint.json').read_text()))
+    plan['disc'] = disc
     (root / 'phases').mkdir(mode=0o700)
     for name, entry in plan['phases'].items():
         phase = root / 'phases' / name
@@ -135,6 +170,8 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--timeout', type=float, default=60)
     parser.add_argument('--wayland-socket', type=Path, required=True)
+    parser.add_argument('--continue-gx', type=int, default=0)
+    parser.add_argument('--disc', type=Path)
     stage(parser.parse_args())
     print('STAGED ONLY — zero Vita3K processes; no guest request')
     return 0

@@ -18,7 +18,8 @@ class MainIoTest(unittest.TestCase):
     def run_fixture(self, failure='', stale=False, interrupt=None, exception=False, syscall=None, progress=False,
                     dispatch_trace=None, stale_dispatch=False, mmio_poll=False, aram_dma=False, dsp_init=False,
                     cpu_boundary=None, exi=False, cp_control=None, fifo=None, prior_aram_transfers=None,
-                    cp_distance=None, cp_distance_high=None):
+                    cp_distance=None, cp_distance_high=None, cp_clear=None, consumer=False, wpar=None,
+                    continue_gx=None):
         with tempfile.TemporaryDirectory(dir=OUT, prefix='io-') as directory:
             root = Path(directory)
             data = bytearray(260)
@@ -31,6 +32,8 @@ class MainIoTest(unittest.TestCase):
                     struct.pack_into('>I', data, offset, value)
             (root / 'synthetic.dol').write_bytes(data)
             (root / 'ww05.request').write_text(f'{"c" * 32} {"a" * 40} {"b" * 64}\n')
+            if continue_gx is not None:
+                (root / 'ww05.continue').write_text(f'{"c" * 32} {"a" * 40} {"b" * 64} {continue_gx}\n')
             if stale:
                 (root / 'ww05.report').write_text('preserve me')
             if stale_dispatch:
@@ -56,6 +59,12 @@ class MainIoTest(unittest.TestCase):
                 environment['WW05_IO_EXI'] = '1'
             if cp_control is not None:
                 environment['WW05_IO_CP_CONTROL'] = str(cp_control)
+            if cp_clear is not None:
+                environment['WW05_IO_CP_CLEAR'] = str(cp_clear)
+            if consumer:
+                environment['WW05_IO_CONSUMER'] = '1'
+            if wpar is not None:
+                environment['WW05_IO_WPAR'] = str(wpar)
             if cp_distance is not None:
                 environment['WW05_IO_CP_DISTANCE'] = str(cp_distance)
             if cp_distance_high is not None:
@@ -64,6 +73,7 @@ class MainIoTest(unittest.TestCase):
                 environment['WW05_IO_FIFO'] = fifo
             result = subprocess.run([str(OUT / 'io_probe')], cwd=root,
                                     env=environment, capture_output=True, timeout=10)
+            self.assertGreaterEqual(result.returncode, 0, result.stderr.decode())
             report = (root / 'ww05.report').read_text() if (root / 'ww05.report').exists() else None
             if progress:
                 self.assertIn('[progress] turns=1', result.stderr.decode())
@@ -120,7 +130,8 @@ class MainIoTest(unittest.TestCase):
         self.assertTrue(report.endswith('END frontier=PASS live=0 rendered=0\n'))
 
     def test_disabled_cp_init_continues_guest_dispatch_before_the_host_only_fifo_fixture(self):
-        for configuration in ({'cp_control': 0}, {'cp_distance': 0}, {'cp_distance_high': 0},
+        for configuration in ({'cp_control': 0}, {'cp_control': 4}, {'cp_control': 20},
+                              {'cp_distance': 0}, {'cp_distance_high': 0},
                               {'cp_distance': 0, 'cp_distance_high': 0}):
             with self.subTest(configuration=configuration):
                 status, report = self.run_fixture(**configuration)
@@ -134,12 +145,75 @@ class MainIoTest(unittest.TestCase):
                 self.assertEqual(status, 0)
                 self.assertTrue(report.endswith('END frontier=PASS live=0 rendered=0\n'))
 
-    def test_unsupported_cp_enable_cannot_reach_or_accept_the_fifo_fixture(self):
-        status, report = self.run_fixture(cp_control=1)
+    def test_observed_cp_clear_after_gplink_continues_to_the_explicit_parser_fixture(self):
+        status, report = self.run_fixture(cp_control=20, cp_clear=3)
+        self.assertEqual(status, 0)
+        self.assertTrue(report.endswith('END frontier=PASS live=0 rendered=0\n'))
+
+    def test_unobserved_cp_metrics_clear_cannot_reach_the_parser_fixture(self):
+        status, report = self.run_fixture(cp_control=20, cp_clear=4)
         self.assertNotEqual(status, 0)
         self.assertIn('GX_FRONTIER complete=0', report)
-        self.assertIn('address=CC000002 pc=80001000 width=2 value=0000000000000001', report)
+        self.assertIn('address=CC000004 pc=80001000 width=2 value=0000000000000004', report)
         self.assertTrue(report.endswith('END frontier=FAIL live=0 rendered=0\n'))
+
+    def test_cpu_gather_and_cp_reader_publish_the_first_command_hex_and_precise_writer_pcs(self):
+        status, report = self.run_fixture(consumer=True)
+        self.assertEqual(status, 0)
+        self.assertIn('GX_FRONTIER complete=1 opcode=61 bytes=5 pc=80001000 completion_pc=80001004 sp=817FFF00 trailing=27 edge_stop=1 hex=6141123456\n', report)
+        self.assertTrue(report.endswith('END frontier=PASS live=0 rendered=0\n'))
+
+    def test_consumer_trace_failure_publishes_fail_without_command_acceptance(self):
+        status, report = self.run_fixture(consumer=True, failure='cp-consume-log')
+        self.assertNotEqual(status, 0)
+        self.assertIn('GX_FRONTIER complete=0', report)
+        self.assertIn('STOP reason=CP consume trace write failed', report)
+        self.assertTrue(report.endswith('END frontier=FAIL live=0 rendered=0\n'))
+
+    def test_opt_in_main_loop_continues_until_a_real_service_failure_and_retains_first_acceptance(self):
+        status, report = self.run_fixture(consumer=True, continue_gx=64)
+        self.assertEqual(status, 1)
+        self.assertIn('GX_FRONTIER complete=1 opcode=61 bytes=5 pc=80001000 completion_pc=80001004', report)
+        self.assertIn('GX_STREAM mode=continue decoded=28 logged=28 limit=64 pending=0 read_bytes=32\n', report)
+        self.assertIn('STOP reason=unsupported MMIO read', report)
+        self.assertTrue(report.endswith('END frontier=PASS live=0 rendered=0\n'))
+
+    def test_invalid_continuation_request_never_executes_or_publishes_a_report(self):
+        for limit in ('0', '257', '-1', '64 extra', '64\nextra'):
+            with self.subTest(limit=limit):
+                status, report = self.run_fixture(consumer=True, continue_gx=limit)
+                self.assertNotEqual(status, 0)
+                self.assertIsNone(report)
+
+    def test_observed_wpar_configuration_continues_through_the_synthetic_memory_fifo_path(self):
+        status, report = self.run_fixture(wpar=0x0C008000, consumer=True)
+        self.assertEqual(status, 0)
+        self.assertIn('GX_FRONTIER complete=1 opcode=61 bytes=5', report)
+        self.assertIn('hex=6141123456\n', report)
+        self.assertTrue(report.endswith('END frontier=PASS live=0 rendered=0\n'))
+
+    def test_unimplemented_wpar_redirection_cannot_reach_the_fifo_fixture(self):
+        status, report = self.run_fixture(wpar=0x0C008020, consumer=True)
+        self.assertNotEqual(status, 0)
+        self.assertIn('GX_FRONTIER complete=0', report)
+        self.assertIn('address=00000399 pc=80001000 width=4 value=000000000C008020', report)
+        self.assertTrue(report.endswith('END frontier=FAIL live=0 rendered=0\n'))
+
+    def test_wpar_trace_failure_closes_fail_before_the_fifo_fixture(self):
+        status, report = self.run_fixture(wpar=0x0C008000, consumer=True, failure='wpar-log')
+        self.assertNotEqual(status, 0)
+        self.assertIn('GX_FRONTIER complete=0', report)
+        self.assertIn('STOP reason=WPAR trace write failed address=00000399', report)
+        self.assertTrue(report.endswith('END frontier=FAIL live=0 rendered=0\n'))
+
+    def test_unsupported_cp_enable_cannot_reach_or_accept_the_fifo_fixture(self):
+        for control in (1, 5, 53):
+            with self.subTest(control=control):
+                status, report = self.run_fixture(cp_control=control)
+                self.assertNotEqual(status, 0)
+                self.assertIn('GX_FRONTIER complete=0', report)
+                self.assertIn(f'address=CC000002 pc=80001000 width=2 value={control:016X}', report)
+                self.assertTrue(report.endswith('END frontier=FAIL live=0 rendered=0\n'))
 
     def test_unsupported_cp_distance_cannot_reach_or_accept_the_fifo_fixture(self):
         for register, address in (('cp_distance', 'CC000030'), ('cp_distance_high', 'CC000032')):

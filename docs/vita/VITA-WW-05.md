@@ -1,5 +1,12 @@
 # VITA-WW-05 — private Wind Waker startup host
 
+**Core acceptance verified, 2026-10-12:** authentic `GX_FRONTIER complete=1`,
+`hex=610F0000FF`, writer PC `80325DAC`, completion PC `80325DB8`, on source
+`35ac6365a2b03d023d78e4b1605b917b1fddc89e`. Delivery is rebased on `f0a82ed`, with
+the existing DVD seam wired and opt-in continuation proven through **11 real commands**
+on `feeb8facc9f53d0cf1bd6c2685f5ab317d8e6e04`. Local handoff is complete; remote
+publication/merge is not performed. This is not rendering or gameplay acceptance.
+
 **Private, opt-in startup experiment.** The product owner superseded the original execution gate:
 WW05 may run repeatedly in fresh isolated private profiles. There is no process-count budget,
 authorization token or permanent reservation. Every attempt, including failures, must retain its
@@ -12,7 +19,8 @@ an exception or unsupported service is negative evidence, never permission to pa
 
 ## Source and opt-in shape
 
-- Integration base: `8583ba88666f6131bebbb6354a3f412861201738`, branch `vita-ww-05-host`.
+- Original integration base: `8583ba88666f6131bebbb6354a3f412861201738`; final local
+  delivery base: `f0a82ed`, branch `vita-ww-05-host`.
 - Pristine RecompCore `ddd031b2a7f45fcbda37a49daac9b308b8d95da1` and DolRecomp
   `b8b534591cba8ca7cd43943a655ee6e2591cf5de`; no pin/source/FP edits.
 - The existing importer verifies the privately supplied USA GZLE01 rev0 disc and DOL hash before
@@ -2412,3 +2420,682 @@ not authentic game/GX acceptance. The next clean build/trial checks real continu
 Strict GX validation, pins, ABI, `BlueWakeRelData` and static archive are unchanged. Dynamic
 FIFO pointers, DVD/CMake, Windows ARAM and final counts remain tracked. Physical Vita,
 Windows CI, rendering, FPS, runtime REL and actual guest disc/file access remain unverified.
+
+## Real CP read-pointer-high continuation and observed high-watermark high
+
+Run `87fbfb99f347450f948346e3da9380f5`, source
+`1eff8b556029f151dd964d0a308d6e7168478f02`, passes CP read-pointer high and reaches
+**`CC00002A = 0009`**, halfword PC **`80321028`**. The closed guest **FAIL** has
+**64,248 edges, 7,140,042 cycles**, zero FIFO bytes, `GX_FRONTIER complete=0`, `live=0`,
+`rendered=0`. Build status zero in 124.821 s; archive unchanged. Both owned phases timeout
+at **600 s**, TERM/exit -15, `waited=true`; process **124/INCOMPLETE** remains distinct.
+`logs/cp-fifo-rptr-high-evidence-1eff8b5.json` independently checks plan/request/result
+source and package-hash equality, request-bound report, runtime VPK hash and closed LER.
+SHA-256:
+
+- VPK: `010672250a0e6be1120b76fa079217bacedfac745e873df6a7337f5ce5b185eb`;
+- report: `d3849eaab0bb57e94e0f9f179390a17b55eca9fd92848977a821ce50e9cb4bc0`;
+- result: `0a9058609cf6f7bf624993cb7f5c576186515a1edfc113af2c8a12fea9dd1260`;
+- log: `e53c5af186f23140c23810e0dd46dfbad9baa2e8b8124233c165a3eafcb1c81d`;
+- LER: `169da8b7a0e0d3067e984a0701130bdf9916ce1c09ccf887d9004ec9f413b079`.
+
+Exact clean-source checks for `1eff8b5` pass **320 host tests, 177 ARMv7 tests**, audit,
+attribution and runtime **CTest 3/3** on Linux AArch64 (`logs/checkpoint-1eff8b5.json`).
+The maintainer reports the preceding 62-commit milestone integrated into trunk at `f0a82ed`,
+with green suites. This is reported integration context, not an independently fetched trunk
+check; the private branch continues unchanged and no network/push/shared-profile access occurs.
+The existing DVD integration-before-disc-access and Windows verification debts remain open.
+
+The pin identifies **CP_FIFO_HI_WATERMARK_HI** at offset `2A`
+(`VideoCommon/CommandProcessor.h:69`) and directly maps CPHiWatermark's high halfword with
+the GameCube **`03FF`** mask (`CommandProcessor.cpp:131,147,159-163`). WW05 adds only
+this observed high address to the existing high-watermark selector. The shared halfword
+path assembles **`0009C000`**, preserving the opposite half; low/high reads remain
+**`C000` / `0009`**. No overflow status, IRQ, GP enable, FIFO bytes, consumption, pointer
+advancement, parser input or timer is invented.
+
+`logs/cp-fifo-high-watermark-high-red.log` reproduces high-watermark-high refusal and both
+assembly-order failures while preceding register parameters pass.
+`logs/cp-fifo-high-watermark-high-host-green.log` passes **320 host tests** on Linux AArch64,
+extending the shared descriptor and explicit parameterizations for reset, actual guest
+halfword hooks, masks, invalid-width retained-state preservation, independent values and
+credited-cycle/spent-quantum behavior. The existing halfword assembly test now includes the
+high watermark in both write orders and masked overwrites. Synthetic main-loop PASS is not
+authentic game/GX acceptance. The next clean source-bound build/trial checks continuation.
+
+Other unobserved CP accesses/enables and FIFO reset remain refused. Strict GX validation,
+pins, ABI, `BlueWakeRelData` and static archive are unchanged. Dynamic FIFO pointers,
+DVD/CMake, Windows ARAM and final counts remain tracked. Physical Vita, Windows CI,
+rendering, FPS, runtime REL and actual guest disc/file access remain unverified.
+
+## Real high-watermark-high continuation and observed low-watermark high
+
+Run `c8b6ce7a65004fa28124400e84badc4d`, source
+`fb8f35a19ea8e408d97897cf9c92244d502c9e7b`, passes high-watermark high and reaches
+**`CC00002E = 0005`**, halfword PC **`80321038`**. The closed guest **FAIL** has
+**64,248 edges, 7,140,042 cycles**, zero FIFO bytes, `GX_FRONTIER complete=0`, `live=0`,
+`rendered=0`. Build status zero in 124.979 s; archive unchanged. Both owned phases timeout
+at **600 s**, TERM/exit -15, `waited=true`; process **124/INCOMPLETE** remains distinct.
+`logs/cp-fifo-high-watermark-high-evidence-fb8f35a.json` independently checks plan/request/
+result source and package-hash equality, request-bound report, runtime VPK hash and closed LER.
+SHA-256:
+
+- VPK: `b9f27fb034b48cc77dbc17780ae22149f74389188ced5d8aea39a772f38dde50`;
+- report: `0eb047fc5f3c7a3b902590c8890ca83588ededb1733f30a68513b5c4d2e85796`;
+- result: `6023a907db779c08cf275d872f6d406cacaa55bf6abd2d5f035b6fd9d74a1fbe`;
+- log: `e53c5af186f23140c23810e0dd46dfbad9baa2e8b8124233c165a3eafcb1c81d`;
+- LER: `169da8b7a0e0d3067e984a0701130bdf9916ce1c09ccf887d9004ec9f413b079`.
+
+Exact clean-source `fb8f35a` checks pass **320 host tests, 177 ARMv7 tests**, audit,
+attribution and runtime **CTest 3/3** on Linux AArch64 (`logs/checkpoint-fb8f35a.json`).
+The pin identifies **CP_FIFO_LO_WATERMARK_HI** at offset `2E`
+(`VideoCommon/CommandProcessor.h:71`) and directly maps CPLoWatermark's high halfword with
+the GameCube **`03FF`** mask (`CommandProcessor.cpp:131,149,159-163`). WW05 adds only
+this observed high address to the existing low-watermark selector. The shared halfword path
+assembles **`00050000`**, preserves the opposite half and reads back **`0000` / `0005`**.
+No underflow status, IRQ, GP enable, FIFO bytes, consumption, pointer advancement, parser
+input or timer is invented.
+
+`logs/cp-fifo-low-watermark-high-red.log` reproduces this register's refusal and both
+assembly-order failures while preceding parameters pass.
+`logs/cp-fifo-low-watermark-high-host-green.log` passes **320 host tests** on Linux AArch64,
+extending the shared descriptor and explicit reset/store/mask, actual halfword guest hooks,
+invalid-width retained-state, independent values and credited-cycle/spent-quantum cases.
+The existing assembly test now includes both watermarks and all four configured pointer/
+boundary words in both orders with masked overwrites. Main-loop PASS remains synthetic,
+not authentic game/GX evidence. The next clean source-bound build/trial checks continuation.
+
+The observed base/end/write-pointer/read-pointer/watermark halves are now covered. CP
+controls beyond disabled zero, status, clear, breakpoint and other unobserved accesses still
+fail; this is not a complete CP FIFO backend. Actual activation must use genuine gather-block
+memory writes, pointer advancement and consumption rather than inert-enable acknowledgements.
+Strict GX validation, pins, ABI, `BlueWakeRelData` and static archive are unchanged. Dynamic
+FIFO pointers, DVD/CMake, Windows ARAM and final counts remain tracked. Physical Vita,
+Windows CI, rendering, FPS, runtime REL and actual guest disc/file access remain unverified.
+
+## Real CP configuration continuation and observed overflow interrupt mask
+
+Run `54ba47b707f0454ebf41377244c0a428`, source
+`6c8058e35a47d44e3d3219caa8145d60e0f22206`, passes the low-watermark high and reaches
+**`CC000002 = 0004`**, halfword PC **`80321308`**. The closed guest **FAIL** has
+**64,255 edges, 7,140,123 cycles**, zero FIFO bytes, `GX_FRONTIER complete=0`, `live=0`,
+`rendered=0`. Build status zero in 124.929 s; archive unchanged. Both owned phases timeout
+at **600 s**, TERM/exit -15, `waited=true`; process **124/INCOMPLETE** remains distinct.
+`logs/cp-fifo-low-watermark-high-evidence-6c8058e.json` independently checks plan/request/
+result source and package-hash equality, request-bound report, runtime VPK hash and closed LER.
+SHA-256:
+
+- VPK: `e529a07debc1887d29ace0902874db3eb2ba79ce81211bf58317d6888e3e9c6f`;
+- report: `5421bbec786a96de4c5e17431dd6fe37a42bbf9ec9317befdbe74d433b6cb369`;
+- result: `11722f729f60bcf21b74b6b0d9a73403db33bec1d6dc11b03d6d182c6d7c369e`;
+- log: `4c8e2672fbf6530935ebe357c6af4c2facace18e3ba67ce0a7740fabf093618e`;
+- LER: `169da8b7a0e0d3067e984a0701130bdf9916ce1c09ccf887d9004ec9f413b079`.
+
+Exact clean-source `6c8058e` checks pass **320 host tests, 177 ARMv7 tests**, audit,
+attribution and runtime **CTest 3/3** on Linux AArch64 (`logs/checkpoint-6c8058e.json`).
+The pin identifies **CP_CTRL** at offset `02` (`VideoCommon/CommandProcessor.h:60`).
+Bit **`0004`** is **FifoOverflowIntEnable**, not GPReadEnable (`0001`) or GPLinkEnable
+(`0010`) (`121-136`). Control resets to zero (`CommandProcessor.cpp:107-117`), reads its
+retained halfword and stores the defined bits (`201-208`), and propagates the overflow mask
+without changing GPReadEnable (`574-586`). CP interrupt assertion additionally requires a
+real pending condition and GPReadEnable (`514-531`); storing this mask cannot assert an IRQ.
+
+WW05 now retains only the observed **`0000` / `0004`** halfword controls, with halfword
+readback of that same state. Rejected writes preserve the retained mask. Other control bits,
+including combined mask/read/link values and reserved bits, still stop explicitly; there is
+no implicit masking of unsupported operation requests. GP reads/link stay disabled. The
+store neither schedules invented GPU time nor creates overflow status, IRQ, FIFO bytes,
+consumption, pointer movement or parser input. The pin calls RunGpu after control writes;
+its consumer requires GPReadEnable (`Fifo.cpp:435-443`). WW05 does not implement the timer/
+worker backend and does not claim activation or a full CP model for this mask-only operation.
+
+`logs/cp-control-overflow-mask-red.log` reproduces the refused observed mask and missing
+control readbacks. `logs/cp-control-overflow-mask-host-final-green.log` passes **323 host
+tests** on Linux AArch64. Shared control/distance fixtures retain actual guest halfword
+hooks, credited-cycle/spent-quantum behavior and fail contexts. Added explicit parameterized
+cases cover mask retention/repeated stores, zero clearing, rejected widths/read widths and
+unsupported control combinations preserving the prior mask, with FIFO, PI interrupt state
+and PC unchanged. The initial control read is zero. Synthetic main-loop cases cover both
+zero and mask-only setup/readback before fixture FIFO acceptance; unsupported GPRead still
+cannot reach the fixture. These PASS results are not authentic game/GX evidence.
+
+The next clean source-bound build/trial checks actual continuation. Status, clear, breakpoint,
+GP read/link activation and other unobserved services remain refused. Strict GX validation,
+pins, CPU ABI, `BlueWakeRelData` and static archive are unchanged. Dynamic FIFO pointers,
+DVD/CMake, Windows ARAM and final counts remain tracked. Physical Vita, Windows CI,
+rendering, FPS, runtime REL and actual guest disc/file access remain unverified.
+
+## Real overflow-mask continuation and GPLink producer seam
+
+Run `13b0a68c6f9442ee9aa98a1e86368b63`, source
+`c4f3e95251859e331c20662d6047449af5a2a949`, passes the overflow mask and reaches
+**`CC000002 = 0014`**, halfword PC **`803212CC`**. This sets overflow interrupt enable
+and **GPLinkEnable**, but **not GPReadEnable** (`VideoCommon/CommandProcessor.h:121-136`).
+The closed guest **FAIL** has **64,255 edges, 7,140,123 cycles**, zero FIFO bytes,
+`GX_FRONTIER complete=0`, `live=0`, `rendered=0`. Build status zero in 123.072 s;
+archive unchanged. Both owned phases timeout at **600 s**, TERM/exit -15, `waited=true`;
+process **124/INCOMPLETE** remains distinct from the guest verdict.
+`logs/cp-control-overflow-mask-evidence-c4f3e95.json` checks plan/request/result source and
+package hashes, request-bound report, runtime VPK hash and closed LER. SHA-256:
+
+- VPK: `940e98a5885f70d2cf4bde1b17775a38cafeea1724a6acc981d9777820dbd2e0`;
+- report: `58a863a3ffb4012505019491b8ce3e2eb6173caee460b1123421c887a3bb181c`;
+- result: `e926166fa021607cd4004efced024ffe81b9a0336c808d888ca762839694b692`;
+- log: `4c8e2672fbf6530935ebe357c6af4c2facace18e3ba67ce0a7740fabf093618e`;
+- LER: `169da8b7a0e0d3067e984a0701130bdf9916ce1c09ccf887d9004ec9f413b079`.
+
+Exact clean-source `c4f3e95` checks pass **323 host tests, 177 ARMv7 tests**, audit,
+attribution and runtime **CTest 3/3** on Linux AArch64 (`logs/checkpoint-c4f3e95.json`).
+This unit admits only the additional observed control **`0014`**, not an inert GPRead
+acknowledgement. It implements the producer side in `vita/host/fifo_gather.c`:
+
+- Actual 1/2/4/8-byte guest stores append their big-endian bytes to a 32-byte gather pipe.
+  Partial writes neither change memory nor advance pointers. A full block copies its real
+  bytes to physical PI WPTR in MEM1; the end pointer is inclusive and wraps only after
+  copying that block. Spill bytes remain pending. Source: `Core/HW/GPFifo.cpp:85-112,133-185`.
+- Every accepted burst advances PI WPTR by 32 or wraps to PI base. When GPLink is set,
+  CP WPTR advances likewise and CP distance increases by exactly 32, while RPTR stays
+  unchanged. Unlinked bursts still write memory and advance PI, but leave CP unchanged.
+  Source: `VideoCommon/CommandProcessor.cpp:339-386`. There is **no consumption** here.
+- Linked bursts require the sourced PI/CP base/end/WPTR equality (`397-406`) and bounded
+  distance (`390-394`). Invalid alignment, MEM1 range, full/partial alias overlap, capacity,
+  counter exhaustion and trace failure stop **before** accepting the incoming store or
+  changing pending bytes, backing memory, pointers or distance. The existing alias guard
+  is reused. Real copies mark dirty memory and clear matching reservations.
+- `[gather-burst]` records actual transfer, destination, distance and before/after producer
+  state through the shared first-eight/every-1000th sampler. No GPU time, data, overflow
+  status, interrupt or frequency is invented. Stores credit executed cycles without
+  renewing a spent dispatch quantum. Unobserved reconfiguration/reset after input refuses
+  rather than discarding pending or produced data; distance reads and RPTR-high synchronization
+  after input remain unsupported.
+
+The production MMIO path no longer feeds written bytes directly into `ww_gx_write`.
+Even a complete BP command in a real gather burst cannot become a GX success while GPRead
+is stopped. `Fifo.cpp:435-443` explicitly gates the pinned consumer on GPReadEnable and
+real CP distance. The existing synthetic checkpoint/main-loop fixtures now feed the parser
+checkpoint explicitly; their PASS remains game-free evidence, not authentic FIFO execution.
+
+`logs/cp-gplink-gather-red.log` retains the 18 failing producer scenarios;
+`logs/cp-gplink-gather-red-boundaries.log` exposes the refused linked control, missing
+unlinked copy and premature direct-parser acceptance. `logs/cp-gplink-gather-host-final-green.log`
+passes **342 host tests** on Linux AArch64. Added parameterized coverage verifies all store
+widths, partial/full/spill blocks, inclusive-end wrap, linked/unlinked memory and pointer
+effects, no parsing with GPRead stopped, cycle credit, dirty/reservation effects, failed
+transactions, pending-input guards, sampling and counter exhaustion. The additional retained
+`logs/cp-gplink-gather-prior-failure-red.log` reproduces an already failed host committing a
+new store; the gather path now preserves that failure without committing more input. Main-loop fixtures
+also test `0014` setup/readback and still refuse `0015` before synthetic parser input.
+
+The consumer is a separate next unit, gated by the next authentic observed access: read actual
+MEM1 bytes at CP RPTR, dispatch CP/BP/XF through the existing strict checkpoint/pinned parser,
+and update RPTR/distance only for bytes actually read. Preserve writer PC/SP and completion-PC
+provenance when transporting those bytes; the first complete command must supply the existing
+report's `opcode`, `bytes`, `hex`, `pc` and `completion_pc` for GX-15. Never bypass GPRead,
+manufacture consumption or count parser-only fixtures as acceptance. No authentic gather
+burst or first command is claimed yet; the next clean source-bound trial checks continuation.
+
+Strict GX validation, pins, CPU ABI, `BlueWakeRelData`, DOL and static archive stay unchanged.
+GPRead, status/clear/breakpoint, DVD DI/CMake integration, Windows ARAM and final integration
+counts remain open. No disc/file access, physical Vita, Windows CI, rendering, FPS or live
+runtime REL event has been verified. Sources stay unchanged throughout each private build/trial;
+external supervision stays 600 seconds per phase, not an internal guest instruction cap.
+
+## Real GPLink continuation and bounded idle CP clear
+
+Run `1c11114b365a45a9afe0dbf0e02c53b5`, source
+`0c297e7b3f19b3b51c2ab031ecc30d5d6503ef18`, passes GPLink `0014` and reaches
+**`CC000004 = 0003`**, halfword PC **`80321344`**. The closed guest **FAIL** has
+**64,255 edges, 7,140,123 cycles**, zero FIFO bytes, `GX_FRONTIER complete=0`, `live=0`,
+`rendered=0`. Build status zero in 124.248 s; static archive unchanged. Both owned phases
+timeout at **600 s**, TERM/exit -15, `waited=true`; process **124/INCOMPLETE** remains a
+separate verdict. `logs/cp-gplink-gather-evidence-0c297e7.json` independently verifies
+plan/request/result bindings, request-bound report, runtime package and closed LER. SHA-256:
+
+- VPK: `718d35fa540fb22b686dd584acbe9bd1979aee8620af5f0b67882fea6e80fbf1`;
+- report: `43a2436129fd15f2908f01e09f348a61ee1206cbb0f5c50c8c66cc2cde379163`;
+- result: `635af6070a40ed332d84086208fa2737ceae41679cdeffc5ebbc7507937f9c56`;
+- log: `4c8e2672fbf6530935ebe357c6af4c2facace18e3ba67ce0a7740fabf093618e`;
+- LER: `169da8b7a0e0d3067e984a0701130bdf9916ce1c09ccf887d9004ec9f413b079`.
+
+Exact clean-source `0c297e7` checks pass **342 host tests, 177 ARMv7 tests**, audit,
+attribution and runtime **CTest 3/3** on Linux AArch64 (`logs/checkpoint-0c297e7.json`).
+This address is **CP_CLEAR**, not the PI interrupt mask (`CC003004`):
+`VideoCommon/CommandProcessor.h:59-61,139-152` identifies bits `0001` / `0002` as
+ClearFifoOverflow / ClearFifoUnderflow and bit `0004` as ClearMetrics. The pinned MMIO
+read is **constant zero**; writes store the clear request and call SetCpClearRegister
+(`CommandProcessor.cpp:210-217`). That function explicitly does not emulate clear timing
+(`597-601`). No hardware timing or real pending-status clearing is inferred from that stub.
+
+WW05 accepts only the authentic **`0003`** halfword request while GPRead is off, CP distance
+is zero, no gather/frontier input has been observed and no CP interrupt is pending. It changes
+no producer/consumer pointers, retained control, data, IRQ state, parser input or scheduling.
+Halfword reads return the sourced zero, not the last written request. Other masks, metrics
+requests, widths, active reads, pending gather/produced/checkpoint input and pending CP IRQ
+still fail explicitly with the original MMIO context. This bounded cold-init operation is
+not a complete CP acknowledgement or metrics backend.
+
+During supervision, sources and archive stayed unchanged. Private native fixtures
+`logs/cp-clear-preparation-0c297e7.c` and `logs/cp-clear-preparation-0c297e7-red.{log,json}`
+retained failures for the actual store and sourced read without editing the active trial.
+After owned process closure, `logs/cp-clear-idle-red.log` reproduced the missing read/store,
+spent-quantum access and main-loop continuation failures. `logs/cp-clear-idle-host-green.log`
+passes **351 host tests** on Linux AArch64. Added parameterized tests cover actual halfword
+memory hooks, repeated requests, zero readback, unchanged pointers/MEM1/gather/frontier,
+unrelated IRQ preservation, all bounded refusal shapes and 256 credited cycles without
+quantum renewal. The gather/clear probes reuse the same existing ring fixture setup.
+Main-loop `0014`/`0003` reaches only the explicitly synthetic parser fixture; metrics clear
+cannot reach it. No such fixture PASS counts as authentic GX progress.
+
+The next clean source-bound trial checks continuation toward the consumer. Its sourced
+transport reads **32 actual MEM1 bytes** per CP burst (`Fifo.cpp:215-235,435-476`), then
+advances/wraps RPTR and subtracts exactly 32 from distance. Command framing is separate:
+the first complete command alone supplies `opcode`, `hex`, byte count and precise writer/
+completion PC evidence to the existing checkpoint and GX-15 contract. Never advance RPTR
+by an invented decoded length, consume absent bytes or acknowledge GPRead without the
+reader/strict parser path. Writer PC/SP provenance through gather and queued memory is
+part of that next unit, not yet implemented here.
+
+No authentic gather bytes or first command have been reached. Strict GX validation, CPU ABI,
+pins, `BlueWakeRelData`, DOL and static archive are unchanged. GPRead consumption, CP status,
+active clear/metrics, breakpoint, DVD DI/CMake, Windows ARAM and final integration counts
+remain open. Physical Vita, Windows CI, rendering, FPS, live REL and real disc/file access
+remain unverified. No network, push, shared profile or other worktree was changed.
+
+## Authentic GPRead activation and first-command consumer
+
+Run `7f9c6fe5cfe14ed3bfa0de67e8057bac`, clean source
+`4cbddc9732e3991aa3b4effc76f4879537984aae`, passes the idle `CP_CLEAR=3` and
+reaches **`CC000002 = 0015`**, halfword PC **`80321270`**. This is GPRead plus
+the already observed overflow mask and GPLink. Guest **FAIL** remains at **64,255 edges,
+7,140,123 cycles**, zero command bytes, `complete=0`, `live=0`, `rendered=0`.
+Build status zero in 122.989 s; static archive unchanged. Both owned emulator phases
+timeout at **600 s**, TERM/exit -15, `waited=true`; process **124/INCOMPLETE** is not
+the guest verdict. `logs/cp-clear-idle-evidence-4cbddc9.json` independently verifies
+plan/request/result bindings, request-bound report, package and closed LER. SHA-256:
+
+- VPK: `0edff3f1c32b0e25e06ad27e678fd8f23e4c520c17f2a12a56b08bb6588c605f`;
+- report: `03416b81b317bb2960f80fc88b222ffa796fbb32170ceca65e782c08a6b843c5`;
+- result: `6dece4c436450cf394a46f746436a76719d4a11e3a2a8d9836c9a53699ca0ea3`;
+- log: `4c8e2672fbf6530935ebe357c6af4c2facace18e3ba67ce0a7740fabf093618e`;
+- LER: `169da8b7a0e0d3067e984a0701130bdf9916ce1c09ccf887d9004ec9f413b079`.
+
+Exact clean `4cbddc9` checks pass **351 host tests, 177 ARMv7 tests**, audit,
+attribution and runtime **CTest 3/3** on Linux AArch64 (`logs/checkpoint-4cbddc9.json`).
+The announced consumer unit is now implemented in `vita/host/fifo_consumer.c`, included
+by the same host CMake target in test and authentic ARMv7 builds. It accepts the
+authentic **`0015`** control without an inert GPRead acknowledgement: activation and
+actual gather writes invoke the reader. An empty FIFO performs no transfer or decode.
+
+The contract comes from pinned `VideoCommon/Fifo.cpp:215-235,435-476`: GPRead gates
+real MEM1 reads at RPTR, **32 bytes** per transport block, inclusive-end wrap to base,
+distance decrement by exactly 32. WW05 performs these real reads synchronously at the
+observed MMIO boundaries, without inventing GPU time, IRQs or rendering. It checks aligned
+MEM1 rings, produced distance/write-pointer consistency, aliases, overflow-mask state,
+pending CP IRQ and counter exhaustion before pointer/parser mutation. A failed sampled
+consume trace cannot commit that read. Successful reads advance RPTR/distance even if the
+strict parser subsequently rejects their actual bytes: transport and decode are separate.
+
+Gather retains per-byte writer PC/SP and value through partial stores, spill and committed
+blocks. First-command origins are bounded to **1,056 bytes**, the whole-block ceiling of
+the existing 1,025-byte checkpoint; no allocation or provenance for an indefinite GPU
+stream is added. Consumption copies **current MEM1**, verifies each byte against its
+committed writer origin, and refuses changed bytes or missing/misaligned provenance rather
+than attributing stale data to an old PC. Wrap is checked against the first real burst.
+
+Only actual consumed bytes feed `ww_gx_write`, one byte with its own writer PC/SP at a
+time. The unchanged checkpoint frames and dispatches the first complete CP/BP/XF command
+through `dol_gx_recomp_replay_fifo`; report `hex=` contains that exact command alone.
+Completion PC belongs to its last byte's original store, **not** GPRead activation or the
+later burst-completing store. Remaining bytes of that already-read block count as trailing;
+later queued blocks remain unconsumed once the frontier completes. This is a bounded
+first-command capture, not a full continuously executing GPU backend.
+
+The existing halfword RPTR readback is usable with GPRead enabled; distance halves expose
+the actual produced-minus-read distance in that mode. Disabled post-input synchronization,
+configuration resets, active clear/metrics, unsupported modes/masks and pending CP IRQ
+handling still refuse. No synthetic MMIO-to-parser shortcut returns to production.
+
+Retained game-free failures are `logs/cp-consumer-preparation-4cbddc9-red.{log,json}`
+(unchanged sources during the previous authentic trial), `logs/cp-gpread-consumer-red.log`
+(missing GPRead reader/provenance) and `logs/cp-gpread-consumer-main-red.log` (missing
+end-to-end report path and consume-trace failure). Initial BP test data targeted an EFB
+copy trigger without its required context; the pinned parser correctly refused it. The
+positive BP fixture now uses a regular register and a separate negative copy-trigger test
+preserves that strict refusal. `logs/cp-gpread-consumer-host-reviewed-green.log` passes
+**372 host tests** on Linux AArch64, including CP/BP/XF at all supported store widths,
+partial gathers, queued data, pause/reactivation, two queued blocks, inclusive wrap, a
+maximum 255-word XF across 33 read blocks, an eight-byte spill retaining its old completion
+PC, changed memory, full/partial aliases, inconsistent pointers/distance, missing origins,
+trace failure, exhausted counters, unknown opcode, oversized XF, pending CP IRQ, sampled
+record fields and spent-quantum cycle credit. The main-loop synthetic transport test
+reports `opcode=61 bytes=5 pc=80001000 completion_pc=80001004 sp=817FFF00 trailing=27`
+with **`hex=6141123456`**, from gather-to-MEM1-to-CP-read, not direct parser injection.
+It remains game-free evidence, **not authentic GX acceptance**.
+
+The next clean source-bound build/trial must prove the actual game writes and consumes a
+complete command. Sources stay unchanged until supervision closes; both emulator phases
+retain the external 600-second bound. CPU ABI, FP semantics, pinned frontend, composite,
+`BlueWakeRelData`, DOL and static archive are unchanged; audio remains stopped/silent.
+No real disc/file access, VI retrace, presentation or live REL is claimed. DVD integration
+`35f7c8a` still precedes the first genuine file access. Windows ARAM verification, final
+integration counts, Windows CI and physical Vita checks remain open. No network, push,
+shared-profile change or other-worktree mutation occurred; open PRs cannot be refreshed
+under the offline constraint, and only local remote-branch metadata was inspected.
+
+## GPRead crossed; the next SPR is WPAR, not PMC1
+
+Run `6dc6549baafa4b8a99a4c3e6547f69b0`, clean source
+`625c4bbcb41d444aeb6623e015bf2577012833e4`, passes the authentic **GPRead `0015`**
+and reaches **`unsupported SPR write address=00000399 pc=80301578`**. Report addresses
+are hexadecimal (`main.c` uses `%08X`): **`0x399 = 921 = WPAR`**, not decimal 953
+(PMC1, **`0x3B9`**). The guest log records **`r3=0C008000`**, the actual argument to
+the WPAR store, and `lr=8031FB94`. Private translated code independently identifies
+the instruction as `mtwpar r3`. No PMC/MMCR access has been observed; a speculative
+performance-counter backend does not address this STOP and is not added.
+
+The closed guest **FAIL** now has **64,278 edges, 7,140,396 cycles**, SP `8040CEB0`,
+still zero command bytes, `GX_FRONTIER complete=0`, `live=0`, `rendered=0`. This proves
+GPRead activation passed, **not** authentic gather transport or first-command acceptance.
+Build status zero in 115.823 s; archive unchanged. Both owned emulator phases timeout
+at **600 s**, TERM/exit -15, `waited=true`; process **124/INCOMPLETE** is separate.
+`logs/cp-gpread-consumer-evidence-625c4bb.json` independently verifies plan/request/result
+bindings, request-bound report, runtime package and closed LER. SHA-256:
+
+- VPK: `a5377635ba7e016b7f23bd9e656c8cb1d4ac9ca577b78f6510e5526b1a74c55b`;
+- report: `1ef313fc3f570e5fc6ab710d458b7ae7d59cfe7b791bd241017d7bed5a3c2fd0`;
+- result: `99c70e9f67fb767094d8dd92629f98f529a1587c113b7b179adaa99046d00823`;
+- log: `633c6fcdb02aca40dde0e49be7645a1795a7f5d04ed741c22fd83b68b3cbd4cb`;
+- LER: `169da8b7a0e0d3067e984a0701130bdf9916ce1c09ccf887d9004ec9f413b079`.
+
+Exact clean `625c4bb` checks pass **372 host tests, 177 ARMv7 tests**, audit,
+attribution and runtime **CTest 3/3** on Linux AArch64 (`logs/checkpoint-625c4bb.json`).
+The correct SPR identity comes from pinned `PowerPC/Gekko.h:891,897-914` and
+`GXRuntime/graphics/aurora/include/dolphin/base/PPCArch.h:100,269-270`: WPAR addresses
+a 32-byte gather destination and BNE is read-only. `StaticRecompCore_Hooks.cpp:204-208,
+237-238,272-274` retains the write and resets the gather count. `PowerPC.cpp:140-143`
+supplies the zero SPR reset. `GPFifo.cpp:61-83` quotes the processor manual: BNE checks
+outstanding buffer transfers; partial blocks flush only when actual writes fill 32 bytes.
+
+WW05 retains only the observed physical **`0C008000`** WPAR configuration. It reuses
+the existing input-history guard and requires no prior gather/frontier bytes or transfers
+and zero CP distance; repeated cold-empty stores are harmless. Its gather is already
+empty, so no bytes, counters, provenance or pointers need resetting. Unobserved addresses,
+reserved bits, written BNE and reconfiguration after input refuse with the original
+**four-byte SPR value and PC**. The checked `[wpar]` record is written before retained
+state changes; trace failure cannot commit configuration. Existing MMIO gather routing
+remains fixed; redirection into arbitrary guest memory is not implemented.
+
+Readback combines the retained address with **BNE = actual retained gather size != 0**.
+This deliberately does **not** copy the pinned `IsBNE()` stub's unconditional false
+(`GPFifo.cpp:73-77` explicitly labels that workaround). Fully committed 32-byte transfers
+leave no gather data outstanding in this synchronous host, so BNE clears even when those
+bytes remain queued in CP MEM1 with GPRead disabled. Reads never fabricate a drain, GPU
+consumption, pointer update or timing. Both SPR reads and writes credit the real emitted
+cycle prefix and cannot renew an exhausted quantum. PMC/MMCR and other unknown SPRs
+remain unsupported rather than frozen clocks or silently acknowledged counters.
+
+Retained failures `logs/wpar-config-red.log` reproduce the missing read/store, equivalent
+instruction fallback, BNE, refusal context and main-loop continuation. The separate
+`logs/wpar-config-main-trace-red.log` reproduces the missing main-loop fault injection.
+`logs/wpar-config-host-final-green.log` passes **384 host tests** on Linux AArch64:
+zero reset, normal and instruction-fallback writes, repeated cold setup, genuine partial
+buffer BNE, BNE clear with queued CP memory, post-input refusals, address/reserved-bit
+refusals, trace failure before commit, unchanged memory/pointers/provenance/IRQ/checkpoint,
+spent-quantum credit, and a regression distinguishing decimal PMC1 from hexadecimal WPAR.
+Synthetic main-loop transport reaches exact **`hex=6141123456`** after WPAR initialization;
+redirection or a failed WPAR trace closes FAIL before any command. These remain game-free
+checks, not authentic GX success.
+
+The next clean source-bound build/trial tests actual continuation beyond this WPAR store.
+Keep source fixed until supervision closes; retain the external **600-second** emulator
+phase bound. Strict GX parsing, CPU ABI, FP behavior, pins, composite, `BlueWakeRelData`,
+DOL and static archive are unchanged. Audio remains stopped/silent. First actual disc/file
+access still requires DVD integration `35f7c8a`; live REL, VI retrace, presentation, Windows
+ARAM verification, final integration counts, Windows CI and physical Vita remain open.
+No network, push, shared profile, protected build tree or other worktree was changed.
+
+## Core acceptance closed; trunk and DVD integration
+
+Run **`43e33140036b4d58a70ca41a81ecd3ae`**, clean source
+**`35ac6365a2b03d023d78e4b1605b917b1fddc89e`**, records authentic **guest PASS**:
+
+```text
+GX_FRONTIER complete=1 opcode=61 bytes=5 pc=80325DAC completion_pc=80325DB8 sp=8040CEB0 trailing=27 edge_stop=1 hex=610F0000FF
+```
+
+The BP command comes from actual guest stores, a committed 32-byte MEM1 gather burst
+and a real CP read, and was accepted by the pinned parser. It is not a synthetic
+fixture or padding added by the host. Final guest state is PC `80325020`, **64,291 edges,
+7,141,580 cycles**, no exception, `live=0`, `rendered=0`. The stop is the deliberate
+first-command frontier, not a GPU/backend refusal. The coordinator also reports the
+GX-15 bridge decoded these bytes with `verdict=ran`; that bridge result is separately
+reported evidence, not a local hardware/rendering claim.
+
+Build status zero in 115.738 s; static archive unchanged. Both owned emulator phases
+were reaped after their **600 s** timeouts, TERM/exit -15, `waited=true`. Thus the closed
+guest **PASS** and process **124/INCOMPLETE** remain distinct. Independent verification
+`logs/wpar-config-evidence-35ac636.json` binds source, request, package, report, result
+and closed LER. SHA-256:
+
+- VPK: `daa467e87922377f85dc7aefe984f42a092be74fb0964d2f53fa5a0535615514`;
+- report: `69ad9a949f816a4486aaec724abf17312fa23734f7e155d41d6febbc32b44f0a`;
+- result: `8ad6b7472d4a3800ec2cc4db713be4aa0e23034b636de544bfdbaf8b7870f9aa`;
+- log: `fd07df4b6024cec31396bf08be1d1bd1993f13dfdd89de688cdedf533d42838a`;
+- LER: `169da8b7a0e0d3067e984a0701130bdf9916ce1c09ccf887d9004ec9f413b079`.
+
+Exact clean `35ac636` checks pass **384 host tests, 177 ARMv7 tests**, runtime
+**CTest 3/3**, audit and attribution on Linux AArch64 (`logs/checkpoint-35ac636.json`).
+This fulfills WW05's first-authentic-command acceptance. Trello publication remains with
+the coordinator under the offline constraint.
+
+After that trial closed, the seven post-milestone commits were rebased without conflicts
+onto local trunk **`f0a82ed`**, which already contains DVD delivery
+**`35f7c8a05e69648a5e57241ef8ed08b9093fb337`**. No shared branch was pushed or reset.
+The previously listed DI/CMake debt is now wired:
+
+- the boot aggregator reuses `ww13_dvd_io` and the force-included, byte-identical
+  `ww13_dvd_pin` object; the DVD subproject reuses an existing `gxruntime` target;
+- ARMv7 flags apply to both seam targets, and offline inspection requires one DVD
+  owner plus the shim symbols in the actual boot ELF;
+- `disc_service.c` routes supported `A8000000` read DMAs through the pinned DVD
+  layer, opens only `ux0:data/bluewake/GZLE01.iso` lazily on a genuine DI request,
+  and closes its owned image during shutdown;
+- the existing inquiry path is unchanged. Read DMA validates CPU ownership, command
+  length, real MEM1, full/partial alias overlap and the seam's documented signed
+  32-bit disc-offset bound. It does not acknowledge seek/unknown subcommands;
+- successful transport is measured by the seam's byte delta. A missing image, read
+  failure or short read is an explicit host failure and DI error, never successful
+  zero-filled DMA. Failed reads can have copied partial data before failing; DMA
+  registers do not advance and TCINT is not raised. No staging copy is added;
+- trace failure refuses before the destination changes. Actual completion uses
+  the existing DI interrupt and EE gating; no fictitious disc latency is introduced.
+
+The existing alias-overlap guard now takes a 32-bit size, so a disc DMA cannot truncate
+its overlap check at 255 bytes. Its logic is reused, not duplicated. TDD failures are
+retained in `logs/dvd-di-integration-red.log`; `logs/dvd-di-integration-host-green.log`
+passes **392 host tests** on Linux AArch64, including a synthetic image from WW13's
+existing generator, actual DI byte copies/FST resolution, IRQ gating, missing and truncated
+files, short reads, rejected packet shapes, an alias more than 255 bytes into the range,
+trace failure and the Vita CMake seam object/flags. No genuine game disc read is claimed
+by these synthetic checks.
+
+The next unit is opt-in post-frontier command observation, keeping the verified default
+first-command behavior intact. No renderer, live VI/REL/FPS, physical Vita or Windows
+runtime execution is claimed. Shared Windows ARAM validation and final exact integration
+counts remain tracked until the final checks actually run.
+
+## Opt-in post-frontier continuation
+
+The DVD/rebase checkpoint **`abdafa6`** passes exact clean-source checks on Linux AArch64:
+**392 host tests, 198 ARMv7 tests, 29 DVD tests, runtime CTest 3/3**, audit and attribution.
+The DVD tests were redirected into a new `build-f5/services-tests/dvd-integration-abdafa6`
+output tree; no other worker's `build-f13` output was changed. Receipt:
+`logs/checkpoint-abdafa6.json`. The module archive remains unchanged.
+
+The default frontier remains stop-after-first-command. A separate **opt-in** launch mode,
+`--continue-gx N` (1..256), writes an exclusive `ww05.continue` containing the same token,
+source and package plus the canonical journal limit. Missing means disabled; malformed,
+unbound or stale opt-ins refuse. The host still accepts no guest command-line arguments.
+There is no internal guest execution cap and no requirement to ask again before a fresh
+isolated attempt. External owned-process deadlines remain at most **600 seconds per phase**.
+
+In continuation mode:
+
+- the existing consumer reads actual 32-byte MEM1 blocks with the same ring, byte,
+  alias, pointer/distance, IRQ and writer-provenance checks;
+- each byte goes through a current-command checkpoint and the **unchanged strict framer**
+  and pinned parser, preserving CP/BP/XF state between commands. Only the current framing
+  buffer is cleared after a successful command; the parser's FIFO/trace/state is never reset;
+- the first accepted checkpoint is copied once to the frontier, including its writer
+  PC/SP, completion PC, exact bytes and trailing-byte count. Later failures do not erase it;
+- `[gx-command]` records the first N commands, with sequence, opcode, length, writer PC/SP,
+  completion PC and exact `hex=`. Reaching N stops logging, **not** parsing or execution;
+- consumed byte origins are compacted after a complete real block read, allowing later
+  blocks to reuse the bounded provenance queue. The 1,056-byte queue limit becomes an
+  explicit refusal for unconsumed continuation input, not permission to drop provenance;
+- reader and decoded-command totals cannot wrap. Journal failures are explicit refusals;
+  a command whose journal failed is not certified. Real completed block reads retain their
+  pointer/distance effects even when later framing/logging refuses;
+- unsupported commands/draw framing, full pinned FIFO/trace, active unsupported CP IRQs
+  and other real services remain explicit stops. No renderer, GPU completion, draw, audio,
+  controller response or disc data is invented to keep execution going.
+
+The closed report adds one `GX_STREAM` record (decoded, logged, limit, pending bytes,
+actual bytes read). The first-frontier PASS is separated from the **later guest STOP**
+and process return code. A later service failure returns nonzero even when the immutable
+first frontier remains PASS. The offline validator requires the planned mode, consistent
+counts, all journal records in sequence and the first journal record byte-for-byte and
+PC/SP-identical to the frontier. Default-mode validation remains strict and unchanged.
+
+The optional `--disc PRIVATE.iso` binds the **already verified input image read-only** at
+WW13's `ux0:data/bluewake/GZLE01.iso`, in the new isolated sandbox only. The launcher hashes
+the image against the private input receipt and before/after both phases, creates only an
+empty bind target, and never copies game data into the VPK or a writable shared profile.
+The guest opens it only if actual DI execution requests a supported read.
+
+Retained red checks: `logs/gx-stream-red.log`, `gx-stream-observable-red.log`,
+`gx-stream-main-plan-red.log`, `gx-stream-launch-red.log`, `gx-stream-disc-stage-red.log`.
+Intermediate failing fixtures/builds are also retained. The final working-tree host suite
+passes **416 tests** (`logs/gx-stream-delivery-host-green.log`), including continued CP/BP/XF
+state, journal-limit-without-execution-limit, later blocks, split commands/ring wrap,
+64 blocks through reused provenance, unknown opcodes, trace/counter refusal, the actual
+main-loop/report path, stale/malformed requests and readonly sandbox disc binding.
+Synthetic PASS still does not count as authentic acceptance. Clean exact-SHA checks and
+an authentic continuation trial follow this tested unit's commit.
+
+Windows compiler/runtime/CI is unavailable in this offline Linux AArch64 environment;
+no Windows ARAM result is claimed. The required shared-ARAM Windows check is now listed in
+`docs/WINDOWS_TASKS.md`. No genuine VI retrace, presentation, live REL event or FPS marker
+has occurred; no physical Vita rendering or standalone hardware STOP bound is claimed.
+
+## Final delivery: authentic continuation reaches CP performance selection
+
+Run **`da0c3c7226f8441d8b9a6d5ccc1d3c0a`**, exact clean source
+**`feeb8facc9f53d0cf1bd6c2685f5ab317d8e6e04`**, uses the opt-in 64-command journal
+and the verified private disc mounted read-only. The independently validated closed report:
+
+```text
+STATE entry=80003140 pc=80325534 sp=8040CEB0 edges=64360 exception=00000001 cycles=7143068
+GX_FRONTIER complete=1 opcode=61 bytes=5 pc=80325DAC completion_pc=80325DB8 sp=8040CEB0 trailing=27 edge_stop=0 hex=610F0000FF
+GX_STREAM mode=continue decoded=11 logged=11 limit=64 pending=2 read_bytes=64
+STOP reason=unsupported MMIO write address=CC000006 pc=803202C4 width=2 value=0000000000000000
+END frontier=PASS live=0 rendered=0
+```
+
+This is **11 authentic commands**, not 11 synthetic fixture commands: **four BP loads and
+seven CP loads**, accepted by the unchanged pinned parser. The first frontier is identical
+to the original acceptance, and **`edge_stop=0`** proves the first-command stop is disabled.
+Compared with that run, execution reaches 69 additional reported edges and 1,488 additional
+credited cycles. These are boot-progress observations, not frame rate or a performance claim.
+
+Two actual 32-byte reads from `80429F60` and `80429F80` advance the ring read pointer to
+`00429FA0` and distance back to zero. The complete commands total **62 bytes**; the next
+command has a genuine **two-byte incomplete prefix**. No host padding or command skipping
+was used. All eleven journal entries preserve each command's original writer and completion
+PC, with SP **`8040CEB0`** throughout:
+
+| Index | Opcode | Bytes | Writer PC | Completion PC | Exact hex |
+| --- | --- | --- | --- | --- | --- |
+| 1 | 61 | 5 | 80325DAC | 80325DB8 | `610F0000FF` |
+| 2 | 61 | 5 | 8031FF90 | 8031FF98 | `616900049E` |
+| 3 | 61 | 5 | 80325DAC | 80325DB8 | `610F0000FF` |
+| 4 | 61 | 5 | 8031FFA4 | 8031FFBC | `614600024C` |
+| 5 | 08 | 6 | 8032002C | 8032004C | `088080000000` |
+| 6 | 08 | 6 | 80320080 | 8032009C | `088180000000` |
+| 7 | 08 | 6 | 803200D0 | 803200EC | `088280000000` |
+| 8 | 08 | 6 | 80320110 | 8032011C | `088380000000` |
+| 9 | 08 | 6 | 8032002C | 8032004C | `088480000000` |
+| 10 | 08 | 6 | 80320080 | 8032009C | `088580000000` |
+| 11 | 08 | 6 | 803200D0 | 803200EC | `088680000000` |
+
+The next real blocker is **CP `PERF_SELECT`**, offset `06`, identified by unchanged
+`VideoCommon/CommandProcessor.h:62` and its MMIO registration in
+`VideoCommon/CommandProcessor.cpp:221`. The guest attempts halfword zero at `803202C4`;
+it is still refused. There is no speculative CP metrics implementation in this delivery.
+That subsequent boot work is a follow-up, **not a reason to keep WW05's met acceptance open**.
+The journal limit was not reached and did not cause the STOP.
+
+The build exits zero in **127.210 s**. Both owned emulator phases time out at **600 s**,
+TERM/exit -15, `waited=true`, and the launcher returns **124/INCOMPLETE**. This process
+disposition is separate from the proven first-frontier **guest PASS** and the later explicit
+guest service failure. Sources stayed clean and unchanged throughout build and trial;
+the translated archive remains
+`9d1c59238cea4b83798f1c16b0549950d41ec0011a89e95591d5a307718aea08`.
+
+Independent verification in `logs/gx-stream-evidence-feeb8fa.json` matches source, package,
+plan/request/result, the canonical opt-in, all eleven journal entries, immutable first
+frontier, the original disc hash and the empty read-only bind target after execution. The
+dispatch journal is closed **LER**. Five SHA-256 bindings:
+
+- VPK: `1e5a89bf62eeac80afc6c909bfe7238289ea0dc5c5f7ed98ffa2760925a084f9`;
+- report: `12dc9287a39e745f44eae02f46f3a9ca20dfe6ddba6d879120febb51e8dbc0a3`;
+- result: `2a8f61cf3b52ceb03414f8498a94c004f1903140ee4da7f2f3362468ddba875d`;
+- log: `d84adb839ceb83c19c968c64d6e7fc26c41805d1cf2f891b2e4e5f20dfcd8ba2`;
+- LER: `169da8b7a0e0d3067e984a0701130bdf9916ce1c09ccf887d9004ec9f413b079`.
+
+### Exact checks and delta review
+
+Exact clean **`feeb8fa`** checks pass on Linux AArch64:
+
+- **416 host tests**;
+- **198 ARMv7 tests**;
+- **29 DVD tests**, isolated outputs under `build-f5`;
+- pinned runtime **CTest 3/3**;
+- shared native ARAM contract, compiled from the current shared source and executed;
+- repository safety audit and human-attribution check;
+- `BlueWakeRelData` offset, stride and alignment assertions compiled for both Linux
+  AArch64 and ARMv7 Vita.
+
+Receipts are `logs/checkpoint-feeb8fa.json` and `logs/delta-review-feeb8fa.json`.
+The post-rebase ARMv7 suite contains **198**, not the earlier 177: the incoming trunk added
+tests. The initial verbal count and the `abdafa6` section were corrected by recounting the
+actual logs; all 198 pass. The original pre-rebase 177-test records retain their real counts.
+
+The reviewed code delta is nine local commits on `f0a82ed`, plus this final documentation
+record. The seven frontier increments were rebased without conflicts; DVD13's existing
+delivery is reused, not recreated. No delta changes the pinned sources, dependency pins,
+strict command framer, FP operations, shared runtime code since trunk or module-export ABI.
+The actual boot ELF also passes unique-owner inspection for `dvd_open_image`,
+`dvd_read_to_guest`, `bw_dvd_fopen` and `bw_dvd_fread`; the Vita seam is compiled and linked
+into the boot path. The final documentation checkpoint changes no executable source;
+its exact-SHA regression receipt is retained after committing it.
+
+### Handoff and limits
+
+**WW05 core acceptance and local delivery are complete.** The continuation is available for
+fresh independent attempts; no further automatic boot-march work is needed to close this
+acceptance. The new CP performance-selector STOP is retained as the next authentic frontier.
+The local branch is ready for coordinator review/integration. No push, PR, merge or Trello
+publication occurred under the offline constraint; Windows CI must still gate any merge.
+
+The disc was correctly exposed read-only, but **no genuine DI image/file read occurred**
+before this STOP. Its integration is tested synthetically and its real-image seam was tested
+by DVD13, not claimed here as real WW05 game I/O. There is still no renderer, draw, presentation,
+VI retrace, live REL load/unload or FPS event. Audio remains stopped/silent; dynamic Zelda DSP
+protocols remain unsupported. No physical Vita, standalone physical STOP bound, Windows
+compiler/runtime/CI or gameplay/performance acceptance is claimed. The shared Windows ARAM
+verification remains in `docs/WINDOWS_TASKS.md`.
+
+Private VPKs, game inputs and every attempt remain ignored and local. No network, shared
+profile, protected `build-r1`/`build-f8`/`build-f9`/`build-f11` tree, other worktree or player
+data was changed. The final delivery does not publish or attach any personal game build.

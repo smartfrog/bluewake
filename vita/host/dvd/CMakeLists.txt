@@ -20,8 +20,10 @@ if(RECOMPCORE_DIR)
     endif()
     set(GXRUNTIME_ENABLE_AURORA OFF CACHE BOOL "" FORCE)
     set(GXRUNTIME_ENABLE_AURORA_RECOMP OFF CACHE BOOL "" FORCE)
-    set(BUILD_TESTING OFF CACHE BOOL "" FORCE)
-    add_subdirectory("${GXRUNTIME_DIR}" runtime)
+    if(NOT TARGET gxruntime)
+        set(BUILD_TESTING OFF CACHE BOOL "" FORCE)
+        add_subdirectory("${GXRUNTIME_DIR}" runtime)
+    endif()
 
     # The pinned dvd.c compiled byte-identical: only its four stdio primitives
     # are redirected to the seam. Linked before gxruntime so the archive's

@@ -32,6 +32,19 @@ static int dispatch(CPUState* cpu, u32 address) {
     static bool polled;
     static u32 repeated_handlers;
     static bool init_started;
+    if (getenv("WW05_IO_CONSUMER") != NULL && address == 0x80001008u) {
+        cpu->pc = address;
+        cpu->external_read(cpu, 0xCC000006u, 2u);
+        return 1;
+    }
+    const char* wpar = getenv("WW05_IO_WPAR");
+    if (wpar != NULL) {
+        const u32 value = strtoul(wpar, NULL, 0);
+        ppc_mtspr(cpu, 921u, value, address);
+        if (cpu->exception != 0u)
+            return 1;
+        assert(ppc_mfspr(cpu, 921u, address) == value && cpu->exception == 0u);
+    }
     const char* fifo = getenv("WW05_IO_FIFO");
     if (fifo != NULL) {
         const char* scenario;
@@ -44,9 +57,18 @@ static int dispatch(CPUState* cpu, u32 address) {
     }
     const char* cp_control = getenv("WW05_IO_CP_CONTROL");
     if (cp_control != NULL) {
-        cpu->external_write(cpu, 0xCC000002u, strtoul(cp_control, NULL, 0), 2u);
+        const u64 value = strtoul(cp_control, NULL, 0);
+        cpu->external_write(cpu, 0xCC000002u, value, 2u);
         if (cpu->exception != 0u)
             return 1;
+        assert(cpu->external_read(cpu, 0xCC000002u, 2u) == value && cpu->exception == 0u);
+    }
+    const char* cp_clear = getenv("WW05_IO_CP_CLEAR");
+    if (cp_clear != NULL) {
+        cpu->external_write(cpu, 0xCC000004u, strtoul(cp_clear, NULL, 0), 2u);
+        if (cpu->exception != 0u)
+            return 1;
+        assert(cpu->external_read(cpu, 0xCC000004u, 2u) == 0u && cpu->exception == 0u);
     }
     static const struct {
         const char* environment;
@@ -291,8 +313,24 @@ static int dispatch(CPUState* cpu, u32 address) {
         }
     }
     cpu->pc = address;
-    cpu->external_write(cpu, 0xCC008000u, 0x61u, 1u);
-    cpu->external_write(cpu, 0xCC008000u, 0xFEFFFFFFu, 4u);
+    WwHost* host = cpu->external_user_data;
+    if (getenv("WW05_IO_CONSUMER") != NULL) {
+        ww_probe_fifo_setup(host, true);
+        host->cp_fifo_high_watermark = 96u;
+        mem_write16(cpu, 0xCC000004u, 3u);
+        mem_write16(cpu, 0xCC000002u, 0x15u);
+        assert(host->error == NULL);
+        cpu->gpr[1] = 0x817FFF00u;
+        mem_write8(cpu, 0xCC008000u, 0x61u);
+        cpu->pc = address + 4u;
+        mem_write32(cpu, 0xCC008000u, 0x41123456u);
+        cpu->pc = address + 8u;
+        for (u8 index = 5u; index < 32u; ++index)
+            mem_write8(cpu, 0xCC008000u, 0u);
+    } else {
+        assert(ww_gx_write(&host->frontier, &host->gx, 0x61u, 1u, cpu->pc, cpu->gpr[1]));
+        assert(ww_gx_write(&host->frontier, &host->gx, 0xFEFFFFFFu, 4u, cpu->pc, cpu->gpr[1]));
+    }
     cpu->downcount -= 12;
     if (edge != NULL)
         edge(edge_user, cpu, address + 4u);
@@ -363,6 +401,8 @@ int __wrap_fprintf(FILE* stream, const char* format, ...) {
          (strncmp(format, "[fp-exception-resume]", 21u) == 0 && failure("fp-resume-log")) ||
          (strncmp(format, "[aram-expansion-request]", 24u) == 0 && failure("aram-expansion-log")) ||
          (strncmp(format, "[aram-hsp-absent]", 17u) == 0 && failure("aram-absent-log")) ||
+         (strncmp(format, "[cp-consume]", 12u) == 0 && failure("cp-consume-log")) ||
+         (strncmp(format, "[wpar]", 6u) == 0 && failure("wpar-log")) ||
          (strncmp(format, "[exi]", 5u) == 0 && failure("exi-log")))) {
         errno = EIO;
         return -1;

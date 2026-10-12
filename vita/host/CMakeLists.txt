@@ -11,9 +11,14 @@ set(GXRUNTIME_ENABLE_AURORA OFF CACHE BOOL "" FORCE)
 set(GXRUNTIME_ENABLE_AURORA_RECOMP OFF CACHE BOOL "" FORCE)
 set(BUILD_TESTING ${WW05_TESTS_ONLY} CACHE BOOL "" FORCE)
 add_subdirectory("${GXRUNTIME_DIR}" runtime)
+set(WW13_TESTS_ONLY OFF CACHE BOOL "" FORCE)
+set(WW13_VITA OFF CACHE BOOL "" FORCE)
+add_subdirectory(dvd)
 target_compile_options(gxruntime PRIVATE -ffp-contract=off -fno-fast-math -fstack-usage)
 
-add_library(ww05_services STATIC boot_host.c gx_checkpoint.c code_guard.c dsp_interface.c bat_contract.c
+add_library(ww05_services STATIC boot_host.c gx_checkpoint.c gx_stream.c fifo_gather.c fifo_consumer.c
+    code_guard.c dsp_interface.c bat_contract.c disc_service.c
+    $<TARGET_OBJECTS:ww13_dvd_pin>
     "${BLUEWAKE_ROOT}/runtime/host/src/cycle_domain.c"
     "${BLUEWAKE_ROOT}/runtime/host/src/aram_dma.c"
     "${BLUEWAKE_ROOT}/runtime/host/src/external_memory.c"
@@ -21,7 +26,7 @@ add_library(ww05_services STATIC boot_host.c gx_checkpoint.c code_guard.c dsp_in
     "${BLUEWAKE_ROOT}/runtime/host/src/interrupt_sources.c")
 target_include_directories(ww05_services PUBLIC "${CMAKE_CURRENT_SOURCE_DIR}"
     "${BLUEWAKE_ROOT}/runtime/host/src" "${BLUEWAKE_ROOT}/cmake/composite" "${ABI_DIR}")
-target_link_libraries(ww05_services PUBLIC GXRuntime::runtime)
+target_link_libraries(ww05_services PUBLIC ww13_dvd_io GXRuntime::runtime)
 target_compile_options(ww05_services PRIVATE -O2 -ffp-contract=off -fno-fast-math -fstack-usage
     -Wall -Wextra -Werror=implicit-function-declaration)
 
@@ -55,6 +60,29 @@ if(WW05_TESTS_ONLY)
     add_executable(di_inquiry_probe di_inquiry_probe.c)
     target_compile_options(di_inquiry_probe PRIVATE -UNDEBUG)
     target_link_libraries(di_inquiry_probe PRIVATE ww05_services)
+    add_executable(di_read_probe di_read_probe.c)
+    target_compile_options(di_read_probe PRIVATE -UNDEBUG)
+    target_link_libraries(di_read_probe PRIVATE ww05_services)
+    target_link_options(di_read_probe PRIVATE -Wl,--wrap=fprintf)
+    add_executable(gather_probe gather_probe.c)
+    target_compile_options(gather_probe PRIVATE -UNDEBUG)
+    target_link_libraries(gather_probe PRIVATE ww05_services)
+    target_link_options(gather_probe PRIVATE -Wl,--wrap=fprintf)
+    add_executable(cp_clear_probe cp_clear_probe.c)
+    target_compile_options(cp_clear_probe PRIVATE -UNDEBUG)
+    target_link_libraries(cp_clear_probe PRIVATE ww05_services)
+    add_executable(fifo_consumer_probe fifo_consumer_probe.c)
+    target_compile_options(fifo_consumer_probe PRIVATE -UNDEBUG)
+    target_link_libraries(fifo_consumer_probe PRIVATE ww05_services)
+    target_link_options(fifo_consumer_probe PRIVATE -Wl,--wrap=fprintf)
+    add_executable(gx_stream_probe gx_stream_probe.c)
+    target_compile_options(gx_stream_probe PRIVATE -UNDEBUG)
+    target_link_libraries(gx_stream_probe PRIVATE ww05_services)
+    target_link_options(gx_stream_probe PRIVATE -Wl,--wrap=fprintf)
+    add_executable(wpar_probe wpar_probe.c)
+    target_compile_options(wpar_probe PRIVATE -UNDEBUG)
+    target_link_libraries(wpar_probe PRIVATE ww05_services)
+    target_link_options(wpar_probe PRIVATE -Wl,--wrap=fprintf)
     file(WRITE "${CMAKE_CURRENT_BINARY_DIR}/ww05_identity.h" "#define WW05_SOURCE \"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\"\n")
     add_executable(io_probe main.c io_probe.c
         "${BLUEWAKE_ROOT}/vita/feasibility/armv7/platform.c"
@@ -92,7 +120,7 @@ else()
         SceLibKernel_stub SceIofilemgr_stub SceProcessmgr_stub SceSysmem_stub)
     target_compile_options(ww05_host PRIVATE -O2 -ffp-contract=off -fno-fast-math -fstack-usage)
     target_link_options(ww05_host PRIVATE "-Wl,-Map=${CMAKE_CURRENT_BINARY_DIR}/ww05.map")
-    foreach(target gxruntime ww05_services gGZLE01_recomp ww05_host)
+    foreach(target gxruntime ww05_services ww13_dvd_io ww13_dvd_pin gGZLE01_recomp ww05_host)
         target_compile_options(${target} PRIVATE -mcpu=cortex-a9 -mfpu=neon -mfloat-abi=hard)
     endforeach()
     include("$ENV{VITASDK}/share/vita.cmake" REQUIRED)
