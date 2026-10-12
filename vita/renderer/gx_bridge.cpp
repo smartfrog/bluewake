@@ -92,6 +92,12 @@ void observe_copy(const gxc::EfbCopyCommand& cmd, void* user) {
 // The same nonzero gap set the fixture harness reports, so a bridge report and
 // a gx_replay report name the same gaps for the same stream.
 void collect_gaps(const gxc::GapCounters& counters, Result* result) {
+  result->gaps = nonzero_gaps(counters);
+}
+
+} // namespace
+
+std::vector<GapEntry> nonzero_gaps(const gxc::GapCounters& counters) {
   const std::pair<const char*, unsigned long long> gaps[] = {
       {"missing_vcd", counters.missing_vcd},
       {"vertex_decode_failures", counters.vertex_decode_failures},
@@ -103,13 +109,13 @@ void collect_gaps(const gxc::GapCounters& counters, Result* result) {
       {"lighting_ignored", counters.lighting_ignored},
       {"unresolved_tex_matrix", counters.unresolved_tex_matrix},
   };
+  std::vector<GapEntry> entries;
   for (const auto& [name, value] : gaps) {
     if (value != 0u)
-      result->gaps.push_back(GapEntry{name, value});
+      entries.push_back(GapEntry{name, value});
   }
+  return entries;
 }
-
-} // namespace
 
 bool run(std::span<const std::uint8_t> fifo,
          const DolGuestAddressResolver& resolver, Result* out) {

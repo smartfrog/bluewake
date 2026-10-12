@@ -28,6 +28,17 @@ if(VITA)
     # default is the SDK's library.
     set(WW02_VITAGL_LIBRARY "vitaGL" CACHE STRING "vitaGL library name or absolute archive path")
 
+    # VITA-WW-17: the host-facing renderer with the real vitaGL backend. The
+    # host build (below) compiles the same core with a recording backend.
+    add_library(ww_renderer STATIC "${RENDERER_DIR}/ww_renderer.cpp"
+        "${RENDERER_DIR}/vita_gl_backend.cpp")
+    target_link_libraries(ww_renderer PUBLIC gx_vita GXRuntime::retail_gx_frontend
+        ${WW02_VITAGL_LIBRARY} vitashark SceShaccCgExt
+        SceShaccCg_stub_weak SceGxm_stub_weak SceDisplay_stub_weak
+        SceLibKernel_stub SceIofilemgr_stub SceProcessmgr_stub)
+    target_compile_options(ww_renderer PRIVATE -mcpu=cortex-a9 -mfpu=neon
+        -mfloat-abi=hard -O2 -Wall -Wextra)
+
     add_executable(gx_vita_demo gx_vita_main.cpp png_capture.c)
     target_link_libraries(gx_vita_demo PRIVATE
         gx_vita GXRuntime::retail_gx_frontend
@@ -88,6 +99,13 @@ else()
         "${RENDERER_DIR}/gx_bridge.cpp")
     target_link_libraries(gx_bridge_tests PRIVATE gx_vita GXRuntime::retail_gx_frontend)
     target_compile_options(gx_bridge_tests PRIVATE -O2 -Wall -Wextra)
+
+    # VITA-WW-17: the host-facing renderer interface, exercised with a
+    # recording backend in place of vitaGL (no GPU on the host).
+    add_executable(ww_renderer_tests "${RENDERER_DIR}/ww_renderer.cpp"
+        "${RENDERER_DIR}/gx_bridge.cpp" "${RENDERER_DIR}/ww_renderer_tests.cpp")
+    target_link_libraries(ww_renderer_tests PRIVATE gx_vita GXRuntime::retail_gx_frontend)
+    target_compile_options(ww_renderer_tests PRIVATE -O2 -Wall -Wextra)
 
     add_executable(png_capture_tests png_capture_tests.c png_capture.c)
     target_compile_options(png_capture_tests PRIVATE -O2 -Wall -Wextra)

@@ -126,6 +126,21 @@ void translate_geometry(const gxc::DrawPlan& plan, Geometry& out) {
   out.indices = plan.indices;
 }
 
+// The plan's vertex constants carry the transform the generated Cg consumes:
+// the XF position matrix (rows 0..2, padded to 4 rows with (0,0,0,1)) and the
+// Dolphin-layout projection (row-dot form).
+void translate_transform(const gxc::DrawPlan& plan, TranslatedDraw& out) {
+  for (std::uint32_t row = 0; row < 3u; ++row)
+    std::memcpy(&out.position_matrix[row * 4u],
+                plan.constants.posnormalmatrix[row], 4u * sizeof(float));
+  out.position_matrix[12] = 0.0f;
+  out.position_matrix[13] = 0.0f;
+  out.position_matrix[14] = 0.0f;
+  out.position_matrix[15] = 1.0f;
+  std::memcpy(out.projection, &plan.constants.projection[0][0],
+              16u * sizeof(float));
+}
+
 // Decode one texture to RGBA8 with the pinned codecs. A CI texture without
 // its palette stays invalid (the caller counts the gap) instead of decoding
 // wrong colours.
@@ -202,6 +217,7 @@ TranslatedDraw translate(const gxc::DrawPlan& plan) {
   }
   translate_pipeline(plan, out.pipeline);
   translate_geometry(plan, out.geometry);
+  translate_transform(plan, out);
   if (plan.texmap_mask != 0u)
     translate_per_texmap_textures(plan, out);
   else

@@ -109,6 +109,13 @@ struct TranslatedDraw {
   const char* skip_reason = nullptr; // set when ok == false
   PipelineState pipeline;
   Geometry geometry;
+  // The draw's transform, in the row-dot layout the generated Cg consumes
+  // (clip = mul(mul(pos4, position_matrix), projection), row vectors):
+  // position_matrix rows 0..2 are the XF position-matrix rows from the plan's
+  // vertex constants, row 3 is (0,0,0,1); projection is the plan's
+  // Dolphin-layout projection (rows are dot rows).
+  float position_matrix[16]{};
+  float projection[16]{};
   // Single-texmap case (plan.texmap_mask == 0): the draw's one texture and the
   // sampler of the texmap it samples.
   TextureUpload texture;
