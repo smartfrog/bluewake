@@ -17,6 +17,7 @@
 
 #include "gxruntime/gxcore/gxcore.hpp"
 #include "gxruntime/gxcore/texture_decode.hpp"
+#include "gx_fog.h"
 
 #include <cstdint>
 #include <vector>
@@ -123,6 +124,7 @@ struct TranslatedDraw {
   float konst_colors[4][4]{};
   float alpha_ref[2]{};
   float ztexture_bias[2]{}; // exact high-16/low-8 parts of BP F4
+  fog::Uniforms fog;
   // Single texmap-0 case: the draw's one texture and sampler.
   TextureUpload texture;
   // Bit t set means textures[t] must be bound. Includes single nonzero texmaps;

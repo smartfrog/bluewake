@@ -11,6 +11,7 @@
 
 #include "gx_bridge.h"
 #include "gx_ztexture_fixture.h"
+#include "gx_fog_fixture.h"
 
 #include "../feasibility/gx/gx_fixture.hpp"
 
@@ -55,7 +56,8 @@ const gx_bridge::GapEntry* find_gap(const gx_bridge::Result& result,
 int main(int argc, char** argv) {
   if (argc == 3 && (std::string(argv[1]) == "--write-ztexture-fixture" ||
                     std::string(argv[1]) == "--write-matrix-fixture" ||
-                    std::string(argv[1]) == "--write-light-fixture")) {
+                    std::string(argv[1]) == "--write-light-fixture" ||
+                    std::string(argv[1]) == "--write-fog-fixture")) {
     const std::filesystem::path directory(argv[2]);
     std::filesystem::create_directories(directory);
     gx_fixture::FixtureContext memory;
@@ -65,6 +67,8 @@ int main(int argc, char** argv) {
       fifo = gx_ztexture_fixture::matrix_quad(true, true);
     else if (std::string(argv[1]) == "--write-light-fixture")
       fifo = gx_ztexture_fixture::lighting_quad(7);
+    else if (std::string(argv[1]) == "--write-fog-fixture")
+      fifo = gx_fog_fixture::quad(4, false, true);
     std::ofstream fifo_file(directory / "clear.fifo", std::ios::binary);
     std::ofstream memory_file(directory / "clear.mem1", std::ios::binary);
     fifo_file.write(reinterpret_cast<const char*>(fifo.data()), fifo.size());
@@ -75,6 +79,17 @@ int main(int argc, char** argv) {
     return 0;
   }
   CHECK(argc == 1);
+  for (std::uint8_t mode : {2, 4, 5, 6, 7}) {
+    for (bool orthographic : {false, true}) {
+      for (bool range : {false, true}) {
+        gx_bridge::Result result;
+        CHECK(run_stream(gx_fog_fixture::quad(mode, orthographic, range), result));
+        CHECK(result.counts.plans_ok == 1 && result.counts.programs == 1);
+        CHECK(result.counts.programs_refused == 0 && result.plan_skips.empty());
+        CHECK(result.gaps.empty());
+      }
+    }
+  }
   for (std::uint8_t light : {0, 7}) {
     gx_bridge::Result result;
     CHECK(run_stream(gx_ztexture_fixture::lighting_quad(light), result));

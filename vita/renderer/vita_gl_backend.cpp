@@ -75,6 +75,12 @@ public:
     glUniform2fv(glGetUniformLocation(gl_program, "alpha_ref"), 1, draw.alpha_ref);
     glUniform2fv(glGetUniformLocation(gl_program, "ztexture_bias"), 1,
                  draw.ztexture_bias);
+    glUniform4fv(glGetUniformLocation(gl_program, "fog_params"), 1, draw.fog.params);
+    glUniform4fv(glGetUniformLocation(gl_program, "fog_color"), 1, draw.fog.color);
+    glUniform2fv(glGetUniformLocation(gl_program, "fog_depth"), 1, draw.fog.depth);
+    glUniform4fv(glGetUniformLocation(gl_program, "fog_range"), 3, &draw.fog.range[0][0]);
+    const float fog_screen[] = {draw.fog.viewport[0] / kScreenWidth, draw.fog.viewport[1]};
+    glUniform2fv(glGetUniformLocation(gl_program, "fog_screen"), 1, fog_screen);
 
     if (draw.pipeline.depth_test != 0u)
       glEnable(GL_DEPTH_TEST);

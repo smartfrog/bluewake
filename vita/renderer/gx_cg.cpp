@@ -5,6 +5,7 @@
 #include "gx_tev.h"
 #include "gx_ztexture.h"
 #include "gx_texgen.h"
+#include "gx_fog.h"
 
 namespace gx_vita {
 
@@ -40,10 +41,9 @@ CgProgram generate_cg(const gxc::ShaderKey& key) {
     program.unsupported_reason = "invalid GX shader key";
     return program;
   }
-  if (key.fog_fsel != 0) {
-    program.unsupported_reason = "fog not supported by Vita Cg";
+  program.unsupported_reason = fog::key_reason(key);
+  if (program.unsupported_reason != nullptr)
     return program;
-  }
   if (key.ztex_op > 2 || key.ztex_type > 2 ||
       (key.ztex_op != 0 && (key.tev_valid == 0 || key.textured == 0))) {
     program.unsupported_reason = "invalid ZTexture configuration";
@@ -171,8 +171,18 @@ CgProgram generate_cg(const gxc::ShaderKey& key) {
     if (key.ztex_op != 0) {
       param("uniform float2 ztexture_bias");
       param("out float fragment_depth : DEPTH");
-      if (key.ztex_op == 1)
-        param("float4 screen : WPOS");
+    }
+    if (key.ztex_op == 1 || key.fog_fsel != 0)
+      param("float4 screen : WPOS");
+    if (key.fog_fsel != 0) {
+      param("uniform float4 fog_params");
+      param("uniform float4 fog_color");
+      if (key.fog_proj == 0)
+        param("uniform float2 fog_depth");
+      if (key.fog_range != 0) {
+        param("uniform float4 fog_range[3]");
+        param("uniform float2 fog_screen");
+      }
     }
     out += ") : COLOR {\n";
 
@@ -199,6 +209,8 @@ CgProgram generate_cg(const gxc::ShaderKey& key) {
       tev::emit_alpha_test(out, key);
       if (key.ztex_op != 0)
         ztexture::emit_depth(out, key);
+      if (key.fog_fsel != 0)
+        fog::emit(out, key);
       out += "  return prev / 255.0;\n";
     } else if (key.textured != 0u) {
       out += key.num_tex_gens > 0 && key.tex_gens[0].projection
