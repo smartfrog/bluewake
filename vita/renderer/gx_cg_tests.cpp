@@ -209,9 +209,9 @@ int cross_source_texgen_coverage() {
   key.tev_stages[0].tevorders_texcoord = 1;
   const auto cg = gx_vita::generate_cg(key);
   CHECK(cg.ok);
-  CHECK(contains(cg.fragment, "tex2D(tex0, uv0)"));
-  CHECK(contains(cg.vertex, "float2 uv0 : TEXCOORD0"));
-  CHECK(!contains(cg.vertex, "float2 uv1"));
+  CHECK(contains(cg.fragment, "tex2D(tex0, uv1.xy)"));
+  CHECK(contains(cg.vertex, "float3 uv1 : TEXCOORD1"));
+  CHECK(!contains(cg.vertex, "float3 uv0"));
   return 0;
 }
 
@@ -351,8 +351,8 @@ int main(int argc, char** argv) {
     CHECK(contains(cg.vertex, "out_color0 = color0;"));
     CHECK(contains(cg.fragment, "uniform sampler2D tex0"));
     CHECK(contains(cg.fragment, "uniform sampler2D tex1"));
-    CHECK(contains(cg.fragment, "tex2D(tex1, float2(color0.r, 0.5))"));
-    CHECK(contains(cg.fragment, "tex2D(tex0, uv0)"));
+    CHECK(contains(cg.fragment, "tex2D(tex1, uv1.xy)"));
+    CHECK(contains(cg.fragment, "tex2D(tex0, uv0.xy)"));
     CHECK(contains(cg.fragment, "return prev / 255.0;"));
     std::printf("cel ok\n");
   }
@@ -363,7 +363,7 @@ int main(int argc, char** argv) {
     const gx_vita::CgProgram cg = gx_vita::generate_cg(key);
     CHECK(cg.ok);
     CHECK(contains(cg.fragment, "uniform sampler2D tex0"));
-    CHECK(contains(cg.fragment, "return tex2D(tex0, uv0);"));
+    CHECK(contains(cg.fragment, "return tex2D(tex0, uv0.xy);"));
     CHECK(!contains(cg.fragment, "sampler2D tex1"));
     std::printf("passthrough ok\n");
   }

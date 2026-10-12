@@ -91,6 +91,7 @@ struct PipelineState {
 
 struct Geometry {
   std::vector<std::uint8_t> vertices; // gxcore fixed layout, float32
+  std::vector<float> texcoords; // eight generated STQ triples per vertex
   std::vector<std::uint16_t> indices; // triangle/line/point list
   std::uint32_t vertex_count = 0;
 };

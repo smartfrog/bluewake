@@ -53,12 +53,15 @@ const gx_bridge::GapEntry* find_gap(const gx_bridge::Result& result,
 } // namespace
 
 int main(int argc, char** argv) {
-  if (argc == 3 && std::string(argv[1]) == "--write-ztexture-fixture") {
+  if (argc == 3 && (std::string(argv[1]) == "--write-ztexture-fixture" ||
+                    std::string(argv[1]) == "--write-matrix-fixture")) {
     const std::filesystem::path directory(argv[2]);
     std::filesystem::create_directories(directory);
     gx_fixture::FixtureContext memory;
     gx_ztexture_fixture::fill_memory(memory);
-    const auto fifo = gx_ztexture_fixture::clear_quad();
+    const auto fifo = std::string(argv[1]) == "--write-matrix-fixture"
+                          ? gx_ztexture_fixture::matrix_quad(true, true)
+                          : gx_ztexture_fixture::clear_quad();
     std::ofstream fifo_file(directory / "clear.fifo", std::ios::binary);
     std::ofstream memory_file(directory / "clear.mem1", std::ios::binary);
     fifo_file.write(reinterpret_cast<const char*>(fifo.data()), fifo.size());
@@ -69,6 +72,14 @@ int main(int argc, char** argv) {
     return 0;
   }
   CHECK(argc == 1);
+  for (bool indexed : {false, true}) {
+    for (bool projected : {false, true}) {
+      gx_bridge::Result result;
+      CHECK(run_stream(gx_ztexture_fixture::matrix_quad(indexed, projected), result));
+      CHECK(result.counts.plans_ok == 1 && result.counts.programs == 1);
+      CHECK(result.counts.programs_refused == 0 && result.plan_skips.empty());
+    }
+  }
   {
     gx_fixture::FixtureContext memory;
     gx_ztexture_fixture::fill_memory(memory);

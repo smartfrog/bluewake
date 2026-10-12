@@ -499,6 +499,48 @@ int ztexture_is_submitted() {
   return 0;
 }
 
+int texture_matrices_are_submitted() {
+  for (bool indexed : {false, true}) {
+    for (bool projected : {false, true}) {
+      Fixture fixture;
+      RecordingBackend backend;
+      WwRenderer* renderer = nullptr;
+      WwRendererConfig config = fixture.config();
+      CHECK(ww_renderer_create(&renderer, &config, &backend) == nullptr);
+      const auto fifo = gx_ztexture_fixture::matrix_quad(indexed, projected);
+      CHECK(ww_renderer_write(renderer, fifo.data(), fifo.size()) == nullptr);
+      CHECK(backend.draws.size() == 1);
+      const auto& uv = backend.draws[0].geometry.texcoords;
+      CHECK(uv.size() == 4 * 8 * 3);
+      CHECK(uv[0] == 4 && uv[1] == 5 && uv[2] == (projected ? 2.f : 1.f));
+      CHECK(uv[24] == (indexed ? 12.f : 6.f));
+      CHECK(uv[25] == (indexed ? 9.f : 5.f));
+      CHECK(uv[26] == (projected ? (indexed ? 4.f : 3.f) : 1.f));
+      CHECK(backend.draws[0].cg_vertex.find("float3 uv0 : TEXCOORD0") != std::string::npos);
+      CHECK((backend.draws[0].cg_fragment.find("max(uv0.z") != std::string::npos) == projected);
+      ww_renderer_destroy(renderer);
+    }
+  }
+  std::printf("renderer static/per-vertex ST/STQ texture matrices submitted\n");
+  return 0;
+}
+
+int folded_post_matrix_is_submitted() {
+  Fixture fixture;
+  RecordingBackend backend;
+  WwRenderer* renderer = nullptr;
+  WwRendererConfig config = fixture.config();
+  CHECK(ww_renderer_create(&renderer, &config, &backend) == nullptr);
+  const auto fifo = gx_ztexture_fixture::post_matrix_quad();
+  CHECK(ww_renderer_write(renderer, fifo.data(), fifo.size()) == nullptr);
+  CHECK(backend.draws.size() == 1);
+  const auto& uv = backend.draws[0].geometry.texcoords;
+  CHECK(uv[0] == 14 && uv[1] == 25 && uv[2] == 1);
+  ww_renderer_destroy(renderer);
+  std::printf("renderer folded static post texture matrix submitted\n");
+  return 0;
+}
+
 } // namespace
 
 int main() {
@@ -510,6 +552,8 @@ int main() {
   CHECK(per_vertex_matrix_coverage() == 0);
   CHECK(tev_register_supply() == 0);
   CHECK(ztexture_is_submitted() == 0);
+  CHECK(texture_matrices_are_submitted() == 0);
+  CHECK(folded_post_matrix_is_submitted() == 0);
   {
     // Create refuses a missing memory view and a missing backend loudly.
     WwRenderer* renderer = nullptr;

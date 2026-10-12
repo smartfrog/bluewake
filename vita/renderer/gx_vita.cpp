@@ -2,6 +2,7 @@
 // VITA-WW-02 GX -> vitaGL translation. See gx_vita.h.
 
 #include "gx_vita.h"
+#include "gx_texgen.h"
 
 #include <cstring>
 #include <utility>
@@ -263,6 +264,8 @@ TranslatedDraw translate(const gxc::DrawPlan& plan) {
   }
   translate_pipeline(plan, out.pipeline);
   if (!translate_geometry(plan, out.geometry, &out.skip_reason))
+    return out;
+  if (!texgen::translate(plan, out.geometry.vertices, out.geometry.texcoords, &out.skip_reason))
     return out;
   translate_transform(plan, out);
   for (std::uint32_t reg = 0; reg < 4; ++reg) {

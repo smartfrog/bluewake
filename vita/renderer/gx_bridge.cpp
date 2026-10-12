@@ -97,8 +97,8 @@ void observe_copy(const gxc::EfbCopyCommand& cmd, void* user) {
                                          : "copy not ok");
 }
 
-// The same nonzero gap set the fixture harness reports, so a bridge report and
-// a gx_replay report name the same gaps for the same stream.
+// Retain unresolved upstream diagnostics, not activity counters for paths that
+// the Vita translation implements.
 void collect_gaps(const gxc::GapCounters& counters, Result* result) {
   result->gaps = nonzero_gaps(counters);
 }
@@ -118,7 +118,6 @@ std::vector<GapEntry> nonzero_gaps(const gxc::GapCounters& counters) {
       {"fog_ignored", counters.fog_ignored},
       {"lighting_ignored", counters.lighting_ignored},
       {"unresolved_tex_matrix", counters.unresolved_tex_matrix},
-      {"per_vertex_tex_mtx", counters.per_vertex_tex_mtx},
       {"alpha_compare_ignored", counters.alpha_compare_ignored},
       {"tev_stages_over", counters.tev_stages_over},
       {"logic_op_ignored", counters.logic_op_ignored},
