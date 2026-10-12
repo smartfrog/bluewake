@@ -162,6 +162,7 @@ fallback is introduced.
 | `9b549df` | PNMTXIDX position translation and actual bridge translation |
 | `9b1281a` | Common TEV arguments/constants/combiners |
 | `e4fc310` | Alpha tests, destination blend factors, nonzero texture routing |
+| `8bf14d1` | Texgen boundaries, explicit unsupported-state refusals, extra vertex attributes, gap reporting and watched shader evidence |
 
 Repository audit and attribution check (`25d20fe..HEAD`) pass. No network,
 push, shared-pin edits, host edits, or WW05 harness edits were made.
