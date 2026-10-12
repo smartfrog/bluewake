@@ -23,23 +23,28 @@ int main(int argc, char** argv) {
     assert(argc == 2);
     WwHost* host = calloc(1u, sizeof(*host));
     assert(host != NULL && ww_host_init(host));
-    const StaticRecompRange ranges[] = {{0x8030FBCCu, 0x8030FBD0u}};
+    const StaticRecompRange ranges[] = {{0x8030FADCu, 0x8030FBD0u}};
     const StaticRecompModuleDesc module = {.code_ranges = ranges, .num_code_ranges = 1u};
     host->module = &module;
     CPUState* cpu = &host->cpu;
     const char* scenario = argv[1];
+    const bool asynchronous = strncmp(scenario, "async", 5u) == 0;
     const u32 fi = 0x80001000u;
     memset(cpu->ram + 0x1000u, 0xA5u, 0x40u);
     mem_write32(cpu, fi + DVD_FI_STARTADDR, 0x500u);
     mem_write32(cpu, fi + DVD_FI_LENGTH, 0x30u);
     memset(cpu->ram + 0x1FE0u, 0xA5u, 128u);
-    cpu->pc = 0x8030FBCCu;
+    cpu->pc = asynchronous ? 0x8030FADCu : 0x8030FBCCu;
+    const u32 address = cpu->pc;
     cpu->lr = 0x80001004u;
     cpu->gpr[3] = fi;
     cpu->gpr[4] = 0x80002000u;
     cpu->gpr[5] = 32u;
-    cpu->gpr[6] = strcmp(scenario, "padding") == 0 ? 32u : 0u;
-    cpu->gpr[7] = 2u;
+    cpu->gpr[6] = strstr(scenario, "padding") != NULL ? 32u : 0u;
+    cpu->gpr[7] = asynchronous ? 0u : 2u;
+    cpu->gpr[8] = 2u;
+    if (strcmp(scenario, "async-callback") == 0)
+        cpu->gpr[7] = 0x802BCC78u;
     if (strcmp(scenario, "bad-file-info") == 0)
         cpu->gpr[3] = 0x817FFFF0u;
     else if (strcmp(scenario, "bad-destination") == 0)
@@ -60,10 +65,11 @@ int main(int argc, char** argv) {
     u8 before[0x40];
     memcpy(before, cpu->ram + 0x1000u, sizeof(before));
     assert(ww_host_edge(host, cpu, cpu->pc));
-    const bool success = strcmp(scenario, "read") == 0 || strcmp(scenario, "padding") == 0;
+    const bool success = strcmp(scenario, "read") == 0 || strcmp(scenario, "padding") == 0 ||
+                         strcmp(scenario, "async") == 0 || strcmp(scenario, "async-padding") == 0;
     if (success) {
         assert(host->error == NULL && !host->edge_stopped && cpu->pc == cpu->lr);
-        assert(cpu->gpr[3] == 32u);
+        assert(cpu->gpr[3] == (asynchronous ? 1u : 32u));
         assert(mem_read32(cpu, fi + DVD_CB_STATE) == 0u);
         assert(mem_read32(cpu, fi + DVD_CB_CURRXFER) == 32u);
         assert(mem_read32(cpu, fi + DVD_CB_XFERRED) == 32u);
@@ -73,8 +79,10 @@ int main(int argc, char** argv) {
         for (u32 index = 0u; index < 32u; ++index)
             assert(cpu->ram[0x2000u + index] == (u8)((0x500u + cpu->gpr[6] + index) * 7u + 3u));
     } else {
-        assert(host->error != NULL && host->error_pc == 0x8030FBCCu && host->edge_stopped);
-        assert(cpu->pc == 0x8030FBCCu && cpu->gpr[3] != 32u);
+        assert(host->error != NULL && host->error_pc == address && host->edge_stopped);
+        assert(cpu->pc == address && cpu->gpr[3] != 32u);
+        if (strcmp(scenario, "async-callback") == 0)
+            assert(host->error_address == cpu->gpr[7]);
         assert(memcmp(before, cpu->ram + 0x1000u, sizeof(before)) == 0);
         if (strcmp(scenario, "short-read") != 0)
             for (u32 index = 0u; index < 128u; ++index)

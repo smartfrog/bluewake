@@ -25,6 +25,14 @@ class DvdReadTest(unittest.TestCase):
     def test_sourced_sdk_tail_padding_reads_real_disc_bytes(self):
         self.run_probe('padding')
 
+    def test_async_without_callback_copies_real_bytes_and_returns_queued_success(self):
+        for scenario in ('async', 'async-padding'):
+            with self.subTest(scenario=scenario):
+                self.run_probe(scenario)
+
+    def test_async_callback_is_refused_before_copy_or_completion(self):
+        self.run_probe('async-callback')
+
     def test_missing_disc_never_becomes_a_successful_sync_read(self):
         self.run_probe('missing-disc')
 

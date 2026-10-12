@@ -43,36 +43,41 @@ static const char* read_disc(WwHost* host, u32 guest, u64 offset, u32 length) {
     return NULL;
 }
 
-static void dvd_sync_read(WwHost* host, u32 address) {
+static void dvd_read_edge(WwHost* host, u32 address) {
     CPUState* cpu = &host->cpu;
+    const bool asynchronous = address == 0x8030FADCu;
     const u32 file_info = cpu->gpr[3];
     const u32 guest = cpu->gpr[4];
     const u32 length = cpu->gpr[5];
     const u32 offset = cpu->gpr[6];
     const char* error = NULL;
+    u32 error_address = address;
     u64 disc = 0u;
-    if ((cpu->lr & 3u) != 0u || !file_info_valid(host, file_info)) {
-        error = "DVD sync read requires valid MEM1 file info and an aligned return";
+    if (asynchronous && cpu->gpr[7] != 0u) {
+        error = "DVD async read requires guest callback delivery";
+        error_address = cpu->gpr[7];
+    } else if ((cpu->lr & 3u) != 0u || !file_info_valid(host, file_info)) {
+        error = "DVD read requires valid MEM1 file info and an aligned return";
     } else if (!mem1_range(host, guest, length)) {
-        error = "DVD sync read requires a real MEM1 destination without aliases";
+        error = "DVD read requires a real MEM1 destination without aliases";
     } else {
         const u32 file_length = mem_read32(cpu, file_info + DVD_FI_LENGTH);
         disc = (u64)mem_read32(cpu, file_info + DVD_FI_STARTADDR) + offset;
         if (offset > file_length || (u64)length > (u64)file_length - offset + DVD_MIN_TRANSFER_SIZE)
-            error = "DVD sync read exceeds the sourced file range and SDK padding";
+            error = "DVD read exceeds the sourced file range and SDK padding";
     }
-    if (error == NULL && fprintf(stderr, "[dvd-read] guest=%08X disc=%08llX bytes=%u file=%08X backend=%s pc=%08X\n",
-                                guest, (unsigned long long)disc, length, file_info,
+    if (error == NULL && fprintf(stderr, "[dvd-read] kind=%s guest=%08X disc=%08llX bytes=%u file=%08X backend=%s pc=%08X\n",
+                                asynchronous ? "async-null" : "sync", guest, (unsigned long long)disc, length, file_info,
                                 bw_dvd_io_backend_name(), address) < 0)
-        error = "DVD sync read trace write failed";
+        error = "DVD read trace write failed";
     if (error == NULL)
         error = read_disc(host, guest, disc, length);
     if (error != NULL) {
-        ww_host_fail(host, error, address, address);
+        ww_host_fail(host, error, error_address, address);
         return;
     }
     host_dvd_set_transfer_state(cpu, file_info, 0u, length);
-    cpu->gpr[3] = length;
+    cpu->gpr[3] = asynchronous ? 1u : length;
     cpu->pc = cpu->lr;
 }
 
@@ -92,8 +97,8 @@ static const char* dvd_path(CPUState* cpu, char path[256]) {
 }
 
 bool ww_host_dvd_edge(WwHost* host, u32 address) {
-    if (address == 0x8030FBCCu) {
-        dvd_sync_read(host, address);
+    if (address == 0x8030FBCCu || address == 0x8030FADCu) {
+        dvd_read_edge(host, address);
         return true;
     }
     const bool entry_only = address == 0x8030F2B0u;

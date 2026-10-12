@@ -240,3 +240,31 @@ preservation. DI regressions rerun after the final guard review pass too
 (`logs/ww16-dvd-read-di-regressions.log`). Audit, attribution and whitespace checks
 pass. Windows build/CI remains unavailable; shared desktop behavior is a helper
 refactor only. The next committed ARM build/trial follows. No visible pixel or FPS.
+
+## Unit 9: the first async call requests no callback
+
+Trial `f38d5a186f804bc8a64c68a7b5429c24` at `001f87d` proves real synchronous reads
+of `/COPYDATE` and the `RELS.arc` header/table, including a 6,816-byte copy through
+vita-sceio. It reaches **14,448,441 cycles**, then stops at `8030FADC`
+(`DVDReadAsyncPrio`). Installation takes 1.25 seconds, guest 9.18 seconds. Renderer
+still sees 265 setup commands / 1,759 bytes; no draw or presentation yet.
+
+The private translated caller sets **r7=0** before this async call. The unchanged
+pin's `GXRuntime/src/hle/hle_dvd.c:57-77` defines this no-callback path: copy real
+bytes, write END/current/transferred state, return TRUE (queued). The host now
+services exactly that path through the same checked copy used by synchronous
+reads, with `kind=async-null` in the journal. Actual full-byte completion is still
+required before updating state. No callback is requested or invented.
+
+Any nonzero callback is refused **before copying or changing file-info state**,
+and the STOP names the actual callback address. The shared callback delivery and
+deferred completion queue are inspected, but not wired speculatively: the current
+null-callback seam does not restore the pin's acknowledged uninvoked-callback bug
+or pretend the later nonzero-callback case works. Synthetic tests reuse the existing
+read probe and cover both null-callback normal/tail reads and the nonzero refusal.
+The missing-edge red evidence is in `logs/ww16-dvd-async-null-red.log`.
+
+Linux AArch64: **463 host tests pass** (`logs/ww16-dvd-async-null-green.log`),
+including all synchronous/DI/open regressions. Audit, attribution and whitespace
+checks pass. The next committed ARM build/trial follows; no visible pixel or FPS
+claim, and no physical Vita result.
