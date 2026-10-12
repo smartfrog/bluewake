@@ -16,6 +16,24 @@ inline constexpr const char* alpha_args[] = {
     "prev.a", "c0.a", "c1.a", "c2.a", "tex.a", "ras.a", "konst.a", "0.0"};
 inline constexpr const char* destinations[] = {"prev", "c0", "c1", "c2"};
 
+inline std::string alpha_condition(std::uint8_t comparison, const char* ref) {
+  if (comparison == 0)
+    return "false";
+  if (comparison == 7)
+    return "true";
+  constexpr const char* operators[] = {"", " < ", " == ", " <= ",
+                                      " > ", " != ", " >= "};
+  return "prev.a" + std::string(operators[comparison]) + ref;
+}
+
+inline void emit_alpha_test(std::string& out,
+                            const gxruntime::gxcore::ShaderKey& key) {
+  constexpr const char* logic[] = {" && ", " || ", " != ", " == "};
+  out += "  if (!((" + alpha_condition(key.alpha_comp0, "alpha_ref.x") + ")" +
+         logic[key.alpha_logic] + "(" +
+         alpha_condition(key.alpha_comp1, "alpha_ref.y") + "))) { discard; }\n";
+}
+
 inline std::string swizzle(const std::uint8_t* channels) {
   std::string result;
   for (int i = 0; i < 4; ++i)

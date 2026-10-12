@@ -157,6 +157,33 @@ int tev_compare_coverage() {
   return 0;
 }
 
+int alpha_test_coverage() {
+  const char* operators[] = {"false", " < ", " == ", " <= ",
+                             " > ", " != ", " >= ", "true"};
+  for (std::uint8_t comparison = 0; comparison < 8; ++comparison) {
+    auto key = tev_key();
+    key.alpha_comp0 = comparison;
+    const auto cg = gx_vita::generate_cg(key);
+    CHECK(cg.ok);
+    CHECK(contains(cg.fragment, "uniform float2 alpha_ref"));
+    CHECK(contains(cg.fragment, "discard;"));
+    CHECK(contains(cg.fragment, operators[comparison]));
+  }
+  const char* logic[] = {" && ", " || ", " != ", " == "};
+  for (std::uint8_t op = 0; op < 4; ++op) {
+    auto key = tev_key();
+    key.alpha_comp0 = 4;
+    key.alpha_comp1 = 1;
+    key.alpha_logic = op;
+    const auto cg = gx_vita::generate_cg(key);
+    CHECK(cg.ok);
+    CHECK(contains(cg.fragment, logic[op]));
+    CHECK(contains(cg.fragment, "prev.a > alpha_ref.x"));
+    CHECK(contains(cg.fragment, "prev.a < alpha_ref.y"));
+  }
+  return 0;
+}
+
 } // namespace
 
 int main() {
@@ -164,6 +191,7 @@ int main() {
   CHECK(tev_arithmetic_coverage() == 0);
   CHECK(tev_konst_and_swap_coverage() == 0);
   CHECK(tev_compare_coverage() == 0);
+  CHECK(alpha_test_coverage() == 0);
   {
     gxc::ShaderKey key;
     CHECK(replay_key("cel_triangle", key));

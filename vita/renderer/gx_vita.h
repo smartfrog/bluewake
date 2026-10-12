@@ -9,7 +9,7 @@
 //
 // Texture rules (mirroring gxcore.cpp's plan build): the flat `texture` field
 // is the single-texmap case and the sampler is the one for that texmap; when
-// the draw samples more than one texmap (THP YUV, two-texture J2D) the
+// the draw samples more than one texmap or a nonzero texmap the
 // per-texmap `textures[]` set and `texmap_mask` are authoritative. Samplers
 // are indexed by texmap, never assumed to be 0.
 
@@ -118,11 +118,12 @@ struct TranslatedDraw {
   float projection[16]{};
   float tev_colors[4][4]{};
   float konst_colors[4][4]{};
+  float alpha_ref[2]{};
   // Single-texmap case (plan.texmap_mask == 0): the draw's one texture and the
   // sampler of the texmap it samples.
   TextureUpload texture;
-  // Multi-texmap case: bit t set means textures[t] is sampled by an enabled
-  // TEV stage and must be bound; 0 for single-texmap draws.
+  // Bit t set means textures[t] must be bound. Includes single nonzero texmaps;
+  // only a single texmap-0 draw uses the flat texture field.
   std::uint32_t texmap_mask = 0;
   TextureUpload textures[8];
 };

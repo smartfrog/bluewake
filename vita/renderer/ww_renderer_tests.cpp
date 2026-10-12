@@ -56,6 +56,7 @@ struct DrawRecord {
   float projection[16] = {};
   float tev_colors[4][4]{};
   float konst_colors[4][4]{};
+  float alpha_ref[2]{};
   std::string cg_vertex;
   std::string cg_fragment;
 };
@@ -103,6 +104,7 @@ public:
     std::memcpy(record.projection, draw.projection, sizeof record.projection);
     std::memcpy(record.tev_colors, draw.tev_colors, sizeof record.tev_colors);
     std::memcpy(record.konst_colors, draw.konst_colors, sizeof record.konst_colors);
+    std::memcpy(record.alpha_ref, draw.alpha_ref, sizeof record.alpha_ref);
     record.cg_vertex = program.vertex;
     record.cg_fragment = program.fragment;
     draws.push_back(std::move(record));
@@ -380,6 +382,7 @@ int tev_register_supply() {
                                 (7u << 13) | (1u << 19));
   gx_fixture::push_bp(fifo, 0xF6, 4u | (13u << 14) | (29u << 19));
   gx_fixture::push_bp(fifo, 0xF7, 14u);
+  gx_fixture::push_bp(fifo, 0xF3, 64u | (192u << 8) | (4u << 16) | (1u << 19));
   gx_fixture::push_draw(fifo, 0x90, 3, {0, 0, 0, 1, 0, 0, 0, 1, 0});
   CHECK(ww_renderer_write(renderer, fifo.data(), fifo.size()) == nullptr);
   CHECK(backend.draws.size() == 1);
@@ -390,6 +393,8 @@ int tev_register_supply() {
         draw.konst_colors[1][2] == 45.f && draw.konst_colors[1][3] == 67.f);
   CHECK(draw.cg_fragment.find("c1.rgb = clamp(") != std::string::npos);
   CHECK(draw.cg_fragment.find("konst_colors[1].rgb") != std::string::npos);
+  CHECK(draw.alpha_ref[0] == 64.f && draw.alpha_ref[1] == 192.f);
+  CHECK(draw.cg_fragment.find("prev.a > alpha_ref.x") != std::string::npos);
   WwRendererStats stats{};
   ww_renderer_stats(renderer, &stats);
   CHECK(stats.programs_refused == 0 && stats.draws == 1);

@@ -50,7 +50,8 @@ PE/Z configuration; these are register groups, not separate FIFO opcodes.
 | `40` display list, `48` invalidate, `00` padding | Pinned support | Aligned display-list quad reaches the recording backend with exact indices |
 | PNMTXIDX | Decoded but backend ignored it | Translation applies each vertex's selected XF rows; mixed-matrix renderer test and out-of-range refusal test |
 | TEV `C0–DF`, colors `E0–E7`, KONST `F6–FD` | Bounded subset, common args refused; scales 2/4 inverted | All 16 color / 8 alpha arguments, signed color and KONST uniforms, separate destinations/scales/bias/clamp, compare modes and swaps generated; source-contract and raw-BP supply tests |
-| Blend `41`, Z `40`, PE `43`, alpha `F3` | Basic GL state; alpha test omitted | Pending |
+| TEX images/modes/TLUT under `61` | Pinned codecs; single nonzero texmap bound to slot 0 | Single slot-3 stream now routes through the per-slot upload; RGBA8/CI8 and two-texmap regressions pass |
+| Blend `41`, Z `40`, PE `43`, alpha `F3` | Basic GL state; destination-color factor mistranslated; alpha test omitted | Destination factors use source color; eight alpha comparisons / four logic ops generated; raw refs 64/192 reach backend |
 | Indirect BP `06–1F/25/27`, fog `E8–F2`, ZTexture `F4/F5` | Cg missing/refused | Not proven |
 
 ## Checks
@@ -82,6 +83,13 @@ the pinned generator's integer rounding, input wrapping and destination ordering
 using float values with explicit floor. Scale2/Scale4 are multiplication, not
 the old `0.5/0.25`; Divide2 and separate alpha scale are admitted. These tests
 verify generation and uniform supply, **not GPU pixel parity or Cg compilation**.
+
+Alpha/blend/TEX unit: tests failed on missing alpha uniforms, wrong destination
+blend token and wrong slot-3 binding before changes. All pass afterward, as do
+all four renderer/bridge suites. Alpha testing uses the TEV result before output
+normalization, with reference values from BP F3. The Vita C++ renderer and demo
+VPK cross-build successfully with the local VitaSDK; this alone does not prove
+that a generated Cg shader compiles on libshacccg.
 
 Rendering changes remain in the experimental Vita path; do not enable a
 production default on the strength of host tests. Windows CI and Vita hardware

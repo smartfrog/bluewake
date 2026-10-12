@@ -48,7 +48,8 @@ CgProgram generate_cg(const gxc::ShaderKey& key) {
   CgProgram program;
   if (key.num_tex_gens > gxc::kMaxTexGens ||
       key.num_tev_stages > gxc::kMaxTevStages ||
-      (key.tev_valid != 0 && key.num_tev_stages == 0)) {
+      (key.tev_valid != 0 && key.num_tev_stages == 0) ||
+      key.alpha_comp0 > 7 || key.alpha_comp1 > 7 || key.alpha_logic > 3) {
     program.unsupported_reason = "invalid GX shader stage count";
     return program;
   }
@@ -165,6 +166,7 @@ CgProgram generate_cg(const gxc::ShaderKey& key) {
     if (key.tev_valid != 0) {
       param("uniform float4 tev_colors[4]");
       param("uniform float4 konst_colors[4]");
+      param("uniform float2 alpha_ref");
     }
     out += ") : COLOR {\n";
 
@@ -186,6 +188,7 @@ CgProgram generate_cg(const gxc::ShaderKey& key) {
       const auto& last = key.tev_stages[key.num_tev_stages - 1];
       out += "  prev = float4(" + std::string(tev::destinations[last.cc_dest]) +
              ".rgb, " + tev::destinations[last.ac_dest] + ".a);\n";
+      tev::emit_alpha_test(out, key);
       out += "  return prev / 255.0;\n";
     } else if (key.textured != 0u) {
       out += "  return tex2D(tex0, uv0);\n";

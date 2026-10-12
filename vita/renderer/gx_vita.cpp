@@ -76,6 +76,14 @@ std::uint64_t shader_key_hash(const gxc::ShaderKey& key) {
 
 namespace {
 
+std::uint16_t destination_blend_factor_token(std::uint8_t factor) {
+  if (factor == 2)
+    return kGlSrcColor;
+  if (factor == 3)
+    return kGlOneMinusSrcColor;
+  return blend_factor_token(factor);
+}
+
 // The texmap a single-texmap draw samples (its sampler is the one indexed by
 // that texmap; texmap 0 is not assumed).
 std::uint32_t single_texmap(const gxc::ShaderKey& key) {
@@ -93,9 +101,9 @@ void translate_pipeline(const gxc::DrawPlan& plan, PipelineState& out) {
   out.depth_write = key.depth_update;
   out.blend_enable = key.blend_enable;
   out.blend_src = blend_factor_token(key.src_factor);
-  out.blend_dst = blend_factor_token(key.dst_factor);
+  out.blend_dst = destination_blend_factor_token(key.dst_factor);
   out.blend_src_alpha = blend_factor_token(key.src_factor_alpha);
-  out.blend_dst_alpha = blend_factor_token(key.dst_factor_alpha);
+  out.blend_dst_alpha = destination_blend_factor_token(key.dst_factor_alpha);
   out.blend_equation = key.blend_subtract != 0u ? kGlFuncSubtract : kGlFuncAdd;
   out.use_dst_alpha = key.shader.use_dst_alpha;
   out.dst_alpha = key.shader.dst_alpha;
@@ -257,10 +265,19 @@ TranslatedDraw translate(const gxc::DrawPlan& plan) {
       out.konst_colors[reg][channel] = plan.pixel_constants.kcolors[reg][channel];
     }
   }
+  for (std::uint32_t ref = 0; ref < 2; ++ref)
+    out.alpha_ref[ref] = plan.pixel_constants.alpha_ref[ref];
   if (plan.texmap_mask != 0u)
     translate_per_texmap_textures(plan, out);
-  else
+  else {
     translate_flat_texture(plan, out.texture);
+    const std::uint32_t texmap = single_texmap(plan.pipeline.shader);
+    if (texmap != 0u) {
+      out.texmap_mask = 1u << texmap;
+      out.textures[texmap] = std::move(out.texture);
+      out.texture = TextureUpload{};
+    }
+  }
   out.ok = true;
   return out;
 }

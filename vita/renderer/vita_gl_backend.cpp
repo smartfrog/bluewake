@@ -70,6 +70,7 @@ public:
                  &draw.tev_colors[0][0]);
     glUniform4fv(glGetUniformLocation(gl_program, "konst_colors"), 4,
                  &draw.konst_colors[0][0]);
+    glUniform2fv(glGetUniformLocation(gl_program, "alpha_ref"), 1, draw.alpha_ref);
 
     if (draw.pipeline.depth_test != 0u)
       glEnable(GL_DEPTH_TEST);

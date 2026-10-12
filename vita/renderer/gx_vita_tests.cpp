@@ -118,6 +118,48 @@ int main() {
   {
     gxc::DrawPlan plan;
     plan.ok = true;
+    plan.vertex_count = 3;
+    plan.vertices.resize(3 * gxc::kVertexFloats);
+    plan.pipeline.src_factor = 2;
+    plan.pipeline.dst_factor = 2;
+    const auto draw = gx_vita::translate(plan);
+    CHECK(draw.ok);
+    CHECK(draw.pipeline.blend_src == gx_vita::kGlDstColor);
+    CHECK(draw.pipeline.blend_dst == gx_vita::kGlSrcColor);
+  }
+
+  {
+    gx_fixture::FixtureContext ctx;
+    gx_fixture::fill_texture_zones(ctx);
+    DolGuestAddressResolver resolver;
+    dol_guest_address_resolver_init_callback(&resolver, gx_fixture::resolve_mem1, &ctx);
+    gx_fixture::ar::RetailGxFrontend frontend;
+    frontend.reset(&resolver);
+    frontend.set_packet_drain_enabled(true);
+    gxc::GxCoreSink sink;
+    sink.set_guest_resolver(&frontend.state().resolver);
+    gx_vita::TranslatedDraw draw;
+    sink.set_plan_observer(capture, &draw);
+    std::vector<std::uint8_t> fifo;
+    gx_fixture::push_common_state(fifo);
+    gx_fixture::push_bp(fifo, 0x8B, gx_fixture::tex_image0(4, 4, 6));
+    gx_fixture::push_bp(fifo, 0x97, gx_fixture::kTextureBase >> 5);
+    gx_fixture::push_bp(fifo, 0x28, 3u | (1u << 6));
+    gx_fixture::push_bp(fifo, 0xC0, 8u | (15u << 4) | (15u << 8) |
+                                  (15u << 12) | (1u << 19));
+    gx_fixture::push_bp(fifo, 0xC1, (4u << 4) | (7u << 7) | (7u << 10) |
+                                  (7u << 13) | (1u << 19));
+    gx_fixture::push_triangle(fifo);
+    CHECK(frontend.replay_fifo(fifo, &sink));
+    sink.flush_frame();
+    CHECK(draw.ok);
+    CHECK(draw.texmap_mask == (1u << 3));
+    CHECK(draw.textures[3].valid && draw.textures[3].width == 4);
+  }
+
+  {
+    gxc::DrawPlan plan;
+    plan.ok = true;
     plan.vertex_count = 1;
     plan.vertices.resize(gxc::kVertexFloats);
     plan.pipeline.shader.has_pos_mtx_idx = 1;
