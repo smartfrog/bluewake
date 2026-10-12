@@ -159,11 +159,62 @@ gxc::DrawPlan fog_plan() {
   return plan;
 }
 
+gxc::DrawPlan indirect_plan(const std::uint8_t* texture) {
+  gxc::DrawPlan plan;
+  plan.ok = true;
+  plan.has_texture = true;
+  plan.tex_width = plan.tex_height = 4;
+  plan.tex_data = texture;
+  plan.tex_available = 64;
+  plan.tex_format = 6;
+  auto& key = plan.pipeline.shader;
+  key.textured = key.tev_valid = key.num_tev_stages = key.num_tex_gens = key.num_ind_stages = 1;
+  key.tex_gens[0].sourcerow = 5;
+  key.tev_stages[0].tevorders_enable = 1;
+  key.tev_stages[0].ind_matrix_index = 1;
+  plan.pixel_constants.texdims[0][2] = 8;
+  plan.pixel_constants.texdims[0][3] = 16;
+  return plan;
+}
+
 } // namespace
 
 int main() {
   int failures = 0;
   std::uint64_t textured_key = 0;
+
+  for (std::uint8_t matrix : {1, 2, 3}) {
+    for (int shift : {-14, -1, 0, 1, 17}) {
+      const std::uint8_t pixels[64]{};
+      auto plan = indirect_plan(pixels);
+      plan.pipeline.shader.tev_stages[0].ind_matrix_index = matrix;
+      const auto row = 2 * (matrix - 1);
+      plan.pixel_constants.indtexmtx[row][0] = -1024;
+      plan.pixel_constants.indtexmtx[row + 1][1] = 1023;
+      plan.pixel_constants.indtexmtx[row][3] = shift;
+      const auto draw = gx_vita::translate(plan);
+      CHECK(draw.ok);
+      CHECK(draw.indirect_matrices[row][0] == -1024 && draw.indirect_matrices[row + 1][1] == 1023);
+      CHECK(draw.indirect_matrices[row][3] == std::ldexp(1.f, -shift));
+      CHECK(draw.texture_dimensions[0][0] == 4 && draw.texture_dimensions[0][1] == 4);
+      CHECK(draw.texture_dimensions[0][2] == 8 && draw.texture_dimensions[0][3] == 16);
+    }
+  }
+
+  for (int invalid : {0, 1, 2, 3}) {
+    const std::uint8_t pixels[64]{};
+    auto plan = indirect_plan(pixels);
+    if (invalid == 0)
+      plan.tex_data = nullptr;
+    else if (invalid == 1)
+      plan.pixel_constants.indtexmtx[0][0] = 1024;
+    else if (invalid == 2)
+      plan.pixel_constants.indtexmtx[0][3] = 18;
+    else
+      plan.pixel_constants.texdims[0][2] = 0;
+    const auto draw = gx_vita::translate(plan);
+    CHECK(!draw.ok && draw.skip_reason != nullptr);
+  }
 
   for (std::uint32_t shift : {0, 1, 24, 31, 32, 63}) {
     auto plan = fog_plan();

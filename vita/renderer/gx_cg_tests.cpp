@@ -288,6 +288,62 @@ int fog_key_bounds() {
   return 0;
 }
 
+int indirect_key_coverage() {
+  for (std::uint8_t format = 0; format < 4; ++format) {
+    for (std::uint8_t matrix = 0; matrix < 3; ++matrix) {
+      auto key = tev_key();
+      key.textured = 1;
+      key.num_tex_gens = 1;
+      key.tex_gens[0].sourcerow = 5;
+      key.num_ind_stages = 4;
+      key.ind_stages[3].texmap = 7;
+      key.ind_stages[3].scale_s = 15;
+      key.tev_stages[0].tevorders_enable = 1;
+      key.tev_stages[0].ind_stage = 3;
+      key.tev_stages[0].ind_matrix_index = 3;
+      key.tev_stages[0].ind_matrix_id = matrix;
+      key.tev_stages[0].ind_format = format;
+      key.tev_stages[0].ind_bump_alpha = 3;
+      key.tev_stages[0].tevorders_colorchan = 6;
+      const auto cg = gx_vita::generate_cg(key);
+      CHECK(cg.ok);
+      CHECK(contains(cg.fragment, "uniform sampler2D tex7"));
+      CHECK(contains(cg.fragment, "tex2D(tex7,"));
+      CHECK(contains(cg.fragment, ").abg * 255.0"));
+      CHECK(contains(cg.fragment, "floor(fixpoint0.x / 32768.0)"));
+      CHECK(contains(cg.fragment, "gx_ind_trunc(indirect_coord0.x * texture_dimensions[0].z * 128.0)"));
+      CHECK(contains(cg.fragment, "indirect_matrices[4]"));
+      CHECK(contains(cg.fragment, "alphabump + floor(alphabump / 32.0)"));
+    }
+  }
+  return 0;
+}
+
+int indirect_preserves_wrap_without_lookup() {
+  auto key = tev_key();
+  key.textured = 1;
+  key.num_tex_gens = 1;
+  key.tex_gens[0].sourcerow = 5;
+  key.tev_stages[0].tevorders_enable = 1;
+  key.tev_stages[0].ind_wrap_s = 6;
+  key.tev_stages[0].ind_add_prev = 1;
+  const auto cg = gx_vita::generate_cg(key);
+  CHECK(cg.ok);
+  CHECK(contains(cg.fragment, "tevcoord.x = gx_ind_wrap24(0.0 + indirect_x0)"));
+  CHECK(contains(cg.fragment, "previous_coord.x"));
+  CHECK(!contains(cg.fragment, "float3 ind_raw"));
+  return 0;
+}
+
+int indirect_rejects_original_lod() {
+  auto key = tev_key();
+  key.num_ind_stages = 1;
+  key.tev_stages[0].ind_use_original_lod = 1;
+  const auto cg = gx_vita::generate_cg(key);
+  CHECK(!cg.ok && std::string(cg.unsupported_reason) == "original indirect LOD not supported by Vita Cg");
+  return 0;
+}
+
 int ztexture_output_coverage() {
   for (std::uint8_t type = 0; type < 3; ++type) {
     for (std::uint8_t operation : {1, 2}) {
@@ -339,6 +395,41 @@ int ztexture_last_unswapped_sample() {
 } // namespace
 
 int main(int argc, char** argv) {
+  if (argc == 3 && std::string(argv[1]) == "--write-indirect-shaders") {
+    const std::filesystem::path directory(argv[2]);
+    std::filesystem::create_directories(directory);
+    for (std::uint8_t format = 0; format < 4; ++format) {
+      for (std::uint8_t bias = 0; bias < 8; ++bias) {
+        for (std::uint8_t matrix = 0; matrix < 4; ++matrix) {
+          auto key = tev_key();
+          key.textured = 1;
+          key.num_tex_gens = 1;
+          key.tex_gens[0].sourcerow = 5;
+          key.num_ind_stages = 4;
+          auto& stage = key.tev_stages[0];
+          stage.tevorders_enable = 1;
+          stage.ind_stage = bias % 4;
+          stage.ind_format = format;
+          stage.ind_bias = bias;
+          stage.ind_bump_alpha = bias % 4;
+          stage.ind_matrix_index = matrix == 3 ? 0 : 1 + bias % 3;
+          stage.ind_matrix_id = matrix == 3 ? 0 : matrix;
+          stage.ind_wrap_s = bias;
+          stage.ind_wrap_t = (bias + 3) % 8;
+          stage.ind_add_prev = bias % 2;
+          const auto cg = gx_vita::generate_cg(key);
+          CHECK(cg.ok);
+          const auto name = std::to_string(format) + "-" + std::to_string(bias) + "-" +
+                            std::to_string(matrix);
+          std::ofstream file(directory / (name + ".cg"));
+          file << cg.fragment;
+          file.close();
+          CHECK(file.good());
+        }
+      }
+    }
+    return 0;
+  }
   if (argc == 3 && std::string(argv[1]) == "--write-fog-shaders") {
     const std::filesystem::path directory(argv[2]);
     std::filesystem::create_directories(directory);
@@ -419,6 +510,9 @@ int main(int argc, char** argv) {
     return 0;
   }
   CHECK(argc == 1);
+  CHECK(indirect_key_coverage() == 0);
+  CHECK(indirect_preserves_wrap_without_lookup() == 0);
+  CHECK(indirect_rejects_original_lod() == 0);
   CHECK(fog_mode_coverage() == 0);
   CHECK(fog_uses_ztexture_depth() == 0);
   CHECK(fog_key_bounds() == 0);
@@ -469,17 +563,15 @@ int main(int argc, char** argv) {
   }
 
   {
-    // An active indirect lookup must be refused with a reason.
+    // The original indirect fixture now generates a sampled coordinate path.
     gxc::ShaderKey key;
     CHECK(replay_key("indirect_triangle", key));
     CHECK(key.num_ind_stages == 1u);
     CHECK(key.tev_stages[0].ind_matrix_index == 1u);
     const gx_vita::CgProgram cg = gx_vita::generate_cg(key);
-    CHECK(!cg.ok);
-    CHECK(cg.unsupported_reason != nullptr);
-    CHECK(std::string(cg.unsupported_reason).find("indirect") !=
-          std::string::npos);
-    std::printf("indirect refused ok: %s\n", cg.unsupported_reason);
+    CHECK(cg.ok);
+    CHECK(contains(cg.fragment, "indirect_s0"));
+    std::printf("indirect generated ok\n");
   }
 
   {

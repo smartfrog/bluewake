@@ -37,6 +37,34 @@ refused programs/copies or lost draw programs return failure, retaining the
 bridge text in `replay.txt`. `verdict=ran` proves translation, not GPU pixels.
 Existing fixture directories are never overwritten.
 
+## Exact journal contract for the capture lane
+
+The existing `--continue-gx 64` capture setting logs only the first 64 complete
+commands, not 64 draws. Raise that limit in the host/harness lane sufficiently
+to retain initialization through the desired draws; this renderer lane does
+not change that setting or the host. Extraction expects each complete command
+in this exact shape (uppercase hex, no truncation or ellipsis):
+
+```text
+[gx-command] index=1 opcode=61 bytes=5 pc=80325DAC completion_pc=80325DB8 sp=8040CEB0 hex=610F0000FF
+```
+
+Indices must be contiguous from 1 across the captured initialization/draw
+sequence; `bytes` counts the **entire** opcode + header + payload. Draw records
+must include all vertex bytes, not just their three-byte primitive header.
+Unknown gaps, reordered records, lowercase/truncated hex or a record starting
+at the draw's index rather than index 1 are refused. Other ordinary log lines
+may be interleaved. No synthetic state is prepended to a draw-only slice.
+
+The adjacent `ww05.report` supplies `GX_STREAM ... decoded=N logged=M ...
+pending=P ...` and `RENDER ... draws=D ...`. The tool verifies M against the
+journal count, retains unlogged/pending extent and does not equate D to logged
+draw records. Nonempty display lists may contain additional draws in memory;
+direct journal draw counts do not include those nested commands. Supply raw
+MEM1 starting at physical address zero for `--mem1`, matching that run/time.
+There is no journal-size cap in the extractor. The capture owner must avoid
+truncating long draw records and must retain matching texture/array/DL bytes.
+
 ## Checked on Linux
 
 - 21 Python tests pass, including frame validation after a memory-dependent
