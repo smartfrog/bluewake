@@ -20,6 +20,9 @@ FRONTIER_RE = re.compile(
     r'pc=([0-9A-F]{8}) completion_pc=([0-9A-F]{8}) sp=([0-9A-F]{8}) '
     r'trailing=(\d+) edge_stop=([01]) hex=([0-9A-F]*)')
 GATHER_RE = re.compile(r'\[gather-pipe\] bytes=(\d+) hex=([0-9A-F]*)')
+JOURNAL_RE = re.compile(
+    r'\[gx-command\] index=(\d+) opcode=([0-9A-F]{2}) bytes=(\d+) '
+    r'pc=[0-9A-F]{8} completion_pc=[0-9A-F]{8} sp=[0-9A-F]{8} hex=([0-9A-F]+)')
 
 FIXED_FRAME = {0x00: 1, 0x48: 1, 0x08: 6, 0x61: 5, 0x20: 5, 0x28: 5,
                0x30: 5, 0x38: 5, 0x40: 9}
@@ -122,6 +125,31 @@ def parse_gather_log(text, source=""):
     return bytes(stream)
 
 
+def journal_commands(text):
+    """Read the bounded, contiguous command prefix, not unlogged later bytes.
+
+    Vertex framing is state-dependent and remains the pinned frontend's job.
+    """
+    commands = []
+    for line in text.splitlines():
+        line = line.strip()
+        if not line.startswith('[gx-command]'):
+            continue
+        match = JOURNAL_RE.fullmatch(line)
+        if match is None:
+            raise ValueError('malformed GX command journal record')
+        index, opcode, size, raw = match.groups()
+        if int(index) != len(commands) + 1:
+            raise ValueError('GX command journal sequence is not contiguous from 1')
+        if len(raw) != 2 * int(size):
+            raise ValueError('GX command journal byte count does not match its hex')
+        data = bytes.fromhex(raw)
+        if data[0] != int(opcode, 16):
+            raise ValueError('GX command journal opcode is not the first captured byte')
+        commands.append(data)
+    return commands
+
+
 def classify_capture(data, source=""):
     """Classify one capture file's bytes.
 
@@ -129,6 +157,8 @@ def classify_capture(data, source=""):
     'binary' the FIFO bytes. Text with no capture markers is refused; bytes
     that do not decode as text are taken as a raw FIFO dump.
     """
+    if b'[gx-command]' in data:
+        return 'journal', b''.join(journal_commands(data.decode()))
     if b'GX_FRONTIER ' in data:
         return 'report', parse_report(data.decode(), source=source)
     if b'[gather-pipe]' in data:
