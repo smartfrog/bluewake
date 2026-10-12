@@ -34,6 +34,22 @@ const char* ww_gx_stream_write(WwHost* host, u8 byte, const WwFifoOrigin* origin
         host->frontier.trailing_bytes = trailing;
     }
     stream->decoded = index;
+    // VITA-WW-17: the same captured bytes the pinned trace observes go to the
+    // renderer, in stream order. The present call shows a frame the game
+    // finished (a display copy) and does nothing otherwise; when the march's
+    // VI/present path lands, move the present call there. A renderer failure is
+    // the host's failure: return it and stop.
+    if (host->renderer != NULL) {
+        const char* renderer_error = ww_renderer_write(host->renderer, command->bytes, command->size);
+        if (renderer_error == NULL) {
+            bool presented = false;
+            renderer_error = ww_renderer_present(host->renderer, &presented);
+        }
+        if (renderer_error != NULL) {
+            *command = (WwGxCheckpoint){0};
+            return renderer_error;
+        }
+    }
     *command = (WwGxCheckpoint){0};
     return NULL;
 }

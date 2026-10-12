@@ -182,14 +182,19 @@ def main():
                          'template_sha256': TEMPLATE_SHA256, 'private_source_sha256': sha256(vector_source)}
     os.environ['VITASDK'] = str(STACK / 'vitasdk')
     vita = output / 'vita'
+    vitagl = Path('/home/fred/cloudpunk-vita/tools/vita3k/vitagl-source/libvitaGL.a')
+    vitagl_sha256 = sha256(vitagl)
     build.run('vita-configure', [cmake, '-S', ROOT / 'vita/host', '-B', vita, '-G', 'Ninja',
                                  f'-DCMAKE_TOOLCHAIN_FILE={STACK}/vitasdk/share/vita.toolchain.cmake',
                                  f'-DCMAKE_MAKE_PROGRAM={ninja}', '-DCMAKE_BUILD_TYPE=Release',
                                  f'-DRECOMPCORE_DIR={sources["RecompCore"]}', f'-DCOMPOSITE_DIR={composite}',
-                                 f'-DWW05_IDENTITY_DIR={identity}', f'-DWW05_DOL={private}/main.dol'])
+                                  f'-DWW05_IDENTITY_DIR={identity}', f'-DWW05_DOL={private}/main.dol',
+                                  f'-DWW05_VITAGL_LIBRARY={vitagl}'])
     build.run('vita-build', [cmake, '--build', vita, '-j', args.jobs])
     from inspect_build import inspect
     inspect(vita)
+    if sha256(vitagl) != vitagl_sha256:
+        raise ValueError('no-splash vitaGL archive changed during build')
     artifacts = preserve_artifacts(vita, output)
     snapshot = Path(next(iter(artifacts))).parent
     for path in (output / 'footprint.json', vita / 'ww05.map', vita / 'compile_commands.json'):
@@ -200,6 +205,7 @@ def main():
             vector_path = identity / f'ww05_{name}{suffix}'
             shutil.copyfile(vector_path, snapshot / vector_path.name)
     receipt = json.dumps({'source': source, 'pins': PINS,
+        'renderer': {'vitagl': str(vitagl), 'vitagl_sha256': vitagl_sha256},
         'dsp_init': {'bytes': len(init_code), 'sha256': INIT_UCODE_SHA256,
                       'private_header_sha256': sha256(init_header)},
         **vectors,

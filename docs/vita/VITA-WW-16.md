@@ -26,3 +26,26 @@ implemented selector, as its later service refusal. No shared runtime source or 
 changed. Windows compilation/CI is unavailable here. The next authentic STOP is
 recorded after the clean committed build/trial. No presentation, physical Vita result
 or FPS claim yet.
+
+## Unit 2: host renderer lifecycle and truthful reports
+
+Merged the local WW17 delivery `69a4177` without changing either read-only pin,
+then applied `VITA-WW-17-host-hook.patch`. The host creates the renderer over its
+own memory/CPU, forwards completed continuation commands, presents only completed
+display copies, and destroys the renderer before freeing the guest storage.
+The report includes `RENDER`; `END rendered` and the launcher's `presented`/`rendered`
+come from actual renderer presentations. The validator rejects malformed renderer
+fields and disagreement between the summary and the end count.
+
+The private build selects the same no-splash vitaGL archive as WW02 and records its
+digest. The isolated launcher copies the locally owned Cg compiler into its fresh
+profile and rechecks both identities. No firmware or game data is committed.
+The host-only integration fixture explicitly supplies a backend with no GPU or
+display: unexpected draws/presents fail instead of inventing rendered frames.
+
+Linux AArch64: **428 host tests pass**, including all captured bytes reaching the
+renderer with no invented presentation and create failures stopping execution.
+Evidence: private `build-f5/ww05/logs/ww16-renderer-host-tests-3.log`.
+Repository audit, attribution and whitespace checks pass. ARM VPK rebuild and
+isolated authentic continuation are the next checks; there is still no visible
+pixel, physical Vita test or FPS claim.

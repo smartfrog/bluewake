@@ -20,11 +20,26 @@ UNKNOWN residency native_stack_highwater pool_peak GPU
 STATE entry=80003140 pc=80001008 sp=817FFF00 edges=2 exception=00000000 cycles=120
 GX_FRONTIER complete=1 opcode=61 bytes=5 pc=80001000 completion_pc=80001004 sp=817FFF00 trailing=0 edge_stop=1 hex=61FEFFFFFF
 STOP reason=first complete GX command; no renderer address=00000000 pc=00000000
+RENDER fifo_bytes=0 events=0 plans=0 plans_skipped=0 draws=0 programs=0 programs_distinct=0 programs_refused=0 copies=0 copies_refused=0 display_copies=0 presented=0 gaps=0
 END frontier=PASS live=0 rendered=0
 '''
 
     def test_closed_frontier_is_not_a_rendered_scene(self):
         self.assertEqual(self.validate(self.content, TOKEN, SOURCE, PACKAGE), 'PASS')
+
+    def test_real_present_count_is_accepted_in_a_continuation(self):
+        content = self.continuation_report().replace('display_copies=0 presented=0', 'display_copies=2 presented=2')
+        content = content.replace('rendered=0', 'rendered=2')
+        self.assertEqual(self.validate(content, TOKEN, SOURCE, PACKAGE, continue_gx=64), 'PASS')
+
+    def test_end_count_cannot_disagree_with_renderer_presentations(self):
+        with self.assertRaisesRegex(ValueError, 'renderer'):
+            self.validate(self.continuation_report().replace('rendered=0', 'rendered=2'),
+                          TOKEN, SOURCE, PACKAGE, continue_gx=64)
+
+    def test_renderer_fields_are_strictly_validated(self):
+        with self.assertRaisesRegex(ValueError, 'renderer'):
+            self.validate(self.content.replace('events=0', 'events=unknown'), TOKEN, SOURCE, PACKAGE)
 
     def continuation_report(self):
         return self.content.replace('STOP reason=first complete GX command; no renderer address=00000000 pc=00000000',
@@ -101,17 +116,17 @@ END frontier=PASS live=0 rendered=0
     def test_negative_report_retains_the_observed_service_write(self):
         content = self.content.replace('first complete GX command; no renderer', 'SI transfer unsupported')
         content = content.replace('frontier=PASS', 'frontier=FAIL')
-        content = content.replace('pc=00000000\nEND', 'pc=00000000 width=4 value=0000000040000201\nEND')
+        content = content.replace('pc=00000000\nRENDER', 'pc=00000000 width=4 value=0000000040000201\nRENDER')
         self.assertEqual(self.validate(content, TOKEN, SOURCE, PACKAGE), 'FAIL')
 
     def test_service_write_width_and_value_must_agree(self):
         content = self.content.replace('frontier=PASS', 'frontier=FAIL')
-        content = content.replace('pc=00000000\nEND', 'pc=00000000 width=1 value=0000000040000201\nEND')
+        content = content.replace('pc=00000000\nRENDER', 'pc=00000000 width=1 value=0000000040000201\nRENDER')
         with self.assertRaisesRegex(ValueError, 'service write'):
             self.validate(content, TOKEN, SOURCE, PACKAGE)
 
     def test_pass_cannot_contain_an_unsupported_service_write(self):
-        content = self.content.replace('pc=00000000\nEND', 'pc=00000000 width=4 value=0000000040000201\nEND')
+        content = self.content.replace('pc=00000000\nRENDER', 'pc=00000000 width=4 value=0000000040000201\nRENDER')
         with self.assertRaises(ValueError):
             self.validate(content, TOKEN, SOURCE, PACKAGE)
 

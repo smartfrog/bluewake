@@ -15,6 +15,7 @@
 #define WW05_DIRECTORY ""
 #define WW05_PLATFORM "HOST"
 #define WW05_DOL_PATH "synthetic.dol"
+WwRendererBackend* ww05_io_renderer_backend(void);
 #else
 #error "Real game execution is Vita-only and requires separate authorization"
 #endif
@@ -113,6 +114,21 @@ int fixture_run(int argc, char** argv) {
     bool initialized = !error && ww_host_init(host);
     host->stream.enabled = command_log_limit != 0u;
     host->stream.log_limit = command_log_limit;
+    // VITA-WW-17: attach the renderer to the captured stream over the same MEM1
+    // view the pinned trace resolves against. A create failure is fatal: the run
+    // must not continue with no renderer while claiming to render.
+    if (initialized) {
+        WwRendererConfig renderer_config = {.memory = &host->memory, .cpu = &host->cpu};
+        WwRendererBackend* backend = NULL;
+#ifdef WW05_IO_TEST
+        backend = ww05_io_renderer_backend();
+#endif
+        const char* renderer_error = ww_renderer_create(&host->renderer, &renderer_config, backend);
+        if (renderer_error != NULL) {
+            error |= fprintf(stderr, "[renderer] init failed: %s\n", renderer_error) < 0;
+            ww_host_fail(host, renderer_error, 0u, host->cpu.pc);
+        }
+    }
     error |= fprintf(stderr, "[host] stage=load initialized=%u\n", initialized) < 0;
     bool loaded = !error && initialized && ww_host_load(host, module, data, count, WW05_DOL_PATH);
     error |= fprintf(stderr, "[host] stage=loaded loaded=%u pc=%08X\n", loaded, host->cpu.pc) < 0;
@@ -253,6 +269,22 @@ int fixture_run(int argc, char** argv) {
         error |= fprintf(report, " width=%u value=%016llX", host->error_width,
                          (unsigned long long)host->error_value) < 0;
     error |= fprintf(report, "\n") < 0;
+    // VITA-WW-17: what the renderer saw and showed. The line sits between STOP
+    // and END so the strict report records keep their positions.
+    WwRendererStats renderer_stats = {0};
+    ww_renderer_stats(host->renderer, &renderer_stats);
+    error |= fprintf(report, "RENDER fifo_bytes=%llu events=%llu plans=%llu plans_skipped=%llu "
+                             "draws=%llu programs=%llu programs_distinct=%llu programs_refused=%llu "
+                             "copies=%llu copies_refused=%llu display_copies=%llu presented=%llu gaps=%u\n",
+                     (unsigned long long)renderer_stats.fifo_bytes, (unsigned long long)renderer_stats.events,
+                     (unsigned long long)renderer_stats.plans, (unsigned long long)renderer_stats.plans_skipped,
+                     (unsigned long long)renderer_stats.draws, (unsigned long long)renderer_stats.programs,
+                     (unsigned long long)renderer_stats.programs_distinct,
+                     (unsigned long long)renderer_stats.programs_refused,
+                     (unsigned long long)renderer_stats.copies,
+                     (unsigned long long)renderer_stats.copies_refused,
+                     (unsigned long long)renderer_stats.display_copies,
+                     (unsigned long long)renderer_stats.presented, renderer_stats.gap_count) < 0;
     const bool success = loaded && frontier->complete &&
         (host->stream.enabled || (host->edge_stopped && host->error == NULL));
     const bool failed = !success || host->error != NULL;
@@ -260,7 +292,8 @@ int fixture_run(int argc, char** argv) {
     free(host);
     error |= fixture_log_close();
     if (!error)
-        error = fprintf(report, "END frontier=%s live=0 rendered=0\n", success ? "PASS" : "FAIL") < 0;
+        error = fprintf(report, "END frontier=%s live=0 rendered=%llu\n", success ? "PASS" : "FAIL",
+                        (unsigned long long)renderer_stats.presented) < 0;
     if (error) {
         const int closed = fclose(report);
         return closed != 0 || error;

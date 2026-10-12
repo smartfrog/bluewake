@@ -129,6 +129,18 @@ class MainIoTest(unittest.TestCase):
         self.assertIn('platform=HOST', report)
         self.assertTrue(report.endswith('END frontier=PASS live=0 rendered=0\n'))
 
+    def test_continuation_hands_every_captured_command_to_the_renderer_without_fake_presentations(self):
+        status, report = self.run_fixture(consumer=True, continue_gx=64)
+        self.assertEqual(status, 1)
+        self.assertIn('RENDER fifo_bytes=32 events=29 plans=0', report)
+        self.assertIn('display_copies=0 presented=0 gaps=0\n', report)
+
+    def test_renderer_init_failure_stops_before_guest_execution(self):
+        status, report = self.run_fixture(failure='renderer-init')
+        self.assertEqual(status, 1)
+        self.assertIn('STOP reason=synthetic renderer init failure', report)
+        self.assertIn('GX_FRONTIER complete=0', report)
+
     def test_disabled_cp_init_continues_guest_dispatch_before_the_host_only_fifo_fixture(self):
         for configuration in ({'cp_control': 0}, {'cp_control': 4}, {'cp_control': 20},
                               {'cp_distance': 0}, {'cp_distance_high': 0},
@@ -395,7 +407,7 @@ class MainIoTest(unittest.TestCase):
     def test_dispatch_discriminant_closes_markers_before_log_entry_and_after_return(self):
         status, report = self.run_fixture(syscall='yielding-handler', dispatch_trace='LER')
         self.assertEqual(status, 0)
-        self.assertEqual(len(report.splitlines()), 8)
+        self.assertEqual(len(report.splitlines()), 9)
         self.assertIn('END frontier=PASS', report)
 
     def test_repeated_syscall_handlers_are_sampled_with_the_real_resume_address(self):

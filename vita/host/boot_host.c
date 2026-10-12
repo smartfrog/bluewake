@@ -871,6 +871,10 @@ bool ww_host_init(WwHost* host) {
 }
 
 void ww_host_shutdown(WwHost* host) {
+    // VITA-WW-17: the renderer resolves against this host's memory and CPU,
+    // so it goes before they are freed.
+    ww_renderer_destroy(host->renderer);
+    host->renderer = NULL;
     if (host->disc_owned) {
         dvd_close_image();
         host->disc_owned = false;

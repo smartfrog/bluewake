@@ -82,6 +82,16 @@ class PrivateLaunchTest(unittest.TestCase):
         self.assertTrue(result['frontier_verified'])
         self.assertFalse(result['rendered'])
 
+    def test_presented_frames_are_recorded_without_claiming_a_visible_scene(self):
+        self.successful_fake()
+        fake = self.root / 'runtime/Fake'
+        fake.write_text(fake.read_text().replace('display_copies=0 presented=0', 'display_copies=2 presented=2')
+                        .replace('rendered=0', 'rendered=2'))
+        status, result = self.run_fake()
+        self.assertEqual(status, 0)
+        self.assertTrue(result['rendered'])
+        self.assertEqual(result['presented'], 2)
+
     def test_continuation_request_and_closed_journal_certify_frontier_despite_later_guest_stop(self):
         from test_report import ReportTest
         oracle = ReportTest()

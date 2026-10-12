@@ -15,7 +15,7 @@ import zipfile
 
 from game_build import OUTPUT, ROOT, checked_sources, sha256
 from stage_plan import stage, validate_continuation, verify_package
-from report import validate, validate_commands
+from report import matched, validate, validate_commands
 from fp_campaign import emitted_config, restore_config, runtime_inputs, verify_phase_logs, verify_stopped
 from fp_launch import REPORT_DIRECTORY, evidence_file, run_owned
 from fp_libraries import directory_fd, file_identity, library_identity
@@ -41,6 +41,11 @@ def verify_inputs(root, plan):
     if library_identity(Path(plan['runtime_libraries']['root'])) != plan['runtime_libraries']:
         raise ValueError('copied public library tree changed')
     verify_firmware(plan['firmware'])
+    if plan.get('shader_compiler') is not None:
+        shader = plan['shader_compiler']
+        if (file_identity(Path(shader['source'])) != shader['identity'] or
+            file_identity(root / shader['install_path']) != shader['staged']):
+            raise ValueError('private shader compiler changed')
     if plan.get('disc') is not None:
         disc = plan['disc']
         if file_identity(Path(disc['path'])) != disc['identity']:
@@ -154,6 +159,8 @@ def execute_run(root, plan):
         content = read_profile_file(root / REPORT_DIRECTORY / 'ww05.report', 65536, owned=True)
         text = content.decode('utf-8')
         verdict = validate(text, token, plan['source'], plan['vpk_sha256'], plan.get('continue_gx', 0))
+        _, presented = matched(r'END frontier=(PASS|FAIL) live=0 rendered=(\d+)', text.splitlines()[-1])
+        record.update(presented=int(presented), rendered=int(presented) > 0)
         if plan.get('continue_gx'):
             journal = read_profile_file(root / REPORT_DIRECTORY / 'ww05.log', 64 * 1024 * 1024, owned=True)
             logged = validate_commands(journal.decode('utf-8'), text, plan['continue_gx'])

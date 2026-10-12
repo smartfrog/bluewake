@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.16)
-project(ww05_startup C)
+project(ww05_startup C CXX)
 set(CMAKE_C_STANDARD 11)
 set(CMAKE_C_STANDARD_REQUIRED ON)
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
@@ -8,9 +8,27 @@ get_filename_component(BLUEWAKE_ROOT "../.." ABSOLUTE BASE_DIR "${CMAKE_CURRENT_
 set(GXRUNTIME_DIR "${RECOMPCORE_DIR}/GXRuntime" CACHE PATH "Pinned runtime" FORCE)
 set(ABI_DIR "${RECOMPCORE_DIR}/Source/Core/Core/PowerPC/StaticRecomp" CACHE PATH "Pinned module ABI" FORCE)
 set(GXRUNTIME_ENABLE_AURORA OFF CACHE BOOL "" FORCE)
-set(GXRUNTIME_ENABLE_AURORA_RECOMP OFF CACHE BOOL "" FORCE)
+# VITA-WW-17: the renderer consumes the pinned RetailGxFrontend and gxcore.
+set(GXRUNTIME_ENABLE_AURORA_RECOMP ON CACHE BOOL "" FORCE)
 set(BUILD_TESTING ${WW05_TESTS_ONLY} CACHE BOOL "" FORCE)
 add_subdirectory("${GXRUNTIME_DIR}" runtime)
+
+# VITA-WW-17: the host-facing renderer (vita/renderer). On the Vita it submits
+# through vitaGL; the tests-only host build links the same core with the NULL
+# platform backend.
+set(WW17_RENDERER_DIR "${BLUEWAKE_ROOT}/vita/renderer" CACHE PATH "VITA-WW-17 renderer sources")
+set(WW17_RENDERER_SOURCES
+    "${WW17_RENDERER_DIR}/ww_renderer.cpp"
+    "${WW17_RENDERER_DIR}/gx_bridge.cpp"
+    "${WW17_RENDERER_DIR}/gx_vita.cpp"
+    "${WW17_RENDERER_DIR}/gx_cg.cpp")
+if(VITA)
+    list(APPEND WW17_RENDERER_SOURCES "${WW17_RENDERER_DIR}/vita_gl_backend.cpp")
+endif()
+add_library(ww_renderer STATIC ${WW17_RENDERER_SOURCES})
+target_include_directories(ww_renderer PUBLIC "${WW17_RENDERER_DIR}")
+target_link_libraries(ww_renderer PUBLIC GXRuntime::retail_gx_frontend GXRuntime::gxcore)
+target_compile_options(ww_renderer PRIVATE -O2 -Wall -Wextra)
 set(WW13_TESTS_ONLY OFF CACHE BOOL "" FORCE)
 set(WW13_VITA OFF CACHE BOOL "" FORCE)
 add_subdirectory(dvd)
@@ -26,7 +44,7 @@ add_library(ww05_services STATIC boot_host.c gx_checkpoint.c gx_stream.c fifo_ga
     "${BLUEWAKE_ROOT}/runtime/host/src/interrupt_sources.c")
 target_include_directories(ww05_services PUBLIC "${CMAKE_CURRENT_SOURCE_DIR}"
     "${BLUEWAKE_ROOT}/runtime/host/src" "${BLUEWAKE_ROOT}/cmake/composite" "${ABI_DIR}")
-target_link_libraries(ww05_services PUBLIC ww13_dvd_io GXRuntime::runtime)
+target_link_libraries(ww05_services PUBLIC ww13_dvd_io GXRuntime::runtime ww_renderer)
 target_compile_options(ww05_services PRIVATE -O2 -ffp-contract=off -fno-fast-math -fstack-usage
     -Wall -Wextra -Werror=implicit-function-declaration)
 
@@ -87,7 +105,7 @@ if(WW05_TESTS_ONLY)
     target_link_libraries(wpar_probe PRIVATE ww05_services)
     target_link_options(wpar_probe PRIVATE -Wl,--wrap=fprintf)
     file(WRITE "${CMAKE_CURRENT_BINARY_DIR}/ww05_identity.h" "#define WW05_SOURCE \"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\"\n")
-    add_executable(io_probe main.c io_probe.c
+    add_executable(io_probe main.c io_probe.c io_renderer_fixture.cpp
         "${BLUEWAKE_ROOT}/vita/feasibility/armv7/platform.c"
         "${BLUEWAKE_ROOT}/vita/feasibility/armv7/abi.c")
     target_include_directories(io_probe PRIVATE "${CMAKE_CURRENT_BINARY_DIR}"
@@ -119,11 +137,15 @@ else()
         "${BLUEWAKE_ROOT}/vita/feasibility/armv7/abi.c")
     target_include_directories(ww05_host PRIVATE "${WW05_IDENTITY_DIR}"
         "${BLUEWAKE_ROOT}/vita/feasibility/armv7")
+    set(WW05_VITAGL_LIBRARY vitaGL CACHE STRING "No-splash vitaGL archive")
     target_link_libraries(ww05_host PRIVATE gGZLE01_recomp ww05_services
+        "${WW05_VITAGL_LIBRARY}" vitashark SceShaccCgExt SceShaccCg_stub_weak SceGxm_stub_weak
+        SceDisplay_stub_weak SceSysmodule_stub_weak SceCommonDialog_stub_weak SceAppMgr_stub_weak
+        SceCtrl_stub_weak SceKernelDmacMgr_stub_weak taihen_stub_weak mathneon m
         SceLibKernel_stub SceIofilemgr_stub SceProcessmgr_stub SceSysmem_stub)
     target_compile_options(ww05_host PRIVATE -O2 -ffp-contract=off -fno-fast-math -fstack-usage)
     target_link_options(ww05_host PRIVATE "-Wl,-Map=${CMAKE_CURRENT_BINARY_DIR}/ww05.map")
-    foreach(target gxruntime ww05_services ww13_dvd_io ww13_dvd_pin gGZLE01_recomp ww05_host)
+    foreach(target gxruntime ww05_services ww13_dvd_io ww13_dvd_pin gGZLE01_recomp ww05_host ww_renderer)
         target_compile_options(${target} PRIVATE -mcpu=cortex-a9 -mfpu=neon -mfloat-abi=hard)
     endforeach()
     include("$ENV{VITASDK}/share/vita.cmake" REQUIRED)

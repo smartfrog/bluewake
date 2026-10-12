@@ -22,6 +22,21 @@ from fp_profile import config_identity, stage_firmware
 from fp_campaign import runtime_inputs
 
 RUNTIME_SHA256 = 'cea2b91f05d9d03bb577b9c414e0da54d3b234f97dc4b23537561e800b1fbf30'
+SHADER_COMPILER = Path('/home/fred/cloudpunk-vita/tools/vita3k/data/Vita3K/Vita3K/ur0/data/libshacccg.suprx')
+
+
+def stage_shader_compiler(root, source):
+    source = reject_symlinks(source)
+    identity = file_identity(source)
+    target = root / 'data/Vita3K/Vita3K/ur0/data/libshacccg.suprx'
+    target.parent.mkdir(parents=True, mode=0o700)
+    with source.open('rb') as stream, target.open('xb') as destination:
+        shutil.copyfileobj(stream, destination)
+    staged = file_identity(target)
+    if staged['sha256'] != identity['sha256'] or staged['bytes'] != identity['bytes']:
+        raise ValueError('staged shader compiler mismatch')
+    return {'source': str(source), 'identity': identity, 'staged': staged,
+            'install_path': str(target.relative_to(root))}
 
 
 def validate_timeout(timeout):
@@ -135,13 +150,14 @@ def stage(args):
     if sha256(root / 'runtime/ww05.vpk') != package:
         raise ValueError('staged private package changed')
     firmware = stage_firmware(root, STACK / 'firmware')
+    shader_compiler = stage_shader_compiler(root, SHADER_COMPILER)
     libraries = library_identity(args.libraries)
     disc = None
     if getattr(args, 'disc', None) is not None:
         disc = stage_disc(root, args.disc, json.loads((OUTPUT / 'inputs.json').read_text())['disc_sha256'])
         args.disc = Path(disc['path'])
     plan = make_plan(root, args, source, package, run)
-    plan.update(runtime_sha256=RUNTIME_SHA256,
+    plan.update(runtime_sha256=RUNTIME_SHA256, shader_compiler=shader_compiler,
                 runtime_source='observed-banner:bbd5c36;local-RPATH-relocation;mapping:UNVERIFIED',
                 runtime_assets=assets, runtime_input=str(STACK / 'vita3k/Vita3K'),
                 runtime_inputs=runtime_inputs(STACK / 'vita3k/Vita3K'),
