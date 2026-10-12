@@ -963,3 +963,208 @@ refusal and caller/queue/SDA/alias negatives. The observed route is red before t
 gate (`logs/ww16-retrace-sleep-red.log`). ARM host links
 (`logs/ww16-retrace-sleep-arm-link.log`); audit, attribution and whitespace pass.
 A clean committed VI-enabled rebuild and watched continuation follow immediately.
+
+## Unit 27: the real VI handler wakes the retrace waiter
+
+Committed VI-enabled build **`55177cb`** passes all private build stages. Fresh
+watched run **`10c1b74cc7b647aab66bf18882e53a39`** passes the observed retrace
+sleep route without a host wakeup: due VI interrupts occur at **8,100,000,
+16,200,000 and 24,300,000 executed cycles**, with the latter two interrupting
+the real scheduler idle loop. The guest progresses to **24,302,469 cycles**,
+**1,171 decoded commands / 8,256 renderer bytes / 2,332 events**. The real backend
+still records **one plan/draw/program**, zero refusals/gaps, zero copies/presents.
+
+The next closed STOP is the same sleep entry **`80308A9C`**, but a different,
+now-observed caller: **LR `80322C38`, FinishQueue `803F7C9C`**, the **GXDrawDone**
+barrier. No extra route was admitted by the retrace-only guard. The report and
+64-entry journal certify; install 1.29 s / guest 11.99 s, followed by the retained
+shutdown crash **exit 133**. The monitor observes CPU and guest-output growth
+throughout, and no inactivity kill occurs. Still no presentation, visible-pixel
+verification, physical Vita test or FPS measurement.
+
+## Unit 28: confirm backend completion before publishing the real PE finish
+
+Source: the shared desktop barrier at `runtime/host/src/main.c:9776-9811` flushes
+actual GX work and commits PE finish only for this GXDrawDone caller. The local
+vitaGL source `source/gxm.c:962-969` implements **glFinish** by resetting the
+scene and calling **sceGxmFinish**. Reuse that real blocking completion primitive;
+do not wake FinishQueue, skip OSSleepThread, set sDrawDone or synthesize a return.
+
+The small renderer/backend finish contract flushes existing stream work, rejects
+partial commands, a held unpresented frame or refused/skipped rendering, then
+waits for the backend. A backend without a real completion primitive explicitly
+refuses. Vita uses **glFinish + the existing GL error check**, not a swap or a
+counter increment. A failure is latched and propagates to the host.
+
+The host admits only the owned observed **GXDrawDone LR/queue/SDA/real-MEM1**
+shape, after all gather/FIFO/capture/command bytes have been consumed. Only a
+successful, logged completion commits the pinned **dol_interrupts_commit_pe_finish**;
+the guest's PE enable, PI mask and MSR EE still control delivery through the
+existing real external-vector path. The actual guest sleep, PE handler, queue
+wakeup and return must run. Repeated zero-charge entry does not refence or
+republish the same consumed stream; later FIFO work requires a new completion.
+Retrace sleep behavior remains unchanged. No pins, composite, desktop code or
+draw/state coverage change; this seam is in the opt-in private continuing stream.
+
+Linux AArch64: **574 host tests pass** (`logs/ww16-gpu-finish-green.log`), including
+confirmed finish, failure/trace failure, missing renderer/disabled stream,
+owned caller/queue/SDA/alias refusals, all unconsumed-work shapes, guest PI masking,
+idempotence and later work. The observed success is red before implementation
+(`logs/ww16-gpu-finish-red.log`). The renderer's **six new completion contracts**
+plus existing bridge/translation/Cg/renderer executables pass; refusing an
+unsubmitted program is separately red then green
+(`logs/ww16-gpu-finish-refusal-red.log`, `logs/ww16-gpu-finish-renderer-green.log`).
+These host backends record synthetic events, **not GPU completion on hardware**.
+The actual ARM host links (`logs/ww16-gpu-finish-arm-link.log`); audit, attribution
+and whitespace checks pass. A clean committed VI build and watched authentic
+continuation are next. Do not claim a finished GPU job until that attempt reaches
+the successful completion log, or a visible pixel from a submission alone.
+
+## Unit 29: completion correctly refuses an unclassified retained tail
+
+Committed VI build **`c198346`** succeeds. Watched attempt
+**`555a9cabdde3450e8fcaef8f764612ef`** reaches the same GXDrawDone caller, then
+closes with **`GX draw-done requires all captured FIFO work to be consumed`**.
+No successful GPU-finish log is present and **no PE finish was published**.
+The frontier remains **24,302,469 cycles / 1,171 decoded commands / one real
+plan/draw/program / zero copies/presentations/refusals/gaps**. The closed report
+and 64 journal entries certify; install 1.30 s / guest 12.05 s, followed by the
+known shutdown exit **133**, not an inactivity kill.
+
+The old completion guard grouped gather, CP distance, retained provenance and
+partial command into one refusal. This report does **not** identify which count
+is nonzero or prove the retained bytes are NOPs. Keep that uncertainty explicit.
+The additional **83 FP launcher tests pass**
+(`logs/ww16-gpu-finish-fp-tests.log`). Disassembly of the certified ARM artifact
+confirms the linked glFinish actually branches through **sceGxmFinish**, rather
+than relying only on a source-directory assumption.
+
+## Unit 30: distinguish sourced inert GXFlush padding from unfinished work
+
+The authentic unchanged composite provides the narrow candidate: **GXDrawDone**
+writes BP `45000002`, then calls **GXFlush (`80322980`)** at `80322C10`. GXFlush
+loads zero and performs eight FIFO **stw** writes at **`803229A8..803229C4`**,
+then executes the real sync helper. Its stack is the caller's SP minus 8. The
+pinned GX parser's `case 0x00` is NOP. With the existing real 32-byte gather
+behavior, this guest-written 32-byte flush can leave up to 31 bytes of its own
+NOP suffix gathered after all rendering commands have already been consumed.
+Such NOPs have no unsubmitted rendering work; they need not be manufactured,
+submitted early or discarded to wait for the actual GPU jobs.
+
+The completion guard now permits **only** this inert suffix: every retained byte
+and origin byte is zero, each writer PC matches its exact suffix position in
+those eight stores, and each writer SP matches GXFlush's real stack relation.
+All CP distance/capture/read/partial-command counts must still be zero. The
+gather bytes, origins, count and transfer counters remain **unchanged**. Other
+bytes, provenance or stack shapes stop before a backend finish or PE event.
+No padding is added, bounds enlarged or commands replayed early.
+
+A bounded **first-completion frontier capture** records all pending counts and
+up to the existing 32 gather bytes with writer provenance; it also captures a
+refusal if a later completion fails. It is not a per-frame byte logger. The next
+authentic run must establish whether this candidate is the actual retained
+tail; this unit does not retroactively claim that evidence for attempt 555a.
+
+Linux AArch64: **577 host tests pass** (`logs/ww16-gpu-nop-tail-green.log`),
+including all 31 possible suffix lengths with bitwise unchanged gather state,
+non-NOP/origin/PC/SP refusals and frontier-log failure before backend work.
+The suffix test is red before this guard (`logs/ww16-gpu-nop-tail-red.log`). ARM
+host links (`logs/ww16-gpu-nop-tail-arm-link.log`); audit, attribution and whitespace
+checks pass. The renderer completion primitive and pins are unchanged. Commit,
+rebuild with VI and run a fresh watched continuation to classify the real tail.
+
+## Unit 31: first authentic display-copy presentation (2026-10-13)
+
+The committed VI build **`c47c76c`** succeeds. Watched authentic run
+**`21c977bc89bf4cd88ab9658629295fe5`** establishes the candidate tail exactly:
+**four zero NOP bytes**, all from the final GXFlush store **`803229C4`**, writer
+SP **`8040CEA0`**, while CP distance/capture/read/partial-command counts are zero.
+Those four bytes remain gathered, unchanged. The real vitaGL finish returns
+success at decoded command 1,171 and publishes the actual PE finish. The guest
+continues through its verified external vector and real interrupt/sleep path.
+
+New milestone: **display_copies=1, presented=1, END rendered=1**, with **one
+plan/draw/program**, zero gaps/refusals, **1,235 decoded commands / 8,416 renderer
+bytes / 2,421 events**, at **24,315,678 cycles**. This is a genuine submitted draw
+and a swap at the game's display copy; no synthetic frame or host-forced callback
+was added. The closed report and 64 journal entries certify. Install 1.24 s / guest
+12.65 s; the known post-report shutdown crash remains **exit 133**, separately
+preserved. CPU and process-written logs were watched throughout; no hang kill.
+Private summary: `evidence/first-presentation-analysis.json` in that attempt.
+
+**Visible game pixels are not yet verified.** There is no visual screenshot in
+this attempt. The prior WW02 demo documents this emulator's guest-memory readback
+limitation; its black PNG is not evidence of this new frame's contents. A swap
+counter is not a screenshot, a verified game scene, hardware performance or FPS.
+
+## Unit 32: confirm the observed asynchronous draw-done return
+
+The new STOP is **`80322BC8`**, GXSetDrawDone's register-restore return after
+the display copy. Actual LR is `80322BC8`, r3 zero, SDA `803FE0E0`, SP `8040CC98`.
+Shared desktop `main.c:9829-9844` sources this asynchronous finish boundary:
+JUTVideo's drawDoneStart needs the PE callback to clear its draw-waiting flag
+before the next retrace. The authentic composite writes BP `45000002` and eight
+zero FIFO words at **`80322B98..80322BB4`**, then restores guest interrupts and
+arrives at this still-unexecuted restore epilogue.
+
+The Vita edge gate now admits only this owned observed return/SDA/real-MEM1
+shape, using the **same actual backend completion and PE publication contract**
+as synchronous GXDrawDone. Its own inert NOP suffix requires the exact store-PC
+order and the current saved frame SP; it is kept unchanged. Other return states,
+aliases or pending work still STOP. Guest registers, stack restores, return and
+callback execute normally; no sDrawWaiting flag, callback, wakeup or GPU result
+is manufactured. The finish log identifies the real SDA FinishQueue for both
+boundaries, not asynchronous r3 (which is zero).
+
+Linux AArch64: **583 host tests pass** (`logs/ww16-async-finish-green.log`), including
+real-PE-path recording, failure, idempotence, exact owned return guards, all 31
+retained suffix lengths and pending/bad-padding refusals. These are synthetic
+backend contracts, not hardware pixel tests. The observed return is red before
+the seam (`logs/ww16-async-finish-red.log`). Actual ARM host links
+(`logs/ww16-async-finish-arm-link.log`); audit, attribution and whitespace pass.
+Renderer draw coverage, pins and desktop code remain unchanged. Before the next
+committed VI build/trial, extend the bounded command journal to the coordinator's
+requested **2,048 commands**, so the authentic draw is available for WW18's
+byte-exact journal-to-fixture replay; the existing 64-entry evidence is preserved.
+
+## Unit 33: journal the draw-containing prefix without losing validation
+
+Coordinator request: the next authentic launch uses **`--continue-gx 2048`**,
+not 64, so WW18's extractor at local commit **`047d292`** can replay actual draw
+records rather than the setup-only prefix. The host request/stream and launcher
+plan/report contract previously capped this at 256. The limit is now **2,048**
+throughout, with unchanged opt-in/default-frontier behavior and no execution cap.
+After that many logged commands, decoding and guest execution continue normally.
+
+The old Python journal validator also knew only fixed state-command lengths:
+merely raising the limit would reject the first actual primitive after the game
+ran. For each logged draw the producer now emits a separate
+**`[gx-command-layout]`** witness of its **already derived pinned CP layout**:
+index, format, vertex count, stride and exact packet bytes. The standard
+**`[gx-command] ... hex=` record is unchanged**, so WW18's byte-exact extraction
+remains compatible and never needs to reconstruct missing bytes. No VAT math
+or new state parser is introduced.
+
+Journal certification checks contiguous records, opcode/raw size, first-frontier
+binding, each draw's positive actual count and format/stride/packet-size witness,
+missing/duplicate/orphaned witnesses and total journal bytes versus actual FIFO
+reads. Witness logging failure stops before publishing a logged draw. This is
+**producer-evidence validation, not independent semantic renderer replay**;
+the pinned stateful replay from WW18 remains the next coverage check.
+
+Only the command-output count bound changes. The 1,025-byte command limit,
+32-byte gather, pinned FIFO/trace capacities, bounded CP/history capture, 64 MiB
+phase-log validation, memory owners and read-only pins are unchanged. Even the
+worst allowed 2,048-command hex prefix plus witnesses is under 5 MiB. Old runs,
+receipts and 64-entry journals are preserved; larger journals require the new
+certified guest build, not a claim about a historical 256-bound artifact.
+
+Linux AArch64: **592 host tests and 83 FP launcher tests pass**
+(`logs/ww16-full-journal-{green,fp-tests}.log`). Tests include the real request
+path, 2,048 logged commands with decoding beyond the cap, native CP framing and
+the draw at index 990, malformed/missing layout witnesses, byte/read bounds and
+failed draw-witness logging. Plan/report/native limit tests are red before the
+extension (`logs/ww16-full-journal-red.log`). Actual ARM host links
+(`logs/ww16-full-journal-arm-link.log`); audit, attribution and whitespace pass.
+Commit, rebuild with VI, then launch the combined async-finish/full-prefix units
+in a new continuously watched Info profile with **2,048** requested commands.

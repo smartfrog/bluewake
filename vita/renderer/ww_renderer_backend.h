@@ -34,6 +34,12 @@ public:
   // Show the completed frame (vitaGL: vglSwapBuffers).
   virtual const char* present() = 0;
 
+  // NULL confirms all submitted work finished. A backend without an actual
+  // completion primitive must refuse rather than manufacture a guest PE event.
+  virtual const char* finish() {
+    return "backend does not provide a confirmed GPU finish";
+  }
+
   // Release backend resources. The renderer calls it once, at destroy.
   virtual void shutdown() = 0;
 };

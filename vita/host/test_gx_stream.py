@@ -32,6 +32,12 @@ class GxStreamTest(unittest.TestCase):
     def test_consumed_provenance_is_reused_without_a_33_block_execution_limit(self):
         self.run_probe('many-blocks')
 
+    def test_full_journal_logs_2048_commands_and_keeps_decoding_after_its_bound(self):
+        result = self.run_probe('long-journal')
+        self.assertEqual(result.stderr.count('[gx-command]'), 2048)
+        self.assertIn('[gx-command] index=2048 ', result.stderr)
+        self.assertNotIn('[gx-command] index=2049 ', result.stderr)
+
     def test_unsupported_later_command_stops_honestly_without_erasing_first_acceptance(self):
         self.run_probe('unknown')
 

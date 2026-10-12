@@ -14,6 +14,7 @@ import uuid
 import zipfile
 
 from game_build import OUTPUT, ROOT, STACK, PINS, COMPOSITE_DIGEST, checked_sources, sha256
+from report import MAX_JOURNAL_COMMANDS
 
 sys.path.insert(0, str(ROOT / 'scripts/vita/armv7'))
 from fp_launch import create_run, evidence_file, reject_symlinks, sandbox_command, stage_runtime
@@ -46,8 +47,8 @@ def validate_timeout(timeout):
 
 
 def validate_continuation(limit):
-    if not 0 <= limit <= 256:
-        raise ValueError('continuation journal limit must be 1..256, or zero for the default frontier')
+    if not 0 <= limit <= MAX_JOURNAL_COMMANDS:
+        raise ValueError(f'continuation journal limit must be 1..{MAX_JOURNAL_COMMANDS}, or zero for the default frontier')
 
 
 def stage_disc(root, path, expected_sha256):

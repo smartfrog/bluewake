@@ -4,9 +4,12 @@
 #include <stdarg.h>
 
 static bool fail_trace;
+static bool fail_layout_journal;
 
 int __wrap_fprintf(FILE* stream, const char* format, ...) {
-    if (fail_trace && stream == stderr && strncmp(format, "[gx-draw-layout]", 16u) == 0) {
+    if (stream == stderr &&
+        ((fail_trace && strncmp(format, "[gx-draw-layout]", 16u) == 0) ||
+         (fail_layout_journal && strncmp(format, "[gx-command-layout]", 19u) == 0))) {
         errno = ENOSPC;
         return -1;
     }
@@ -33,11 +36,12 @@ int main(int argc, char** argv) {
     WwHost* host = calloc(1u, sizeof(*host));
     assert(host != NULL && ww_host_init(host));
     host->stream.enabled = true;
-    host->stream.log_limit = 64u;
+    host->stream.log_limit = strcmp(scenario, "journal") == 0 ? 2048u : 64u;
     const u8 first[] = {0x61u, 0x41u, 0x12u, 0x34u, 0x56u};
     assert(feed(host, first, sizeof(first), 0x80001000u) == NULL);
     const WwGxCheckpoint frontier = host->frontier;
     fail_trace = strcmp(scenario, "trace") == 0;
+    fail_layout_journal = strcmp(scenario, "layout-journal-failure") == 0;
     u8 cp[] = {0x08u, 0x50u, 0u, 0u, 2u, 0u,
                0x08u, 0x60u, 0u, 0u, 0u, 0u,
                0x08u, 0x70u, 0u, 0u, 0u, 9u};
@@ -52,6 +56,11 @@ int main(int argc, char** argv) {
     if (strcmp(scenario, "history-wrap") == 0)
         for (u32 index = 0u; index < 100u; ++index)
             assert(feed(host, cp + 12u, 6u, 0x80002200u + index * 24u) == NULL);
+    if (strcmp(scenario, "journal") == 0) {
+        const u8 nop = 0u;
+        for (u32 index = 0u; index < 985u; ++index)
+            assert(feed(host, &nop, 1u, 0x80002200u + index * 4u) == NULL);
+    }
     const u64 decoded_before = host->stream.decoded;
     const u32 stride = strcmp(scenario, "layout-change") == 0 ? 8u : 12u;
     u8 draw[39] = {0x90u | format, 0u, 3u};
@@ -66,8 +75,11 @@ int main(int argc, char** argv) {
         draw[index] = (u8)(index * 13u);
     const bool failure = strcmp(scenario, "missing") == 0 || strcmp(scenario, "reserved") == 0 ||
                          strcmp(scenario, "oversize") == 0 || strcmp(scenario, "zero") == 0 || fail_trace;
-    const char* error = feed(host, draw, command_bytes - 1u, 0x80003000u);
-    if (failure) {
+    const char* error = feed(host, draw, command_bytes - (fail_layout_journal ? 0u : 1u), 0x80003000u);
+    if (fail_layout_journal) {
+        assert(error != NULL && host->stream.decoded == decoded_before);
+        assert(host->stream.command.complete && host->stream.logged == 4u);
+    } else if (failure) {
         assert(error != NULL && host->stream.decoded == decoded_before);
         assert(host->stream.command.size <= 3u);
     } else {

@@ -91,6 +91,8 @@ typedef struct WwHost {
     bool dvd_callback_active;
     bool scheduler_idle_observed;
     bool vi_clock_enabled;
+    bool gpu_finish_committed;
+    u64 gpu_finish_index;
 } WwHost;
 
 enum { WW_DVD_CALLBACK_DELAY_CYCLES = 486000u };
@@ -121,6 +123,7 @@ const char* ww_host_observe_scheduler_idle(WwHost* host);
 void ww_host_vi_advance(WwHost* host, u64 cycles);
 void ww_gx_remember_command(WwGxStream* stream, const WwGxCheckpoint* command);
 const char* ww_gx_observe_first_draw(WwHost* host);
+const char* ww_host_finish_gpu(WwHost* host);
 const char* ww_gx_stream_write(WwHost* host, u8 byte, const WwFifoOrigin* origin, u32 trailing);
 
 #endif

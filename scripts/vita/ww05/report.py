@@ -2,6 +2,8 @@
 
 import re
 
+MAX_JOURNAL_COMMANDS = 2048
+
 
 def matched(pattern, line):
     result = re.fullmatch(pattern, line)
@@ -17,8 +19,18 @@ def command_bytes(opcode, size, raw):
     return data
 
 
-def validate_frame(data):
+def validate_frame(data, layout=None):
     opcode = data[0] if data else -1
+    if (opcode & 0xF8) in (0x80, 0x90, 0x98, 0xA0, 0xA8, 0xB0, 0xB8):
+        if layout is None or len(data) < 3:
+            raise ValueError('WW05 draw requires a witnessed pinned CP layout')
+        format_index, vertices, stride, size = layout
+        if (format_index != (opcode & 7) or vertices != int.from_bytes(data[1:3], 'big') or
+                vertices == 0 or stride == 0 or size != len(data) or size != 3 + vertices * stride):
+            raise ValueError('WW05 draw bytes disagree with the pinned layout witness')
+        return
+    if layout is not None:
+        raise ValueError('WW05 layout witness must belong to a logged primitive')
     required = {0x00: 1, 0x48: 1, 0x08: 6, 0x61: 5, 0x20: 5, 0x28: 5,
                 0x30: 5, 0x38: 5, 0x40: 9}.get(opcode)
     if opcode == 0x10 and len(data) >= 5:
@@ -32,7 +44,7 @@ def validate_frame(data):
 def stream_counts(line, limit):
     decoded, logged, requested, pending, read = (int(value) for value in matched(
         r'GX_STREAM mode=continue decoded=(\d+) logged=(\d+) limit=(\d+) pending=(\d+) read_bytes=(\d+)', line))
-    if (not 1 <= limit <= 256 or requested != limit or logged != min(decoded, limit) or
+    if (not 1 <= limit <= MAX_JOURNAL_COMMANDS or requested != limit or logged != min(decoded, limit) or
         pending > 1025 or read % 32 or read < decoded or decoded > (1 << 64) - 1 or read > (1 << 64) - 1):
         raise ValueError('invalid WW05 continuation counts or request')
     return decoded, logged, pending, read
@@ -95,23 +107,38 @@ def validate(content, token, source, package, continue_gx=0):
 
 
 def validate_commands(content, report, limit):
+    """Certify journal bytes/counts and producer layout witnesses, not renderer replay."""
     lines = report.splitlines()
     if len(lines) == 3 and lines[1:] == ['STOP reason=host allocation failed', 'END frontier=FAIL live=0 rendered=0']:
-        if '[gx-command]' in content:
+        if '[gx-command' in content:
             raise ValueError('WW05 unallocated host cannot have a command journal')
         return 0
     decoded, logged, pending, read = stream_counts(lines[6], limit)
     commands = [line for line in content.splitlines() if line.startswith('[gx-command]')]
+    layouts = {}
+    for line in content.splitlines():
+        if not line.startswith('[gx-command-layout]'):
+            continue
+        number, format_index, vertices, stride, size = (int(value) for value in matched(
+            r'\[gx-command-layout\] index=(\d+) format=(\d+) vertices=(\d+) stride=(\d+) bytes=(\d+)', line))
+        if not 1 <= number <= logged or number in layouts:
+            raise ValueError('out-of-range or duplicate WW05 command layout witness')
+        layouts[number] = (format_index, vertices, stride, size)
     if len(commands) != logged:
         raise ValueError('WW05 command journal count mismatch')
+    captured_bytes = 0
     for index, line in enumerate(commands, 1):
         number, opcode, size, pc, finish, sp, raw = matched(
             r'\[gx-command\] index=(\d+) opcode=([0-9A-F]{2}) bytes=(\d+) pc=([0-9A-F]{8}) '
             r'completion_pc=([0-9A-F]{8}) sp=([0-9A-F]{8}) hex=([0-9A-F]+)', line)
         if int(number) != index:
             raise ValueError('WW05 command journal sequence mismatch')
-        validate_frame(command_bytes(opcode, size, raw))
+        data = command_bytes(opcode, size, raw)
+        validate_frame(data, layouts.pop(index, None))
+        captured_bytes += len(data)
         if index == 1 and (f'opcode={opcode} bytes={size} pc={pc} completion_pc={finish} sp={sp} ' not in lines[5] or
                            not lines[5].endswith(' hex=' + raw)):
             raise ValueError('WW05 first journal command differs from its frontier')
+    if layouts or captured_bytes > read:
+        raise ValueError('WW05 journal has orphaned layout witnesses or more bytes than the actual FIFO reads')
     return logged

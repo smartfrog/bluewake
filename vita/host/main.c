@@ -60,7 +60,7 @@ static int continuation_limit(const char* token, const char* source, const char*
     error |= fclose(stream) != 0;
     unsigned count = 0u;
     if (error || strlen(content) != size || sscanf(content, "%*32s %*40s %*64s %u", &count) != 1 ||
-        count == 0u || count > 256u)
+        count == 0u || count > WW_GX_MAX_JOURNAL_COMMANDS)
         return 1;
     if (snprintf(expected, sizeof(expected), "%s %s %s %u\n", token, source, package, count) < 0 ||
         strcmp(content, expected) != 0)

@@ -140,15 +140,25 @@ public:
     return nullptr;
   }
 
+  const char* finish() override {
+    ++finishes;
+    draws_at_finish = draws.size();
+    return finish_supported ? finish_error : WwRendererBackend::finish();
+  }
+
   void shutdown() override { ++shutdowns; }
 
   int inits = 0;
   int presents = 0;
   int shutdowns = 0;
+  int finishes = 0;
+  std::size_t draws_at_finish = 0;
+  bool finish_supported = true;
   const char* init_error = nullptr;
   const char* draw_error = nullptr;
   const char* copy_error = nullptr;
   const char* present_error = nullptr;
+  const char* finish_error = nullptr;
   std::vector<DrawRecord> draws;
   std::vector<CopyRecord> copies;
 };
@@ -602,6 +612,93 @@ int fog_is_submitted() {
 
 } // namespace
 
+
+int finish_follows_submitted_draw_without_presenting() {
+  Fixture fixture;
+  RecordingBackend backend;
+  WwRenderer* renderer = nullptr;
+  WwRendererConfig config = fixture.config();
+  CHECK(ww_renderer_create(&renderer, &config, &backend) == nullptr);
+  const auto fifo = gx_fixture::build_textured_triangle();
+  CHECK(ww_renderer_write(renderer, fifo.data(), fifo.size()) == nullptr);
+  CHECK(ww_renderer_finish(renderer) == nullptr);
+  CHECK(backend.finishes == 1 && backend.draws_at_finish == 1u && backend.presents == 0);
+  WwRendererStats stats{};
+  ww_renderer_stats(renderer, &stats);
+  CHECK(stats.draws == 1u && stats.presented == 0u);
+  ww_renderer_destroy(renderer);
+  return 0;
+}
+
+int finish_failure_is_latched() {
+  Fixture fixture;
+  RecordingBackend backend;
+  backend.finish_error = "finish boom";
+  WwRenderer* renderer = nullptr;
+  WwRendererConfig config = fixture.config();
+  CHECK(ww_renderer_create(&renderer, &config, &backend) == nullptr);
+  CHECK(std::strstr(ww_renderer_finish(renderer), "finish boom") != nullptr);
+  CHECK(std::strstr(ww_renderer_present(renderer, nullptr), "finish boom") != nullptr);
+  CHECK(backend.presents == 0);
+  ww_renderer_destroy(renderer);
+  return 0;
+}
+
+int backend_without_finish_cannot_confirm_completion() {
+  Fixture fixture;
+  RecordingBackend backend;
+  backend.finish_supported = false;
+  WwRenderer* renderer = nullptr;
+  WwRendererConfig config = fixture.config();
+  CHECK(ww_renderer_create(&renderer, &config, &backend) == nullptr);
+  CHECK(std::strstr(ww_renderer_finish(renderer), "confirmed GPU finish") != nullptr);
+  CHECK(backend.presents == 0);
+  ww_renderer_destroy(renderer);
+  return 0;
+}
+
+int partial_fifo_cannot_confirm_completion() {
+  Fixture fixture;
+  RecordingBackend backend;
+  WwRenderer* renderer = nullptr;
+  WwRendererConfig config = fixture.config();
+  CHECK(ww_renderer_create(&renderer, &config, &backend) == nullptr);
+  const std::uint8_t byte = 0x08u;
+  CHECK(ww_renderer_write(renderer, &byte, 1u) == nullptr);
+  CHECK(std::strstr(ww_renderer_finish(renderer), "complete captured commands") != nullptr);
+  CHECK(backend.finishes == 0 && backend.presents == 0);
+  ww_renderer_destroy(renderer);
+  return 0;
+}
+
+int finish_cannot_present_a_held_frame() {
+  Fixture fixture;
+  RecordingBackend backend;
+  WwRenderer* renderer = nullptr;
+  WwRendererConfig config = fixture.config();
+  CHECK(ww_renderer_create(&renderer, &config, &backend) == nullptr);
+  const auto fifo = frame_with_display_copy();
+  CHECK(ww_renderer_write(renderer, fifo.data(), fifo.size()) == nullptr);
+  CHECK(std::strstr(ww_renderer_finish(renderer), "unpresented display copy") != nullptr);
+  CHECK(backend.finishes == 0 && backend.presents == 0);
+  ww_renderer_destroy(renderer);
+  return 0;
+}
+
+int refused_program_cannot_confirm_completion() {
+  Fixture fixture;
+  RecordingBackend backend;
+  WwRenderer* renderer = nullptr;
+  WwRendererConfig config = fixture.config();
+  CHECK(ww_renderer_create(&renderer, &config, &backend) == nullptr);
+  const auto fifo = gx_fixture::build_indirect_triangle();
+  CHECK(ww_renderer_write(renderer, fifo.data(), fifo.size()) == nullptr);
+  CHECK(ww_renderer_finish(renderer) != nullptr);
+  CHECK(backend.finishes == 0 && backend.presents == 0);
+  ww_renderer_destroy(renderer);
+  return 0;
+}
+
 int main() {
   CHECK(primitive_coverage() == 0);
   CHECK(indexed_vertex_coverage() == 0);
@@ -908,6 +1005,14 @@ int main() {
     ww_renderer_destroy(renderer);
     std::printf("renderer gaps kept ok count=%u\n", stats.gap_count);
   }
+
+  CHECK(finish_follows_submitted_draw_without_presenting() == 0);
+  CHECK(finish_failure_is_latched() == 0);
+  CHECK(backend_without_finish_cannot_confirm_completion() == 0);
+  CHECK(partial_fifo_cannot_confirm_completion() == 0);
+  CHECK(finish_cannot_present_a_held_frame() == 0);
+  CHECK(refused_program_cannot_confirm_completion() == 0);
+  std::printf("renderer GPU finish contracts ok\n");
 
   {
     // Two frames, each ending in a display copy: two draws, two presents, in
