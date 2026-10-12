@@ -158,6 +158,12 @@ class ExternalVectorGeneratorTest(unittest.TestCase):
         self.assertIn('void func_00000800(CPUState* ctx)', result.stdout)
         self.assertIn('const u8 ww05_fp_vector_reference[152]', result.stdout)
 
+    def test_emitter_uses_the_observed_decrementer_physical_base(self):
+        result = self.emit(external_vector_fixture(8), '00000900')
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn('void func_00000900(CPUState* ctx)', result.stdout)
+        self.assertIn('const u8 ww05_decrementer_vector_reference[152]', result.stdout)
+
     def test_unobserved_vector_base_is_refused_before_emission(self):
         result = self.emit(external_vector_fixture(), '00000700')
         self.assertNotEqual(result.returncode, 0)
@@ -196,6 +202,53 @@ class FpVectorInputTest(unittest.TestCase):
                  patch('subprocess.run', return_value=subprocess.CompletedProcess([], 0, b'synthetic generated source')) as run:
                 external_vector.emit_fp_vector(dol, observed, Path('fixture-emitter'), output)
                 run.assert_called_once_with(['fixture-emitter', str(output.with_suffix('.bin')), '00000800'],
+                                            check=True, capture_output=True)
+            self.assertEqual(output.with_suffix('.bin').read_bytes(), observed)
+
+
+class DecrementerVectorInputTest(unittest.TestCase):
+    def extract(self, source, dol, observed):
+        import external_vector
+        with patch.object(external_vector, 'TEMPLATE_SHA256', hashlib.sha256(source).hexdigest()), \
+             patch.object(external_vector, 'DECREMENTER_OBSERVED_SHA256', hashlib.sha256(observed).hexdigest()):
+            return external_vector.extract_decrementer_vector(dol, observed)
+
+    def test_observed_exception_eight_patch_is_the_only_accepted_template_change(self):
+        dol, source, observed = synthetic_lineage(8)
+        self.assertEqual(self.extract(source, dol, observed), observed)
+
+    def test_wrong_exception_number_cannot_become_a_decrementer_vector(self):
+        dol, source, observed = synthetic_lineage(4)
+        with self.assertRaisesRegex(ValueError, 'lineage'):
+            self.extract(source, dol, observed)
+
+    def test_unrelated_source_change_cannot_become_a_decrementer_vector(self):
+        dol, source, observed = synthetic_lineage(8)
+        changed = bytearray(source)
+        changed[12] ^= 1
+        dol[256:] = changed
+        with self.assertRaisesRegex(ValueError, 'lineage'):
+            self.extract(changed, dol, observed)
+
+    def test_every_changed_decrementer_byte_is_refused_even_with_a_matching_fixture_hash(self):
+        dol, source, observed = synthetic_lineage(8)
+        for offset in range(152):
+            with self.subTest(offset=offset):
+                changed = bytearray(observed)
+                changed[offset] ^= 1
+                with self.assertRaisesRegex(ValueError, 'lineage'):
+                    self.extract(source, dol, bytes(changed))
+
+    def test_validated_decrementer_input_uses_the_observed_base(self):
+        import external_vector
+        dol, source, observed = synthetic_lineage(8)
+        with tempfile.TemporaryDirectory(dir='/home/fred/projects/zeldaWWHDRecomp/build-f5', prefix='dec-vector-input-') as directory:
+            output = Path(directory) / 'generated.c'
+            with patch.object(external_vector, 'TEMPLATE_SHA256', hashlib.sha256(source).hexdigest()), \
+                 patch.object(external_vector, 'DECREMENTER_OBSERVED_SHA256', hashlib.sha256(observed).hexdigest()), \
+                 patch('subprocess.run', return_value=subprocess.CompletedProcess([], 0, b'synthetic generated source')) as run:
+                external_vector.emit_decrementer_vector(dol, observed, Path('fixture-emitter'), output)
+                run.assert_called_once_with(['fixture-emitter', str(output.with_suffix('.bin')), '00000900'],
                                             check=True, capture_output=True)
             self.assertEqual(output.with_suffix('.bin').read_bytes(), observed)
 
@@ -247,6 +300,11 @@ class FpVectorDispatchTest(ExternalVectorDispatchTest):
 
     def test_another_pending_exception_is_not_cleared_with_fp_unavailable(self):
         self.probe('resume-other-exception')
+
+
+class DecrementerVectorDispatchTest(ExternalVectorDispatchTest):
+    def probe(self, scenario):
+        subprocess.run([str(test_host.OUT / 'external_vector_probe'), scenario, 'decrementer'], check=True)
 
 if __name__ == '__main__':
     unittest.main()

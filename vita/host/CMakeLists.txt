@@ -4,6 +4,7 @@ set(CMAKE_C_STANDARD 11)
 set(CMAKE_C_STANDARD_REQUIRED ON)
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 option(WW05_TESTS_ONLY "Build game-free host contract tests only" OFF)
+option(WW05_ENABLE_VI_CLOCK "Experimental guest-cycle VI clock for private boot trials" OFF)
 get_filename_component(BLUEWAKE_ROOT "../.." ABSOLUTE BASE_DIR "${CMAKE_CURRENT_SOURCE_DIR}")
 set(GXRUNTIME_DIR "${RECOMPCORE_DIR}/GXRuntime" CACHE PATH "Pinned runtime" FORCE)
 set(ABI_DIR "${RECOMPCORE_DIR}/Source/Core/Core/PowerPC/StaticRecomp" CACHE PATH "Pinned module ABI" FORCE)
@@ -35,7 +36,8 @@ add_subdirectory(dvd)
 target_compile_options(gxruntime PRIVATE -ffp-contract=off -fno-fast-math -fstack-usage)
 
 add_library(ww05_services STATIC boot_host.c gx_checkpoint.c gx_stream.c fifo_gather.c fifo_consumer.c
-    code_guard.c dsp_interface.c bat_contract.c disc_service.c
+    code_guard.c dsp_interface.c bat_contract.c disc_service.c rel_provider.c rel_service.c rel_link.c
+    scheduler_observation.c vi_clock.c gx_draw_observation.c
     $<TARGET_OBJECTS:ww13_dvd_pin>
     "${BLUEWAKE_ROOT}/runtime/host/src/cycle_domain.c"
     "${BLUEWAKE_ROOT}/runtime/host/src/aram_dma.c"
@@ -43,10 +45,13 @@ add_library(ww05_services STATIC boot_host.c gx_checkpoint.c gx_stream.c fifo_ga
     "${BLUEWAKE_ROOT}/runtime/host/src/ipl_sram.c"
     "${BLUEWAKE_ROOT}/runtime/host/src/callback_delivery.c"
     "${BLUEWAKE_ROOT}/runtime/host/src/scheduler_contract.c"
+    "${BLUEWAKE_ROOT}/runtime/host/src/rel_scratch_allocator.c"
     "${BLUEWAKE_ROOT}/runtime/host/src/interrupt_sources.c")
 target_include_directories(ww05_services PUBLIC "${CMAKE_CURRENT_SOURCE_DIR}"
-    "${BLUEWAKE_ROOT}/runtime/host/src" "${BLUEWAKE_ROOT}/cmake/composite" "${ABI_DIR}")
+    "${BLUEWAKE_ROOT}/runtime/host/src" "${BLUEWAKE_ROOT}/cmake/composite" "${ABI_DIR}"
+    "${BLUEWAKE_ROOT}/apple/ios/src")
 target_link_libraries(ww05_services PUBLIC ww13_dvd_io GXRuntime::runtime ww_renderer)
+target_compile_definitions(ww05_services PRIVATE WW05_ENABLE_VI_CLOCK=$<BOOL:${WW05_ENABLE_VI_CLOCK}>)
 target_compile_options(ww05_services PRIVATE -O2 -ffp-contract=off -fno-fast-math -fstack-usage
     -Wall -Wextra -Werror=implicit-function-declaration)
 
@@ -60,7 +65,8 @@ if(WW05_TESTS_ONLY)
         "static const unsigned char ww05_dsp_init_reference[128] = {${synthetic_init_bytes}};\n")
     target_include_directories(ww05_services PRIVATE "${CMAKE_CURRENT_BINARY_DIR}")
     target_sources(ww05_services PRIVATE "${CMAKE_CURRENT_BINARY_DIR}/ww05_external_vector.c"
-                                       "${CMAKE_CURRENT_BINARY_DIR}/ww05_fp_vector.c")
+                                       "${CMAKE_CURRENT_BINARY_DIR}/ww05_fp_vector.c"
+                                       "${CMAKE_CURRENT_BINARY_DIR}/ww05_decrementer_vector.c")
     add_executable(host_probe host_probe.c)
     target_compile_options(host_probe PRIVATE -UNDEBUG)
     target_link_libraries(host_probe PRIVATE ww05_services)
@@ -96,6 +102,18 @@ if(WW05_TESTS_ONLY)
     target_compile_options(dvd_callback_probe PRIVATE -UNDEBUG)
     target_link_libraries(dvd_callback_probe PRIVATE ww05_services)
     target_link_options(dvd_callback_probe PRIVATE -Wl,--wrap=fprintf)
+    add_executable(rel_materialize_probe rel_materialize_probe.c)
+    target_compile_options(rel_materialize_probe PRIVATE -UNDEBUG)
+    target_link_libraries(rel_materialize_probe PRIVATE ww05_services)
+    target_link_options(rel_materialize_probe PRIVATE -Wl,--wrap=fprintf -Wl,--wrap=calloc)
+    add_executable(scheduler_observation_probe scheduler_observation_probe.c)
+    target_compile_options(scheduler_observation_probe PRIVATE -UNDEBUG)
+    target_link_libraries(scheduler_observation_probe PRIVATE ww05_services)
+    target_link_options(scheduler_observation_probe PRIVATE -Wl,--wrap=fprintf)
+    add_executable(vi_clock_probe vi_clock_probe.c)
+    target_compile_options(vi_clock_probe PRIVATE -UNDEBUG)
+    target_link_libraries(vi_clock_probe PRIVATE ww05_services)
+    target_link_options(vi_clock_probe PRIVATE -Wl,--wrap=fprintf)
     add_executable(gather_probe gather_probe.c)
     target_compile_options(gather_probe PRIVATE -UNDEBUG)
     target_link_libraries(gather_probe PRIVATE ww05_services)
@@ -114,6 +132,10 @@ if(WW05_TESTS_ONLY)
     target_compile_options(gx_stream_probe PRIVATE -UNDEBUG)
     target_link_libraries(gx_stream_probe PRIVATE ww05_services)
     target_link_options(gx_stream_probe PRIVATE -Wl,--wrap=fprintf)
+    add_executable(gx_draw_probe gx_draw_probe.c)
+    target_compile_options(gx_draw_probe PRIVATE -UNDEBUG)
+    target_link_libraries(gx_draw_probe PRIVATE ww05_services)
+    target_link_options(gx_draw_probe PRIVATE -Wl,--wrap=fprintf)
     add_executable(wpar_probe wpar_probe.c)
     target_compile_options(wpar_probe PRIVATE -UNDEBUG)
     target_link_libraries(wpar_probe PRIVATE ww05_services)
@@ -135,14 +157,16 @@ else()
     endif()
     foreach(input "${WW05_IDENTITY_DIR}/ww05_identity.h" "${WW05_IDENTITY_DIR}/ww05_dsp_init.h"
                   "${WW05_IDENTITY_DIR}/ww05_external_vector.c"
-                  "${WW05_IDENTITY_DIR}/ww05_fp_vector.c" "${WW05_DOL}")
+                  "${WW05_IDENTITY_DIR}/ww05_fp_vector.c"
+                  "${WW05_IDENTITY_DIR}/ww05_decrementer_vector.c" "${WW05_DOL}")
         if(NOT EXISTS "${input}")
             message(FATAL_ERROR "Missing verified private input: ${input}")
         endif()
     endforeach()
     target_include_directories(ww05_services PRIVATE "${WW05_IDENTITY_DIR}")
     target_sources(ww05_services PRIVATE "${WW05_IDENTITY_DIR}/ww05_external_vector.c"
-                                       "${WW05_IDENTITY_DIR}/ww05_fp_vector.c")
+                                       "${WW05_IDENTITY_DIR}/ww05_fp_vector.c"
+                                       "${WW05_IDENTITY_DIR}/ww05_decrementer_vector.c")
     set(BLUEWAKE_STATIC_MODULE ON CACHE BOOL "" FORCE)
     set(WW05_MODULE_OPT_LEVEL 1 CACHE STRING "Translated module optimization level (1, 2, or 3)")
     set(COMPOSITE_OPTIMIZATION_LEVEL ${WW05_MODULE_OPT_LEVEL} CACHE STRING "" FORCE)

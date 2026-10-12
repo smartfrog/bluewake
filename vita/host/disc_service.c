@@ -5,7 +5,7 @@
 #include "callback_delivery.h"
 #include "scheduler_contract.h"
 
-static const char* disc_ready(WwHost* host) {
+const char* ww_host_disc_ready(WwHost* host) {
     if (!host->disc_owned) {
         if (dvd_image_ready())
             return "DVD access cannot borrow another owner's disc image";
@@ -31,7 +31,7 @@ static bool file_info_valid(WwHost* host, u32 file_info) {
 static const char* read_disc(WwHost* host, u32 guest, u64 offset, u32 length) {
     if (length == 0u || offset + length > 0x80000000ull)
         return "DVD read requires a nonempty signed 32-bit disc range";
-    const char* error = disc_ready(host);
+    const char* error = ww_host_disc_ready(host);
     if (error != NULL)
         return error;
     BwDvdIoStats before, after;
@@ -181,8 +181,12 @@ bool ww_host_dvd_edge(WwHost* host, u32 address) {
         if (error == NULL && fprintf(stderr, "[rel-frontier] name=%s object=%08X module=%08X pc=%08X\n",
                                     name, object, mem_read32(cpu, object + 0x10u), address) < 0)
             error = "REL frontier trace write failed";
-        ww_host_fail(host, error != NULL ? error : "REL materialization requires a checked raw-image provider and scratch mapping",
-                     address, address);
+        if (error == NULL && host->rel_image.guest == 0u)
+            error = ww_host_materialize_rel(host, object, name);
+        if (error == NULL)
+            error = ww_host_link_profile_list(host, object);
+        if (error != NULL)
+            ww_host_fail(host, error, address, address);
         return true;
     }
     if (address == 0x8030FBCCu || address == 0x8030FADCu) {
@@ -204,7 +208,7 @@ bool ww_host_dvd_edge(WwHost* host, u32 address) {
     if (error == NULL && !fast)
         error = guest_text(cpu, cpu->gpr[3], path);
     if (error == NULL)
-        error = disc_ready(host);
+        error = ww_host_disc_ready(host);
     if (error == NULL) {
         const s32 entry = fast ? (s32)cpu->gpr[3] : dvd_path_to_entrynum(path);
         if (fprintf(stderr, "[dvd-open] kind=%s path=%s entry=%d file=%08X backend=%s pc=%08X\n",

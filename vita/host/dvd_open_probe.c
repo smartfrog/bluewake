@@ -81,7 +81,8 @@ int main(int argc, char** argv) {
         assert(cpu->pc == address);
         if (rel) {
             assert(memcmp(object_before, cpu->ram + 0x1000u, sizeof(object_before)) == 0);
-            assert(!host->disc_owned && !dvd_image_ready());
+            if (strcmp(scenario, "rel-frontier") != 0)
+                assert(!host->disc_owned && !dvd_image_ready());
             if (strcmp(scenario, "rel-trace") == 0)
                 assert(strcmp(host->error, "REL frontier trace write failed") == 0);
         }

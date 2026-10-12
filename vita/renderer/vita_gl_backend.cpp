@@ -18,6 +18,7 @@
 
 #include "ww_renderer.h"
 #include "ww_renderer_backend.h"
+#include "gx_texgen.h"
 
 #include <vitaGL.h>
 
@@ -52,6 +53,7 @@ public:
     glViewport(0, 0, kScreenWidth, kScreenHeight);
     glGenBuffers(1, &vertex_buffer_);
     glGenBuffers(1, &index_buffer_);
+    glGenBuffers(1, &texcoord_buffer_);
     glGenTextures(8, texture_slots_);
     return nullptr;
   }
@@ -66,12 +68,20 @@ public:
                        GL_FALSE, draw.position_matrix);
     glUniformMatrix4fv(glGetUniformLocation(gl_program, "projection"), 1,
                        GL_FALSE, draw.projection);
+    glUniform4fv(glGetUniformLocation(gl_program, "tev_colors"), 4,
+                 &draw.tev_colors[0][0]);
+    glUniform4fv(glGetUniformLocation(gl_program, "konst_colors"), 4,
+                 &draw.konst_colors[0][0]);
+    glUniform2fv(glGetUniformLocation(gl_program, "alpha_ref"), 1, draw.alpha_ref);
+    glUniform2fv(glGetUniformLocation(gl_program, "ztexture_bias"), 1,
+                 draw.ztexture_bias);
 
     if (draw.pipeline.depth_test != 0u)
       glEnable(GL_DEPTH_TEST);
     else
       glDisable(GL_DEPTH_TEST);
     glDepthFunc(draw.pipeline.depth_func);
+    glDepthRangef(draw.pipeline.depth_near, draw.pipeline.depth_far);
     glDepthMask(draw.pipeline.depth_write != 0u ? GL_TRUE : GL_FALSE);
     if (draw.pipeline.blend_enable != 0u) {
       glEnable(GL_BLEND);
@@ -122,8 +132,16 @@ public:
     attribute(kAttributePosition, 3, gxc::kVertexPosOffset);
     attribute(kAttributeColor0, 4, gxc::kVertexColor0Offset);
     attribute(kAttributeColor1, 4, gxc::kVertexColor1Offset);
-    for (std::uint32_t t = 0; t < gxc::kMaxRawTexCoords; ++t)
-      attribute(kAttributeUv0 + t, 2, gxc::kVertexUvOffset + 8u * t);
+    glBindBuffer(GL_ARRAY_BUFFER, texcoord_buffer_);
+    glBufferData(GL_ARRAY_BUFFER,
+                 static_cast<GLsizeiptr>(draw.geometry.texcoords.size() * sizeof(float)),
+                 draw.geometry.texcoords.data(), GL_STATIC_DRAW);
+    for (std::uint32_t t = 0; t < gxc::kMaxTexGens; ++t) {
+      glEnableVertexAttribArray(kAttributeUv0 + t);
+      glVertexAttribPointer(kAttributeUv0 + t, 3, GL_FLOAT, GL_FALSE,
+                            gx_vita::texgen::kFloatsPerVertex * sizeof(float),
+                            reinterpret_cast<const void*>(static_cast<std::uintptr_t>(12u * t)));
+    }
 
     glDrawElements(draw.pipeline.topology,
                    static_cast<GLsizei>(draw.geometry.indices.size()),
@@ -172,6 +190,9 @@ public:
       glDeleteBuffers(1, &vertex_buffer_);
     if (index_buffer_ != 0u)
       glDeleteBuffers(1, &index_buffer_);
+    if (texcoord_buffer_ != 0u)
+      glDeleteBuffers(1, &texcoord_buffer_);
+    texcoord_buffer_ = 0;
     vertex_buffer_ = index_buffer_ = 0u;
     glDeleteTextures(8, texture_slots_);
     for (std::uint32_t t = 0; t < 8u; ++t)
@@ -234,7 +255,7 @@ private:
     glBindAttribLocation(linked, kAttributePosition, "position");
     glBindAttribLocation(linked, kAttributeColor0, "color0");
     glBindAttribLocation(linked, kAttributeColor1, "color1");
-    for (std::uint32_t t = 0; t < gxc::kMaxRawTexCoords; ++t) {
+    for (std::uint32_t t = 0; t < gxc::kMaxTexGens; ++t) {
       char name[8];
       std::snprintf(name, sizeof name, "uv%u", t);
       glBindAttribLocation(linked, kAttributeUv0 + t, name);
@@ -280,6 +301,7 @@ private:
   std::unordered_map<std::uint32_t, CopyTexture> copy_textures_;
   GLuint vertex_buffer_ = 0;
   GLuint index_buffer_ = 0;
+  GLuint texcoord_buffer_ = 0;
   GLuint texture_slots_[8] = {0};
 };
 

@@ -2,8 +2,10 @@
 // VITA-WW-02 GX -> vitaGL translation. See gx_vita.h.
 
 #include "gx_vita.h"
+#include "gx_texgen.h"
 
 #include <cstring>
+#include <utility>
 
 namespace gx_vita {
 
@@ -76,6 +78,14 @@ std::uint64_t shader_key_hash(const gxc::ShaderKey& key) {
 
 namespace {
 
+std::uint16_t destination_blend_factor_token(std::uint8_t factor) {
+  if (factor == 2)
+    return kGlSrcColor;
+  if (factor == 3)
+    return kGlOneMinusSrcColor;
+  return blend_factor_token(factor);
+}
+
 // The texmap a single-texmap draw samples (its sampler is the one indexed by
 // that texmap; texmap 0 is not assumed).
 std::uint32_t single_texmap(const gxc::ShaderKey& key) {
@@ -91,11 +101,15 @@ void translate_pipeline(const gxc::DrawPlan& plan, PipelineState& out) {
   out.depth_test = key.depth_test;
   out.depth_func = compare_mode_token(key.depth_func);
   out.depth_write = key.depth_update;
+  if (plan.viewport_valid) {
+    out.depth_near = (plan.viewport[5] - plan.viewport[2]) / 16777216.f;
+    out.depth_far = plan.viewport[5] / 16777216.f;
+  }
   out.blend_enable = key.blend_enable;
   out.blend_src = blend_factor_token(key.src_factor);
-  out.blend_dst = blend_factor_token(key.dst_factor);
+  out.blend_dst = destination_blend_factor_token(key.dst_factor);
   out.blend_src_alpha = blend_factor_token(key.src_factor_alpha);
-  out.blend_dst_alpha = blend_factor_token(key.dst_factor_alpha);
+  out.blend_dst_alpha = destination_blend_factor_token(key.dst_factor_alpha);
   out.blend_equation = key.blend_subtract != 0u ? kGlFuncSubtract : kGlFuncAdd;
   out.use_dst_alpha = key.shader.use_dst_alpha;
   out.dst_alpha = key.shader.dst_alpha;
@@ -119,11 +133,38 @@ void translate_pipeline(const gxc::DrawPlan& plan, PipelineState& out) {
   out.program_key = shader_key_hash(key.shader);
 }
 
-void translate_geometry(const gxc::DrawPlan& plan, Geometry& out) {
+bool translate_geometry(const gxc::DrawPlan& plan, Geometry& out,
+                        const char** reason) {
+  if (plan.vertices.size() !=
+      static_cast<std::size_t>(plan.vertex_count) * gxc::kVertexFloats) {
+    *reason = "decoded vertex count does not match layout";
+    return false;
+  }
   out.vertex_count = plan.vertex_count;
   out.vertices.resize(plan.vertices.size() * sizeof(float));
-  std::memcpy(out.vertices.data(), plan.vertices.data(), out.vertices.size());
+  if (!out.vertices.empty())
+    std::memcpy(out.vertices.data(), plan.vertices.data(), out.vertices.size());
   out.indices = plan.indices;
+  if (plan.pipeline.shader.has_pos_mtx_idx != 0u) {
+    for (std::uint32_t v = 0; v < plan.vertex_count; ++v) {
+      const float* vertex = plan.vertices.data() + v * gxc::kVertexFloats;
+      std::uint32_t row;
+      std::memcpy(&row, vertex + gxc::kVertexPosMtxOffset / 4, sizeof row);
+      if (row > 61u) {
+        *reason = "position matrix row out of range";
+        return false;
+      }
+      float position[3];
+      for (std::uint32_t axis = 0; axis < 3; ++axis) {
+        const float* matrix = plan.constants.transformmatrices[row + axis];
+        position[axis] = matrix[0] * vertex[0] + matrix[1] * vertex[1] +
+                         matrix[2] * vertex[2] + matrix[3];
+      }
+      std::memcpy(out.vertices.data() + v * gxc::kVertexStrideBytes,
+                  position, sizeof position);
+    }
+  }
+  return true;
 }
 
 // The plan's vertex constants carry the transform the generated Cg consumes:
@@ -137,6 +178,12 @@ void translate_transform(const gxc::DrawPlan& plan, TranslatedDraw& out) {
   out.position_matrix[13] = 0.0f;
   out.position_matrix[14] = 0.0f;
   out.position_matrix[15] = 1.0f;
+  if (plan.pipeline.shader.has_pos_mtx_idx != 0u) {
+    // PNMTXIDX positions were transformed individually during translation.
+    std::memset(out.position_matrix, 0, sizeof out.position_matrix);
+    for (std::uint32_t i = 0; i < 4; ++i)
+      out.position_matrix[5 * i] = 1.f;
+  }
   std::memcpy(out.projection, &plan.constants.projection[0][0],
               16u * sizeof(float));
 }
@@ -216,12 +263,33 @@ TranslatedDraw translate(const gxc::DrawPlan& plan) {
     return out;
   }
   translate_pipeline(plan, out.pipeline);
-  translate_geometry(plan, out.geometry);
+  if (!translate_geometry(plan, out.geometry, &out.skip_reason))
+    return out;
+  if (!texgen::translate(plan, out.geometry.vertices, out.geometry.texcoords, &out.skip_reason))
+    return out;
   translate_transform(plan, out);
+  for (std::uint32_t reg = 0; reg < 4; ++reg) {
+    for (std::uint32_t channel = 0; channel < 4; ++channel) {
+      out.tev_colors[reg][channel] = plan.pixel_constants.colors[reg][channel];
+      out.konst_colors[reg][channel] = plan.pixel_constants.kcolors[reg][channel];
+    }
+  }
+  for (std::uint32_t ref = 0; ref < 2; ++ref)
+    out.alpha_ref[ref] = plan.pixel_constants.alpha_ref[ref];
+  const std::uint32_t z_bias = plan.pixel_constants.zbias[3] & 0xFFFFFFu;
+  out.ztexture_bias[0] = z_bias >> 8;
+  out.ztexture_bias[1] = z_bias & 0xFFu;
   if (plan.texmap_mask != 0u)
     translate_per_texmap_textures(plan, out);
-  else
+  else {
     translate_flat_texture(plan, out.texture);
+    const std::uint32_t texmap = single_texmap(plan.pipeline.shader);
+    if (texmap != 0u) {
+      out.texmap_mask = 1u << texmap;
+      out.textures[texmap] = std::move(out.texture);
+      out.texture = TextureUpload{};
+    }
+  }
   out.ok = true;
   return out;
 }

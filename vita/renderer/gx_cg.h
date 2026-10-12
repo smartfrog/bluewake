@@ -6,14 +6,16 @@
 // silently wrong shader. Supported today:
 //   - untextured draws: vertex colour passthrough;
 //   - textured draws without a TEV: texmap 0 sampled with texcoord 0;
-//   - regular TEV combines (up to kMaxTevStages) whose colour args are
-//     Prev/Tex/Raster/Zero/One/Half and alpha args Prev/Tex/Raster/Zero/One,
-//     with bias 0, add/subtract, clamp and 1x/2x/4x scale, where each stage's
-//     texcoord is a Regular texgen reading its own uv, or a Color0/Color1
-//     texgen reading the vertex colour.
-// The combine is generated in float (a documented approximation of the
-// hardware's integer TEV; the pinned WGSL generator remains the integer
-// oracle).
+//   - TEV combines (up to kMaxTevStages), all register/KONST arguments,
+//     separate colour/alpha destinations, bias, scale, compare and swap tables;
+//     each stage's
+//     texcoord is a generated STQ coordinate from the translation's texture
+//     matrix pass (position/normal/raw UV or Color0/Color1 source).
+//   - BP F3 alpha comparisons on the TEV path.
+//   - late ZTexture U8/U16/U24 ADD/REPLACE with 24-bit wrap and DEPTH output.
+// Integer TEV steps use exactly representable float arithmetic and floor;
+// the pinned WGSL generator remains the semantics reference. This does not
+// imply GPU pixel parity for sampling, lighting or unsupported texgens.
 
 #pragma once
 

@@ -10,12 +10,15 @@
 // Checks are explicit (no assert): a release build must fail loudly too.
 
 #include "gx_bridge.h"
+#include "gx_ztexture_fixture.h"
 
 #include "../feasibility/gx/gx_fixture.hpp"
 
 #include <cstdint>
 #include <cstdio>
 #include <cstring>
+#include <filesystem>
+#include <fstream>
 #include <string>
 #include <vector>
 
@@ -49,7 +52,53 @@ const gx_bridge::GapEntry* find_gap(const gx_bridge::Result& result,
 
 } // namespace
 
-int main() {
+int main(int argc, char** argv) {
+  if (argc == 3 && (std::string(argv[1]) == "--write-ztexture-fixture" ||
+                    std::string(argv[1]) == "--write-matrix-fixture")) {
+    const std::filesystem::path directory(argv[2]);
+    std::filesystem::create_directories(directory);
+    gx_fixture::FixtureContext memory;
+    gx_ztexture_fixture::fill_memory(memory);
+    const auto fifo = std::string(argv[1]) == "--write-matrix-fixture"
+                          ? gx_ztexture_fixture::matrix_quad(true, true)
+                          : gx_ztexture_fixture::clear_quad();
+    std::ofstream fifo_file(directory / "clear.fifo", std::ios::binary);
+    std::ofstream memory_file(directory / "clear.mem1", std::ios::binary);
+    fifo_file.write(reinterpret_cast<const char*>(fifo.data()), fifo.size());
+    memory_file.write(reinterpret_cast<const char*>(memory.mem1.data()), memory.mem1.size());
+    fifo_file.close();
+    memory_file.close();
+    CHECK(fifo_file.good() && memory_file.good());
+    return 0;
+  }
+  CHECK(argc == 1);
+  for (bool indexed : {false, true}) {
+    for (bool projected : {false, true}) {
+      gx_bridge::Result result;
+      CHECK(run_stream(gx_ztexture_fixture::matrix_quad(indexed, projected), result));
+      CHECK(result.counts.plans_ok == 1 && result.counts.programs == 1);
+      CHECK(result.counts.programs_refused == 0 && result.plan_skips.empty());
+    }
+  }
+  {
+    gx_fixture::FixtureContext memory;
+    gx_ztexture_fixture::fill_memory(memory);
+    DolGuestAddressResolver resolver;
+    dol_guest_address_resolver_init_callback(&resolver, gx_fixture::resolve_mem1, &memory);
+    gx_bridge::Result result;
+    CHECK(gx_bridge::run(gx_ztexture_fixture::clear_quad(), resolver, &result));
+    CHECK(result.counts.plans_ok == 1);
+    CHECK(result.counts.programs == 1 && result.counts.programs_refused == 0);
+    CHECK(result.program_refusals.empty());
+    std::printf("bridge synthetic Wind Waker ZTexture clear quad ok\n");
+  }
+  {
+    gx_fixture::gxc::GapCounters counters;
+    counters.logic_op_ignored = 1;
+    const auto gaps = gx_bridge::nonzero_gaps(counters);
+    CHECK(gaps.size() == 1);
+    CHECK(gaps[0].name == "logic_op_ignored" && gaps[0].value == 1);
+  }
   {
     // An empty capture (the real state today) is an honest no-op.
     gx_bridge::Result result;

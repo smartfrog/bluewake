@@ -1,7 +1,8 @@
 #!/usr/bin/env python3
 """VITA-WW-15: one capture file through the whole GX chain.
 
-Reads a WW05 boot-host capture — the report's GX_FRONTIER hex= field, a
+Reads a WW05 boot-host capture — the report's GX_FRONTIER hex= field, its
+bounded command journal, a
 gather-pipe batch log, or a raw FIFO dump — and feeds the captured bytes
 through the pinned frontend, the DrawPlan build, the gx_vita translation and
 bounded Cg generation (the gx_bridge binary), printing one machine-readable
@@ -39,7 +40,8 @@ def find_binary():
 
 def run_stream(binary, fifo, mem1_path):
     """Feed the captured bytes to the bridge binary; return (report, refusal)."""
-    with tempfile.NamedTemporaryFile(prefix="ww15-fifo-", suffix=".bin") as stream:
+    with tempfile.NamedTemporaryFile(prefix="ww15-fifo-", suffix=".bin",
+                                     dir=os.environ.get("TMPDIR", "/tmp/opencode")) as stream:
         stream.write(fifo)
         stream.flush()
         command = [str(binary), "--fifo", stream.name]
@@ -99,6 +101,8 @@ def main(argv=None):
         return run_report(parsed, binary, arguments.mem1)
 
     print(f"capture kind={kind} bytes={len(payload)} source={arguments.capture}")
+    if kind == "journal":
+        print("coverage=logged-command-prefix-only")
     output, refusal = run_stream(binary, payload, arguments.mem1)
     if refusal is not None:
         print(f"bridge ok=0 reason={refusal}")

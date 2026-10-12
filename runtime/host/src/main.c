@@ -43,6 +43,8 @@
 #include "callback_delivery.h"
 #include "dvd_completion.h"
 #include "dvd_file_info.h"
+#include "rel_profile_list.h"
+#include "guest_timing.h"
 #include "di_inquiry.h"
 #include "cycle_domain.h"
 #include "interrupt_sources.h"
@@ -102,13 +104,6 @@ typedef bool (*HostEdgeServiceFn)(void* user, CPUState* cpu, u32 address);
 typedef void (*SetEdgeServiceFn)(HostEdgeServiceFn fn, void* user);
 typedef void (*GuestAliasClearFn)(void);
 typedef bool (*GuestAliasAddSharedFn)(u32 linked_start, u32 size, u8* storage);
-typedef struct BlueWakeRelData {
-    u32 module_id;
-    u32 section_index;
-    u32 linked_start;
-    u32 size;
-    const u8* bytes;
-} BlueWakeRelData;
 typedef const BlueWakeRelData* (*GetRelDataFn)(u32* count);
 typedef struct BlueWakeRelAlias {
     u32 raw_start;
@@ -1338,12 +1333,6 @@ static u64 g_dsp_cycle_cursor;
 static u64 g_current_host_block;
 static unsigned g_vi_assert_reports;
 static u64 g_previous_retrace_timebase;
-
-#define GUEST_CYCLES_PER_TIMEBASE_TICK 12u
-#define GUEST_CPU_CYCLES_PER_SECOND 486000000ull
-#define GUEST_VI_REFRESH_HZ 60u
-#define GUEST_CPU_CYCLES_PER_VI_RETRACE \
-    (GUEST_CPU_CYCLES_PER_SECOND / GUEST_VI_REFRESH_HZ)
 
 #ifdef BLUEWAKE_HAS_DSP_ADAPTER
 // How often the LLE DSP is stepped, in guest cycles. The deadline census on the
@@ -2711,25 +2700,19 @@ static void host_alias_rel_lifecycle_table(CPUState* cpu) {
 static bool host_activate_rel_profile_list(CPUState* cpu,
                                            const BlueWakeRelData* rel_data,
                                            u32 rel_data_count, u32 module_id) {
-    if (module_id != 1u || !rel_data)
+    const BlueWakeRelData* image = bluewake_rel_profile_list(rel_data, rel_data_count, module_id);
+    if (image == NULL)
         return false;
-    for (u32 i = 0; i < rel_data_count; ++i) {
-        const BlueWakeRelData* image = &rel_data[i];
-        if (image->module_id != module_id || image->section_index != 4u ||
-            image->linked_start == 0u || image->size == 0u)
-            continue;
-        // f_pc_profile_lst::ModuleProlog publishes this module data array as
-        // g_fpcPf_ProfileList_p. The generated prolog currently cannot cross
-        // its REL constructor dispatch, so preserve that exact link contract
-        // at the authentic do_link completion point.
-        mem_write32(cpu, 0x803F6A68u, image->linked_start);
-        fprintf(stderr,
-                "[rel] authentic-link-contract module=%u profile_ptr=0x%08X "
-                "data_size=0x%08X\n",
-                module_id, image->linked_start, image->size);
-        return true;
-    }
-    return false;
+    // f_pc_profile_lst::ModuleProlog publishes this module data array as
+    // g_fpcPf_ProfileList_p. The generated prolog currently cannot cross
+    // its REL constructor dispatch, so preserve that exact link contract
+    // at the authentic do_link completion point.
+    mem_write32(cpu, BLUEWAKE_PROFILE_LIST_GLOBAL, image->linked_start);
+    fprintf(stderr,
+            "[rel] authentic-link-contract module=%u profile_ptr=0x%08X "
+            "data_size=0x%08X\n",
+            module_id, image->linked_start, image->size);
+    return true;
 }
 
 static DolDiCommandResult host_di_command(void* user, DolDiCommand* command) {
@@ -15424,12 +15407,11 @@ int main(int argc, char** argv) {
             audio_tick_wait_reported = true;
         }
         if (!scheduler_wait_reported && cpu.pc == 0x80307EF4u) {
+            const BluewakeSchedulerIdleState idle = bluewake_scheduler_idle_state(&cpu);
             fprintf(stderr,
                     "[sched] SelectThread idle run_bits=0x%08X current_thread=0x%08X "
                     "current_context=0x%08X r1=0x%08X\n",
-                    mem_read32(&cpu, 0x803F7A30u),
-                    mem_read32(&cpu, 0x800000E4u),
-                    mem_read32(&cpu, 0x800000D4u), cpu.gpr[1]);
+                    idle.run_bits, idle.current_thread, idle.current_context, cpu.gpr[1]);
             u32 frame = cpu.gpr[1];
             for (unsigned depth = 0; depth < 8u && frame >= 0x80000000u; depth++) {
                 fprintf(stderr, "[sched] frame%u sp=0x%08X lr=0x%08X\n",

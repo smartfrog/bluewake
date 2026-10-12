@@ -62,6 +62,14 @@ void observe_plan(const gxc::DrawPlan& plan, void* user) {
                                         : "plan not ok");
     return;
   }
+  const gx_vita::TranslatedDraw draw = gx_vita::translate(plan);
+  if (!draw.ok) {
+    ++result->counts.plans_skipped;
+    result->plan_skips.emplace_back(draw.skip_reason != nullptr
+                                       ? draw.skip_reason
+                                       : "translation not ok");
+    return;
+  }
   ++result->counts.plans_ok;
   const gx_vita::CgProgram program = gx_vita::generate_cg(plan.pipeline.shader);
   if (!program.ok) {
@@ -89,8 +97,8 @@ void observe_copy(const gxc::EfbCopyCommand& cmd, void* user) {
                                          : "copy not ok");
 }
 
-// The same nonzero gap set the fixture harness reports, so a bridge report and
-// a gx_replay report name the same gaps for the same stream.
+// Retain unresolved upstream diagnostics, not activity counters for paths that
+// the Vita translation implements.
 void collect_gaps(const gxc::GapCounters& counters, Result* result) {
   result->gaps = nonzero_gaps(counters);
 }
@@ -101,6 +109,8 @@ std::vector<GapEntry> nonzero_gaps(const gxc::GapCounters& counters) {
   const std::pair<const char*, unsigned long long> gaps[] = {
       {"missing_vcd", counters.missing_vcd},
       {"vertex_decode_failures", counters.vertex_decode_failures},
+      {"vertex_array_unresolved", counters.vertex_array_unresolved},
+      {"vertex_array_out_of_bounds", counters.vertex_array_out_of_bounds},
       {"unsupported_texgen", counters.unsupported_texgen},
       {"tlut_texture", counters.tlut_texture},
       {"efb_copy_ignored", counters.efb_copy_ignored},
@@ -108,6 +118,10 @@ std::vector<GapEntry> nonzero_gaps(const gxc::GapCounters& counters) {
       {"fog_ignored", counters.fog_ignored},
       {"lighting_ignored", counters.lighting_ignored},
       {"unresolved_tex_matrix", counters.unresolved_tex_matrix},
+      {"alpha_compare_ignored", counters.alpha_compare_ignored},
+      {"tev_stages_over", counters.tev_stages_over},
+      {"logic_op_ignored", counters.logic_op_ignored},
+      {"ztexture_ignored", counters.ztexture_ignored},
   };
   std::vector<GapEntry> entries;
   for (const auto& [name, value] : gaps) {

@@ -11,7 +11,7 @@ STACK = Path('/home/fred/projects/zeldaWWHDRecomp/build-vita-tools/local-stack')
 
 
 class StaticModeTest(unittest.TestCase):
-    def configure(self, static, vita=False, module_level=None):
+    def configure(self, static, vita=False, module_level=None, vi_clock=None):
         with tempfile.TemporaryDirectory(prefix='build-ww05-static-', dir=ROOT) as directory:
             output = Path(directory)
             source = output / 'generated'
@@ -27,12 +27,15 @@ class StaticModeTest(unittest.TestCase):
                 (output / 'ww05_dsp_init.h').write_text('static const unsigned char ww05_dsp_init_reference[128] = {0};\n')
                 (output / 'ww05_external_vector.c').touch()
                 (output / 'ww05_fp_vector.c').touch()
+                (output / 'ww05_decrementer_vector.c').touch()
                 (output / 'synthetic.dol').write_bytes(b'synthetic configuration input only')
                 options = [f'-DCMAKE_TOOLCHAIN_FILE={STACK}/vitasdk/share/vita.toolchain.cmake',
                            f'-DRECOMPCORE_DIR={ROOT}/ref/vita-ww-01/RecompCore',
                            f'-DWW05_IDENTITY_DIR={output}', f'-DWW05_DOL={output}/synthetic.dol']
                 if module_level is not None:
                     options.append(f'-DWW05_MODULE_OPT_LEVEL={module_level}')
+                if vi_clock is not None:
+                    options.append(f'-DWW05_ENABLE_VI_CLOCK={"ON" if vi_clock else "OFF"}')
             environment = {**os.environ, 'VITASDK': str(STACK / 'vitasdk')}
             subprocess.run([str(STACK / 'bin/cmake'), '-S', str(ROOT / ('vita/host' if vita else 'cmake/composite')),
                             '-B', str(output / 'build'), '-G', 'Ninja',
@@ -84,6 +87,16 @@ class StaticModeTest(unittest.TestCase):
         self.assertIn('ww13_dvd_io', ninja)
         self.assertIn('ww13_dvd_pin', ninja)
         self.assertIn('-mcpu=cortex-a9', redirected[0]['command'])
+
+    def test_vita_vi_clock_is_compiled_off_by_default(self):
+        commands, _ = self.configure(True, vita=True)
+        boot = next(row for row in commands if row['file'].endswith('/boot_host.c'))
+        self.assertIn('-DWW05_ENABLE_VI_CLOCK=0', boot['command'])
+
+    def test_private_vi_clock_experiment_requires_an_explicit_build_opt_in(self):
+        commands, _ = self.configure(True, vita=True, vi_clock=True)
+        boot = next(row for row in commands if row['file'].endswith('/boot_host.c'))
+        self.assertIn('-DWW05_ENABLE_VI_CLOCK=1', boot['command'])
 
 
 if __name__ == '__main__':

@@ -11,6 +11,7 @@
 #include "gxruntime/aram.h"
 #include "gxruntime/dvd.h"
 #include "ww05_dsp_init.h"
+#include "guest_timing.h"
 
 #include <string.h>
 
@@ -18,7 +19,7 @@
 #define PPC_VECTOR_EXTERNAL 0x00500u
 #define PPC_EXC_DECREMENTER 0x00000080u
 #define PPC_VECTOR_DECREMENTER 0x00900u
-#define WW_HOST_CYCLES_PER_TIMEBASE_TICK 12u
+#define WW_HOST_CYCLES_PER_TIMEBASE_TICK GUEST_CYCLES_PER_TIMEBASE_TICK
 
 void ww_host_fail(WwHost* host, const char* error, u32 address, u32 pc) {
     if (host->error == NULL) {
@@ -81,6 +82,7 @@ static void advance(CPUState* cpu, u64 cycles, void* user) {
             host->decrementer_pending = true;
         host->decrementer -= (u32)ticks;
     }
+    ww_host_vi_advance(host, cycles);
 }
 
 static u64 deadline(const CPUState* cpu, void* user) {
@@ -91,6 +93,15 @@ static u64 deadline(const CPUState* cpu, void* user) {
         ((u64)host->decrementer + 1u) * WW_HOST_CYCLES_PER_TIMEBASE_TICK - host->clock_remainder : UINT64_MAX;
     const u64 dsp_expiry = ww_dsp_interface_deadline(&host->dsp);
     u64 expiry = decrementer_expiry < dsp_expiry ? decrementer_expiry : dsp_expiry;
+    if (host->vi_clock_enabled) {
+        u64 next;
+        if (dol_event_clock_next_deadline(&host->vi_clock.events, &next)) {
+            const u64 now = dol_vi_clock_now(&host->vi_clock);
+            const u64 vi_expiry = next > now ? next - now : 1u;
+            if (vi_expiry < expiry)
+                expiry = vi_expiry;
+        }
+    }
     if (host->dsp.init_ticks_remaining != 0u) {
         const u64 init_expiry = (u64)host->dsp.init_ticks_remaining * WW_HOST_CYCLES_PER_TIMEBASE_TICK - host->clock_remainder;
         if (init_expiry < expiry)
@@ -710,6 +721,15 @@ bool ww_host_edge(void* user, CPUState* cpu, u32 address) {
     const bool compiled_cpu_boundary = (address == 0x80328F84u || address == 0x80303A50u) &&
                                         ww_host_module_contains_address(host->module, address);
     const bool desktop_edge = bluewake_edge_maybe_intercept(address);
+    if (address == 0x80307EF4u && host->rel_image.linked && !host->scheduler_idle_observed) {
+        const char* error = ww_host_observe_scheduler_idle(host);
+        if (error != NULL) {
+            ww_host_fail(host, error, address, address);
+            host->edge_stopped = true;
+            return true;
+        }
+        host->scheduler_idle_observed = true;
+    }
     if (desktop_edge && ww_host_module_contains_address(host->module, address) && ww_host_dvd_edge(host, address)) {
         host->edge_stopped = host->error != NULL;
         return true;
@@ -732,6 +752,7 @@ static const WwObservedVector* observed_vector(u32 address) {
     static const WwObservedVector vectors[] = {
         {WW05_EXTERNAL_VECTOR, ww05_external_vector_reference, func_00000500},
         {WW05_FP_VECTOR, ww05_fp_vector_reference, func_00000800},
+        {WW05_DECREMENTER_VECTOR, ww05_decrementer_vector_reference, func_00000900},
     };
     for (u32 index = 0u; index < sizeof(vectors) / sizeof(vectors[0]); ++index) {
         if (address >= vectors[index].address && address < vectors[index].address + WW05_EXTERNAL_VECTOR_BYTES)
@@ -877,6 +898,10 @@ bool ww_host_init(WwHost* host) {
     host->decrementer_valid = true;
     bluewake_cycle_domain_init(&host->cycles, 256, advance, deadline, host);
     dol_interrupts_init(&host->interrupts);
+    dol_vi_clock_init(&host->vi_clock);
+    dol_vi_clock_configure(&host->vi_clock, GUEST_CPU_CYCLES_PER_VI_RETRACE, GUEST_VI_REFRESH_HZ,
+                           GUEST_CPU_CYCLES_PER_SECOND / GUEST_CYCLES_PER_TIMEBASE_TICK);
+    host->vi_clock_enabled = WW05_ENABLE_VI_CLOCK;
     dol_di_init(&host->di);
     dol_di_set_command_callback(&host->di, di_command, host);
     dol_exi_init(&host->exi);
@@ -905,10 +930,13 @@ void ww_host_shutdown(WwHost* host) {
         host->aram_owned = false;
     }
     host->module = NULL;
+    host->rel_data = NULL;
+    host->rel_data_count = 0u;
     ww_code_guard_free(&host->code_guard);
     ppc_guest_alias_clear();
     host->alias_bytes = 0u;
     host->alias_count = 0u;
+    memset(&host->rel_image, 0, sizeof(host->rel_image));
     dol_guest_memory_shutdown(&host->memory);
     BlueWakeModuleStorage storage = {.cpu = &host->cpu};
     bw_module_cpu_free(&storage);
@@ -972,6 +1000,8 @@ bool ww_host_load(WwHost* host, const StaticRecompModuleDesc* module,
     }
     boot_setup_os_globals(&host->cpu, &layout);
     host->module = module;
+    host->rel_data = data;
+    host->rel_data_count = count;
     host->cpu.pc = module->entry_point;
     ppc_lazy_fp_set_enabled(true);
     return true;

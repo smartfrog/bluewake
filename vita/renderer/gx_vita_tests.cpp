@@ -115,6 +115,192 @@ int main() {
   int failures = 0;
   std::uint64_t textured_key = 0;
 
+  for (bool indexed : {false, true}) {
+    for (bool projected : {false, true}) {
+      for (std::uint32_t slot : {0, 4, 7}) {
+        gxc::DrawPlan plan;
+        plan.ok = true;
+        plan.vertex_count = 1;
+        plan.vertices.resize(gxc::kVertexFloats);
+        plan.vertices[gxc::kVertexUvOffset / 4] = 2;
+        plan.vertices[gxc::kVertexUvOffset / 4 + 1] = 3;
+        auto& key = plan.pipeline.shader;
+        key.num_tex_gens = slot + 1;
+        key.uv_mask = 1;
+        key.tex_gens[slot].sourcerow = 5;
+        key.tex_gens[slot].projection = projected;
+        float rows[3][4] = {{2, 0, 0, 5}, {0, 3, 0, -7}, {1, 0, 0, 0}};
+        if (indexed) {
+          key.has_tex_mtx_idx = 1;
+          key.tex_mtx_idx_mask = 1u << slot;
+          const std::uint32_t row = 3u << (8 * (slot % 4));
+          const auto offset = slot < 4 ? gxc::kVertexTexMtxIdxOffset
+                                       : gxc::kVertexTexMtxIdxHiOffset;
+          std::memcpy(&plan.vertices[offset / 4], &row, sizeof row);
+          std::memcpy(plan.constants.transformmatrices[3], rows, sizeof rows);
+        } else {
+          std::memcpy(plan.constants.texmatrices[3 * slot], rows, sizeof rows);
+        }
+        const auto draw = gx_vita::translate(plan);
+        CHECK(draw.ok);
+        CHECK(draw.geometry.texcoords.size() == 8 * 3);
+        CHECK(draw.geometry.texcoords[3 * slot] == 9 &&
+              draw.geometry.texcoords[3 * slot + 1] == 2);
+        CHECK(draw.geometry.texcoords[3 * slot + 2] == (projected ? 2.f : 1.f));
+      }
+    }
+  }
+
+  {
+    gxc::DrawPlan plan;
+    plan.ok = true;
+    plan.vertex_count = 1;
+    plan.vertices.resize(gxc::kVertexFloats);
+    auto& key = plan.pipeline.shader;
+    key.num_tex_gens = 1;
+    key.uv_mask = 1;
+    key.tex_gens[0].sourcerow = 5;
+    key.tex_gens[0].projection = 1;
+    plan.vertices[gxc::kVertexUvOffset / 4] = 4;
+    plan.vertices[gxc::kVertexUvOffset / 4 + 1] = -6;
+    plan.constants.texmatrices[0][0] = plan.constants.texmatrices[1][1] = 1;
+    const auto draw = gx_vita::translate(plan);
+    CHECK(draw.ok);
+    CHECK(draw.geometry.texcoords[0] == 1 && draw.geometry.texcoords[1] == -1);
+    CHECK(draw.geometry.texcoords[2] == 0);
+  }
+
+  for (std::uint8_t source : {0, 1, 5, 10, 11, 12}) {
+    gxc::DrawPlan plan;
+    plan.ok = true;
+    plan.vertex_count = 1;
+    plan.vertices.resize(gxc::kVertexFloats);
+    auto& key = plan.pipeline.shader;
+    key.num_tex_gens = 1;
+    key.tex_gens[0].sourcerow = source;
+    key.tex_gens[0].inputform = 1;
+    key.tex_gens[0].projection = 1;
+    key.has_vertex_normal = source == 1;
+    key.raw_tex_hi_in_nbt = source >= 10;
+    key.uv_mask = 255;
+    plan.vertices[0] = 2;
+    plan.vertices[1] = 3;
+    plan.vertices[2] = 4;
+    for (auto offset : {gxc::kVertexNormalOffset, gxc::kVertexBinormalOffset,
+                        gxc::kVertexTangentOffset}) {
+      plan.vertices[offset / 4] = 5;
+      plan.vertices[offset / 4 + 1] = 6;
+      plan.vertices[offset / 4 + 2] = 7;
+    }
+    plan.vertices[gxc::kVertexUvOffset / 4] = 8;
+    plan.vertices[gxc::kVertexUvOffset / 4 + 1] = 9;
+    for (int i = 0; i < 3; ++i)
+      plan.constants.texmatrices[i][i] = 1;
+    const auto draw = gx_vita::translate(plan);
+    CHECK(draw.ok);
+    CHECK(draw.geometry.texcoords[0] == (source == 0 ? 2.f : source == 5 ? 8.f : 5.f));
+    CHECK(draw.geometry.texcoords[1] == (source == 0 ? 3.f : source == 5 ? 9.f : 6.f));
+    CHECK(draw.geometry.texcoords[2] == (source == 0 ? 4.f : source == 1 ? 7.f : 1.f));
+  }
+
+  {
+    gxc::DrawPlan plan;
+    plan.ok = true;
+    plan.vertex_count = 1;
+    plan.vertices.resize(gxc::kVertexFloats);
+    plan.pipeline.shader.num_tex_gens = 1;
+    plan.pipeline.shader.has_tex_mtx_idx = 1;
+    plan.pipeline.shader.tex_mtx_idx_mask = 1;
+    plan.pipeline.shader.tex_gens[0].projection = 1;
+    const std::uint32_t row = 63;
+    std::memcpy(&plan.vertices[gxc::kVertexTexMtxIdxOffset / 4], &row, sizeof row);
+    const auto draw = gx_vita::translate(plan);
+    CHECK(!draw.ok && std::string(draw.skip_reason) == "texture matrix row out of range");
+  }
+
+  for (std::uint8_t channel : {0, 1}) {
+    gxc::DrawPlan plan;
+    plan.ok = true;
+    plan.vertex_count = 1;
+    plan.vertices.resize(gxc::kVertexFloats);
+    plan.pipeline.shader.num_tex_gens = 1;
+    plan.pipeline.shader.tex_gens[0].texgentype = 2 + channel;
+    const auto offset = channel == 0 ? gxc::kVertexColor0Offset : gxc::kVertexColor1Offset;
+    plan.vertices[offset / 4] = 0.25f;
+    plan.vertices[offset / 4 + 1] = 0.75f;
+    const auto draw = gx_vita::translate(plan);
+    CHECK(draw.ok);
+    CHECK(draw.geometry.texcoords[0] == 0.25f && draw.geometry.texcoords[1] == 0.75f);
+  }
+
+  {
+    gxc::DrawPlan plan;
+    plan.ok = true;
+    plan.pixel_constants.zbias[3] = 0xFFFFFF;
+    plan.viewport_valid = true;
+    plan.viewport[2] = 0.5f * 16777216.f;
+    plan.viewport[5] = 0.75f * 16777216.f;
+    const auto draw = gx_vita::translate(plan);
+    CHECK(draw.ok);
+    CHECK(draw.ztexture_bias[0] == 65535 && draw.ztexture_bias[1] == 255);
+    CHECK(draw.pipeline.depth_near == 0.25f && draw.pipeline.depth_far == 0.75f);
+  }
+
+  {
+    gxc::DrawPlan plan;
+    plan.ok = true;
+    plan.vertex_count = 3;
+    plan.vertices.resize(3 * gxc::kVertexFloats);
+    plan.pipeline.src_factor = 2;
+    plan.pipeline.dst_factor = 2;
+    const auto draw = gx_vita::translate(plan);
+    CHECK(draw.ok);
+    CHECK(draw.pipeline.blend_src == gx_vita::kGlDstColor);
+    CHECK(draw.pipeline.blend_dst == gx_vita::kGlSrcColor);
+  }
+
+  {
+    gx_fixture::FixtureContext ctx;
+    gx_fixture::fill_texture_zones(ctx);
+    DolGuestAddressResolver resolver;
+    dol_guest_address_resolver_init_callback(&resolver, gx_fixture::resolve_mem1, &ctx);
+    gx_fixture::ar::RetailGxFrontend frontend;
+    frontend.reset(&resolver);
+    frontend.set_packet_drain_enabled(true);
+    gxc::GxCoreSink sink;
+    sink.set_guest_resolver(&frontend.state().resolver);
+    gx_vita::TranslatedDraw draw;
+    sink.set_plan_observer(capture, &draw);
+    std::vector<std::uint8_t> fifo;
+    gx_fixture::push_common_state(fifo);
+    gx_fixture::push_bp(fifo, 0x8B, gx_fixture::tex_image0(4, 4, 6));
+    gx_fixture::push_bp(fifo, 0x97, gx_fixture::kTextureBase >> 5);
+    gx_fixture::push_bp(fifo, 0x28, 3u | (1u << 6));
+    gx_fixture::push_bp(fifo, 0xC0, 8u | (15u << 4) | (15u << 8) |
+                                  (15u << 12) | (1u << 19));
+    gx_fixture::push_bp(fifo, 0xC1, (4u << 4) | (7u << 7) | (7u << 10) |
+                                  (7u << 13) | (1u << 19));
+    gx_fixture::push_triangle(fifo);
+    CHECK(frontend.replay_fifo(fifo, &sink));
+    sink.flush_frame();
+    CHECK(draw.ok);
+    CHECK(draw.texmap_mask == (1u << 3));
+    CHECK(draw.textures[3].valid && draw.textures[3].width == 4);
+  }
+
+  {
+    gxc::DrawPlan plan;
+    plan.ok = true;
+    plan.vertex_count = 1;
+    plan.vertices.resize(gxc::kVertexFloats);
+    plan.pipeline.shader.has_pos_mtx_idx = 1;
+    const std::uint32_t row = 63;
+    std::memcpy(&plan.vertices[gxc::kVertexPosMtxOffset / 4], &row, sizeof row);
+    const auto draw = gx_vita::translate(plan);
+    CHECK(!draw.ok);
+    CHECK(std::string(draw.skip_reason) == "position matrix row out of range");
+  }
+
   {
     gx_vita::TranslatedDraw draw;
     CHECK(replay("textured_triangle", draw));

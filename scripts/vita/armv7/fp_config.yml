@@ -44,7 +44,7 @@ modules-mode: 0
 delay-background: 4
 delay-start: 30
 background-alpha: 0.3
-log-level: 0
+log-level: 2
 cpu-opt: true
 pref-path: /run/ww03/data/Vita3K/Vita3K
 discord-rich-presence: true

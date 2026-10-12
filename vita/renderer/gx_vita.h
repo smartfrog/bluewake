@@ -9,7 +9,7 @@
 //
 // Texture rules (mirroring gxcore.cpp's plan build): the flat `texture` field
 // is the single-texmap case and the sampler is the one for that texmap; when
-// the draw samples more than one texmap (THP YUV, two-texture J2D) the
+// the draw samples more than one texmap or a nonzero texmap the
 // per-texmap `textures[]` set and `texmap_mask` are authoritative. Samplers
 // are indexed by texmap, never assumed to be 0.
 
@@ -63,6 +63,8 @@ struct PipelineState {
   std::uint8_t depth_test = 0;
   std::uint16_t depth_func = kGlAlways;
   std::uint8_t depth_write = 0;
+  float depth_near = 0;
+  float depth_far = 1;
   std::uint8_t blend_enable = 0;
   std::uint16_t blend_src = kGlOne;
   std::uint16_t blend_dst = kGlZero;
@@ -89,6 +91,7 @@ struct PipelineState {
 
 struct Geometry {
   std::vector<std::uint8_t> vertices; // gxcore fixed layout, float32
+  std::vector<float> texcoords; // eight generated STQ triples per vertex
   std::vector<std::uint16_t> indices; // triangle/line/point list
   std::uint32_t vertex_count = 0;
 };
@@ -116,11 +119,14 @@ struct TranslatedDraw {
   // Dolphin-layout projection (rows are dot rows).
   float position_matrix[16]{};
   float projection[16]{};
-  // Single-texmap case (plan.texmap_mask == 0): the draw's one texture and the
-  // sampler of the texmap it samples.
+  float tev_colors[4][4]{};
+  float konst_colors[4][4]{};
+  float alpha_ref[2]{};
+  float ztexture_bias[2]{}; // exact high-16/low-8 parts of BP F4
+  // Single texmap-0 case: the draw's one texture and sampler.
   TextureUpload texture;
-  // Multi-texmap case: bit t set means textures[t] is sampled by an enabled
-  // TEV stage and must be bound; 0 for single-texmap draws.
+  // Bit t set means textures[t] must be bound. Includes single nonzero texmaps;
+  // only a single texmap-0 draw uses the flat texture field.
   std::uint32_t texmap_mask = 0;
   TextureUpload textures[8];
 };

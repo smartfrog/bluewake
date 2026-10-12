@@ -3,6 +3,19 @@
 
 #include "core/cpu.h"
 
+typedef struct BluewakeSchedulerIdleState {
+    u32 run_bits;
+    u32 current_thread;
+    u32 current_context;
+} BluewakeSchedulerIdleState;
+
+static inline BluewakeSchedulerIdleState bluewake_scheduler_idle_state(CPUState* cpu) {
+    const BluewakeSchedulerIdleState state = {mem_read32(cpu, 0x803F7A30u),
+                                              mem_read32(cpu, 0x800000E4u),
+                                              mem_read32(cpu, 0x800000D4u)};
+    return state;
+}
+
 // Materialize a host-delivered exception into the current guest OSContext.
 // This preserves an OSSaveContext coroutine return that guest code committed
 // before the translated CPU shadow reached the continuation.

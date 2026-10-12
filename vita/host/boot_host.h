@@ -13,11 +13,13 @@
 #include "bat_contract.h"
 #include "trace_sampling.h"
 #include "dvd_completion.h"
+#include "rel_service.h"
 #include "gxruntime/di.h"
 #include "gxruntime/exi.h"
 #include "gxruntime/interrupts.h"
 #include "gxruntime/si.h"
 #include "gxruntime/audio_dma.h"
+#include "gxruntime/vi_clock.h"
 
 typedef struct WwHost {
     CPUState cpu;
@@ -30,15 +32,20 @@ typedef struct WwHost {
     WwFifoCapture fifo_capture;
     BluewakeCycleDomain cycles;
     DolInterrupts interrupts;
+    DolViClock vi_clock;
+    u64 vi_retraces;
     DolDi di;
     DolExi exi;
     BluewakeIplSram sram;
     DolSiDevice si;
     DolAudioDma audio;
     BluewakeDvdCompletions dvd_completions;
+    WwRelImage rel_image;
     WwDspInterface dsp;
     WwBatContract bat;
     const StaticRecompModuleDesc* module;
+    const BlueWakeRelData* rel_data;
+    u32 rel_data_count;
     u32 l2cr;
     u32 wpar;
     u32 pi_fifo_base;
@@ -82,6 +89,8 @@ typedef struct WwHost {
     bool aram_owned;
     bool disc_owned;
     bool dvd_callback_active;
+    bool scheduler_idle_observed;
+    bool vi_clock_enabled;
 } WwHost;
 
 enum { WW_DVD_CALLBACK_DELAY_CYCLES = 486000u };
@@ -104,6 +113,14 @@ DolDiCommandResult ww_host_di_read(WwHost* host, DolDiCommand* command);
 bool ww_host_dvd_edge(WwHost* host, u32 address);
 bool ww_host_module_contains_address(const StaticRecompModuleDesc* module, u32 address);
 void ww_host_dvd_complete(WwHost* host);
+const char* ww_host_disc_ready(WwHost* host);
+const char* ww_host_rel_image(WwHost* host, const char* name, u8** image, u32* bytes);
+const char* ww_host_materialize_rel(WwHost* host, u32 owner, const char* name);
+const char* ww_host_link_profile_list(WwHost* host, u32 object);
+const char* ww_host_observe_scheduler_idle(WwHost* host);
+void ww_host_vi_advance(WwHost* host, u64 cycles);
+void ww_gx_remember_command(WwGxStream* stream, const WwGxCheckpoint* command);
+const char* ww_gx_observe_first_draw(WwHost* host);
 const char* ww_gx_stream_write(WwHost* host, u8 byte, const WwFifoOrigin* origin, u32 trailing);
 
 #endif

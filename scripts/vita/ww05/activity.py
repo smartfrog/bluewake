@@ -1,8 +1,9 @@
-"""CPU inactivity accounting for the owned sandbox and its descendants."""
+"""CPU or output-growth activity for the owned sandbox and its descendants."""
 
 import math
 import os
 from pathlib import Path
+import stat
 import time
 
 
@@ -18,7 +19,7 @@ class CpuIdleWindow:
         self.idle_since = None
         self.cpu_fraction = 0
 
-    def sample(self, now, cpu_seconds):
+    def sample(self, now, cpu_seconds, output_active=False):
         if not math.isfinite(now) or not math.isfinite(cpu_seconds) or cpu_seconds < 0:
             raise ValueError('invalid CPU activity sample')
         previous = self.previous
@@ -29,7 +30,7 @@ class CpuIdleWindow:
         if elapsed <= 0 or cpu_seconds < previous[1]:
             raise ValueError('CPU activity clock or accounting moved backwards')
         self.cpu_fraction = (cpu_seconds - previous[1]) / elapsed
-        if self.cpu_fraction >= self.threshold:
+        if self.cpu_fraction >= self.threshold or output_active:
             self.idle_since = None
             return False
         if self.idle_since is None:
@@ -54,13 +55,16 @@ def process_cpu_ticks(pid):
 
 
 class ProcessIdleObserver:
-    def __init__(self, seconds=30, threshold=0.05):
+    def __init__(self, seconds=30, threshold=0.05, output_paths=()):
         self.window = CpuIdleWindow(seconds, threshold)
         self.ticks_per_second = os.sysconf('SC_CLK_TCK')
         self.counters = {}
         self.next_sample = 0
         self.started = None
         self.interval = min(1, seconds / 3)
+        self.output_paths = tuple(Path(path) for path in output_paths)
+        self.output_sizes = {}
+        self.output_growth_bytes = 0
 
     def __call__(self, pid):
         now = time.monotonic()
@@ -74,10 +78,36 @@ class ProcessIdleObserver:
         cpu_seconds = sum(self.counters.values()) / self.ticks_per_second
         if self.started is None:
             self.started = now
-        if not self.window.sample(now, cpu_seconds):
+        current_sizes = output_file_sizes(self.output_paths)
+        growth = 0
+        for path, identity in current_sizes.items():
+            previous = self.output_sizes.get(path)
+            previous_size = previous[2] if previous is not None and previous[:2] == identity[:2] else 0
+            growth += max(0, identity[2] - previous_size)
+        self.output_sizes = current_sizes
+        self.output_growth_bytes += growth
+        if not self.window.sample(now, cpu_seconds, output_active=growth > 0):
             return None
         return {'stop_reason': 'inactive', 'idle_seconds': now - self.window.idle_since,
                 'idle_timeout_seconds': self.window.seconds, 'cpu_threshold': self.window.threshold,
                 'cpu_fraction': self.window.cpu_fraction, 'cpu_seconds': cpu_seconds,
-                'activity_elapsed_seconds': now - self.started,
-                'monitored_pids': sorted({identity[0] for identity in self.counters})}
+                 'activity_elapsed_seconds': now - self.started,
+                 'activity_policy': 'cpu-or-output-growth', 'output_growth_bytes': self.output_growth_bytes,
+                 'monitored_outputs': [str(path) for path in self.output_paths],
+                 'monitored_pids': sorted({identity[0] for identity in self.counters})}
+
+
+def output_file_sizes(paths):
+    from fp_libraries import directory_fd
+
+    sizes = {}
+    for path in paths:
+        try:
+            with directory_fd(path.parent) as parent:
+                info = os.stat(path.name, dir_fd=parent, follow_symlinks=False)
+        except FileNotFoundError:
+            continue
+        if not stat.S_ISREG(info.st_mode) or info.st_uid != os.getuid() or info.st_nlink != 1:
+            raise ValueError(f'activity output must be an owned regular single-link file: {path}')
+        sizes[path] = (info.st_dev, info.st_ino, info.st_size)
+    return sizes

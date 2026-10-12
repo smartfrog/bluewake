@@ -10,10 +10,12 @@ static int unsupported_dispatch(CPUState* cpu, u32 address) {
 }
 
 int main(int argc, char** argv) {
-    assert(argc == 2 || (argc == 3 && strcmp(argv[2], "fp") == 0));
-    const bool fp = argc == 3;
-    const u32 vector = fp ? WW05_FP_VECTOR : WW05_EXTERNAL_VECTOR;
-    const u8* reference = fp ? ww05_fp_vector_reference : ww05_external_vector_reference;
+    assert(argc == 2 || (argc == 3 && (strcmp(argv[2], "fp") == 0 || strcmp(argv[2], "decrementer") == 0)));
+    const bool fp = argc == 3 && strcmp(argv[2], "fp") == 0;
+    const bool decrementer = argc == 3 && strcmp(argv[2], "decrementer") == 0;
+    const u32 vector = decrementer ? WW05_DECREMENTER_VECTOR : fp ? WW05_FP_VECTOR : WW05_EXTERNAL_VECTOR;
+    const u8* reference = decrementer ? ww05_decrementer_vector_reference : fp ? ww05_fp_vector_reference :
+                          ww05_external_vector_reference;
     WwHost* host = calloc(1u, sizeof(*host));
     assert(host != NULL && ww_host_init(host));
     StaticRecompRange range = {0x80001000u, 0x80001004u};
@@ -107,7 +109,7 @@ int main(int argc, char** argv) {
     if (!host->error && !zero) {
         assert(strcmp(argv[1], "execute") == 0 || single);
         assert(cpu->pc == 0x80004000u && cpu->msr == (PPC_MSR_IR | PPC_MSR_DR));
-        assert(cpu->gpr[3] == (fp ? 7u : 4u) && cpu->gpr[4] == 0x80002000u);
+        assert(cpu->gpr[3] == (decrementer ? 8u : fp ? 7u : 4u) && cpu->gpr[4] == 0x80002000u);
         assert(mem_read32(cpu, 0x8000200Cu) == 0xA5A5A5A5u);
         assert(mem_read32(cpu, 0x80002010u) == 0xB6B6B6B6u);
         assert(mem_read32(cpu, 0x80002198u) == 0x80001234u);

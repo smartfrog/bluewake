@@ -64,18 +64,29 @@ class ProfileTest(unittest.TestCase):
             self.assertIn(line + "\n", text)
         self.assertFalse((self.root / FIRMWARE_DIRECTORY / "ux0").exists())
         self.assertEqual(profile.config_identity(self.root)["sha256"],
-                         "c11fa8feaa4240186f652672643ee1c8d4cbdecbc09b62ac841a936272b67f25")
+                         "741c970a568c58f87c72ffd7657026e756bb9a1c9c69e236afa28b8e8ad9a02d")
 
     def test_cpu_opt_off_profile_is_derived_from_the_approved_baseline(self):
         baseline = profile.checked_config(profile.CONFIG_TEMPLATE)
         self.assertEqual(hashlib.sha256(baseline).hexdigest(),
-                         "c11fa8feaa4240186f652672643ee1c8d4cbdecbc09b62ac841a936272b67f25")
+                         "741c970a568c58f87c72ffd7657026e756bb9a1c9c69e236afa28b8e8ad9a02d")
         alt = profile.alt_config(baseline)
         self.assertEqual(alt, baseline.replace(b"cpu-opt: true\n", b"cpu-opt: false\n"))
         self.assertEqual(len(alt), 4285)
         self.assertEqual(hashlib.sha256(alt).hexdigest(), profile.CONFIG_ALT_SHA256)
         keys = [line.split(b":", 1)[0] for line in alt.splitlines() if b":" in line and not line.startswith(b" ")]
         self.assertEqual((len(keys), len(set(keys))), (154, 154))
+
+    def test_info_logging_preserves_every_other_byte_of_the_previous_neutral_schema(self):
+        baseline = profile.checked_config(profile.CONFIG_TEMPLATE)
+        self.assertIn(b'log-level: 2\n', baseline)
+        self.assertEqual(hashlib.sha256(baseline.replace(b'log-level: 2\n', b'log-level: 0\n')).hexdigest(),
+                         'c11fa8feaa4240186f652672643ee1c8d4cbdecbc09b62ac841a936272b67f25')
+
+    def test_private_info_configuration_records_the_exact_log_level_change(self):
+        stage_firmware(self.root, self.source)
+        identity = profile.config_identity(self.root)
+        self.assertEqual(identity['sanitization']['log-level'], {'from': 0, 'to': 2})
 
     def test_cpu_opt_off_staging_binds_the_alternate_schema(self):
         stage_firmware(self.root, self.source, alt=True)
@@ -197,6 +208,16 @@ class ProfileTest(unittest.TestCase):
             stream.truncate(1024 * 1024 + 1)
         with self.assertRaises(ValueError):
             profile.verify_config_log(self.root)
+
+    def test_runtime_cache_log_keeps_the_default_fp_limit(self):
+        from fp_campaign import verify_phase_logs
+        (self.root / 'evidence/process.log').write_text('')
+        directory = self.root / 'cache/Vita3K'
+        directory.mkdir()
+        with (directory / 'vita3k.log').open('xb') as stream:
+            stream.truncate(1024 * 1024 + 1)
+        with self.assertRaisesRegex(ValueError, 'bounded regular file'):
+            verify_phase_logs(self.root, self.root)
 
     def test_invalid_system_tree_does_not_disable_welcome(self):
         for kind in ("empty", "symlink", "fifo"):
