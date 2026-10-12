@@ -344,9 +344,9 @@ int main(int argc, char** argv) {
     } else if (strcmp(argv[1], "frontier") == 0) {
         host->cpu.pc = 0x80001000u;
         host->cpu.gpr[1] = 0x817FFF00u;
-        host->cpu.external_write(&host->cpu, 0xCC008000u, 0x61u, 1u);
+        assert(ww_gx_write(&host->frontier, &host->gx, 0x61u, 1u, host->cpu.pc, host->cpu.gpr[1]));
         assert(!ww_host_edge(host, &host->cpu, host->cpu.pc));
-        host->cpu.external_write(&host->cpu, 0xCC008000u, 0xFEFFFFFFu, 4u);
+        assert(ww_gx_write(&host->frontier, &host->gx, 0xFEFFFFFFu, 4u, host->cpu.pc, host->cpu.gpr[1]));
         assert(ww_host_edge(host, &host->cpu, host->cpu.pc));
         assert(host->edge_stopped);
         assert(host->frontier.complete);

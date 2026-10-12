@@ -2556,3 +2556,78 @@ GP read/link activation and other unobserved services remain refused. Strict GX 
 pins, CPU ABI, `BlueWakeRelData` and static archive are unchanged. Dynamic FIFO pointers,
 DVD/CMake, Windows ARAM and final counts remain tracked. Physical Vita, Windows CI,
 rendering, FPS, runtime REL and actual guest disc/file access remain unverified.
+
+## Real overflow-mask continuation and GPLink producer seam
+
+Run `13b0a68c6f9442ee9aa98a1e86368b63`, source
+`c4f3e95251859e331c20662d6047449af5a2a949`, passes the overflow mask and reaches
+**`CC000002 = 0014`**, halfword PC **`803212CC`**. This sets overflow interrupt enable
+and **GPLinkEnable**, but **not GPReadEnable** (`VideoCommon/CommandProcessor.h:121-136`).
+The closed guest **FAIL** has **64,255 edges, 7,140,123 cycles**, zero FIFO bytes,
+`GX_FRONTIER complete=0`, `live=0`, `rendered=0`. Build status zero in 123.072 s;
+archive unchanged. Both owned phases timeout at **600 s**, TERM/exit -15, `waited=true`;
+process **124/INCOMPLETE** remains distinct from the guest verdict.
+`logs/cp-control-overflow-mask-evidence-c4f3e95.json` checks plan/request/result source and
+package hashes, request-bound report, runtime VPK hash and closed LER. SHA-256:
+
+- VPK: `940e98a5885f70d2cf4bde1b17775a38cafeea1724a6acc981d9777820dbd2e0`;
+- report: `58a863a3ffb4012505019491b8ce3e2eb6173caee460b1123421c887a3bb181c`;
+- result: `e926166fa021607cd4004efced024ffe81b9a0336c808d888ca762839694b692`;
+- log: `4c8e2672fbf6530935ebe357c6af4c2facace18e3ba67ce0a7740fabf093618e`;
+- LER: `169da8b7a0e0d3067e984a0701130bdf9916ce1c09ccf887d9004ec9f413b079`.
+
+Exact clean-source `c4f3e95` checks pass **323 host tests, 177 ARMv7 tests**, audit,
+attribution and runtime **CTest 3/3** on Linux AArch64 (`logs/checkpoint-c4f3e95.json`).
+This unit admits only the additional observed control **`0014`**, not an inert GPRead
+acknowledgement. It implements the producer side in `vita/host/fifo_gather.c`:
+
+- Actual 1/2/4/8-byte guest stores append their big-endian bytes to a 32-byte gather pipe.
+  Partial writes neither change memory nor advance pointers. A full block copies its real
+  bytes to physical PI WPTR in MEM1; the end pointer is inclusive and wraps only after
+  copying that block. Spill bytes remain pending. Source: `Core/HW/GPFifo.cpp:85-112,133-185`.
+- Every accepted burst advances PI WPTR by 32 or wraps to PI base. When GPLink is set,
+  CP WPTR advances likewise and CP distance increases by exactly 32, while RPTR stays
+  unchanged. Unlinked bursts still write memory and advance PI, but leave CP unchanged.
+  Source: `VideoCommon/CommandProcessor.cpp:339-386`. There is **no consumption** here.
+- Linked bursts require the sourced PI/CP base/end/WPTR equality (`397-406`) and bounded
+  distance (`390-394`). Invalid alignment, MEM1 range, full/partial alias overlap, capacity,
+  counter exhaustion and trace failure stop **before** accepting the incoming store or
+  changing pending bytes, backing memory, pointers or distance. The existing alias guard
+  is reused. Real copies mark dirty memory and clear matching reservations.
+- `[gather-burst]` records actual transfer, destination, distance and before/after producer
+  state through the shared first-eight/every-1000th sampler. No GPU time, data, overflow
+  status, interrupt or frequency is invented. Stores credit executed cycles without
+  renewing a spent dispatch quantum. Unobserved reconfiguration/reset after input refuses
+  rather than discarding pending or produced data; distance reads and RPTR-high synchronization
+  after input remain unsupported.
+
+The production MMIO path no longer feeds written bytes directly into `ww_gx_write`.
+Even a complete BP command in a real gather burst cannot become a GX success while GPRead
+is stopped. `Fifo.cpp:435-443` explicitly gates the pinned consumer on GPReadEnable and
+real CP distance. The existing synthetic checkpoint/main-loop fixtures now feed the parser
+checkpoint explicitly; their PASS remains game-free evidence, not authentic FIFO execution.
+
+`logs/cp-gplink-gather-red.log` retains the 18 failing producer scenarios;
+`logs/cp-gplink-gather-red-boundaries.log` exposes the refused linked control, missing
+unlinked copy and premature direct-parser acceptance. `logs/cp-gplink-gather-host-final-green.log`
+passes **342 host tests** on Linux AArch64. Added parameterized coverage verifies all store
+widths, partial/full/spill blocks, inclusive-end wrap, linked/unlinked memory and pointer
+effects, no parsing with GPRead stopped, cycle credit, dirty/reservation effects, failed
+transactions, pending-input guards, sampling and counter exhaustion. The additional retained
+`logs/cp-gplink-gather-prior-failure-red.log` reproduces an already failed host committing a
+new store; the gather path now preserves that failure without committing more input. Main-loop fixtures
+also test `0014` setup/readback and still refuse `0015` before synthetic parser input.
+
+The consumer is a separate next unit, gated by the next authentic observed access: read actual
+MEM1 bytes at CP RPTR, dispatch CP/BP/XF through the existing strict checkpoint/pinned parser,
+and update RPTR/distance only for bytes actually read. Preserve writer PC/SP and completion-PC
+provenance when transporting those bytes; the first complete command must supply the existing
+report's `opcode`, `bytes`, `hex`, `pc` and `completion_pc` for GX-15. Never bypass GPRead,
+manufacture consumption or count parser-only fixtures as acceptance. No authentic gather
+burst or first command is claimed yet; the next clean source-bound trial checks continuation.
+
+Strict GX validation, pins, CPU ABI, `BlueWakeRelData`, DOL and static archive stay unchanged.
+GPRead, status/clear/breakpoint, DVD DI/CMake integration, Windows ARAM and final integration
+counts remain open. No disc/file access, physical Vita, Windows CI, rendering, FPS or live
+runtime REL event has been verified. Sources stay unchanged throughout each private build/trial;
+external supervision stays 600 seconds per phase, not an internal guest instruction cap.

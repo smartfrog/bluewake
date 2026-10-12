@@ -31,7 +31,7 @@ static WwHost* owner(CPUState* cpu) {
     return cpu->external_user_data;
 }
 
-static bool linked_alias_overlaps(u32 address, u8 size) {
+bool ww_host_linked_alias_overlaps(u32 address, u8 size) {
     for (u8 offset = 0u; offset < size; ++offset) {
         u8* alias;
         if (ppc_guest_alias_resolve(address + offset, 1u, &alias, NULL))
@@ -278,7 +278,7 @@ static DolDiCommandResult di_command(void* user, DolDiCommand* command) {
             ww_host_fail(host, "DI inquiry requires a 32-byte read DMA into real MEM1", command->command[0], host->cpu.pc);
             return DOL_DI_COMMAND_ERROR;
         }
-        if (linked_alias_overlaps(guest, 32u)) {
+        if (ww_host_linked_alias_overlaps(guest, 32u)) {
             ww_host_fail(host, "DI inquiry DMA overlaps a linked alias", command->command[0], host->cpu.pc);
             return DOL_DI_COMMAND_ERROR;
         }
@@ -383,7 +383,7 @@ static bool external_memory_address(CPUState* cpu, u32 address, u8 size, u32* re
     *resolved = address;
     if (!(cpu->msr & PPC_MSR_DR) && in_range(address, size, 0u, cpu->ram_size)) {
         const u32 cached = address | GC_RAM_BASE;
-        if (linked_alias_overlaps(cached, size))
+        if (ww_host_linked_alias_overlaps(cached, size))
             return false;
         *resolved = cached;
     }
@@ -405,6 +405,10 @@ static void refresh(WwHost* host) {
     close_spent_quantum(host, &host->cpu);
 }
 
+static bool fifo_has_input(const WwHost* host) {
+    return host->frontier.size != 0u || host->gather.size != 0u || host->gather.transfers != 0u;
+}
+
 static u64 mmio_read(CPUState* cpu, u32 address, u8 size) {
     WwHost* host = owner(cpu);
     u64 value;
@@ -421,7 +425,7 @@ static u64 mmio_read(CPUState* cpu, u32 address, u8 size) {
         refresh(host);
         return value;
     }
-    if (address == 0xCC00003Au && size == 2u && host->frontier.size != 0u) {
+    if (address == 0xCC00003Au && size == 2u && fifo_has_input(host)) {
         ww_host_fail(host, "CP read pointer sync requires empty disabled init; FIFO processor backend not implemented", address, cpu->pc);
         return 0u;
     }
@@ -467,8 +471,13 @@ static void fail_mmio_write(WwHost* host, const char* error, u32 address, u64 va
 static void mmio_write(CPUState* cpu, u32 address, u64 value, u8 size) {
     WwHost* host = owner(cpu);
     if (in_range(address, size, 0xCC008000u, 0x20u)) {
-        if (!ww_gx_write(&host->frontier, &host->gx, value, size, cpu->pc, cpu->gpr[1]))
-            ww_host_fail(host, host->frontier.error, address, cpu->pc);
+        observe(cpu);
+        if (host->error != NULL)
+            return;
+        const char* error = ww_fifo_gather_write(host, value, size);
+        if (error != NULL)
+            fail_mmio_write(host, error, address, value, size);
+        close_spent_quantum(host, cpu);
         return;
     }
     u32 memory_address;
@@ -510,20 +519,24 @@ static void mmio_write(CPUState* cpu, u32 address, u64 value, u8 size) {
     }
     u32* fifo = fifo_register(host, address, size);
     if (address == 0xCC000002u && size == 2u) {
-        if (value & ~0x4ull) {
+        if (value != 0u && value != 4u && value != 0x14u) {
             fail_mmio_write(host, "CP control enables or unsupported interrupt masks require FIFO processor backend", address, value, size);
             return;
         }
         host->cp_control = (u16)value;
     } else if ((address == 0xCC000030u || address == 0xCC000032u) && size == 2u) {
-        if (value != 0u || host->frontier.size != 0u) {
+        if (value != 0u || host->cp_fifo_distance != 0u || fifo_has_input(host)) {
             fail_mmio_write(host, "CP FIFO distance requires empty disabled init; FIFO processor backend not implemented", address, value, size);
             return;
         }
-    } else if (address == 0xCC00003Au && size == 2u && host->frontier.size != 0u) {
+    } else if (address == 0xCC00003Au && size == 2u && fifo_has_input(host)) {
         fail_mmio_write(host, "CP read pointer sync requires empty disabled init; FIFO processor backend not implemented", address, value, size);
         return;
     } else if (fifo != NULL) {
+        if (fifo_has_input(host)) {
+            fail_mmio_write(host, "FIFO reconfiguration after input requires a processor synchronization backend", address, value, size);
+            return;
+        }
         if (size == 2u) {
             const u32 shift = (address & 2u) != 0u ? 16u : 0u;
             const u32 mask = shift != 0u ? 0x03FFu : 0xFFE0u;

@@ -4,6 +4,7 @@
 #include "module_exports.h"
 #include "module_cpu_contract.h"
 #include "gx_checkpoint.h"
+#include "fifo_gather.h"
 #include "code_guard.h"
 #include "cycle_domain.h"
 #include "ipl_sram.h"
@@ -21,6 +22,7 @@ typedef struct WwHost {
     DolGuestMemory memory;
     DolGxRecompState gx;
     WwGxCheckpoint frontier;
+    WwGatherPipe gather;
     BluewakeCycleDomain cycles;
     DolInterrupts interrupts;
     DolDi di;
@@ -41,6 +43,7 @@ typedef struct WwHost {
     u32 cp_fifo_read_pointer;
     u32 cp_fifo_high_watermark;
     u32 cp_fifo_low_watermark;
+    u32 cp_fifo_distance;
     WwCodeGuard code_guard;
     const char* error;
     u32 error_address;
@@ -82,5 +85,6 @@ bool ww_host_resume_exception(WwHost* host);
 int ww_host_dispatch(WwHost* host, u32 address);
 u64 ww_host_end_dispatch(WwHost* host);
 void ww_host_fail(WwHost* host, const char* error, u32 address, u32 pc);
+bool ww_host_linked_alias_overlaps(u32 address, u8 size);
 
 #endif

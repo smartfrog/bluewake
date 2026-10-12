@@ -293,8 +293,9 @@ static int dispatch(CPUState* cpu, u32 address) {
         }
     }
     cpu->pc = address;
-    cpu->external_write(cpu, 0xCC008000u, 0x61u, 1u);
-    cpu->external_write(cpu, 0xCC008000u, 0xFEFFFFFFu, 4u);
+    WwHost* host = cpu->external_user_data;
+    assert(ww_gx_write(&host->frontier, &host->gx, 0x61u, 1u, cpu->pc, cpu->gpr[1]));
+    assert(ww_gx_write(&host->frontier, &host->gx, 0xFEFFFFFFu, 4u, cpu->pc, cpu->gpr[1]));
     cpu->downcount -= 12;
     if (edge != NULL)
         edge(edge_user, cpu, address + 4u);

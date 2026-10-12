@@ -13,7 +13,7 @@ set(BUILD_TESTING ${WW05_TESTS_ONLY} CACHE BOOL "" FORCE)
 add_subdirectory("${GXRUNTIME_DIR}" runtime)
 target_compile_options(gxruntime PRIVATE -ffp-contract=off -fno-fast-math -fstack-usage)
 
-add_library(ww05_services STATIC boot_host.c gx_checkpoint.c code_guard.c dsp_interface.c bat_contract.c
+add_library(ww05_services STATIC boot_host.c gx_checkpoint.c fifo_gather.c code_guard.c dsp_interface.c bat_contract.c
     "${BLUEWAKE_ROOT}/runtime/host/src/cycle_domain.c"
     "${BLUEWAKE_ROOT}/runtime/host/src/aram_dma.c"
     "${BLUEWAKE_ROOT}/runtime/host/src/external_memory.c"
@@ -55,6 +55,10 @@ if(WW05_TESTS_ONLY)
     add_executable(di_inquiry_probe di_inquiry_probe.c)
     target_compile_options(di_inquiry_probe PRIVATE -UNDEBUG)
     target_link_libraries(di_inquiry_probe PRIVATE ww05_services)
+    add_executable(gather_probe gather_probe.c)
+    target_compile_options(gather_probe PRIVATE -UNDEBUG)
+    target_link_libraries(gather_probe PRIVATE ww05_services)
+    target_link_options(gather_probe PRIVATE -Wl,--wrap=fprintf)
     file(WRITE "${CMAKE_CURRENT_BINARY_DIR}/ww05_identity.h" "#define WW05_SOURCE \"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\"\n")
     add_executable(io_probe main.c io_probe.c
         "${BLUEWAKE_ROOT}/vita/feasibility/armv7/platform.c"

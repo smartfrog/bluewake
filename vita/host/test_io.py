@@ -120,7 +120,8 @@ class MainIoTest(unittest.TestCase):
         self.assertTrue(report.endswith('END frontier=PASS live=0 rendered=0\n'))
 
     def test_disabled_cp_init_continues_guest_dispatch_before_the_host_only_fifo_fixture(self):
-        for configuration in ({'cp_control': 0}, {'cp_control': 4}, {'cp_distance': 0}, {'cp_distance_high': 0},
+        for configuration in ({'cp_control': 0}, {'cp_control': 4}, {'cp_control': 20},
+                              {'cp_distance': 0}, {'cp_distance_high': 0},
                               {'cp_distance': 0, 'cp_distance_high': 0}):
             with self.subTest(configuration=configuration):
                 status, report = self.run_fixture(**configuration)
@@ -135,11 +136,13 @@ class MainIoTest(unittest.TestCase):
                 self.assertTrue(report.endswith('END frontier=PASS live=0 rendered=0\n'))
 
     def test_unsupported_cp_enable_cannot_reach_or_accept_the_fifo_fixture(self):
-        status, report = self.run_fixture(cp_control=1)
-        self.assertNotEqual(status, 0)
-        self.assertIn('GX_FRONTIER complete=0', report)
-        self.assertIn('address=CC000002 pc=80001000 width=2 value=0000000000000001', report)
-        self.assertTrue(report.endswith('END frontier=FAIL live=0 rendered=0\n'))
+        for control in (1, 21):
+            with self.subTest(control=control):
+                status, report = self.run_fixture(cp_control=control)
+                self.assertNotEqual(status, 0)
+                self.assertIn('GX_FRONTIER complete=0', report)
+                self.assertIn(f'address=CC000002 pc=80001000 width=2 value={control:016X}', report)
+                self.assertTrue(report.endswith('END frontier=FAIL live=0 rendered=0\n'))
 
     def test_unsupported_cp_distance_cannot_reach_or_accept_the_fifo_fixture(self):
         for register, address in (('cp_distance', 'CC000030'), ('cp_distance_high', 'CC000032')):
