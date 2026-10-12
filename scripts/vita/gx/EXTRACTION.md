@@ -75,10 +75,21 @@ truncating long draw records and must retain matching texture/array/DL bytes.
 - Real run `10c1b74cc7b647aab66bf18882e53a39` reports 1,171 decoded commands
   and one renderer draw, but only logs 64 commands/423 bytes and **zero captured
   draws**. Its extracted setup prefix replays successfully with zero plans.
-- The current read-only build-f5 scan finds no journal with two captured draws:
-  `verdict=no-captured-draw-sequence`. A full journal from initialization through
-  draws plus matching guest resources is still needed from the host/harness
-  lane. No host or WW05 harness changes were made here.
+- The first longer journal is now available: run
+  `5a4fb3b0ba4c46efa69ab545e225c8dd`, limit 2,048, two captured draws in
+  14,464 bytes. The report totals are four draws/4,249 decoded commands, so this
+  remains a command-prefix capture with five pending bytes.
+- Extraction succeeds and retains its provenance under
+  `build-f6/ww18/real-indirect-replay`; guarded replay reports
+  **`verdict=memory-required`**, not a successful real draw replay.
+  No MEM1 snapshot is adjacent to the capture. Even though both captured quads
+  have inline positions/colors, the frontend resolves an initialization texture
+  before them: command 294, BP 94, FIFO offset 1,904, guest address 0039D860.
+  A diagnostic replay against an entirely unmapped/empty address space refuses
+  that BP handler before any draw. This is not permission to fabricate resources
+  or delete unused-looking initialization commands.
+- Supply the same run's memory snapshot/resources to replay this exact prefix.
+  No host or WW05 harness changes were made here.
 
 Source-backed assumption: journal order/index/hex bytes are the capture contract
 in `capture.py`; renderer totals are not FIFO evidence. When that evidence
