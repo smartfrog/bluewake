@@ -12310,9 +12310,8 @@ int main(int argc, char** argv) {
                         mem_read32(&cpu, 0x80AD2148u),
                         mem_read32(&cpu, 0x80AD214Cu));
             }
-            mem_write32(&cpu, file_info + DVD_CB_STATE, defer && valid ? 1u : 0u);
-            mem_write32(&cpu, file_info + DVD_CB_CURRXFER, valid && !defer ? length : 0u);
-            mem_write32(&cpu, file_info + DVD_CB_XFERRED, valid && !defer ? length : 0u);
+            host_dvd_set_transfer_state(&cpu, file_info, defer && valid ? 1u : 0u,
+                                        valid && !defer ? length : 0u);
             cpu.gpr[3] = synchronous ? (valid ? length : 0u) : (valid ? 1u : 0u);
             cpu.pc = cpu.lr & ~3u;
             if (defer && valid) {

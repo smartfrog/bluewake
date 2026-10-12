@@ -24,4 +24,10 @@ static inline bool host_dvd_fill_file_info(CPUState* cpu, s32 entry, u32 file_in
     return true;
 }
 
+static inline void host_dvd_set_transfer_state(CPUState* cpu, u32 file_info, u32 state, u32 bytes) {
+    mem_write32(cpu, file_info + DVD_CB_STATE, state);
+    mem_write32(cpu, file_info + DVD_CB_CURRXFER, bytes);
+    mem_write32(cpu, file_info + DVD_CB_XFERRED, bytes);
+}
+
 #endif

@@ -209,3 +209,34 @@ unavailable here and is not claimed.
 **455 host tests still pass** (`logs/ww16-dvd-file-info-tests.log`), the actual ARM
 `ww05_host` now links (`logs/ww16-dvd-file-info-link.log`), and audit/attribution/
 whitespace checks pass. The committed VPK build/trial follows.
+
+## Unit 8: synchronous file reads copy real bytes before completing
+
+Trial `3debd70ed0094262b76006e2cc4a4922` at `3924c80` proves authentic DVD open:
+`/COPYDATE` resolves to FST entry 151 through **vita-sceio**, with the private
+image's 2,391-entry FST. It then stops at **8,191,115 cycles**, `8030FBCC`
+(`DVDReadPrio`). Installation takes 1.23 seconds, guest 8.48 seconds; the same
+265 commands / 1,759 renderer bytes still contain no draws or presents.
+
+The existing shared host's synchronous contract (`main.c`, DVD read bridge)
+supplies r3=file-info, r4=destination, r5=length, r6=file-offset, returns the
+actual completed length, and writes END/current/transferred state. Its existing
+32-byte SDK tail allowance is preserved, but the bytes must come from the real
+image, never a synthetic pad. The Vita host now services that module-owned sync
+edge through the WW13 seam. Async reads/callback delivery are still unsupported.
+
+Both DI DMA and synchronous API reads share the same owned-image and checked
+copy path. Source ranges, signed disc limits, cached real MEM1, file bounds and
+aliases are checked before copying. The seam's actual-byte counter must advance
+by exactly the requested length; short/failed reads cannot set completion fields
+or return success. No DI/PE interrupt, callback, GPU completion or cycle charge is
+created by this synchronous operation. The shared transfer-state helper is
+extracted from desktop's three unchanged writes to avoid duplicating the contract.
+
+The initial sync-edge failure is in `logs/ww16-dvd-read-red.log`. **461 host tests
+pass** (`logs/ww16-dvd-read-green.log`), including real synthetic bytes, SDK tail
+reads, short-file refusal, input/alias guards, unchanged interrupts and trace-fail
+preservation. DI regressions rerun after the final guard review pass too
+(`logs/ww16-dvd-read-di-regressions.log`). Audit, attribution and whitespace checks
+pass. Windows build/CI remains unavailable; shared desktop behavior is a helper
+refactor only. The next committed ARM build/trial follows. No visible pixel or FPS.
