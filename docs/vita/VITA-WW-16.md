@@ -74,3 +74,37 @@ the fix and passes with exactly one afterward. **429 host tests pass**, and
 `cmake --build .../ww05/vita --target ww05_host -j 4` now links the actual ARM
 host successfully (`logs/ww16-renderer-link-smoke.log`). The committed private
 VPK rebuild and isolated continuation remain the next gates. No pixel claimed.
+
+## Unit 4: stop at installation readiness and kill idle guests early
+
+The committed ARM VPK build at `dcb7e73` completed successfully. Authentic attempt
+`5d65e06d7b3b4686a52a5af9e7a48963` was stopped on request after roughly 252 seconds
+waiting in the install phase. It never issued a guest request. All three installed
+payloads pass `verify_installed` against the staged VPK: installation was complete,
+but the GUI process was left running while the launcher waited for its 600-second
+phase deadline. The older launcher used the same environment/arguments/runtime
+digest and accepted this timeout (e.g. run `2770acb8...`, 30 seconds).
+
+Missing Wayland variables were not the cause. A diagnostic `/usr/bin/env` probe
+using the exact recorded sandbox command confirms `QT_QPA_PLATFORM=wayland`,
+`WAYLAND_DISPLAY=wayland-0` and the private `XDG_RUNTIME_DIR`; its evidence is under
+that attempt's `phases/environment-probe`. No emulator or game ran in the probe.
+The local Qt source constructs the GUI after archive installation, consistent
+with this state; executable/source mapping remains unverified.
+
+The launcher now stops and reaps an installer once its exact installed payload is
+verified, before creating the guest request. A CPU watchdog samples the owned
+sandbox **and its descendants**, so an idle bwrap parent cannot hide a busy game.
+Below 5% of one CPU for 30 consecutive seconds (`--idle-timeout` overrides the
+interval), it stops with `inactive`, status 125 and INCOMPLETE, preserving partial
+logs, CPU observations and process cleanup evidence. Installation also gets this
+watchdog if no complete payload appears. Phase start/stop messages flush immediately.
+The existing owned TERM/KILL/wait path is reused; timeout/report behavior is not
+replaced. Focused fake-sandbox tests cover early idle cleanup with partial logs,
+immediate installed-payload readiness and a busy child that must not be killed.
+
+Linux AArch64: **437 host tests and 80 shared FP launcher tests pass** (including
+the existing exact-deadline checks). Evidence: private
+`logs/ww16-inactivity-host-tests.log` and `logs/ww16-inactivity-fp-tests.log`.
+Repository audit, attribution and whitespace checks pass. A new clean committed
+build/trial follows; the game still has not drawn or presented an authentic frame.

@@ -20,6 +20,7 @@ from fp_campaign import emitted_config, restore_config, runtime_inputs, verify_p
 from fp_launch import REPORT_DIRECTORY, evidence_file, run_owned
 from fp_libraries import directory_fd, file_identity, library_identity
 from fp_profile import config_identity, read_profile_file, verify_firmware
+from activity import ProcessIdleObserver
 
 
 def verify_inputs(root, plan):
@@ -109,6 +110,25 @@ def fresh_request(root, source, package, continue_gx=0):
     return token
 
 
+def installer_observer(root, plan):
+    idle = ProcessIdleObserver(plan.get('idle_timeout_seconds', 30), plan.get('cpu_threshold', 0.05))
+    with zipfile.ZipFile(root / 'runtime/ww05.vpk') as archive:
+        expected = {name: archive.getinfo(name).file_size
+                    for name in ('eboot.bin', 'main.dol', 'sce_sys/param.sfo')}
+    title = root / 'data/Vita3K/Vita3K/ux0/app/BWWG00005'
+
+    def observe(pid):
+        try:
+            ready = all((title / name).stat().st_size == size for name, size in expected.items())
+        except FileNotFoundError:
+            ready = False
+        if ready:
+            return {'stop_reason': 'installed_payload', 'payload': verify_installed(root, plan)}
+        return idle(pid)
+
+    return observe
+
+
 def execute_run(root, plan):
     record = {'run': plan['run'], 'source': plan['source'], 'vpk_sha256': plan['vpk_sha256'],
               'continue_gx': plan.get('continue_gx', 0),
@@ -124,11 +144,16 @@ def execute_run(root, plan):
             raise ValueError('private configuration changed before installation')
         install = plan['phases']['install']
         phase = Path(install['evidence_root'])
-        status = run_owned(install['command'], root, install['timeout_seconds'], evidence_root=phase)
+        print(f"RUN phase=install evidence={phase}/evidence", flush=True)
+        status = run_owned(install['command'], root, install['timeout_seconds'], evidence_root=phase,
+                           phase_observer=installer_observer(root, plan))
         process = json.loads((phase / 'evidence/process.json').read_text())
+        print(f"STOP phase=install reason={process['stop_reason']} seconds={process['duration_seconds']:.2f}", flush=True)
         record.update(install_status=status, install_process=process)
         verify_stopped(process)
         if not ((status == 0 and process['exit'] == 0 and process['stop_reason'] == 'exit') or
+                (status == 125 and process['stop_reason'] == 'installed_payload' and
+                 process['exit'] in (0, -signal.SIGTERM, -signal.SIGKILL)) or
                 (status == 124 and process['stop_reason'] == 'timeout' and
                  process['exit'] in (0, -signal.SIGTERM, -signal.SIGKILL))):
             raise ValueError('unexpected installer disposition')
@@ -147,8 +172,12 @@ def execute_run(root, plan):
             json.dump({'token': token, 'source': plan['source'], 'vpk_sha256': plan['vpk_sha256'],
                        'continue_gx': plan.get('continue_gx', 0)}, stream)
             stream.write('\n')
-        status = run_owned(guest['command'], root, guest['timeout_seconds'], evidence_root=phase)
+        print(f"RUN phase=guest evidence={phase}/evidence", flush=True)
+        status = run_owned(guest['command'], root, guest['timeout_seconds'], evidence_root=phase,
+                           phase_observer=ProcessIdleObserver(plan.get('idle_timeout_seconds', 30),
+                                                              plan.get('cpu_threshold', 0.05)))
         process = json.loads((phase / 'evidence/process.json').read_text())
+        print(f"STOP phase=guest reason={process['stop_reason']} seconds={process['duration_seconds']:.2f}", flush=True)
         record.update(process_status=status, process=process)
         verify_stopped(process)
         canonical = emitted_config(root, phase)
@@ -170,7 +199,10 @@ def execute_run(root, plan):
                        completion='COMPLETE' if process['stop_reason'] == 'exit' else 'INCOMPLETE',
                        status=status or (0 if verdict == 'PASS' else 1))
     except Exception as error:
-        record.update(error=str(error), traceback=traceback.format_exc(), status=2)
+        inactive_report_missing = (isinstance(error, FileNotFoundError) and
+                                   record.get('process', {}).get('stop_reason') == 'inactive')
+        record.update(error=str(error), traceback=traceback.format_exc(),
+                      status=125 if inactive_report_missing else 2)
     with evidence_file(root, 'result.json') as stream:
         json.dump(record, stream, indent=2)
         stream.write('\n')
@@ -180,6 +212,7 @@ def execute_run(root, plan):
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--timeout', type=float, default=60)
+    parser.add_argument('--idle-timeout', type=float, default=30, help='abort after this many seconds below 5%% CPU')
     parser.add_argument('--wayland-socket', type=Path, required=True)
     parser.add_argument('--continue-gx', type=int, default=0, help='journal first N real commands, then keep executing (1..256)')
     parser.add_argument('--disc', type=Path, help='read-only bind of the already verified private image at the WW13 install path')
