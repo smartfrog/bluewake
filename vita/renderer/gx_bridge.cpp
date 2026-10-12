@@ -12,6 +12,11 @@
 #include <cstdio>
 #include <set>
 #include <utility>
+#ifndef __vita__
+#include "gx_snapshot_memory.h"
+#include <cstdlib>
+#include <fstream>
+#endif
 
 namespace ar = gxruntime::aurora_recomp;
 namespace gxc = gxruntime::gxcore;
@@ -138,6 +143,27 @@ bool run(std::span<const std::uint8_t> fifo,
     return false;
   *out = Result{};
   out->fifo_bytes = fifo.size();
+  const DolGuestAddressResolver* addresses = &resolver;
+#ifndef __vita__
+  snapshot::Resolver snapshot_memory(resolver);
+  DolGuestAddressResolver guarded;
+  if (const char* path = std::getenv("GX_BRIDGE_MEM1_RANGES")) {
+    std::ifstream file(path);
+    if (!file) {
+      out->error = "cannot read snapshot coverage: " + std::string(path);
+      return false;
+    }
+    if (!snapshot::read_ranges(file, snapshot_memory.ranges, out->error))
+      return false;
+    dol_guest_address_resolver_init_callback(&guarded, snapshot::Resolver::resolve, &snapshot_memory);
+    addresses = &guarded;
+    std::uint32_t mapped_bytes = 0;
+    for (const auto& range : snapshot_memory.ranges)
+      mapped_bytes += range.size;
+    std::printf("memory coverage=GX_MEM1_RANGES_V1 ranges=%zu mapped_bytes=%u\n",
+                snapshot_memory.ranges.size(), mapped_bytes);
+  }
+#endif
   if (fifo.empty()) {
     // The pinned frontend refuses a zero-byte replay by design; nothing to
     // decode is a valid, empty run, not a rejection.
@@ -146,7 +172,7 @@ bool run(std::span<const std::uint8_t> fifo,
   }
 
   ar::RetailGxFrontend frontend;
-  frontend.reset(&resolver);
+  frontend.reset(addresses);
   frontend.set_packet_drain_enabled(true);
   frontend.set_event_observer(count_event, &out->counts);
 
@@ -165,9 +191,19 @@ bool run(std::span<const std::uint8_t> fifo,
                   static_cast<unsigned>(frontend.last_error_opcode()),
                   frontend.last_error_offset());
     out->error = detail;
+#ifndef __vita__
+    if (snapshot_memory.missing)
+      out->error += "; " + snapshot_memory.missing_description();
+#endif
     return false;
   }
   sink.flush_frame();
+#ifndef __vita__
+  if (snapshot_memory.missing) {
+    out->error = snapshot_memory.missing_description();
+    return false;
+  }
+#endif
   out->counts.programs_distinct = collector.program_keys.size();
   collect_gaps(sink.counters(), out);
   out->ok = true;

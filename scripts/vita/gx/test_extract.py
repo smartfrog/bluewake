@@ -129,6 +129,36 @@ class ExtractionTests(unittest.TestCase):
         journal.write_text(command(1, 0x90, draw) + '\n' + command(2, 0x90, draw))
         self.assertEqual(extract.latest_draw_capture(self.root, minimum_draws=2), (journal, report))
 
+    def test_extract_stages_snapshot_and_guard_without_exposing_holes(self):
+        data = bytes.fromhex('610F0000FF')
+        self.journal.write_text(command(1, 0x61, data))
+        memory = self.root / 'memory.bin'
+        memory.write_bytes(b'bytes')
+        manifest = self.root / 'memory.json'
+        manifest.write_text(json.dumps(dict(format='gx-mem1-snapshot-v1', binary=memory.name,
+                                            binary_sha256=hashlib.sha256(b'bytes').hexdigest(),
+                                            fifo_sha256=hashlib.sha256(data).hexdigest(),
+                                            regions=[dict(address=0x1000, offset=0, size=5)])))
+        output = self.root / 'fixture'
+        result = extract.extract_fixture(self.journal, output, snapshot=manifest)
+        self.assertEqual((output / 'mem1.bin').read_bytes()[0x1000:0x1005], b'bytes')
+        self.assertEqual((output / 'mem1.ranges').read_text(), 'GX_MEM1_RANGES_V1\n00001000 00000005\n')
+        self.assertEqual(result['snapshot']['captured_bytes'], 5)
+
+    def test_extract_rejects_raw_and_manifest_memory_together(self):
+        self.journal.write_text(command(1, 0, b'\0'))
+        with self.assertRaisesRegex(ValueError, 'one memory'):
+            extract.extract_fixture(self.journal, self.root / 'fixture', mem1=self.root, snapshot=self.root)
+
+    def test_fixture_fifo_tampering_is_detected_before_replay(self):
+        (self.root / 'stream.fifo').write_bytes(b'changed')
+        metadata = dict(requires_mem1=True, mem1_sha256='0' * 64,
+                        snapshot=dict(fifo_sha256=hashlib.sha256(b'original').hexdigest()))
+        with patch.object(extract.bridge, 'run_stream') as runner:
+            with self.assertRaisesRegex(ValueError, 'FIFO SHA-256 mismatch'):
+                extract.replay_fixture(self.root, metadata)
+        runner.assert_not_called()
+
 
 if __name__ == '__main__':
     unittest.main()
