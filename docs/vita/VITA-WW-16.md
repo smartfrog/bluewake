@@ -164,3 +164,34 @@ state, width refusals, repeated stores and exact executed-cycle credit.
 Linux AArch64: **447 host tests pass** (`logs/ww16-cp-metrics-green.log`); audit,
 attribution and whitespace checks pass. The next clean ARM build/trial follows.
 No visible game pixel or FPS claim yet.
+
+## Unit 7: route DVD open edges through the existing private-image seam
+
+Trial `32d13d3823d043fd879118b851ab2bf1` at `a092d98` crosses the CP metrics reset
+and reaches **8,191,107 cycles**, then stops explicitly at `8030F618` (`DVDOpen`).
+Installation takes 1.17 seconds and guest 8.48 seconds. Still 265 real setup
+commands, no draw/present; the post-report emulator teardown crash remains 133.
+
+The existing shared desktop inventory identifies `8030F2B0` as path-to-entry,
+`8030F618` as open and `8030F5A4` as fast-open (`edge_intercepts.c:51-53`,
+`main.c:12142-12165`). The Vita host services only those module-owned edges,
+using WW13's unchanged FST/seam and the pin's existing `dol_hle_DVDFastOpen`
+(`GXRuntime/src/hle/hle_dvd.c:42-54`) for the four file-info writes. The native
+returns to the real aligned LR with the actual found/not-found result.
+
+Input guards refuse unmapped/unterminated paths, unaligned or out-of-range cached
+MEM1 file-info pointers, aliases and unowned edges. A missing image or another
+owner's image stops; trace failures stop before changing guest results or file
+info. Image ownership/open/close is shared with the already wired DI-read path,
+not duplicated. No read completion, callback, IRQ, FIFO data or frame is created
+by opening a file. Async/synchronous reads remain separate seams if reached.
+
+The game-free synthetic FST tests reuse WW13's image fixture, with real entry,
+offset and length checks and preserved unrelated file-info bytes. The authentic
+file bytes remain only in the read-only private image outside the VPK. The initial
+DVDOpen edge failure is retained in `logs/ww16-dvd-open-red.log`.
+
+Linux AArch64: **455 host tests pass** (`logs/ww16-dvd-open-green.log`), including
+all existing DI-read and edge-guard regressions; audit, attribution and whitespace
+checks pass. The next committed ARM build and authenticated continuation follow.
+No visible pixel, physical Vita result or FPS measurement claimed.

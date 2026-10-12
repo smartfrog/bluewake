@@ -706,7 +706,12 @@ bool ww_host_edge(void* user, CPUState* cpu, u32 address) {
     }
     const bool compiled_cpu_boundary = (address == 0x80328F84u || address == 0x80303A50u) &&
                                        module_contains_address(host->module, address);
-    if (bluewake_edge_maybe_intercept(address) && !compiled_cpu_boundary) {
+    const bool desktop_edge = bluewake_edge_maybe_intercept(address);
+    if (desktop_edge && module_contains_address(host->module, address) && ww_host_dvd_edge(host, address)) {
+        host->edge_stopped = host->error != NULL;
+        return true;
+    }
+    if (desktop_edge && !compiled_cpu_boundary) {
         ww_host_fail(host, "desktop interception unsupported; guest not skipped", address, cpu->pc);
         host->edge_stopped = true;
         return true;
