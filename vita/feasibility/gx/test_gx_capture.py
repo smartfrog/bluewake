@@ -186,6 +186,31 @@ class GatherLogTest(unittest.TestCase):
             self.capture.parse_gather_log("[gather-pipe] bytes=0 hex=\n")
 
 
+class ClassifyCaptureTest(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        cls.capture = load_module()
+
+    def test_report_text_classifies_as_report(self):
+        kind, payload = self.capture.classify_capture(report(EMPTY_FRONTIER).encode())
+        self.assertEqual(kind, "report")
+        self.assertFalse(payload.complete)
+
+    def test_gather_log_classifies_as_gather(self):
+        kind, payload = self.capture.classify_capture(b"[gather-pipe] bytes=1 hex=FF\n")
+        self.assertEqual(kind, "gather")
+        self.assertEqual(payload, b"\xff")
+
+    def test_non_text_bytes_classify_as_binary(self):
+        kind, payload = self.capture.classify_capture(bytes.fromhex("61FEFFFFFF"))
+        self.assertEqual(kind, "binary")
+        self.assertEqual(payload, bytes.fromhex("61FEFFFFFF"))
+
+    def test_text_without_capture_markers_is_refused(self):
+        with self.assertRaises(ValueError):
+            self.capture.classify_capture(b"just some text\n")
+
+
 class RealEvidenceTest(unittest.TestCase):
     """The real reports in build-f5: empty hex= must parse honestly."""
 

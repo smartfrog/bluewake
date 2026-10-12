@@ -78,6 +78,17 @@ else()
     target_link_libraries(gx_cg_tests PRIVATE gx_vita GXRuntime::retail_gx_frontend)
     target_compile_options(gx_cg_tests PRIVATE -O2 -Wall -Wextra)
 
+    # VITA-WW-15: captured FIFO bytes -> pinned frontend -> plans ->
+    # gx_vita translation -> Cg generation, reported with every refusal.
+    add_executable(gx_bridge "${RENDERER_DIR}/gx_bridge.cpp" gx_bridge_main.cpp)
+    target_link_libraries(gx_bridge PRIVATE gx_vita GXRuntime::retail_gx_frontend)
+    target_compile_options(gx_bridge PRIVATE -O2 -Wall -Wextra)
+
+    add_executable(gx_bridge_tests "${RENDERER_DIR}/gx_bridge_tests.cpp"
+        "${RENDERER_DIR}/gx_bridge.cpp")
+    target_link_libraries(gx_bridge_tests PRIVATE gx_vita GXRuntime::retail_gx_frontend)
+    target_compile_options(gx_bridge_tests PRIVATE -O2 -Wall -Wextra)
+
     add_executable(png_capture_tests png_capture_tests.c png_capture.c)
     target_compile_options(png_capture_tests PRIVATE -O2 -Wall -Wextra)
 endif()

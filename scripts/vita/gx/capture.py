@@ -122,15 +122,26 @@ def parse_gather_log(text, source=""):
     return bytes(stream)
 
 
-def read_capture(path):
-    """Read a capture file: a WW05 report, a host log, or a raw FIFO dump.
+def classify_capture(data, source=""):
+    """Classify one capture file's bytes.
 
-    Returns (kind, payload): kind 'report' carries a Capture, kind 'stream'
-    the concatenated FIFO bytes.
+    Returns (kind, payload): 'report' carries a Capture, 'gather' and
+    'binary' the FIFO bytes. Text with no capture markers is refused; bytes
+    that do not decode as text are taken as a raw FIFO dump.
     """
-    text = path.read_text()
-    if 'GX_FRONTIER ' in text:
-        return 'report', parse_report(text, source=str(path))
-    if '[gather-pipe]' in text:
-        return 'stream', parse_gather_log(text, source=str(path))
-    raise ValueError('capture file has no GX_FRONTIER record and no gather-pipe batches')
+    if b'GX_FRONTIER ' in data:
+        return 'report', parse_report(data.decode(), source=source)
+    if b'[gather-pipe]' in data:
+        return 'gather', parse_gather_log(data.decode(), source=source)
+    try:
+        text = data.decode()
+    except UnicodeDecodeError:
+        return 'binary', data
+    if all(character.isprintable() or character.isspace() for character in text):
+        raise ValueError('capture has no GX_FRONTIER record and no gather-pipe batches')
+    return 'binary', data
+
+
+def read_capture(path):
+    """Read a capture file: a WW05 report, a host log, or a raw FIFO dump."""
+    return classify_capture(path.read_bytes(), source=str(path))
