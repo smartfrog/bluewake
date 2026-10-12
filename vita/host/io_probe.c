@@ -44,9 +44,11 @@ static int dispatch(CPUState* cpu, u32 address) {
     }
     const char* cp_control = getenv("WW05_IO_CP_CONTROL");
     if (cp_control != NULL) {
-        cpu->external_write(cpu, 0xCC000002u, strtoul(cp_control, NULL, 0), 2u);
+        const u64 value = strtoul(cp_control, NULL, 0);
+        cpu->external_write(cpu, 0xCC000002u, value, 2u);
         if (cpu->exception != 0u)
             return 1;
+        assert(cpu->external_read(cpu, 0xCC000002u, 2u) == value && cpu->exception == 0u);
     }
     static const struct {
         const char* environment;

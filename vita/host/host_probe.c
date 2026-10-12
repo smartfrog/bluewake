@@ -613,14 +613,23 @@ int main(int argc, char** argv) {
         const u32 address = high ? 0xCC000032u : distance ? 0xCC000030u : 0xCC000002u;
         const u32 pc = high ? 0x80320FF8u : distance ? 0x80320F98u : 0x80321308u;
         host->cpu.pc = pc;
-        const bool credit = strcmp(scenario, "credit") == 0;
-        const bool store = strcmp(scenario, "store") == 0;
+        const bool credit = strcmp(scenario, "credit") == 0 || strcmp(scenario, "mask-credit") == 0;
+        const bool store = strcmp(scenario, "store") == 0 || strcmp(scenario, "mask-store") == 0;
+        const bool masked = !distance && strncmp(scenario, "mask", 4u) == 0;
+        const bool clear_mask = strcmp(scenario, "mask-clear") == 0;
+        const bool reset = strcmp(scenario, "reset") == 0;
         const bool queued = strcmp(scenario, "queued") == 0;
         const bool read = strcmp(scenario, "read") == 0;
         const bool bad_value = strncmp(scenario, "value-", 6u) == 0;
         const bool bad_width = strncmp(scenario, "width-", 6u) == 0;
-        const u64 value = bad_value ? strtoul(scenario + 6u, NULL, 0) : 0u;
-        const u8 width = bad_width ? (u8)strtoul(scenario + 6u, NULL, 0) : 2u;
+        const bool bad_read = strncmp(scenario, "read-width-", 11u) == 0;
+        const u64 value = bad_value ? strtoul(scenario + 6u, NULL, 0) : masked ? 4u : 0u;
+        const u8 width = bad_width ? (u8)strtoul(scenario + 6u, NULL, 0) :
+                         bad_read ? (u8)strtoul(scenario + 11u, NULL, 0) : 2u;
+        if (!distance && (bad_value || bad_width || bad_read)) {
+            host->cpu.external_write(&host->cpu, address, 4u, 2u);
+            assert(host->error == NULL);
+        }
         if (queued) {
             assert(distance);
             assert(ww_gx_write(&host->frontier, &host->gx, 0x10u, 1u, pc - 4u, host->cpu.gpr[1]));
@@ -632,24 +641,34 @@ int main(int argc, char** argv) {
             bluewake_cycle_domain_prepare_dispatch(&host->cycles, &host->cpu);
             host->cpu.downcount -= 256;
         }
-        if (store) {
+        if (reset) {
+            assert(!distance && host->cpu.external_read(&host->cpu, address, 2u) == 0u);
+        } else if (store) {
             host->cpu.gpr[3] = 0xCC000000u;
-            host->cpu.gpr[0] = 0u;
+            host->cpu.gpr[0] = (u32)value;
             mem_write16(&host->cpu, host->cpu.gpr[3] + (high ? 50u : distance ? 48u : 2u), (u16)host->cpu.gpr[0]);
-        } else if (read) {
-            assert(distance);
+        } else if (read || bad_read) {
+            assert(distance || bad_read);
             host->cpu.external_read(&host->cpu, address, width);
         } else {
             host->cpu.external_write(&host->cpu, address, value, width);
         }
-        if (bad_value || bad_width || queued || read) {
+        if (bad_value || bad_width || bad_read || queued || read) {
             assert(host->error != NULL && host->error_address == address && host->error_pc == pc);
-            if (!read)
+            if (!read && !bad_read)
                 assert(host->error_width == width && host->error_value == value);
+            if (!distance)
+                assert(host->cpu.external_read(&host->cpu, address, 2u) == 4u);
         } else {
             assert(host->error == NULL && host->cpu.exception == 0u);
-            host->cpu.external_write(&host->cpu, address, 0u, 2u);
+            host->cpu.external_write(&host->cpu, address, value, 2u);
             assert(host->error == NULL);
+            if (!distance)
+                assert(host->cpu.external_read(&host->cpu, address, 2u) == value);
+            if (clear_mask) {
+                host->cpu.external_write(&host->cpu, address, 0u, 2u);
+                assert(host->error == NULL && host->cpu.external_read(&host->cpu, address, 2u) == 0u);
+            }
         }
         assert(memcmp(&before, &host->interrupts, sizeof(before)) == 0);
         assert(memcmp(&frontier, &host->frontier, sizeof(frontier)) == 0);

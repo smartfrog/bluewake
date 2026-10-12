@@ -120,7 +120,7 @@ class MainIoTest(unittest.TestCase):
         self.assertTrue(report.endswith('END frontier=PASS live=0 rendered=0\n'))
 
     def test_disabled_cp_init_continues_guest_dispatch_before_the_host_only_fifo_fixture(self):
-        for configuration in ({'cp_control': 0}, {'cp_distance': 0}, {'cp_distance_high': 0},
+        for configuration in ({'cp_control': 0}, {'cp_control': 4}, {'cp_distance': 0}, {'cp_distance_high': 0},
                               {'cp_distance': 0, 'cp_distance_high': 0}):
             with self.subTest(configuration=configuration):
                 status, report = self.run_fixture(**configuration)

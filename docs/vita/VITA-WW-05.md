@@ -2504,3 +2504,55 @@ memory writes, pointer advancement and consumption rather than inert-enable ackn
 Strict GX validation, pins, ABI, `BlueWakeRelData` and static archive are unchanged. Dynamic
 FIFO pointers, DVD/CMake, Windows ARAM and final counts remain tracked. Physical Vita,
 Windows CI, rendering, FPS, runtime REL and actual guest disc/file access remain unverified.
+
+## Real CP configuration continuation and observed overflow interrupt mask
+
+Run `54ba47b707f0454ebf41377244c0a428`, source
+`6c8058e35a47d44e3d3219caa8145d60e0f22206`, passes the low-watermark high and reaches
+**`CC000002 = 0004`**, halfword PC **`80321308`**. The closed guest **FAIL** has
+**64,255 edges, 7,140,123 cycles**, zero FIFO bytes, `GX_FRONTIER complete=0`, `live=0`,
+`rendered=0`. Build status zero in 124.929 s; archive unchanged. Both owned phases timeout
+at **600 s**, TERM/exit -15, `waited=true`; process **124/INCOMPLETE** remains distinct.
+`logs/cp-fifo-low-watermark-high-evidence-6c8058e.json` independently checks plan/request/
+result source and package-hash equality, request-bound report, runtime VPK hash and closed LER.
+SHA-256:
+
+- VPK: `e529a07debc1887d29ace0902874db3eb2ba79ce81211bf58317d6888e3e9c6f`;
+- report: `5421bbec786a96de4c5e17431dd6fe37a42bbf9ec9317befdbe74d433b6cb369`;
+- result: `11722f729f60bcf21b74b6b0d9a73403db33bec1d6dc11b03d6d182c6d7c369e`;
+- log: `4c8e2672fbf6530935ebe357c6af4c2facace18e3ba67ce0a7740fabf093618e`;
+- LER: `169da8b7a0e0d3067e984a0701130bdf9916ce1c09ccf887d9004ec9f413b079`.
+
+Exact clean-source `6c8058e` checks pass **320 host tests, 177 ARMv7 tests**, audit,
+attribution and runtime **CTest 3/3** on Linux AArch64 (`logs/checkpoint-6c8058e.json`).
+The pin identifies **CP_CTRL** at offset `02` (`VideoCommon/CommandProcessor.h:60`).
+Bit **`0004`** is **FifoOverflowIntEnable**, not GPReadEnable (`0001`) or GPLinkEnable
+(`0010`) (`121-136`). Control resets to zero (`CommandProcessor.cpp:107-117`), reads its
+retained halfword and stores the defined bits (`201-208`), and propagates the overflow mask
+without changing GPReadEnable (`574-586`). CP interrupt assertion additionally requires a
+real pending condition and GPReadEnable (`514-531`); storing this mask cannot assert an IRQ.
+
+WW05 now retains only the observed **`0000` / `0004`** halfword controls, with halfword
+readback of that same state. Rejected writes preserve the retained mask. Other control bits,
+including combined mask/read/link values and reserved bits, still stop explicitly; there is
+no implicit masking of unsupported operation requests. GP reads/link stay disabled. The
+store neither schedules invented GPU time nor creates overflow status, IRQ, FIFO bytes,
+consumption, pointer movement or parser input. The pin calls RunGpu after control writes;
+its consumer requires GPReadEnable (`Fifo.cpp:435-443`). WW05 does not implement the timer/
+worker backend and does not claim activation or a full CP model for this mask-only operation.
+
+`logs/cp-control-overflow-mask-red.log` reproduces the refused observed mask and missing
+control readbacks. `logs/cp-control-overflow-mask-host-final-green.log` passes **323 host
+tests** on Linux AArch64. Shared control/distance fixtures retain actual guest halfword
+hooks, credited-cycle/spent-quantum behavior and fail contexts. Added explicit parameterized
+cases cover mask retention/repeated stores, zero clearing, rejected widths/read widths and
+unsupported control combinations preserving the prior mask, with FIFO, PI interrupt state
+and PC unchanged. The initial control read is zero. Synthetic main-loop cases cover both
+zero and mask-only setup/readback before fixture FIFO acceptance; unsupported GPRead still
+cannot reach the fixture. These PASS results are not authentic game/GX evidence.
+
+The next clean source-bound build/trial checks actual continuation. Status, clear, breakpoint,
+GP read/link activation and other unobserved services remain refused. Strict GX validation,
+pins, CPU ABI, `BlueWakeRelData` and static archive are unchanged. Dynamic FIFO pointers,
+DVD/CMake, Windows ARAM and final counts remain tracked. Physical Vita, Windows CI,
+rendering, FPS, runtime REL and actual guest disc/file access remain unverified.

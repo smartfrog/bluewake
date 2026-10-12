@@ -428,6 +428,8 @@ static u64 mmio_read(CPUState* cpu, u32 address, u8 size) {
     u32* fifo = fifo_register(host, address, size);
     if (fifo != NULL)
         value = size == 2u ? (u16)(*fifo >> ((address & 2u) != 0u ? 16u : 0u)) : *fifo;
+    else if (address == 0xCC000002u && size == 2u)
+        value = host->cp_control;
     else if (address == 0xCC00401Cu && size == 2u)
         value = host->mi_interrupt_mask;
     else if (address == 0xCC004020u && size == 2u)
@@ -508,10 +510,11 @@ static void mmio_write(CPUState* cpu, u32 address, u64 value, u8 size) {
     }
     u32* fifo = fifo_register(host, address, size);
     if (address == 0xCC000002u && size == 2u) {
-        if (value != 0u) {
-            fail_mmio_write(host, "CP control requires disabled init; FIFO processor backend not implemented", address, value, size);
+        if (value & ~0x4ull) {
+            fail_mmio_write(host, "CP control enables or unsupported interrupt masks require FIFO processor backend", address, value, size);
             return;
         }
+        host->cp_control = (u16)value;
     } else if ((address == 0xCC000030u || address == 0xCC000032u) && size == 2u) {
         if (value != 0u || host->frontier.size != 0u) {
             fail_mmio_write(host, "CP FIFO distance requires empty disabled init; FIFO processor backend not implemented", address, value, size);
