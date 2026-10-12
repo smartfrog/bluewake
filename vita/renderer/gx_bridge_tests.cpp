@@ -12,14 +12,18 @@
 #include "gx_bridge.h"
 #include "gx_ztexture_fixture.h"
 #include "gx_fog_fixture.h"
+#include "gx_snapshot_memory.h"
 
 #include "../feasibility/gx/gx_fixture.hpp"
 
 #include <cstdint>
+#include <chrono>
+#include <cstdlib>
 #include <cstdio>
 #include <cstring>
 #include <filesystem>
 #include <fstream>
+#include <sstream>
 #include <string>
 #include <vector>
 
@@ -51,6 +55,81 @@ const gx_bridge::GapEntry* find_gap(const gx_bridge::Result& result,
   return nullptr;
 }
 
+int snapshot_hole_is_not_zero_filled_memory() {
+  const auto path = std::filesystem::path("/tmp/opencode") /
+      ("ww18-coverage-" + std::to_string(std::chrono::steady_clock::now().time_since_epoch().count()));
+  std::ofstream file(path);
+  file << "GX_MEM1_RANGES_V1\n00000000 00000010\n";
+  file.close();
+  CHECK(file.good());
+  const char* previous = std::getenv("GX_BRIDGE_MEM1_RANGES");
+  const std::string saved = previous != nullptr ? previous : "";
+  CHECK(setenv("GX_BRIDGE_MEM1_RANGES", path.c_str(), 1) == 0);
+  gx_bridge::Result result;
+  const bool accepted = run_stream(gx_fixture::build_textured_triangle(), result);
+  if (previous != nullptr)
+    CHECK(setenv("GX_BRIDGE_MEM1_RANGES", saved.c_str(), 1) == 0);
+  else
+    CHECK(unsetenv("GX_BRIDGE_MEM1_RANGES") == 0);
+  CHECK(std::filesystem::remove(path));
+  CHECK(!accepted);
+  CHECK(result.error.find("snapshot memory missing") != std::string::npos);
+  CHECK(result.error.find("00001000") != std::string::npos);
+  return 0;
+}
+
+int snapshot_resolver_clips_available_and_handles_aliases() {
+  gx_fixture::FixtureContext memory;
+  gx_fixture::fill_texture_zones(memory);
+  DolGuestAddressResolver source;
+  dol_guest_address_resolver_init_callback(&source, gx_fixture::resolve_mem1, &memory);
+  gx_bridge::snapshot::Resolver guard(source);
+  guard.ranges = {{0x1000, 64}};
+  for (u32 address : {0x1000u, 0x80001000u, 0xC0001000u}) {
+    DolGuestResolvedRange resolved;
+    CHECK(gx_bridge::snapshot::Resolver::resolve(&guard, address, 1,
+          DOL_GUEST_ADDRESS_AUTO, DOL_GUEST_RESOURCE_TEXTURE, &resolved));
+    CHECK(resolved.available == 64);
+    CHECK(resolved.data == memory.mem1.data() + 0x1000);
+  }
+  return 0;
+}
+
+int snapshot_resolver_refuses_crossing_coverage() {
+  gx_fixture::FixtureContext memory;
+  gx_fixture::fill_texture_zones(memory);
+  DolGuestAddressResolver source;
+  dol_guest_address_resolver_init_callback(&source, gx_fixture::resolve_mem1, &memory);
+  gx_bridge::snapshot::Resolver guard(source);
+  guard.ranges = {{0x1000, 64}};
+  DolGuestResolvedRange resolved;
+  CHECK(!gx_bridge::snapshot::Resolver::resolve(&guard, 0x1000, 65,
+        DOL_GUEST_ADDRESS_AUTO, DOL_GUEST_RESOURCE_TEXTURE, &resolved));
+  CHECK(guard.missing && guard.missing_size == 65);
+  return 0;
+}
+
+int snapshot_coverage_reader_merges_adjacent_ranges() {
+  std::istringstream file("GX_MEM1_RANGES_V1\n00001000 00000020\n00001020 00000020\n");
+  std::vector<gx_bridge::snapshot::Range> ranges;
+  std::string error;
+  CHECK(gx_bridge::snapshot::read_ranges(file, ranges, error));
+  CHECK(ranges.size() == 1 && ranges[0].address == 0x1000 && ranges[0].size == 64);
+  return 0;
+}
+
+int snapshot_coverage_reader_rejects_bad_bounds() {
+  for (const char* body : {"00001000 00000000\n", "017FFFFF 00000002\n",
+                           "00001000 00000040\n00001020 00000040\n", "not a range\n"}) {
+    std::istringstream file(std::string("GX_MEM1_RANGES_V1\n") + body);
+    std::vector<gx_bridge::snapshot::Range> ranges;
+    std::string error;
+    CHECK(!gx_bridge::snapshot::read_ranges(file, ranges, error));
+    CHECK(!error.empty());
+  }
+  return 0;
+}
+
 } // namespace
 
 int main(int argc, char** argv) {
@@ -79,6 +158,11 @@ int main(int argc, char** argv) {
     return 0;
   }
   CHECK(argc == 1);
+  CHECK(snapshot_hole_is_not_zero_filled_memory() == 0);
+  CHECK(snapshot_resolver_clips_available_and_handles_aliases() == 0);
+  CHECK(snapshot_resolver_refuses_crossing_coverage() == 0);
+  CHECK(snapshot_coverage_reader_merges_adjacent_ranges() == 0);
+  CHECK(snapshot_coverage_reader_rejects_bad_bounds() == 0);
   for (std::uint8_t mode : {2, 4, 5, 6, 7}) {
     for (bool orthographic : {false, true}) {
       for (bool range : {false, true}) {

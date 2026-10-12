@@ -9,6 +9,7 @@ import re
 
 import bridge
 import capture
+import memory_snapshot
 
 
 DRAW_FAMILIES = set(range(0x80, 0xC0, 8))
@@ -57,7 +58,9 @@ def report_fields(text, prefix):
     return dict(item.split('=', 1) for item in lines[0].split()[1:]) if lines else {}
 
 
-def extract_fixture(journal, output, *, mem1=None, report=None):
+def extract_fixture(journal, output, *, mem1=None, report=None, snapshot=None):
+    if mem1 is not None and snapshot is not None:
+        raise ValueError('provide only one memory input: raw MEM1 or snapshot manifest')
     source = journal.read_bytes()
     commands = capture.journal_commands(source.decode())
     if not commands:
@@ -65,12 +68,17 @@ def extract_fixture(journal, output, *, mem1=None, report=None):
     memory_needed = requires_memory(commands)
     fifo = b''.join(commands)
     memory = mem1.read_bytes() if mem1 is not None else None
+    loaded = memory_snapshot.load(snapshot, memory_snapshot.sha256(fifo)) if snapshot is not None else None
+    if loaded is not None:
+        memory = loaded.image
     result = dict(source=str(journal.resolve()), source_sha256=hashlib.sha256(source).hexdigest(),
                   commands=len(commands), bytes=len(fifo), captured_draws=draw_count(commands),
                   fifo_sha256=hashlib.sha256(fifo).hexdigest(), requires_mem1=memory_needed,
                   coverage='journal-only-extent-unverified', reported_draws=None,
                   mem1_source=str(mem1.resolve()) if mem1 is not None else None,
                   mem1_sha256=hashlib.sha256(memory).hexdigest() if memory is not None else None)
+    if loaded is not None:
+        result['snapshot'] = loaded.metadata
     if report is not None:
         report_bytes = report.read_bytes()
         stream = report_fields(report_bytes.decode(), 'GX_STREAM')
@@ -91,7 +99,9 @@ def extract_fixture(journal, output, *, mem1=None, report=None):
                 result['coverage'] = 'all-reported-commands-partial-tail'
     output.mkdir(parents=True, exist_ok=False)
     (output / 'stream.fifo').write_bytes(fifo)
-    if memory is not None:
+    if loaded is not None:
+        loaded.stage(output)
+    elif memory is not None:
         (output / 'mem1.bin').write_bytes(memory)
     (output / 'capture.json').write_text(json.dumps(result, indent=2) + '\n')
     return result
@@ -114,7 +124,18 @@ def replay_fixture(directory, metadata):
     if metadata['requires_mem1'] and metadata['mem1_sha256'] is None:
         return 'verdict=memory-required\n', 2
     memory = directory / 'mem1.bin' if metadata['mem1_sha256'] is not None else None
-    output, refusal = bridge.run_stream(bridge.find_binary(), (directory / 'stream.fifo').read_bytes(), memory)
+    if metadata.get('snapshot'):
+        if memory_snapshot.sha256((directory / 'stream.fifo').read_bytes()) != metadata['snapshot']['fifo_sha256']:
+            raise ValueError('fixture snapshot FIFO SHA-256 mismatch')
+        ranges = directory / 'mem1.ranges'
+        if memory_snapshot.sha256(ranges.read_bytes()) != metadata['snapshot']['ranges_sha256']:
+            raise ValueError('fixture snapshot coverage SHA-256 mismatch')
+        if memory_snapshot.sha256(memory.read_bytes()) != metadata['mem1_sha256']:
+            raise ValueError('fixture snapshot backing SHA-256 mismatch')
+        output, refusal = bridge.run_stream(bridge.find_binary(), (directory / 'stream.fifo').read_bytes(),
+                                            memory, ranges_path=ranges)
+    else:
+        output, refusal = bridge.run_stream(bridge.find_binary(), (directory / 'stream.fifo').read_bytes(), memory)
     if refusal is not None:
         return f'bridge ok=0 reason={refusal}\nverdict=rejected\n', 1
     summary = re.search(r'^bridge .*$', output, re.MULTILINE)
@@ -134,7 +155,9 @@ def main():
     parser.add_argument('--min-draws', type=int, default=1)
     parser.add_argument('--output', type=Path, required=True, help='new private fixture directory')
     parser.add_argument('--report', type=Path)
-    parser.add_argument('--mem1', type=Path, help='contemporaneous guest snapshot, never zero-filled')
+    memory_args = parser.add_mutually_exclusive_group()
+    memory_args.add_argument('--mem1', type=Path, help='legacy raw MEM1 starting at physical zero')
+    memory_args.add_argument('--snapshot', type=Path, help='versioned MEM1 binary/region manifest')
     parser.add_argument('--replay', action='store_true')
     args = parser.parse_args()
     if (args.journal is None) == (args.latest is None) or args.min_draws < 1:
@@ -149,7 +172,11 @@ def main():
             journal, report = selected
         elif report is None and journal.with_suffix('.report').exists():
             report = journal.with_suffix('.report')
-        result = extract_fixture(journal, args.output, mem1=args.mem1, report=report)
+        snapshot = args.snapshot
+        adjacent = journal.with_suffix('.mem1.json')
+        if args.mem1 is None and snapshot is None and adjacent.exists():
+            snapshot = adjacent
+        result = extract_fixture(journal, args.output, mem1=args.mem1, report=report, snapshot=snapshot)
         print(json.dumps(result, sort_keys=True))
         if not args.replay:
             return 0
