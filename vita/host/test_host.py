@@ -109,9 +109,9 @@ class StartupHostTest(unittest.TestCase):
 
     def test_cp_enables_and_unobserved_distances_fail_with_the_actual_write_context(self):
         for register in ('control', 'distance-low', 'distance-high'):
-            values = (1, 2, 5, 8, 16, 21, 32, 64, 68, 65535)
+            values = (1, 2, 5, 8, 16, 32, 64, 68, 65535)
             if register != 'control':
-                values = (*values, 4, 20)
+                values = (*values, 4, 20, 21)
             for value in values:
                 with self.subTest(register=register, value=value):
                     subprocess.run([str(OUT / 'host_probe'), f'cp-{register}-value-{value}'], check=True)

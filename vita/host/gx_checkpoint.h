@@ -3,8 +3,10 @@
 
 #include "gxruntime/gx_recomp.h"
 
+enum { WW_GX_MAX_COMMAND_BYTES = 1025u };
+
 typedef struct WwGxCheckpoint {
-    u8 bytes[1025];
+    u8 bytes[WW_GX_MAX_COMMAND_BYTES];
     u32 size;
     u32 required;
     u32 pc;

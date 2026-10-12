@@ -12,27 +12,32 @@ const char* ww_fifo_gather_write(WwHost* host, u64 value, u8 size) {
         return "invalid retained gather byte count";
 
     u8 bytes[sizeof(pipe->bytes) + 8u];
+    WwFifoOrigin origins[sizeof(pipe->bytes) + 8u] = {0};
     memcpy(bytes, pipe->bytes, pipe->size);
-    for (u8 index = 0u; index < size; ++index)
+    memcpy(origins, pipe->origins, pipe->size * sizeof(origins[0]));
+    for (u8 index = 0u; index < size; ++index) {
         bytes[pipe->size + index] = (u8)(value >> ((size - index - 1u) * 8u));
+        origins[pipe->size + index].pc = host->cpu.pc;
+        origins[pipe->size + index].sp = host->cpu.gpr[1];
+        origins[pipe->size + index].byte = bytes[pipe->size + index];
+    }
     const u8 count = pipe->size + size;
     if (count < sizeof(pipe->bytes)) {
         memcpy(pipe->bytes, bytes, count);
+        memcpy(pipe->origins, origins, count * sizeof(origins[0]));
         pipe->size = count;
         return NULL;
     }
 
     CPUState* cpu = &host->cpu;
     const u32 physical = host->pi_fifo_write_pointer;
-    if (cpu->ram == NULL || cpu->ram_size < 32u ||
-        host->pi_fifo_base > host->pi_fifo_end || host->pi_fifo_end > cpu->ram_size - 32u ||
-        physical < host->pi_fifo_base || physical > host->pi_fifo_end ||
-        ((host->pi_fifo_base | host->pi_fifo_end | physical) & 31u) != 0u)
+    if (!ww_fifo_mem1_ring_valid(cpu, host->pi_fifo_base, host->pi_fifo_end, physical))
         return "gather burst requires an aligned physical PI ring in real MEM1";
     const u32 guest = GC_RAM_BASE | physical;
     if (ww_host_linked_alias_overlaps(guest, 32u) || get_ram_ptr(cpu, guest, 32u, NULL) != cpu->ram + physical)
         return "gather burst cannot copy into a linked alias";
     const bool linked = (host->cp_control & 0x10u) != 0u;
+    WwFifoCapture* capture = &host->fifo_capture;
     if (linked) {
         if (host->cp_fifo_base != host->pi_fifo_base || host->cp_fifo_end != host->pi_fifo_end ||
             host->cp_fifo_write_pointer != physical)
@@ -40,6 +45,11 @@ const char* ww_fifo_gather_write(WwHost* host, u64 value, u8 size) {
         const u32 capacity = host->cp_fifo_end - host->cp_fifo_base;
         if ((host->cp_fifo_distance & 31u) != 0u || capacity < 32u || host->cp_fifo_distance > capacity - 32u)
             return "linked gather burst exceeds unconsumed CP ring capacity";
+        if (capture->count > WW_FIFO_ORIGIN_BYTES || (capture->count & 31u) != 0u)
+            return "invalid retained FIFO origin count";
+        if (capture->count == 0u && (capture->read_bytes != 0u || host->cp_fifo_distance != 0u ||
+                                    host->cp_fifo_read_pointer != physical))
+            return "first linked gather burst requires the observed empty CP read position";
     }
     if (pipe->transfers == UINT64_MAX)
         return "gather burst counter exhausted";
@@ -58,11 +68,18 @@ const char* ww_fifo_gather_write(WwHost* host, u64 value, u8 size) {
     clear_matching_reservation(cpu, physical);
     host->pi_fifo_write_pointer = next;
     if (linked) {
+        if (capture->count == 0u)
+            capture->first_pointer = physical;
+        if (capture->count < WW_FIFO_ORIGIN_BYTES) {
+            memcpy(capture->origins + capture->count, origins, 32u * sizeof(origins[0]));
+            capture->count += 32u;
+        }
         host->cp_fifo_write_pointer = next;
         host->cp_fifo_distance = distance;
     }
     pipe->size = count - 32u;
     memcpy(pipe->bytes, bytes + 32u, pipe->size);
+    memcpy(pipe->origins, origins + 32u, pipe->size * sizeof(origins[0]));
     pipe->transfers = transfer;
     return NULL;
 }

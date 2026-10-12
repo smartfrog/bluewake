@@ -2692,3 +2692,84 @@ pins, `BlueWakeRelData`, DOL and static archive are unchanged. GPRead consumptio
 active clear/metrics, breakpoint, DVD DI/CMake, Windows ARAM and final integration counts
 remain open. Physical Vita, Windows CI, rendering, FPS, live REL and real disc/file access
 remain unverified. No network, push, shared profile or other worktree was changed.
+
+## Authentic GPRead activation and first-command consumer
+
+Run `7f9c6fe5cfe14ed3bfa0de67e8057bac`, clean source
+`4cbddc9732e3991aa3b4effc76f4879537984aae`, passes the idle `CP_CLEAR=3` and
+reaches **`CC000002 = 0015`**, halfword PC **`80321270`**. This is GPRead plus
+the already observed overflow mask and GPLink. Guest **FAIL** remains at **64,255 edges,
+7,140,123 cycles**, zero command bytes, `complete=0`, `live=0`, `rendered=0`.
+Build status zero in 122.989 s; static archive unchanged. Both owned emulator phases
+timeout at **600 s**, TERM/exit -15, `waited=true`; process **124/INCOMPLETE** is not
+the guest verdict. `logs/cp-clear-idle-evidence-4cbddc9.json` independently verifies
+plan/request/result bindings, request-bound report, package and closed LER. SHA-256:
+
+- VPK: `0edff3f1c32b0e25e06ad27e678fd8f23e4c520c17f2a12a56b08bb6588c605f`;
+- report: `03416b81b317bb2960f80fc88b222ffa796fbb32170ceca65e782c08a6b843c5`;
+- result: `6dece4c436450cf394a46f746436a76719d4a11e3a2a8d9836c9a53699ca0ea3`;
+- log: `4c8e2672fbf6530935ebe357c6af4c2facace18e3ba67ce0a7740fabf093618e`;
+- LER: `169da8b7a0e0d3067e984a0701130bdf9916ce1c09ccf887d9004ec9f413b079`.
+
+Exact clean `4cbddc9` checks pass **351 host tests, 177 ARMv7 tests**, audit,
+attribution and runtime **CTest 3/3** on Linux AArch64 (`logs/checkpoint-4cbddc9.json`).
+The announced consumer unit is now implemented in `vita/host/fifo_consumer.c`, included
+by the same host CMake target in test and authentic ARMv7 builds. It accepts the
+authentic **`0015`** control without an inert GPRead acknowledgement: activation and
+actual gather writes invoke the reader. An empty FIFO performs no transfer or decode.
+
+The contract comes from pinned `VideoCommon/Fifo.cpp:215-235,435-476`: GPRead gates
+real MEM1 reads at RPTR, **32 bytes** per transport block, inclusive-end wrap to base,
+distance decrement by exactly 32. WW05 performs these real reads synchronously at the
+observed MMIO boundaries, without inventing GPU time, IRQs or rendering. It checks aligned
+MEM1 rings, produced distance/write-pointer consistency, aliases, overflow-mask state,
+pending CP IRQ and counter exhaustion before pointer/parser mutation. A failed sampled
+consume trace cannot commit that read. Successful reads advance RPTR/distance even if the
+strict parser subsequently rejects their actual bytes: transport and decode are separate.
+
+Gather retains per-byte writer PC/SP and value through partial stores, spill and committed
+blocks. First-command origins are bounded to **1,056 bytes**, the whole-block ceiling of
+the existing 1,025-byte checkpoint; no allocation or provenance for an indefinite GPU
+stream is added. Consumption copies **current MEM1**, verifies each byte against its
+committed writer origin, and refuses changed bytes or missing/misaligned provenance rather
+than attributing stale data to an old PC. Wrap is checked against the first real burst.
+
+Only actual consumed bytes feed `ww_gx_write`, one byte with its own writer PC/SP at a
+time. The unchanged checkpoint frames and dispatches the first complete CP/BP/XF command
+through `dol_gx_recomp_replay_fifo`; report `hex=` contains that exact command alone.
+Completion PC belongs to its last byte's original store, **not** GPRead activation or the
+later burst-completing store. Remaining bytes of that already-read block count as trailing;
+later queued blocks remain unconsumed once the frontier completes. This is a bounded
+first-command capture, not a full continuously executing GPU backend.
+
+The existing halfword RPTR readback is usable with GPRead enabled; distance halves expose
+the actual produced-minus-read distance in that mode. Disabled post-input synchronization,
+configuration resets, active clear/metrics, unsupported modes/masks and pending CP IRQ
+handling still refuse. No synthetic MMIO-to-parser shortcut returns to production.
+
+Retained game-free failures are `logs/cp-consumer-preparation-4cbddc9-red.{log,json}`
+(unchanged sources during the previous authentic trial), `logs/cp-gpread-consumer-red.log`
+(missing GPRead reader/provenance) and `logs/cp-gpread-consumer-main-red.log` (missing
+end-to-end report path and consume-trace failure). Initial BP test data targeted an EFB
+copy trigger without its required context; the pinned parser correctly refused it. The
+positive BP fixture now uses a regular register and a separate negative copy-trigger test
+preserves that strict refusal. `logs/cp-gpread-consumer-host-reviewed-green.log` passes
+**372 host tests** on Linux AArch64, including CP/BP/XF at all supported store widths,
+partial gathers, queued data, pause/reactivation, two queued blocks, inclusive wrap, a
+maximum 255-word XF across 33 read blocks, an eight-byte spill retaining its old completion
+PC, changed memory, full/partial aliases, inconsistent pointers/distance, missing origins,
+trace failure, exhausted counters, unknown opcode, oversized XF, pending CP IRQ, sampled
+record fields and spent-quantum cycle credit. The main-loop synthetic transport test
+reports `opcode=61 bytes=5 pc=80001000 completion_pc=80001004 sp=817FFF00 trailing=27`
+with **`hex=6141123456`**, from gather-to-MEM1-to-CP-read, not direct parser injection.
+It remains game-free evidence, **not authentic GX acceptance**.
+
+The next clean source-bound build/trial must prove the actual game writes and consumes a
+complete command. Sources stay unchanged until supervision closes; both emulator phases
+retain the external 600-second bound. CPU ABI, FP semantics, pinned frontend, composite,
+`BlueWakeRelData`, DOL and static archive are unchanged; audio remains stopped/silent.
+No real disc/file access, VI retrace, presentation or live REL is claimed. DVD integration
+`35f7c8a` still precedes the first genuine file access. Windows ARAM verification, final
+integration counts, Windows CI and physical Vita checks remain open. No network, push,
+shared-profile change or other-worktree mutation occurred; open PRs cannot be refreshed
+under the offline constraint, and only local remote-branch metadata was inspected.

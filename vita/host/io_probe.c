@@ -301,8 +301,23 @@ static int dispatch(CPUState* cpu, u32 address) {
     }
     cpu->pc = address;
     WwHost* host = cpu->external_user_data;
-    assert(ww_gx_write(&host->frontier, &host->gx, 0x61u, 1u, cpu->pc, cpu->gpr[1]));
-    assert(ww_gx_write(&host->frontier, &host->gx, 0xFEFFFFFFu, 4u, cpu->pc, cpu->gpr[1]));
+    if (getenv("WW05_IO_CONSUMER") != NULL) {
+        ww_probe_fifo_setup(host, true);
+        host->cp_fifo_high_watermark = 96u;
+        mem_write16(cpu, 0xCC000004u, 3u);
+        mem_write16(cpu, 0xCC000002u, 0x15u);
+        assert(host->error == NULL);
+        cpu->gpr[1] = 0x817FFF00u;
+        mem_write8(cpu, 0xCC008000u, 0x61u);
+        cpu->pc = address + 4u;
+        mem_write32(cpu, 0xCC008000u, 0x41123456u);
+        cpu->pc = address + 8u;
+        for (u8 index = 5u; index < 32u; ++index)
+            mem_write8(cpu, 0xCC008000u, 0u);
+    } else {
+        assert(ww_gx_write(&host->frontier, &host->gx, 0x61u, 1u, cpu->pc, cpu->gpr[1]));
+        assert(ww_gx_write(&host->frontier, &host->gx, 0xFEFFFFFFu, 4u, cpu->pc, cpu->gpr[1]));
+    }
     cpu->downcount -= 12;
     if (edge != NULL)
         edge(edge_user, cpu, address + 4u);
@@ -373,6 +388,7 @@ int __wrap_fprintf(FILE* stream, const char* format, ...) {
          (strncmp(format, "[fp-exception-resume]", 21u) == 0 && failure("fp-resume-log")) ||
          (strncmp(format, "[aram-expansion-request]", 24u) == 0 && failure("aram-expansion-log")) ||
          (strncmp(format, "[aram-hsp-absent]", 17u) == 0 && failure("aram-absent-log")) ||
+         (strncmp(format, "[cp-consume]", 12u) == 0 && failure("cp-consume-log")) ||
          (strncmp(format, "[exi]", 5u) == 0 && failure("exi-log")))) {
         errno = EIO;
         return -1;

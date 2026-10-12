@@ -18,7 +18,7 @@ class MainIoTest(unittest.TestCase):
     def run_fixture(self, failure='', stale=False, interrupt=None, exception=False, syscall=None, progress=False,
                     dispatch_trace=None, stale_dispatch=False, mmio_poll=False, aram_dma=False, dsp_init=False,
                     cpu_boundary=None, exi=False, cp_control=None, fifo=None, prior_aram_transfers=None,
-                    cp_distance=None, cp_distance_high=None, cp_clear=None):
+                    cp_distance=None, cp_distance_high=None, cp_clear=None, consumer=False):
         with tempfile.TemporaryDirectory(dir=OUT, prefix='io-') as directory:
             root = Path(directory)
             data = bytearray(260)
@@ -58,6 +58,8 @@ class MainIoTest(unittest.TestCase):
                 environment['WW05_IO_CP_CONTROL'] = str(cp_control)
             if cp_clear is not None:
                 environment['WW05_IO_CP_CLEAR'] = str(cp_clear)
+            if consumer:
+                environment['WW05_IO_CONSUMER'] = '1'
             if cp_distance is not None:
                 environment['WW05_IO_CP_DISTANCE'] = str(cp_distance)
             if cp_distance_high is not None:
@@ -149,8 +151,21 @@ class MainIoTest(unittest.TestCase):
         self.assertIn('address=CC000004 pc=80001000 width=2 value=0000000000000004', report)
         self.assertTrue(report.endswith('END frontier=FAIL live=0 rendered=0\n'))
 
+    def test_cpu_gather_and_cp_reader_publish_the_first_command_hex_and_precise_writer_pcs(self):
+        status, report = self.run_fixture(consumer=True)
+        self.assertEqual(status, 0)
+        self.assertIn('GX_FRONTIER complete=1 opcode=61 bytes=5 pc=80001000 completion_pc=80001004 sp=817FFF00 trailing=27 edge_stop=1 hex=6141123456\n', report)
+        self.assertTrue(report.endswith('END frontier=PASS live=0 rendered=0\n'))
+
+    def test_consumer_trace_failure_publishes_fail_without_command_acceptance(self):
+        status, report = self.run_fixture(consumer=True, failure='cp-consume-log')
+        self.assertNotEqual(status, 0)
+        self.assertIn('GX_FRONTIER complete=0', report)
+        self.assertIn('STOP reason=CP consume trace write failed', report)
+        self.assertTrue(report.endswith('END frontier=FAIL live=0 rendered=0\n'))
+
     def test_unsupported_cp_enable_cannot_reach_or_accept_the_fifo_fixture(self):
-        for control in (1, 21):
+        for control in (1, 5, 53):
             with self.subTest(control=control):
                 status, report = self.run_fixture(cp_control=control)
                 self.assertNotEqual(status, 0)

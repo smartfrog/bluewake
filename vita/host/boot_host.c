@@ -425,7 +425,7 @@ static u64 mmio_read(CPUState* cpu, u32 address, u8 size) {
         refresh(host);
         return value;
     }
-    if (address == 0xCC00003Au && size == 2u && fifo_has_input(host)) {
+    if (address == 0xCC00003Au && size == 2u && fifo_has_input(host) && (host->cp_control & 1u) == 0u) {
         ww_host_fail(host, "CP read pointer sync requires empty disabled init; FIFO processor backend not implemented", address, cpu->pc);
         return 0u;
     }
@@ -436,6 +436,8 @@ static u64 mmio_read(CPUState* cpu, u32 address, u8 size) {
         value = host->cp_control;
     else if (address == 0xCC000004u && size == 2u)
         value = 0u;
+    else if ((address == 0xCC000030u || address == 0xCC000032u) && size == 2u && (host->cp_control & 1u) != 0u)
+        value = (u16)(host->cp_fifo_distance >> (address == 0xCC000032u ? 16u : 0u));
     else if (address == 0xCC00401Cu && size == 2u)
         value = host->mi_interrupt_mask;
     else if (address == 0xCC004020u && size == 2u)
@@ -477,6 +479,8 @@ static void mmio_write(CPUState* cpu, u32 address, u64 value, u8 size) {
         if (host->error != NULL)
             return;
         const char* error = ww_fifo_gather_write(host, value, size);
+        if (error == NULL)
+            error = ww_fifo_consume_first(host);
         if (error != NULL)
             fail_mmio_write(host, error, address, value, size);
         close_spent_quantum(host, cpu);
@@ -521,11 +525,16 @@ static void mmio_write(CPUState* cpu, u32 address, u64 value, u8 size) {
     }
     u32* fifo = fifo_register(host, address, size);
     if (address == 0xCC000002u && size == 2u) {
-        if (value != 0u && value != 4u && value != 0x14u) {
-            fail_mmio_write(host, "CP control enables or unsupported interrupt masks require FIFO processor backend", address, value, size);
+        if (value != 0u && value != 4u && value != 0x14u && value != 0x15u) {
+            fail_mmio_write(host, "CP control requests an unimplemented FIFO mode or interrupt mask", address, value, size);
             return;
         }
         host->cp_control = (u16)value;
+        const char* error = ww_fifo_consume_first(host);
+        if (error != NULL) {
+            fail_mmio_write(host, error, address, value, size);
+            return;
+        }
     } else if (address == 0xCC000004u && size == 2u) {
         if (value != 3u || (host->cp_control & 1u) != 0u || host->cp_fifo_distance != 0u ||
             fifo_has_input(host) || (dol_interrupts_pi_cause(&host->interrupts) & DOL_PI_CAUSE_CP) != 0u) {

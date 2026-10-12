@@ -23,6 +23,7 @@ typedef struct WwHost {
     DolGxRecompState gx;
     WwGxCheckpoint frontier;
     WwGatherPipe gather;
+    WwFifoCapture fifo_capture;
     BluewakeCycleDomain cycles;
     DolInterrupts interrupts;
     DolDi di;
