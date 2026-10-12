@@ -33,6 +33,9 @@ class DvdReadTest(unittest.TestCase):
     def test_async_callback_is_refused_before_copy_or_completion(self):
         self.run_probe('async-callback')
 
+    def test_owned_async_callback_is_queued_after_real_copy_without_early_completion(self):
+        self.run_probe('async-owned')
+
     def test_missing_disc_never_becomes_a_successful_sync_read(self):
         self.run_probe('missing-disc')
 

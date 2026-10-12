@@ -12,6 +12,7 @@
 #include "dsp_interface.h"
 #include "bat_contract.h"
 #include "trace_sampling.h"
+#include "dvd_completion.h"
 #include "gxruntime/di.h"
 #include "gxruntime/exi.h"
 #include "gxruntime/interrupts.h"
@@ -34,6 +35,7 @@ typedef struct WwHost {
     BluewakeIplSram sram;
     DolSiDevice si;
     DolAudioDma audio;
+    BluewakeDvdCompletions dvd_completions;
     WwDspInterface dsp;
     WwBatContract bat;
     const StaticRecompModuleDesc* module;
@@ -79,7 +81,10 @@ typedef struct WwHost {
     bool decrementer_pending;
     bool aram_owned;
     bool disc_owned;
+    bool dvd_callback_active;
 } WwHost;
+
+enum { WW_DVD_CALLBACK_DELAY_CYCLES = 486000u };
 
 static inline bool ww_host_trace_syscall(u64 resume) {
     return resume <= 1u || resume % 1000u == 0u;
@@ -97,6 +102,8 @@ void ww_host_fail(WwHost* host, const char* error, u32 address, u32 pc);
 bool ww_host_linked_alias_overlaps(u32 address, u32 size);
 DolDiCommandResult ww_host_di_read(WwHost* host, DolDiCommand* command);
 bool ww_host_dvd_edge(WwHost* host, u32 address);
+bool ww_host_module_contains_address(const StaticRecompModuleDesc* module, u32 address);
+void ww_host_dvd_complete(WwHost* host);
 const char* ww_gx_stream_write(WwHost* host, u8 byte, const WwFifoOrigin* origin, u32 trailing);
 
 #endif

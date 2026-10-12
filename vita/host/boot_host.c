@@ -5,6 +5,7 @@
 #include "external_vector.h"
 #include "di_inquiry.h"
 #include "edge_intercept_table.h"
+#include "callback_delivery.h"
 #include "gxruntime/boot.h"
 #include "gxruntime/guest_memory_dirty.h"
 #include "gxruntime/aram.h"
@@ -270,7 +271,7 @@ static void fallback(CPUState* cpu, u32 raw, u32 cia) {
     ww_host_fail(owner(cpu), "unsupported instruction fallback", raw, cia);
 }
 
-static bool module_contains_address(const StaticRecompModuleDesc* module, u32 address) {
+bool ww_host_module_contains_address(const StaticRecompModuleDesc* module, u32 address) {
     if (module != NULL && (address & 3u) == 0u) {
         for (u32 index = 0u; index < module->num_code_ranges; ++index) {
             const StaticRecompRange* range = &module->code_ranges[index];
@@ -284,7 +285,7 @@ static bool module_contains_address(const StaticRecompModuleDesc* module, u32 ad
 static bool host_call(CPUState* cpu, u32 service) {
     WwHost* host = owner(cpu);
     const u32 address = canonical_dispatch_address(cpu, service);
-    if (module_contains_address(host->module, address))
+    if (ww_host_module_contains_address(host->module, address))
         return false;
     ww_host_fail(host, "unsupported host call", service, cpu->pc);
     return true;
@@ -666,6 +667,8 @@ bool ww_host_edge(void* user, CPUState* cpu, u32 address) {
         host->edge_stopped = true;
         return true;
     }
+    if (host->dvd_callback_active && address == BLUEWAKE_CALLBACK_RETURN_SENTINEL)
+        return true;
     // Composite edges follow completed blocks; only in-block observations exclude an instruction suffix.
     bluewake_cycle_domain_flush(&host->cycles, cpu);
     refresh(host);
@@ -705,9 +708,9 @@ bool ww_host_edge(void* user, CPUState* cpu, u32 address) {
         }
     }
     const bool compiled_cpu_boundary = (address == 0x80328F84u || address == 0x80303A50u) &&
-                                       module_contains_address(host->module, address);
+                                        ww_host_module_contains_address(host->module, address);
     const bool desktop_edge = bluewake_edge_maybe_intercept(address);
-    if (desktop_edge && module_contains_address(host->module, address) && ww_host_dvd_edge(host, address)) {
+    if (desktop_edge && ww_host_module_contains_address(host->module, address) && ww_host_dvd_edge(host, address)) {
         host->edge_stopped = host->error != NULL;
         return true;
     }
@@ -817,8 +820,8 @@ int ww_host_dispatch(WwHost* host, u32 address) {
     }
     const WwObservedVector* vector = observed_vector(address);
     if (vector != NULL &&
-        !module_contains_address(host->module, address) &&
-        !module_contains_address(host->module, canonical_dispatch_address(cpu, address))) {
+        !ww_host_module_contains_address(host->module, address) &&
+        !ww_host_module_contains_address(host->module, canonical_dispatch_address(cpu, address))) {
         if (cpu->pc != address || cpu->exception != 0u || !observed_vector_matches(cpu, vector)) {
             ww_host_fail(host, "exception vector requires the exact observed program and physical exception state", address, cpu->pc);
             return 0;

@@ -241,7 +241,7 @@ preservation. DI regressions rerun after the final guard review pass too
 pass. Windows build/CI remains unavailable; shared desktop behavior is a helper
 refactor only. The next committed ARM build/trial follows. No visible pixel or FPS.
 
-## Unit 9: the first async call requests no callback
+## Unit 9: a narrowed no-callback path; trial checks the actual arguments
 
 Trial `f38d5a186f804bc8a64c68a7b5429c24` at `001f87d` proves real synchronous reads
 of `/COPYDATE` and the `RELS.arc` header/table, including a 6,816-byte copy through
@@ -249,7 +249,8 @@ vita-sceio. It reaches **14,448,441 cycles**, then stops at `8030FADC`
 (`DVDReadAsyncPrio`). Installation takes 1.25 seconds, guest 9.18 seconds. Renderer
 still sees 265 setup commands / 1,759 bytes; no draw or presentation yet.
 
-The private translated caller sets **r7=0** before this async call. The unchanged
+One private translated call-site sets **r7=0**, but the subsequent trial below
+proves that it is not the call-site reached at this frontier. The unchanged
 pin's `GXRuntime/src/hle/hle_dvd.c:57-77` defines this no-callback path: copy real
 bytes, write END/current/transferred state, return TRUE (queued). The host now
 services exactly that path through the same checked copy used by synchronous
@@ -268,3 +269,40 @@ Linux AArch64: **463 host tests pass** (`logs/ww16-dvd-async-null-green.log`),
 including all synchronous/DI/open regressions. Audit, attribution and whitespace
 checks pass. The next committed ARM build/trial follows; no visible pixel or FPS
 claim, and no physical Vita result.
+
+## Unit 10: defer the real JKRDvdFile callback and execute it
+
+Trial `f4780be958bb485fa9033d766329b3d3` at `c3f5b42` correctly refuses the actual
+nonzero callback **`802BCC78` (`JKRDvdFile::doneProcess`)** at `8030FADC`, still
+14,448,441 cycles. That evidence corrects unit 9's candidate-call-site hypothesis;
+no async read or callback was silently claimed successful.
+
+The host now reuses the shared `BluewakeDvdCompletions` queue and
+`bluewake_deliver_guest_callback`, the same real callback contract covered by
+`tests/generated_dvd_callback_contract_test.c`. Nonzero callbacks must be owned
+compiled module instructions. After a checked real copy, their file-info state
+is BUSY and a completion is queued; actual guest-cycle progress reaches the
+shared desktop's **one guest millisecond compatibility floor** (486,000 cycles,
+not a measured disc-speed model). Only EE-enabled, exception-free, scheduler-safe
+turn boundaries deliver it. No deadline or cycle credit is manufactured.
+
+The callback runs through the existing host dispatcher and cycle credit/refund
+path, with the shared interrupt-style scheduler lock, EE masking, register save/
+restore and real retained memory effects. Its injected return sentinel is handled
+only while this delivery is active. A full queue, deadline overflow, bad stack,
+unowned callback, trace failure or incomplete callback is an explicit STOP; no
+callback failure is swallowed. DI/PE interrupts, FIFO bytes and frames are not
+created by this service. Null-callback reads retain their already checked path.
+
+Synthetic dispatcher tests verify no early completion, EE and partial-context
+gates, one-shot callback effects, restored caller registers/scheduler depth and
+exact callback cycle credit, plus all failure paths. The real JKRDvdFile callback
+is still to be proven in the next isolated authentic trial, not by host execution
+of game code. Missing enqueue behavior is preserved in
+`logs/ww16-dvd-callback-red.log`; the real ARM host link now succeeds in
+`logs/ww16-dvd-callback-link.log`.
+
+Linux AArch64: **472 host tests pass** (`logs/ww16-dvd-callback-green.log`); audit,
+attribution and whitespace checks pass. Shared callback code only exposes its
+existing sentinel constant; Windows CI/hardware remains untested here. The next
+committed ARM build/trial follows. No first visible pixel or FPS claim yet.

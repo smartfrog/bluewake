@@ -2,6 +2,8 @@
 #include "dvd_io.h"
 #include "gxruntime/dvd.h"
 #include "dvd_file_info.h"
+#include "callback_delivery.h"
+#include "scheduler_contract.h"
 
 static const char* disc_ready(WwHost* host) {
     if (!host->disc_owned) {
@@ -46,6 +48,8 @@ static const char* read_disc(WwHost* host, u32 guest, u64 offset, u32 length) {
 static void dvd_read_edge(WwHost* host, u32 address) {
     CPUState* cpu = &host->cpu;
     const bool asynchronous = address == 0x8030FADCu;
+    const u32 callback = asynchronous ? cpu->gpr[7] : 0u;
+    const bool deferred = callback != 0u;
     const u32 file_info = cpu->gpr[3];
     const u32 guest = cpu->gpr[4];
     const u32 length = cpu->gpr[5];
@@ -53,9 +57,13 @@ static void dvd_read_edge(WwHost* host, u32 address) {
     const char* error = NULL;
     u32 error_address = address;
     u64 disc = 0u;
-    if (asynchronous && cpu->gpr[7] != 0u) {
-        error = "DVD async read requires guest callback delivery";
-        error_address = cpu->gpr[7];
+    if (deferred && (host->module == NULL || host->module->dispatch == NULL ||
+                    !ww_host_module_contains_address(host->module, callback))) {
+        error = "DVD async callback requires a module-owned compiled instruction";
+        error_address = callback;
+    } else if (deferred && (host->dvd_completions.count >= BLUEWAKE_DVD_COMPLETION_CAPACITY ||
+               host->cycles.absolute_cycles > UINT64_MAX - WW_DVD_CALLBACK_DELAY_CYCLES)) {
+        error = "DVD async completion queue is full or its deadline would overflow";
     } else if ((cpu->lr & 3u) != 0u || !file_info_valid(host, file_info)) {
         error = "DVD read requires valid MEM1 file info and an aligned return";
     } else if (!mem1_range(host, guest, length)) {
@@ -67,7 +75,8 @@ static void dvd_read_edge(WwHost* host, u32 address) {
             error = "DVD read exceeds the sourced file range and SDK padding";
     }
     if (error == NULL && fprintf(stderr, "[dvd-read] kind=%s guest=%08X disc=%08llX bytes=%u file=%08X backend=%s pc=%08X\n",
-                                asynchronous ? "async-null" : "sync", guest, (unsigned long long)disc, length, file_info,
+                                deferred ? "async-callback" : asynchronous ? "async-null" : "sync",
+                                guest, (unsigned long long)disc, length, file_info,
                                 bw_dvd_io_backend_name(), address) < 0)
         error = "DVD read trace write failed";
     if (error == NULL)
@@ -76,9 +85,73 @@ static void dvd_read_edge(WwHost* host, u32 address) {
         ww_host_fail(host, error, error_address, address);
         return;
     }
-    host_dvd_set_transfer_state(cpu, file_info, 0u, length);
+    if (deferred) {
+        const BluewakeDvdCompletion completion = {
+            .ready_cycle = host->cycles.absolute_cycles + WW_DVD_CALLBACK_DELAY_CYCLES,
+            .callback = callback, .file_info = file_info, .length = length,
+        };
+        if (!bluewake_dvd_enqueue(&host->dvd_completions, completion)) {
+            ww_host_fail(host, "DVD async completion queue changed after validation", address, address);
+            return;
+        }
+    }
+    host_dvd_set_transfer_state(cpu, file_info, deferred ? 1u : 0u, deferred ? 0u : length);
     cpu->gpr[3] = asynchronous ? 1u : length;
     cpu->pc = cpu->lr;
+}
+
+static void prepare_callback(CPUState* cpu, void* user) {
+    WwHost* host = user;
+    bluewake_cycle_domain_begin_turn(&host->cycles, cpu);
+    bluewake_cycle_domain_prepare_dispatch(&host->cycles, cpu);
+}
+
+static int dispatch_callback(CPUState* cpu, u32 address) {
+    WwHost* host = cpu->external_user_data;
+    const int result = ww_host_dispatch(host, address);
+    ww_host_end_dispatch(host);
+    return result;
+}
+
+void ww_host_dvd_complete(WwHost* host) {
+    if (host == NULL || host->error != NULL || host->dvd_callback_active || host->dvd_completions.count == 0u)
+        return;
+    CPUState* cpu = &host->cpu;
+    const bool safe = cpu->exception == 0u && (cpu->msr & PPC_MSR_EE) != 0u &&
+                      bluewake_scheduler_interrupt_safe(cpu->pc);
+    const BluewakeDvdCompletion completion = host->dvd_completions.entries[0];
+    if (!safe || host->cycles.absolute_cycles < completion.ready_cycle)
+        return;
+    if (!file_info_valid(host, completion.file_info) || cpu->gpr[1] < GC_RAM_BASE + 8u ||
+        !mem1_range(host, cpu->gpr[1] - 8u, 8u) || host->module == NULL || host->module->dispatch == NULL ||
+        !ww_host_module_contains_address(host->module, completion.callback)) {
+        ww_host_fail(host, "DVD completion requires valid file info, callback stack and module ownership",
+                     completion.callback, cpu->pc);
+        return;
+    }
+    if (fprintf(stderr, "[dvd-completion] stage=deliver callback=%08X file=%08X bytes=%u ready=%llu cycles=%llu\n",
+                completion.callback, completion.file_info, completion.length,
+                (unsigned long long)completion.ready_cycle, (unsigned long long)host->cycles.absolute_cycles) < 0) {
+        ww_host_fail(host, "DVD completion trace write failed", completion.callback, cpu->pc);
+        return;
+    }
+    BluewakeDvdCompletion ready;
+    if (!bluewake_dvd_take_ready(&host->dvd_completions, host->cycles.absolute_cycles, safe, &ready)) {
+        ww_host_fail(host, "DVD completion queue changed after validation", completion.callback, cpu->pc);
+        return;
+    }
+    host_dvd_set_transfer_state(cpu, ready.file_info, 0u, ready.length);
+    StaticRecompModuleDesc module = *host->module;
+    module.dispatch = dispatch_callback;
+    host->dvd_callback_active = true;
+    const BluewakeCallbackDeliveryResult delivery = bluewake_deliver_guest_callback(
+        cpu, &module, ready.callback, ready.length, ready.file_info, 4096u, prepare_callback, host);
+    host->dvd_callback_active = false;
+    if (fprintf(stderr, "[dvd-completion] stage=return callback=%08X completed=%u dispatches=%u pc=%08X exception=%08X\n",
+                ready.callback, delivery.completed, delivery.dispatches, delivery.terminal_pc, delivery.exception) < 0)
+        ww_host_fail(host, "DVD callback return trace write failed", ready.callback, cpu->pc);
+    if (!delivery.completed)
+        ww_host_fail(host, "DVD guest callback did not complete", ready.callback, delivery.terminal_pc);
 }
 
 static const char* dvd_path(CPUState* cpu, char path[256]) {

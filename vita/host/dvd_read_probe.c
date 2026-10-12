@@ -7,6 +7,12 @@
 
 static bool fail_trace;
 
+static int owned_callback(CPUState* cpu, u32 address) {
+    (void)cpu;
+    (void)address;
+    return 0;
+}
+
 int __wrap_fprintf(FILE* stream, const char* format, ...) {
     if (fail_trace && stream == stderr && strncmp(format, "[dvd-read]", 10u) == 0) {
         errno = ENOSPC;
@@ -23,8 +29,8 @@ int main(int argc, char** argv) {
     assert(argc == 2);
     WwHost* host = calloc(1u, sizeof(*host));
     assert(host != NULL && ww_host_init(host));
-    const StaticRecompRange ranges[] = {{0x8030FADCu, 0x8030FBD0u}};
-    const StaticRecompModuleDesc module = {.code_ranges = ranges, .num_code_ranges = 1u};
+    const StaticRecompRange ranges[] = {{0x8030FADCu, 0x8030FBD0u}, {0x80003000u, 0x80003004u}};
+    const StaticRecompModuleDesc module = {.code_ranges = ranges, .num_code_ranges = 2u, .dispatch = owned_callback};
     host->module = &module;
     CPUState* cpu = &host->cpu;
     const char* scenario = argv[1];
@@ -45,6 +51,8 @@ int main(int argc, char** argv) {
     cpu->gpr[8] = 2u;
     if (strcmp(scenario, "async-callback") == 0)
         cpu->gpr[7] = 0x802BCC78u;
+    else if (strcmp(scenario, "async-owned") == 0)
+        cpu->gpr[7] = 0x80003000u;
     if (strcmp(scenario, "bad-file-info") == 0)
         cpu->gpr[3] = 0x817FFFF0u;
     else if (strcmp(scenario, "bad-destination") == 0)
@@ -67,12 +75,17 @@ int main(int argc, char** argv) {
     assert(ww_host_edge(host, cpu, cpu->pc));
     const bool success = strcmp(scenario, "read") == 0 || strcmp(scenario, "padding") == 0 ||
                          strcmp(scenario, "async") == 0 || strcmp(scenario, "async-padding") == 0;
-    if (success) {
+    const bool deferred = strcmp(scenario, "async-owned") == 0;
+    if (success || deferred) {
         assert(host->error == NULL && !host->edge_stopped && cpu->pc == cpu->lr);
         assert(cpu->gpr[3] == (asynchronous ? 1u : 32u));
-        assert(mem_read32(cpu, fi + DVD_CB_STATE) == 0u);
-        assert(mem_read32(cpu, fi + DVD_CB_CURRXFER) == 32u);
-        assert(mem_read32(cpu, fi + DVD_CB_XFERRED) == 32u);
+        assert(mem_read32(cpu, fi + DVD_CB_STATE) == (deferred ? 1u : 0u));
+        assert(mem_read32(cpu, fi + DVD_CB_CURRXFER) == (deferred ? 0u : 32u));
+        assert(mem_read32(cpu, fi + DVD_CB_XFERRED) == (deferred ? 0u : 32u));
+        if (deferred) {
+            assert(host->dvd_completions.count == 1u);
+            assert(host->dvd_completions.entries[0].ready_cycle == WW_DVD_CALLBACK_DELAY_CYCLES);
+        }
         assert(mem_read32(cpu, fi + DVD_FI_STARTADDR) == 0x500u);
         assert(mem_read32(cpu, fi + DVD_FI_LENGTH) == 0x30u);
         assert(mem_read32(cpu, fi + DVD_FI_CALLBACK) == 0xA5A5A5A5u);
