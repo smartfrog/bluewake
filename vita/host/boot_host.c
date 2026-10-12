@@ -573,8 +573,9 @@ static void mmio_write(CPUState* cpu, u32 address, u64 value, u8 size) {
             return;
         }
     } else if (address == 0xCC000004u && size == 2u) {
-        if (value != 3u || (host->cp_control & 1u) != 0u || host->cp_fifo_distance != 0u ||
-            fifo_has_input(host) || (dol_interrupts_pi_cause(&host->interrupts) & DOL_PI_CAUSE_CP) != 0u) {
+        // The pinned ClearMetrics path has no side effects and does not acknowledge FIFO flags.
+        if (value != 4u && (value != 3u || (host->cp_control & 1u) != 0u || host->cp_fifo_distance != 0u ||
+            fifo_has_input(host) || (dol_interrupts_pi_cause(&host->interrupts) & DOL_PI_CAUSE_CP) != 0u)) {
             fail_mmio_write(host, "CP clear requires observed idle overflow/underflow acknowledgement; active FIFO or CP IRQ handling not implemented", address, value, size);
             return;
         }

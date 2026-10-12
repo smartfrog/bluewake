@@ -162,11 +162,16 @@ class MainIoTest(unittest.TestCase):
         self.assertEqual(status, 0)
         self.assertTrue(report.endswith('END frontier=PASS live=0 rendered=0\n'))
 
-    def test_unobserved_cp_metrics_clear_cannot_reach_the_parser_fixture(self):
+    def test_observed_cp_metrics_reset_reaches_the_parser_fixture(self):
         status, report = self.run_fixture(cp_control=20, cp_clear=4)
+        self.assertEqual(status, 0)
+        self.assertTrue(report.endswith('END frontier=PASS live=0 rendered=0\n'))
+
+    def test_unobserved_mixed_cp_clear_cannot_reach_the_parser_fixture(self):
+        status, report = self.run_fixture(cp_control=20, cp_clear=7)
         self.assertNotEqual(status, 0)
         self.assertIn('GX_FRONTIER complete=0', report)
-        self.assertIn('address=CC000004 pc=80001000 width=2 value=0000000000000004', report)
+        self.assertIn('address=CC000004 pc=80001000 width=2 value=0000000000000007', report)
         self.assertTrue(report.endswith('END frontier=FAIL live=0 rendered=0\n'))
 
     def test_cpu_gather_and_cp_reader_publish_the_first_command_hex_and_precise_writer_pcs(self):

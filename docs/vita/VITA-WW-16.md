@@ -139,3 +139,28 @@ PE retention, independence, width refusals, unchanged pending FIFO/IRQ state and
 cycle credit without quantum renewal. Audit, attribution and whitespace checks pass.
 The next committed ARM build and authentic continuation follow. Still no draws,
 shown pixels, physical Vita test or FPS measurement.
+
+## Unit 6: the observed CP metrics reset is not an IRQ acknowledgement
+
+Trial `0662c9511fad49b1b65d4b43d87ce23c` at `4294573` crosses PE configuration and
+stops at **7,153,469 cycles** on a halfword `CC000004=4`, PC `80327C38`.
+Installation takes 1.35 seconds, guest 8.18 seconds; the renderer counters remain
+265 completed commands / 1,759 bytes / no draws or presents. The same post-report
+Vita3K shutdown crash (133) remains unresolved and recorded.
+
+At the unchanged RecompCore pin, `CommandProcessor.h:139-148` identifies bit 2 as
+`ClearMetrics`, set by `GXClearGPMetric`; `CommandProcessor.cpp:210-217` has a
+constant-zero halfword read and calls `SetCpClearRegister`, which intentionally
+does nothing (`:597-601`). The host now accepts the observed **exact value 4** as
+that sourced no-op, including while gather/FIFO input or a CP IRQ is pending. It
+does not discard commands, acknowledge FIFO flags, clear renderer counters or
+invent query results. Value 3 retains its earlier idle-only guard; unobserved
+mixed masks still fail. The existing CP-clear probe is extended, not copied.
+
+Focused metrics-reset tests fail before the seam (`logs/ww16-cp-metrics-red.log`)
+and exercise the register through the normal host hooks, with pending input/IRQ
+state, width refusals, repeated stores and exact executed-cycle credit.
+
+Linux AArch64: **447 host tests pass** (`logs/ww16-cp-metrics-green.log`); audit,
+attribution and whitespace checks pass. The next clean ARM build/trial follows.
+No visible game pixel or FPS claim yet.

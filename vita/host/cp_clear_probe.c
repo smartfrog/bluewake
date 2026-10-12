@@ -2,7 +2,7 @@
 #include <stdlib.h>
 
 int main(int argc, char** argv) {
-    assert(argc == 2);
+    assert(argc == 2 || argc == 3);
     WwHost* host = calloc(1u, sizeof(*host));
     assert(host != NULL && ww_host_init(host));
     ww_probe_fifo_setup(host, true);
@@ -15,6 +15,7 @@ int main(int argc, char** argv) {
     const bool bad_write = strncmp(scenario, "write-width-", 12u) == 0;
     const bool bad_read = strncmp(scenario, "read-width-", 11u) == 0;
     const bool queued = strncmp(scenario, "queued-", 7u) == 0;
+    const bool metrics = argc == 3 && strcmp(argv[2], "4") == 0;
     if (queued) {
         const char* state = scenario + 7u;
         if (strcmp(state, "gather") == 0 || strcmp(state, "produced") == 0) {
@@ -42,7 +43,7 @@ int main(int argc, char** argv) {
     const u32 cp = host->cp_fifo_write_pointer;
     const u32 distance = host->cp_fifo_distance;
     const u16 control = host->cp_control;
-    const u64 value = bad_value ? strtoull(scenario + 6u, NULL, 0) : 3u;
+    const u64 value = metrics ? 4u : bad_value ? strtoull(scenario + 6u, NULL, 0) : 3u;
     const u8 width = bad_write ? (u8)strtoul(scenario + 12u, NULL, 0) :
                      bad_read ? (u8)strtoul(scenario + 11u, NULL, 0) : 2u;
     if (credit) {
@@ -56,19 +57,19 @@ int main(int argc, char** argv) {
         assert(result == 0u);
     } else if (strcmp(scenario, "store") == 0) {
         host->cpu.gpr[3] = 0xCC000000u;
-        host->cpu.gpr[0] = 3u;
+        host->cpu.gpr[0] = (u32)value;
         mem_write16(&host->cpu, host->cpu.gpr[3] + 4u, (u16)host->cpu.gpr[0]);
     } else {
         host->cpu.external_write(&host->cpu, 0xCC000004u, value, width);
     }
-    if (bad_value || bad_write || bad_read || queued) {
+    if (bad_value || bad_write || bad_read || (queued && !metrics)) {
         assert(host->error != NULL && host->error_address == 0xCC000004u && host->error_pc == 0x80321344u);
         if (!read)
             assert(host->error_width == width && host->error_value == value);
     } else {
         assert(host->error == NULL && host->cpu.exception == 0u);
         if (strcmp(scenario, "repeat") == 0)
-            mem_write16(&host->cpu, 0xCC000004u, 3u);
+            mem_write16(&host->cpu, 0xCC000004u, (u16)value);
         assert(mem_read16(&host->cpu, 0xCC000004u) == 0u && host->error == NULL);
     }
     assert(memcmp(&interrupts, &host->interrupts, sizeof(interrupts)) == 0);
