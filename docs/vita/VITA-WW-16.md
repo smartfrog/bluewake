@@ -1072,3 +1072,57 @@ The suffix test is red before this guard (`logs/ww16-gpu-nop-tail-red.log`). ARM
 host links (`logs/ww16-gpu-nop-tail-arm-link.log`); audit, attribution and whitespace
 checks pass. The renderer completion primitive and pins are unchanged. Commit,
 rebuild with VI and run a fresh watched continuation to classify the real tail.
+
+## Unit 31: first authentic display-copy presentation (2026-10-13)
+
+The committed VI build **`c47c76c`** succeeds. Watched authentic run
+**`21c977bc89bf4cd88ab9658629295fe5`** establishes the candidate tail exactly:
+**four zero NOP bytes**, all from the final GXFlush store **`803229C4`**, writer
+SP **`8040CEA0`**, while CP distance/capture/read/partial-command counts are zero.
+Those four bytes remain gathered, unchanged. The real vitaGL finish returns
+success at decoded command 1,171 and publishes the actual PE finish. The guest
+continues through its verified external vector and real interrupt/sleep path.
+
+New milestone: **display_copies=1, presented=1, END rendered=1**, with **one
+plan/draw/program**, zero gaps/refusals, **1,235 decoded commands / 8,416 renderer
+bytes / 2,421 events**, at **24,315,678 cycles**. This is a genuine submitted draw
+and a swap at the game's display copy; no synthetic frame or host-forced callback
+was added. The closed report and 64 journal entries certify. Install 1.24 s / guest
+12.65 s; the known post-report shutdown crash remains **exit 133**, separately
+preserved. CPU and process-written logs were watched throughout; no hang kill.
+Private summary: `evidence/first-presentation-analysis.json` in that attempt.
+
+**Visible game pixels are not yet verified.** There is no visual screenshot in
+this attempt. The prior WW02 demo documents this emulator's guest-memory readback
+limitation; its black PNG is not evidence of this new frame's contents. A swap
+counter is not a screenshot, a verified game scene, hardware performance or FPS.
+
+## Unit 32: confirm the observed asynchronous draw-done return
+
+The new STOP is **`80322BC8`**, GXSetDrawDone's register-restore return after
+the display copy. Actual LR is `80322BC8`, r3 zero, SDA `803FE0E0`, SP `8040CC98`.
+Shared desktop `main.c:9829-9844` sources this asynchronous finish boundary:
+JUTVideo's drawDoneStart needs the PE callback to clear its draw-waiting flag
+before the next retrace. The authentic composite writes BP `45000002` and eight
+zero FIFO words at **`80322B98..80322BB4`**, then restores guest interrupts and
+arrives at this still-unexecuted restore epilogue.
+
+The Vita edge gate now admits only this owned observed return/SDA/real-MEM1
+shape, using the **same actual backend completion and PE publication contract**
+as synchronous GXDrawDone. Its own inert NOP suffix requires the exact store-PC
+order and the current saved frame SP; it is kept unchanged. Other return states,
+aliases or pending work still STOP. Guest registers, stack restores, return and
+callback execute normally; no sDrawWaiting flag, callback, wakeup or GPU result
+is manufactured. The finish log identifies the real SDA FinishQueue for both
+boundaries, not asynchronous r3 (which is zero).
+
+Linux AArch64: **583 host tests pass** (`logs/ww16-async-finish-green.log`), including
+real-PE-path recording, failure, idempotence, exact owned return guards, all 31
+retained suffix lengths and pending/bad-padding refusals. These are synthetic
+backend contracts, not hardware pixel tests. The observed return is red before
+the seam (`logs/ww16-async-finish-red.log`). Actual ARM host links
+(`logs/ww16-async-finish-arm-link.log`); audit, attribution and whitespace pass.
+Renderer draw coverage, pins and desktop code remain unchanged. Before the next
+committed VI build/trial, extend the bounded command journal to the coordinator's
+requested **2,048 commands**, so the authentic draw is available for WW18's
+byte-exact journal-to-fixture replay; the existing 64-entry evidence is preserved.

@@ -729,7 +729,13 @@ bool ww_host_edge(void* user, CPUState* cpu, u32 address) {
         get_ram_ptr(cpu, cpu->gpr[3], 8u, NULL) == cpu->ram + 0x003F7C9Cu &&
         !ww_host_linked_alias_overlaps(cpu->gpr[3], 8u) &&
         ww_host_module_contains_address(host->module, address);
-    if (observed_draw_done_sleep) {
+    const bool observed_async_draw_done = address == 0x80322BC8u && cpu->lr == 0x80322BC8u &&
+        cpu->gpr[3] == 0u && cpu->gpr[13] == 0x803FE0E0u && cpu->gpr[31] == 0u &&
+        cpu->ram != NULL && cpu->ram_size >= 0x003F7CA4u &&
+        get_ram_ptr(cpu, 0x803F7C98u, 12u, NULL) == cpu->ram + 0x003F7C98u &&
+        !ww_host_linked_alias_overlaps(0x803F7C98u, 12u) &&
+        ww_host_module_contains_address(host->module, address);
+    if (observed_draw_done_sleep || observed_async_draw_done) {
         const char* error = ww_host_finish_gpu(host);
         if (error != NULL) {
             ww_host_fail(host, error, address, address);
@@ -737,7 +743,8 @@ bool ww_host_edge(void* user, CPUState* cpu, u32 address) {
             return true;
         }
     }
-    const bool compiled_cpu_boundary = (address == 0x80328F84u || address == 0x80303A50u || observed_retrace_sleep || observed_draw_done_sleep) &&
+    const bool compiled_cpu_boundary = (address == 0x80328F84u || address == 0x80303A50u ||
+                                       observed_retrace_sleep || observed_draw_done_sleep || observed_async_draw_done) &&
                                          ww_host_module_contains_address(host->module, address);
     const bool desktop_edge = bluewake_edge_maybe_intercept(address);
     if (address == 0x80307EF4u && host->rel_image.linked && !host->scheduler_idle_observed) {

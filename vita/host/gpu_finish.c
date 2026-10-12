@@ -4,11 +4,14 @@ static bool retained_flush_nops(const WwHost* host) {
     const WwGatherPipe* pipe = &host->gather;
     if (pipe->size >= sizeof(pipe->bytes))
         return false;
+    const bool asynchronous = host->cpu.pc == 0x80322BC8u;
+    const u32 last_store = asynchronous ? 0x80322BB4u : 0x803229C4u;
+    const u32 store_sp = host->cpu.gpr[1] - (asynchronous ? 0u : 8u);
     for (u32 index = 0u; index < pipe->size; ++index) {
-        const u32 pc = 0x803229C4u - ((pipe->size - 1u - index) / 4u) * 4u;
+        const u32 pc = last_store - ((pipe->size - 1u - index) / 4u) * 4u;
         const WwFifoOrigin* origin = &pipe->origins[index];
         if (pipe->bytes[index] != 0u || origin->byte != 0u || origin->pc != pc ||
-            origin->sp != host->cpu.gpr[1] - 8u)
+            origin->sp != store_sp)
             return false;
     }
     return true;
@@ -51,7 +54,8 @@ const char* ww_host_finish_gpu(WwHost* host) {
     if (error != NULL)
         return error;
     if (fprintf(stderr, "[gx-gpu-finish] decoded=%llu pc=%08X lr=%08X queue=%08X backend=confirmed-finish\n",
-                (unsigned long long)host->stream.decoded, host->cpu.pc, host->cpu.lr, host->cpu.gpr[3]) < 0)
+                (unsigned long long)host->stream.decoded, host->cpu.pc, host->cpu.lr,
+                host->cpu.gpr[13] - 25668u) < 0)
         return "GX GPU finish trace write failed";
     dol_interrupts_commit_pe_finish(&host->interrupts);
     host->gpu_finish_index = host->stream.decoded;

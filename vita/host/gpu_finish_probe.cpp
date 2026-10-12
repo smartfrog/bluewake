@@ -46,7 +46,8 @@ public:
 
 int main(int argc, char** argv) {
     assert(argc == 2);
-    const char* scenario = argv[1];
+    const bool asynchronous = std::strncmp(argv[1], "async-", 6u) == 0;
+    const char* scenario = argv[1] + (asynchronous ? 6u : 0u);
     WwHost* host = static_cast<WwHost*>(std::calloc(1u, sizeof(*host)));
     assert(host != nullptr && ww_host_init(host));
     CPUState* cpu = &host->cpu;
@@ -58,16 +59,20 @@ int main(int argc, char** argv) {
         const WwRendererConfig config = {.memory = &host->memory, .cpu = cpu};
         assert(ww_renderer_create(&host->renderer, &config, &backend) == nullptr);
     }
-    const StaticRecompRange range = {0x80308A9Cu, 0x80308AA0u};
+    const u32 entry = asynchronous ? 0x80322BC8u : 0x80308A9Cu;
+    const StaticRecompRange range = {entry, entry + 4u};
     const StaticRecompModuleDesc module = {.code_ranges = &range, .num_code_ranges = 1u};
     host->module = std::strcmp(scenario, "unowned") == 0 ? nullptr : &module;
     host->stream.enabled = std::strcmp(scenario, "disabled-stream") != 0;
     host->stream.decoded = 17u;
     cpu->pc = range.start;
     cpu->gpr[1] = 0x8040CEA8u;
-    cpu->lr = std::strcmp(scenario, "bad-caller") == 0 ? 0x80322C34u : 0x80322C38u;
-    cpu->gpr[3] = std::strcmp(scenario, "bad-queue") == 0 ? 0x803F7B44u : 0x803F7C9Cu;
+    const u32 caller = asynchronous ? 0x80322BC8u : 0x80322C38u;
+    cpu->lr = std::strcmp(scenario, "bad-caller") == 0 ? caller - 4u : caller;
+    cpu->gpr[3] = std::strcmp(scenario, "bad-queue") == 0 ? 0x803F7B44u : asynchronous ? 0u : 0x803F7C9Cu;
     cpu->gpr[13] = std::strcmp(scenario, "bad-sda") == 0 ? 0x8040E0E0u : 0x803FE0E0u;
+    if (std::strcmp(scenario, "bad-saved-register") == 0)
+        cpu->gpr[31] = 1u;
     if (std::strcmp(scenario, "aliased-queue") == 0)
         assert(ppc_guest_alias_add(0x803F7C9Cu, 8u, nullptr));
     cpu->external_write(cpu, DOL_PE_INTERRUPT_STATUS, DOL_PE_FINISH_ENABLE_BIT, 2u);
@@ -88,16 +93,18 @@ int main(int argc, char** argv) {
     if (flush_padding || bad_padding) {
         host->gather.size = flush_padding ? static_cast<u8>(std::strtoul(scenario + 14u, nullptr, 10)) : 5u;
         assert(host->gather.size > 0u && host->gather.size < 32u);
+        const u32 last_store = asynchronous ? 0x80322BB4u : 0x803229C4u;
+        const u32 store_sp = cpu->gpr[1] - (asynchronous ? 0u : 8u);
         for (u32 index = 0u; index < host->gather.size; ++index) {
-            host->gather.origins[index].pc = 0x803229C4u - ((host->gather.size - 1u - index) / 4u) * 4u;
-            host->gather.origins[index].sp = cpu->gpr[1] - 8u;
+            host->gather.origins[index].pc = last_store - ((host->gather.size - 1u - index) / 4u) * 4u;
+            host->gather.origins[index].sp = store_sp;
         }
         if (std::strcmp(scenario, "bad-padding-byte") == 0)
             host->gather.bytes[0] = 0x61u;
         if (std::strcmp(scenario, "bad-padding-origin") == 0)
             host->gather.origins[0].byte = 0x61u;
         if (std::strcmp(scenario, "bad-padding-pc") == 0)
-            host->gather.origins[0].pc = 0x803229C4u;
+            host->gather.origins[0].pc = last_store;
         if (std::strcmp(scenario, "bad-padding-sp") == 0)
             host->gather.origins[0].sp += 4u;
     }
