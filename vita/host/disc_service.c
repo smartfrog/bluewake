@@ -1,7 +1,7 @@
 #include "boot_host.h"
 #include "dvd_io.h"
 #include "gxruntime/dvd.h"
-#include "gxruntime/hle.h"
+#include "dvd_file_info.h"
 
 static const char* disc_ready(WwHost* host) {
     if (!host->disc_owned) {
@@ -56,9 +56,10 @@ bool ww_host_dvd_edge(WwHost* host, u32 address) {
                     bw_dvd_io_backend_name(), address) < 0) {
             error = "DVD open trace write failed";
         } else {
-            cpu->gpr[3] = (u32)entry;
-            if (!entry_only)
-                dol_hle_DVDFastOpen(cpu);
+            if (entry_only)
+                cpu->gpr[3] = (u32)entry;
+            else
+                cpu->gpr[3] = host_dvd_fill_file_info(cpu, entry, file_info) ? 1u : 0u;
             cpu->pc = cpu->lr;
         }
     }

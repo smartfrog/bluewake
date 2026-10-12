@@ -195,3 +195,17 @@ Linux AArch64: **455 host tests pass** (`logs/ww16-dvd-open-green.log`), includi
 all existing DI-read and edge-guard regressions; audit, attribution and whitespace
 checks pass. The next committed ARM build and authenticated continuation follow.
 No visible pixel, physical Vita result or FPS measurement claimed.
+
+The ARM link of `226e9ff` exposed the pin HLE's hidden registration dependencies:
+the DVD HLE object pulled its HLE registry and memory-card code, ending in an
+unsupported Vita `flock` symbol (`logs/vita-build-76.log`). No lock stub or save
+behavior was invented. The existing desktop `host_dvd_fill_file_info` is instead
+extracted into `runtime/host/src/dvd_file_info.h`, with its function body checked
+byte-identical to the previous shared main; both desktop and Vita reuse it.
+The four writes still match the pin's fast-open contract, without linking the
+unrelated HLE registry. Desktop behavior is a refactor only; Windows CI/build is
+unavailable here and is not claimed.
+
+**455 host tests still pass** (`logs/ww16-dvd-file-info-tests.log`), the actual ARM
+`ww05_host` now links (`logs/ww16-dvd-file-info-link.log`), and audit/attribution/
+whitespace checks pass. The committed VPK build/trial follows.
