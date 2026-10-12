@@ -543,3 +543,42 @@ Private lineage evidence is `evidence/decrementer-vector-lineage.json` in that
 run; SHA-256 `bc97b5f351867639d7c79721c1ed87d8670e4ac1ae741d89ef1782906f00e352`.
 No vector code or disc bytes are committed, and no timer skip, fake IRQ, frame
 or FPS result is claimed.
+
+The clean build at `1277832` succeeds. Watched authentic trial
+`6ee5339a723342c79b639e27fad8a8a1` now completes the entire launcher validation:
+**closed report, 64 GX journal entries, rendered/presented=0**, with the real
+`00000900` STOP at 493,979,208 cycles. Installation takes 1.25 seconds and guest
+16.42 seconds. The process/cache bounds accept the intact traces without
+truncation; result status remains **133**, not a passing emulator exit. Source,
+input and preparation gates all run. The known shutdown crash remains unresolved.
+
+## Unit 16: dispatch the exact observed decrementer vector
+
+The authentic 152-byte vector at `00000900` has the same verified retail DOL
+template lineage as the existing physical external/FP vectors, except for cause
+**8**. The existing private emitter now accepts that observed base and emits its
+function/reference pair; `game_build.py` validates the captured binary's exact
+SHA and template lineage, includes it in the private build and snapshots its
+input/source identities. The generated game-derived code stays private.
+
+The host registers it in the existing observed-vector dispatcher. The same
+full-byte comparison, physical MSR mode, aligned PC, exact memory extent and
+exception-state guards apply before execution. The existing decrementer delivery,
+deadline, saved SRR0/SRR1, cycle accounting and rebudget behavior are **unchanged**.
+No timer skip, fake IRQ, synthetic return or host-call bypass is added: the real
+translated stores and RFI run under the remaining instruction budget.
+
+The existing vector probe is reused for cause 8. Tests cover each mutated byte,
+invalid mode/PC/state/range, zero remaining quantum and one-cycle resumption with
+actual saved context and RFI. Input tests refuse every unrelated observed byte
+change, the wrong exception immediate and unrelated source changes; valid input
+uses physical base `00000900`. The new emitter-base test is red before support
+(`logs/ww16-decrementer-vector-red.log`). The full-suite run also exposed two
+configuration fixtures still supplying only two vectors; they now provide the
+required third synthetic source, preserving the real-input preflight gate.
+
+Linux AArch64: **510 host tests pass** (`logs/ww16-decrementer-vector-final.log`),
+and the actual ARM host links (`logs/ww16-decrementer-vector-arm-link.log`). Audit,
+attribution and whitespace checks pass. No source pin, composite digest, runtime
+default or desktop behavior changes. The next clean committed build and watched
+authentic continuation follow; no visible pixel, FPS or physical Vita claimed.

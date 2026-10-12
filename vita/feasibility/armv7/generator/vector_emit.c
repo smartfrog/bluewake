@@ -4,11 +4,13 @@
 
 int main(int argc, char** argv) {
     if (argc < 2 || argc > 3 ||
-        (argc == 3 && strcmp(argv[2], "00000500") != 0 && strcmp(argv[2], "00000800") != 0)) {
-        fprintf(stderr, "vector emitter requires one binary input and an observed 00000500 or 00000800 base\n");
+        (argc == 3 && strcmp(argv[2], "00000500") != 0 && strcmp(argv[2], "00000800") != 0 &&
+         strcmp(argv[2], "00000900") != 0)) {
+        fprintf(stderr, "vector emitter requires one binary input and an observed 00000500, 00000800 or 00000900 base\n");
         return 1;
     }
-    const u32 vector = argc == 3 && strcmp(argv[2], "00000800") == 0 ? 0x800u : 0x500u;
+    const bool decrementer = argc == 3 && strcmp(argv[2], "00000900") == 0;
+    const u32 vector = decrementer ? 0x900u : argc == 3 && strcmp(argv[2], "00000800") == 0 ? 0x800u : 0x500u;
     FILE* input = fopen(argv[1], "rb");
     if (input == NULL) {
         perror("external vector input");
@@ -33,7 +35,7 @@ int main(int argc, char** argv) {
     emit_header_for_cpu(stdout, DOLRECOMP_CPU_GEKKO);
     if (!emit_function(stdout, instructions, 38u, vector))
         return 1;
-    fprintf(stdout, "const u8 ww05_%s_vector_reference[152] = {", vector == 0x500u ? "external" : "fp");
+    fprintf(stdout, "const u8 ww05_%s_vector_reference[152] = {", decrementer ? "decrementer" : vector == 0x500u ? "external" : "fp");
     for (u32 i = 0u; i < sizeof(bytes); ++i)
         fprintf(stdout, "%u,", bytes[i]);
     fprintf(stdout, "};\n");

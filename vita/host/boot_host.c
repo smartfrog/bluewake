@@ -732,6 +732,7 @@ static const WwObservedVector* observed_vector(u32 address) {
     static const WwObservedVector vectors[] = {
         {WW05_EXTERNAL_VECTOR, ww05_external_vector_reference, func_00000500},
         {WW05_FP_VECTOR, ww05_fp_vector_reference, func_00000800},
+        {WW05_DECREMENTER_VECTOR, ww05_decrementer_vector_reference, func_00000900},
     };
     for (u32 index = 0u; index < sizeof(vectors) / sizeof(vectors[0]); ++index) {
         if (address >= vectors[index].address && address < vectors[index].address + WW05_EXTERNAL_VECTOR_BYTES)

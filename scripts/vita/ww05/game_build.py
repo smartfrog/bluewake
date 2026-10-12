@@ -105,7 +105,9 @@ def main():
     parser.add_argument('--external-vector', type=Path, default=OUTPUT / 'private/external-vector.bin',
                         help='exact private vector captured from the documented guest trial')
     parser.add_argument('--fp-vector', type=Path, default=OUTPUT / 'private/fp-vector.bin',
-                        help='exact private FP-unavailable vector captured from the documented guest trial')
+                         help='exact private FP-unavailable vector captured from the documented guest trial')
+    parser.add_argument('--decrementer-vector', type=Path, default=OUTPUT / 'private/decrementer-vector.bin',
+                        help='exact private decrementer vector captured from the documented guest trial')
     args = parser.parse_args()
     if args.jobs < 1 or args.jobs > 4:
         parser.error('jobs must be between one and four')
@@ -162,8 +164,8 @@ def main():
     init_header = identity / 'ww05_dsp_init.h'
     init_header.write_text('static const unsigned char ww05_dsp_init_reference[128] = {' +
                             ','.join(str(value) for value in init_code) + '};\n')
-    from external_vector import (OBSERVED_SHA256, FP_OBSERVED_SHA256, TEMPLATE_SHA256,
-                                 emit_external_vector, emit_fp_vector)
+    from external_vector import (OBSERVED_SHA256, FP_OBSERVED_SHA256, DECREMENTER_OBSERVED_SHA256,
+                                 TEMPLATE_SHA256, emit_external_vector, emit_fp_vector, emit_decrementer_vector)
     vector_generator = output / 'vector-generator'
     build.run('vector-generator-configure', [cmake, '-S', ROOT / 'vita/feasibility/armv7/generator',
         '-B', vector_generator, '-G', 'Ninja', f'-DCMAKE_C_COMPILER={cc}',
@@ -174,7 +176,9 @@ def main():
     vectors = {}
     for name, path, address, expected, emit in (
             ('external_vector', args.external_vector, '00000500', OBSERVED_SHA256, emit_external_vector),
-            ('fp_vector', args.fp_vector, '00000800', FP_OBSERVED_SHA256, emit_fp_vector)):
+            ('fp_vector', args.fp_vector, '00000800', FP_OBSERVED_SHA256, emit_fp_vector),
+            ('decrementer_vector', args.decrementer_vector, '00000900', DECREMENTER_OBSERVED_SHA256,
+             emit_decrementer_vector)):
         observed = path.read_bytes()
         vector_source = identity / f'ww05_{name}.c'
         emit((private / 'main.dol').read_bytes(), observed, vector_generator / 'ww_vector_emit', vector_source)
