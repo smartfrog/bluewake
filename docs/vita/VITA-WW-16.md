@@ -764,3 +764,150 @@ the requested authentic replay must use its already verified exact artifact.
 The watched trial follows at the longer authorized 600-second ceiling, with
 inactivity requiring **both silence and low CPU**; an explicit deadline, if hit,
 will still be reported as timeout, never a spontaneous crash or certified boot.
+
+The exact baseline replay is `26b9c4f4d837452d83587bb4cdad7350`: guest source
+**`2e8deb1`**, launcher **`356fb91`**, not a relabelled new guest build. The fixed
+observer never reports inactive. The guest reaches its explicit **600.001 s
+ceiling**, is TERM/reaped (exit -15, process_status 124), and remains in SelectThread
+at `80307EF4`; no closed `ww05.report` exists. Global result is INCOMPLETE/status 2
+because the 132,312,305-byte process trace exceeds the existing 64 MiB validation
+bound. The result/logs are retained intact, not rewritten or trimmed.
+
+`evidence/trace-baseline-analysis.json` records **46,165,817,388 last logged cycles,
+94 real decrementer deliveries, 127 DVD reads, one raw materialization and one
+module-1 link**. The native journal is 207,399,113 bytes / 1,769,311 lines;
+the process trace contains **1,764,093 `sceIoWrite` TRACE lines**. The observed
+emulator is gone. These counts are mostly the sourced scheduler wait, not evidence
+that many RELs ran or that a frame was presented. The initial snapshot remains
+265 GX commands / 1,759 bytes / zero draws or presentations.
+
+The poll is specifically `lwz r0,-26288(r13); cmplwi r0,0; beq 80307EF4`.
+Actual r13 `803FE0E0` resolves to run bits at **`803F7A30`**, not a VI MMIO register.
+Main's saved receive caller `80255E18` waits on the video queue at `80429EF0`.
+The timer is demonstrably delivered/rearmed; DVD pending is zero. Shared desktop
+code identifies the normal producer as VI handler -> `JUTVideo::postRetraceProc`
+-> real message send. The missing VI-clock producer is already implemented,
+tested and default-off in `c93951d`; no artificial callback/wakeup will replace it.
+
+## Unit 22: remove emulator TRACE amplification from future private profiles
+
+Coordinator-approved profile change: **`log-level: 0` -> `log-level: 2` (Info)**.
+Local read-only Vita3K source, `config/src/config.cpp:387,460-468`, explicitly maps
+0=TRACE, 2=INFO and applies the selected level to the guest logging backend;
+`util/src/logging.cpp:141-142` passes it to spdlog. This keeps Info/warnings/errors
+instead of suppressing failure evidence. The installed executable's full source
+mapping remains the existing UNVERIFIED provenance; the next real run must verify
+the emitted config and observed syscall-trace suppression empirically.
+
+The shared FP/WW05 template changes **one byte only**; all other bytes of the old
+neutral schema are tested identical. Baseline and cpu-opt-off identities are
+updated together, still 4,284 / 4,285 bytes and 154 unique keys. The alternate
+continues to differ only in its cpu-opt line. Config metadata explicitly records
+the authorized log-level change; unknown changes and late parse errors remain
+refused. Old run configs/results are untouched. No renderer, guest code, IRQ,
+frame counter, CPU optimization, pin or composite digest changes.
+
+Linux AArch64: **551 host tests and 83 FP tests pass**
+(`logs/ww16-info-config-host-green.log`, `logs/ww16-info-config-fp-green.log`), with
+red/green profile checks in `logs/ww16-info-config-red.log` and
+`logs/ww16-info-profile-{red,green}.log`. Audit, attribution and whitespace pass.
+The change was deferred until the live TRACE run finished, preserving its clean
+source/config checks. Reused immutable guest artifacts keep comparisons honest.
+
+Baseline throughput receipt: in the fixed `80307EF4` wait, samples **10..70 seconds
+after the first observed idle sample** give **77.744 M executed guest cycles per
+wall second** over 59.074 seconds with TRACE. This is a single diagnostic-throughput
+observation, **not FPS or gameplay performance**. The next Info-only run reuses
+the same `2e8deb1` guest for that window, then the opt-in VI artifact is exercised
+separately. The shared template benefits future lanes after integration; absolute
+numbers from old TRACE runs remain log-contaminated and are not silently revised.
+
+Watched Info replay `1ed418a3151e44e29caa3245a4283598` uses the exact same guest
+`2e8deb1` and launcher `b368ad1`. Emitted config records **`log-level: 2`**; the
+actual runtime announces **Info** and emits **zero `sceIoWrite` TRACE lines**.
+The guest process log is **12,848 bytes**, versus 132 MB for the longer TRACE
+run. Native guest journaling remains intact (39,956,520 bytes). The deliberate
+120-second measurement ceiling stops/reaps the unchanged video wait; global
+status is correctly **124 / INCOMPLETE**, no closed report, no inactive stop.
+
+Same guest / `80307EF4` / relative 10..70-second window:
+**77.744 -> 78.385 M cycles per wall second (+0.824%)**, with median emulator CPU
+**156.2% -> 105.9%**. This single pair demonstrates eliminated syscall TRACE
+amplification and reduced median CPU consumption, **not a significant speedup,
+FPS gain or faster gameplay**. Source/phase are held constant, but host scheduling
+and other activity are not controlled enough to certify a sub-percent difference.
+Full receipts are `evidence/log-level-comparison.json` in the Info run and
+`evidence/trace-baseline-analysis.json` in the TRACE run. The observed emulator is
+gone; previous results are not relabelled. Info does not fabricate the missing VI.
+
+The next authentic trial explicitly selects the preserved VI-enabled artifact
+**`c93951d1e5cd56595fe2be9e591cda86d7cbec5e`**, receipt
+`artifacts-3d147fbbfbe94d449979c7480a5ea917/build-evidence.json`, whose config says
+`vi_clock: true`. It was built before the coordinator's watchdog priority change
+and has not yet executed. Selecting that unchanged artifact avoids a redundant
+rebuild/relabel and keeps guest and launcher provenance distinct. Info and the
+corrected CPU/output-growth observer remain in the new profile; no synthetic
+message, callback, retrace-as-frame or forced runnable bit is introduced.
+
+## Unit 23: authentic VI delivery reaches the first primitive boundary
+
+Watched trial `910ccc01648a41d891601bd42c1f0fa7`: guest **`c93951d`** (VI enabled),
+launcher **`f769519`**, new isolated Info profile. The first due retrace occurs at
+**8,100,000 executed cycles**, asserts real VI status/cause under the existing
+guest masks, and immediately enters the verified physical `00000500` vector.
+The translated vector saves the real context and hands off by RFI to `80304E24`.
+This is a real guest interrupt path, not a host-invoked JUTVideo callback.
+
+The guest progresses to its first primitive header. New closed STOP:
+**`unsupported first GX opcode (draw requires preceding layout)`**, FIFO
+`CC008000`, writer PC `80323194`, at **14,491,186 cycles**. The stream decoded
+**989 commands** and the renderer received **6,941 bytes / 2,012 events**;
+plans/draws/presentations are still **zero**. Installation is 1.23 s, guest 9.12 s.
+The full launcher certifies the closed report and 64 logged commands, while
+preserving the known post-report shutdown **SIGSEGV / exit 133**. This is not a
+timeout/inactivity kill or gameplay success. The observed primitive is not yet
+a submitted GPU draw or visible pixel.
+
+## Unit 24: frame primitives using the already accepted CP layout
+
+Source investigation corrects the error message's implication: the preceding
+989 commands have been accepted; CP VCD/VAT state is retained in `host->gx` and
+the pinned CP loader derives its vertex layouts. **The checkpoint's framing
+switch had no primitive cases at all**. The missing piece is packet byte length,
+not an invented layout or a replacement for renderer state interpretation.
+
+`gx_checkpoint.c` now uses the pinned layout and wire shape from
+`GXRuntime/src/gx_recomp_parser.c:266-285` and
+`graphics/frontend/src/retail_gx_frontend.cpp:1010-1048`: retail primitive opcode,
+big-endian u16 count, low-three-bit vertex format, then count * derived vertex
+size bytes. Derivation reuses `dol_gx_recomp_derive_vertex_layout`; no VAT/attribute
+math is reimplemented. Only a complete bounded packet is replayed by the same
+pinned parser and forwarded unchanged to WW17. First-frontier bytes/provenance
+remain intact. Reserved `0x88`, absent layout and packets above the existing
+1,025-byte bound stop explicitly; zero-vertex draws remain refused by this
+checkpoint's C parser rather than being declared a successful draw. No fake
+vertices, padding, counters or presentations are added.
+
+The original journal deliberately keeps only the **first 64 commands**, so the
+commands immediately before number 990 cannot be reconstructed honestly from
+that run. The new one-shot draw audit retains **16 recent complete commands** and
+**64 recent CP writes**, with exact byte/PC/order provenance, and records the
+effective VCD/VAT/validity/stride when the first actual three-byte draw header
+arrives. It freezes after that audit and never becomes a per-frame logger.
+This bounded private capture supplies the requested sequence on the next real
+attempt without claiming that an observed header was accepted/submitted already.
+Logging failures stop before completed-draw publication.
+
+Linux AArch64: **561 host tests pass** (`logs/ww16-gx-draw-final.log`), including
+actual preceding CP loads, split vertex payload, nonzero format, later VAT stride
+change, following-command alignment, missing layout, reserved/zero/oversize
+refusals, exact ordered history/wrap and failed audit handling. The draw test is
+red before framing support (`logs/ww16-gx-draw-red.log`); focused and ARM link
+evidence are `logs/ww16-gx-draw-audit-{focused,arm}.log`. Audit, attribution and
+whitespace checks pass. MEM1, pins, composite and renderer source are unchanged.
+
+The coordinator's VITA-WW-18 coverage commits are available locally through
+`f734af1`, but this branch still carries the earlier WW17 renderer; its remaining
+coverage must be reused from that lane, not reimplemented in the stream. This
+unit changes only framing/capture. A fresh committed **VI-enabled** rebuild and
+watched continuation follow; any nonzero plan/draw/present is reported immediately.

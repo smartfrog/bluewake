@@ -11,14 +11,15 @@ from fp_libraries import directory_fd, library_identity
 FIRMWARE_DIRECTORY = Path("data/Vita3K/Vita3K")
 CONFIG_PATH = Path("config/Vita3K/config.yml")
 CONFIG_TEMPLATE = Path(__file__).with_name("fp_config.yml")
-CONFIG_SHA256 = "c11fa8feaa4240186f652672643ee1c8d4cbdecbc09b62ac841a936272b67f25"
-CONFIG_ALT_SHA256 = "b9cc0c63d791d0add83db669a6d340b46b839be7ee23c31285e270993364a079"
+CONFIG_SHA256 = "741c970a568c58f87c72ffd7657026e756bb9a1c9c69e236afa28b8e8ad9a02d"
+CONFIG_ALT_SHA256 = "ce15463901cabe08a791835c56580541441bb6b353c20d660a5dc91b28fe550b"
 CONFIG_ALT_BYTES = 4285
 CPU_OPT_LINES = (b"cpu-opt: true\n", b"cpu-opt: false\n")
 SOURCE_CONFIG_SHA256 = "9e64e723c8286e77e7cd57ffb6049d3cdcf202615062a503348c3170a18edff7"
 SOURCE_CONFIG_RECORD = "local-adoption-fbfae8841e53439db2d5d034b00a4c89/evidence/config-after.yml"
 CONFIG_CHANGES = {"backend-renderer": {"from": "Vulkan", "to": "OpenGL"},
-                  "user-id": {"from": "00", "to": ""}}
+                  "user-id": {"from": "00", "to": ""},
+                  "log-level": {"from": 0, "to": 2}}
 
 
 def read_profile_file(path, limit, owned=False):

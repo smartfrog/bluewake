@@ -11,6 +11,11 @@ const char* ww_gx_stream_write(WwHost* host, u8 byte, const WwFifoOrigin* origin
     WwGxCheckpoint* command = &stream->command;
     if (!ww_gx_write(command, &host->gx, byte, 1u, origin->pc, origin->sp))
         return command->error;
+    if (!stream->first_draw_observed && command->size == 3u && command->bytes[0] >= 0x80u) {
+        const char* error = ww_gx_observe_first_draw(host);
+        if (error != NULL)
+            return error;
+    }
     if (!command->complete)
         return NULL;
     if (host->gx.trace_count == DOL_GX_RECOMP_MAX_TRACE_EVENTS)
@@ -34,6 +39,7 @@ const char* ww_gx_stream_write(WwHost* host, u8 byte, const WwFifoOrigin* origin
         host->frontier.trailing_bytes = trailing;
     }
     stream->decoded = index;
+    ww_gx_remember_command(stream, command);
     // VITA-WW-17: the same captured bytes the pinned trace observes go to the
     // renderer, in stream order. The present call shows a frame the game
     // finished (a display copy) and does nothing otherwise; when the march's
