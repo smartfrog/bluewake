@@ -51,4 +51,17 @@ static inline void charge_cycles(WwHost* host, u64 cycles) {
     bluewake_cycle_domain_end_turn(&host->cycles, &host->cpu);
 }
 
+static inline void ww_probe_fifo_setup(WwHost* host, bool linked) {
+    host->pi_fifo_base = 0x1000u;
+    host->pi_fifo_end = 0x1060u;
+    host->pi_fifo_write_pointer = 0x1000u;
+    host->cp_fifo_base = 0x1000u;
+    host->cp_fifo_end = 0x1060u;
+    host->cp_fifo_write_pointer = 0x1000u;
+    host->cp_fifo_read_pointer = 0x1000u;
+    host->cpu.external_write(&host->cpu, 0xCC000002u, linked ? 0x14u : 4u, 2u);
+    assert(host->error == NULL);
+    memset(host->cpu.ram + 0xFE0u, 0xA5u, 192u);
+}
+
 #endif

@@ -59,6 +59,9 @@ if(WW05_TESTS_ONLY)
     target_compile_options(gather_probe PRIVATE -UNDEBUG)
     target_link_libraries(gather_probe PRIVATE ww05_services)
     target_link_options(gather_probe PRIVATE -Wl,--wrap=fprintf)
+    add_executable(cp_clear_probe cp_clear_probe.c)
+    target_compile_options(cp_clear_probe PRIVATE -UNDEBUG)
+    target_link_libraries(cp_clear_probe PRIVATE ww05_services)
     file(WRITE "${CMAKE_CURRENT_BINARY_DIR}/ww05_identity.h" "#define WW05_SOURCE \"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\"\n")
     add_executable(io_probe main.c io_probe.c
         "${BLUEWAKE_ROOT}/vita/feasibility/armv7/platform.c"

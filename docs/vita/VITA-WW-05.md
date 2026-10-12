@@ -2631,3 +2631,64 @@ GPRead, status/clear/breakpoint, DVD DI/CMake integration, Windows ARAM and fina
 counts remain open. No disc/file access, physical Vita, Windows CI, rendering, FPS or live
 runtime REL event has been verified. Sources stay unchanged throughout each private build/trial;
 external supervision stays 600 seconds per phase, not an internal guest instruction cap.
+
+## Real GPLink continuation and bounded idle CP clear
+
+Run `1c11114b365a45a9afe0dbf0e02c53b5`, source
+`0c297e7b3f19b3b51c2ab031ecc30d5d6503ef18`, passes GPLink `0014` and reaches
+**`CC000004 = 0003`**, halfword PC **`80321344`**. The closed guest **FAIL** has
+**64,255 edges, 7,140,123 cycles**, zero FIFO bytes, `GX_FRONTIER complete=0`, `live=0`,
+`rendered=0`. Build status zero in 124.248 s; static archive unchanged. Both owned phases
+timeout at **600 s**, TERM/exit -15, `waited=true`; process **124/INCOMPLETE** remains a
+separate verdict. `logs/cp-gplink-gather-evidence-0c297e7.json` independently verifies
+plan/request/result bindings, request-bound report, runtime package and closed LER. SHA-256:
+
+- VPK: `718d35fa540fb22b686dd584acbe9bd1979aee8620af5f0b67882fea6e80fbf1`;
+- report: `43a2436129fd15f2908f01e09f348a61ee1206cbb0f5c50c8c66cc2cde379163`;
+- result: `635af6070a40ed332d84086208fa2737ceae41679cdeffc5ebbc7507937f9c56`;
+- log: `4c8e2672fbf6530935ebe357c6af4c2facace18e3ba67ce0a7740fabf093618e`;
+- LER: `169da8b7a0e0d3067e984a0701130bdf9916ce1c09ccf887d9004ec9f413b079`.
+
+Exact clean-source `0c297e7` checks pass **342 host tests, 177 ARMv7 tests**, audit,
+attribution and runtime **CTest 3/3** on Linux AArch64 (`logs/checkpoint-0c297e7.json`).
+This address is **CP_CLEAR**, not the PI interrupt mask (`CC003004`):
+`VideoCommon/CommandProcessor.h:59-61,139-152` identifies bits `0001` / `0002` as
+ClearFifoOverflow / ClearFifoUnderflow and bit `0004` as ClearMetrics. The pinned MMIO
+read is **constant zero**; writes store the clear request and call SetCpClearRegister
+(`CommandProcessor.cpp:210-217`). That function explicitly does not emulate clear timing
+(`597-601`). No hardware timing or real pending-status clearing is inferred from that stub.
+
+WW05 accepts only the authentic **`0003`** halfword request while GPRead is off, CP distance
+is zero, no gather/frontier input has been observed and no CP interrupt is pending. It changes
+no producer/consumer pointers, retained control, data, IRQ state, parser input or scheduling.
+Halfword reads return the sourced zero, not the last written request. Other masks, metrics
+requests, widths, active reads, pending gather/produced/checkpoint input and pending CP IRQ
+still fail explicitly with the original MMIO context. This bounded cold-init operation is
+not a complete CP acknowledgement or metrics backend.
+
+During supervision, sources and archive stayed unchanged. Private native fixtures
+`logs/cp-clear-preparation-0c297e7.c` and `logs/cp-clear-preparation-0c297e7-red.{log,json}`
+retained failures for the actual store and sourced read without editing the active trial.
+After owned process closure, `logs/cp-clear-idle-red.log` reproduced the missing read/store,
+spent-quantum access and main-loop continuation failures. `logs/cp-clear-idle-host-green.log`
+passes **351 host tests** on Linux AArch64. Added parameterized tests cover actual halfword
+memory hooks, repeated requests, zero readback, unchanged pointers/MEM1/gather/frontier,
+unrelated IRQ preservation, all bounded refusal shapes and 256 credited cycles without
+quantum renewal. The gather/clear probes reuse the same existing ring fixture setup.
+Main-loop `0014`/`0003` reaches only the explicitly synthetic parser fixture; metrics clear
+cannot reach it. No such fixture PASS counts as authentic GX progress.
+
+The next clean source-bound trial checks continuation toward the consumer. Its sourced
+transport reads **32 actual MEM1 bytes** per CP burst (`Fifo.cpp:215-235,435-476`), then
+advances/wraps RPTR and subtracts exactly 32 from distance. Command framing is separate:
+the first complete command alone supplies `opcode`, `hex`, byte count and precise writer/
+completion PC evidence to the existing checkpoint and GX-15 contract. Never advance RPTR
+by an invented decoded length, consume absent bytes or acknowledge GPRead without the
+reader/strict parser path. Writer PC/SP provenance through gather and queued memory is
+part of that next unit, not yet implemented here.
+
+No authentic gather bytes or first command have been reached. Strict GX validation, CPU ABI,
+pins, `BlueWakeRelData`, DOL and static archive are unchanged. GPRead consumption, CP status,
+active clear/metrics, breakpoint, DVD DI/CMake, Windows ARAM and final integration counts
+remain open. Physical Vita, Windows CI, rendering, FPS, live REL and real disc/file access
+remain unverified. No network, push, shared profile or other worktree was changed.

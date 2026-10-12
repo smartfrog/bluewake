@@ -50,6 +50,13 @@ static int dispatch(CPUState* cpu, u32 address) {
             return 1;
         assert(cpu->external_read(cpu, 0xCC000002u, 2u) == value && cpu->exception == 0u);
     }
+    const char* cp_clear = getenv("WW05_IO_CP_CLEAR");
+    if (cp_clear != NULL) {
+        cpu->external_write(cpu, 0xCC000004u, strtoul(cp_clear, NULL, 0), 2u);
+        if (cpu->exception != 0u)
+            return 1;
+        assert(cpu->external_read(cpu, 0xCC000004u, 2u) == 0u && cpu->exception == 0u);
+    }
     static const struct {
         const char* environment;
         u32 address;

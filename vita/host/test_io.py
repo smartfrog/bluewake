@@ -18,7 +18,7 @@ class MainIoTest(unittest.TestCase):
     def run_fixture(self, failure='', stale=False, interrupt=None, exception=False, syscall=None, progress=False,
                     dispatch_trace=None, stale_dispatch=False, mmio_poll=False, aram_dma=False, dsp_init=False,
                     cpu_boundary=None, exi=False, cp_control=None, fifo=None, prior_aram_transfers=None,
-                    cp_distance=None, cp_distance_high=None):
+                    cp_distance=None, cp_distance_high=None, cp_clear=None):
         with tempfile.TemporaryDirectory(dir=OUT, prefix='io-') as directory:
             root = Path(directory)
             data = bytearray(260)
@@ -56,6 +56,8 @@ class MainIoTest(unittest.TestCase):
                 environment['WW05_IO_EXI'] = '1'
             if cp_control is not None:
                 environment['WW05_IO_CP_CONTROL'] = str(cp_control)
+            if cp_clear is not None:
+                environment['WW05_IO_CP_CLEAR'] = str(cp_clear)
             if cp_distance is not None:
                 environment['WW05_IO_CP_DISTANCE'] = str(cp_distance)
             if cp_distance_high is not None:
@@ -134,6 +136,18 @@ class MainIoTest(unittest.TestCase):
                 status, report = self.run_fixture(fifo=register)
                 self.assertEqual(status, 0)
                 self.assertTrue(report.endswith('END frontier=PASS live=0 rendered=0\n'))
+
+    def test_observed_cp_clear_after_gplink_continues_to_the_explicit_parser_fixture(self):
+        status, report = self.run_fixture(cp_control=20, cp_clear=3)
+        self.assertEqual(status, 0)
+        self.assertTrue(report.endswith('END frontier=PASS live=0 rendered=0\n'))
+
+    def test_unobserved_cp_metrics_clear_cannot_reach_the_parser_fixture(self):
+        status, report = self.run_fixture(cp_control=20, cp_clear=4)
+        self.assertNotEqual(status, 0)
+        self.assertIn('GX_FRONTIER complete=0', report)
+        self.assertIn('address=CC000004 pc=80001000 width=2 value=0000000000000004', report)
+        self.assertTrue(report.endswith('END frontier=FAIL live=0 rendered=0\n'))
 
     def test_unsupported_cp_enable_cannot_reach_or_accept_the_fifo_fixture(self):
         for control in (1, 21):

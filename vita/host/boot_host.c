@@ -434,6 +434,8 @@ static u64 mmio_read(CPUState* cpu, u32 address, u8 size) {
         value = size == 2u ? (u16)(*fifo >> ((address & 2u) != 0u ? 16u : 0u)) : *fifo;
     else if (address == 0xCC000002u && size == 2u)
         value = host->cp_control;
+    else if (address == 0xCC000004u && size == 2u)
+        value = 0u;
     else if (address == 0xCC00401Cu && size == 2u)
         value = host->mi_interrupt_mask;
     else if (address == 0xCC004020u && size == 2u)
@@ -524,6 +526,12 @@ static void mmio_write(CPUState* cpu, u32 address, u64 value, u8 size) {
             return;
         }
         host->cp_control = (u16)value;
+    } else if (address == 0xCC000004u && size == 2u) {
+        if (value != 3u || (host->cp_control & 1u) != 0u || host->cp_fifo_distance != 0u ||
+            fifo_has_input(host) || (dol_interrupts_pi_cause(&host->interrupts) & DOL_PI_CAUSE_CP) != 0u) {
+            fail_mmio_write(host, "CP clear requires observed idle overflow/underflow acknowledgement; active FIFO or CP IRQ handling not implemented", address, value, size);
+            return;
+        }
     } else if ((address == 0xCC000030u || address == 0xCC000032u) && size == 2u) {
         if (value != 0u || host->cp_fifo_distance != 0u || fifo_has_input(host)) {
             fail_mmio_write(host, "CP FIFO distance requires empty disabled init; FIFO processor backend not implemented", address, value, size);

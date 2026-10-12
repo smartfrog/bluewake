@@ -18,19 +18,6 @@ int __wrap_fprintf(FILE* stream, const char* format, ...) {
     return result;
 }
 
-static void configure(WwHost* host, bool linked) {
-    host->pi_fifo_base = 0x1000u;
-    host->pi_fifo_end = 0x1060u;
-    host->pi_fifo_write_pointer = 0x1000u;
-    host->cp_fifo_base = 0x1000u;
-    host->cp_fifo_end = 0x1060u;
-    host->cp_fifo_write_pointer = 0x1000u;
-    host->cp_fifo_read_pointer = 0x1000u;
-    host->cpu.external_write(&host->cpu, 0xCC000002u, linked ? 0x14u : 4u, 2u);
-    assert(host->error == NULL);
-    memset(host->cpu.ram + 0xFE0u, 0xA5u, 192u);
-}
-
 static u64 byte_sequence(u8 first, u8 width) {
     u64 value = 0u;
     for (u8 index = 0u; index < width; ++index)
@@ -68,7 +55,7 @@ int main(int argc, char** argv) {
     host->cpu.gpr[1] = 0x817FFF00u;
     const char* scenario = argv[1];
     const bool unlinked = strncmp(scenario, "unlinked-", 9u) == 0;
-    configure(host, !unlinked);
+    ww_probe_fifo_setup(host, !unlinked);
     const DolInterrupts interrupts = host->interrupts;
     if (strcmp(scenario, "control") == 0) {
         assert(host->cpu.external_read(&host->cpu, 0xCC000002u, 2u) == 0x14u);
