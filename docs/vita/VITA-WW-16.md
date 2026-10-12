@@ -911,3 +911,55 @@ The coordinator's VITA-WW-18 coverage commits are available locally through
 coverage must be reused from that lane, not reimplemented in the stream. This
 unit changes only framing/capture. A fresh committed **VI-enabled** rebuild and
 watched continuation follow; any nonzero plan/draw/present is reported immediately.
+
+## Unit 25: first authentic primitive submitted to vitaGL (2026-10-13)
+
+The committed VI-enabled build at **`10ac0ce`** succeeds. Watched authentic run
+**`d98d1753b7904bfa82c72a883dc43af2`** proves the framing seam reaches WW17's
+actual Vita backend: **plans=1, draws=1, programs=1**, no skipped plan, refused
+program, copy refusal or gap. This is a real vitaGL submission with compiled Cg,
+**not proof of GPU completion, presentation or a visible game pixel**.
+Display copies/presentations/rendered remain zero.
+
+The private first-draw audit identifies command **990**, **quad opcode `80`**, four
+vertices, format 0, **16-byte stride / 67-byte packet**. Effective VCD is
+`00002200/00000000`; VAT 0 is `5EB77009/B9DCEEF5/3B9DCEE7`, all validity flags set.
+This means direct XYZ float positions (12 bytes) plus direct RGBA8 color (4 bytes),
+using the pinned CP derivation. CP registers **50/60** (VCD) at commands 963/964
+and **70/80/90** (VAT format 0) at 966..968 are captured before the draw; the last
+16 commands configure the remaining VAT formats through format 7, ending at 989.
+No unrecognized preceding state opcode had to be invented. Full exact private
+order/bytes/provenance remain in `evidence/first-draw-layout-history.txt`, with
+the verified summary in `evidence/first-draw-analysis.json`.
+
+The closed report advances to **1,136 decoded commands / 8,189 renderer bytes /
+2,288 events**, then stops at **`80308A9C`**, at 14,507,593 cycles. Installation
+is 1.24 s, guest 11.60 s. Source/receipt/input/preparation/report gates certify the
+closed frontier and 64 journal entries. The known post-report shutdown crash
+remains exit **133**, not masked as emulator success; no watchdog kill occurs.
+The observed emulator is gone. No physical Vita result or FPS measurement.
+
+## Unit 26: let the observed retrace caller execute real guest sleep code
+
+The new STOP is **OSSleepThread**, but not GXDrawDone's completion barrier:
+actual LR **`80313A2C`**, queue **`803F7B44`**. Shared desktop observations name
+`80313A04` as **VIWaitForRetrace**; its authentic translated code loads the retrace
+counter, computes `r3=r13-26012`, and calls `80308A9C` before comparing the counter
+again on return. The same desktop interception address is also used to publish
+PE finish **only for LR `80322C38`**. Applying that service here would invent a GPU
+completion unrelated to this observed caller and is explicitly not done.
+
+The Vita edge gate now lets this one observed route reach its compiled guest
+body, with **module ownership, exact LR, exact real-MEM1 queue and SDA relation**
+checked. Other callers/queues/SDA bases and an aliased queue still stop. It does
+not skip sleep, change a thread state/run bit, synthesize a return, send a message
+or commit a PE interrupt. The already sourced due VI and its translated handler
+must wake the thread normally. This reuses the existing guarded compiled-CPU
+boundary pattern; renderer, clock, pins and desktop code are unchanged.
+
+Linux AArch64: **564 host tests pass** (`logs/ww16-retrace-sleep-green.log`),
+including preserved CPU registers/PC/time, unchanged queue/interrupts, ownership
+refusal and caller/queue/SDA/alias negatives. The observed route is red before the
+gate (`logs/ww16-retrace-sleep-red.log`). ARM host links
+(`logs/ww16-retrace-sleep-arm-link.log`); audit, attribution and whitespace pass.
+A clean committed VI-enabled rebuild and watched continuation follow immediately.

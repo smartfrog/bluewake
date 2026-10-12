@@ -718,8 +718,13 @@ bool ww_host_edge(void* user, CPUState* cpu, u32 address) {
             return true;
         }
     }
-    const bool compiled_cpu_boundary = (address == 0x80328F84u || address == 0x80303A50u) &&
-                                        ww_host_module_contains_address(host->module, address);
+    const bool observed_retrace_sleep = address == 0x80308A9Cu && cpu->lr == 0x80313A2Cu &&
+        cpu->gpr[3] == 0x803F7B44u && cpu->gpr[13] - 26012u == cpu->gpr[3] &&
+        cpu->ram != NULL && cpu->ram_size >= 0x003F7B4Cu &&
+        get_ram_ptr(cpu, cpu->gpr[3], 8u, NULL) == cpu->ram + 0x003F7B44u &&
+        !ww_host_linked_alias_overlaps(cpu->gpr[3], 8u);
+    const bool compiled_cpu_boundary = (address == 0x80328F84u || address == 0x80303A50u || observed_retrace_sleep) &&
+                                         ww_host_module_contains_address(host->module, address);
     const bool desktop_edge = bluewake_edge_maybe_intercept(address);
     if (address == 0x80307EF4u && host->rel_image.linked && !host->scheduler_idle_observed) {
         const char* error = ww_host_observe_scheduler_idle(host);
