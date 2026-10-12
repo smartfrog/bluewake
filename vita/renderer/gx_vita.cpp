@@ -3,6 +3,7 @@
 
 #include "gx_vita.h"
 #include "gx_texgen.h"
+#include "gx_lighting.h"
 
 #include <cstring>
 #include <utility>
@@ -264,6 +265,8 @@ TranslatedDraw translate(const gxc::DrawPlan& plan) {
   }
   translate_pipeline(plan, out.pipeline);
   if (!translate_geometry(plan, out.geometry, &out.skip_reason))
+    return out;
+  if (!lighting::translate(plan, out.geometry.vertices, &out.skip_reason))
     return out;
   if (!texgen::translate(plan, out.geometry.vertices, out.geometry.texcoords, &out.skip_reason))
     return out;

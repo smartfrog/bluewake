@@ -541,6 +541,29 @@ int folded_post_matrix_is_submitted() {
   return 0;
 }
 
+int lighting_and_toon_coordinates_are_submitted() {
+  for (std::uint8_t light : {0, 7}) {
+    Fixture fixture;
+    RecordingBackend backend;
+    WwRenderer* renderer = nullptr;
+    WwRendererConfig config = fixture.config();
+    CHECK(ww_renderer_create(&renderer, &config, &backend) == nullptr);
+    const auto fifo = gx_ztexture_fixture::lighting_quad(light);
+    CHECK(ww_renderer_write(renderer, fifo.data(), fifo.size()) == nullptr);
+    CHECK(backend.draws.size() == 1);
+    const auto& draw = backend.draws[0];
+    CHECK(vertex_float(draw, 0, gx_fixture::gxc::kVertexColor0Offset) == 63.f / 255.f);
+    CHECK(vertex_float(draw, 0, gx_fixture::gxc::kVertexColor0Offset + 4) == 128.f / 255.f);
+    CHECK(vertex_float(draw, 0, gx_fixture::gxc::kVertexColor0Offset + 8) == 192.f / 255.f);
+    CHECK(vertex_float(draw, 0, gx_fixture::gxc::kVertexColor0Offset + 12) == 1.f);
+    CHECK(draw.geometry.texcoords[0] == 63.f / 255.f);
+    CHECK(draw.geometry.texcoords[1] == 128.f / 255.f);
+    ww_renderer_destroy(renderer);
+  }
+  std::printf("renderer XF lighting and lit RG toon coordinates submitted, lights 0/7\n");
+  return 0;
+}
+
 } // namespace
 
 int main() {
@@ -554,6 +577,7 @@ int main() {
   CHECK(ztexture_is_submitted() == 0);
   CHECK(texture_matrices_are_submitted() == 0);
   CHECK(folded_post_matrix_is_submitted() == 0);
+  CHECK(lighting_and_toon_coordinates_are_submitted() == 0);
   {
     // Create refuses a missing memory view and a missing backend loudly.
     WwRenderer* renderer = nullptr;
