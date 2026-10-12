@@ -123,10 +123,12 @@ inline bool valid_stage(const gxruntime::gxcore::TevStageKey& s) {
 
 inline void emit_stage(std::string& out,
                        const gxruntime::gxcore::TevStageKey& s,
-                       const std::string& coordinate) {
+                       const std::string& coordinate, bool preserve_raw = false) {
   if (s.tevorders_enable != 0) {
     out += "  tex = floor(tex2D(tex" + std::to_string(s.tevorders_texmap) +
            ", " + coordinate + ") * 255.0 + 0.5);\n";
+    if (preserve_raw)
+      out += "  rawtex = tex;\n";
     out += "  tex = tex." + swizzle(s.tex_swap) + ";\n";
   } else {
     out += "  tex = float4(255.0,255.0,255.0,255.0);\n";

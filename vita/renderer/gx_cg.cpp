@@ -3,6 +3,8 @@
 
 #include "gx_cg.h"
 #include "gx_tev.h"
+#include "gx_ztexture.h"
+#include "gx_texgen.h"
 
 namespace gx_vita {
 
@@ -18,30 +20,13 @@ bool texgen_coord(const gxc::ShaderKey& key, std::uint8_t texcoord,
     return false;
   }
   const gxc::TexGenKey& texgen = key.tex_gens[texcoord];
-  switch (static_cast<gxc::TexGenType>(texgen.texgentype)) {
-  case gxc::TexGenType::Regular:
-    if (texgen.sourcerow < static_cast<std::uint8_t>(gxc::TexSourceRow::Tex0)) {
-      *reason = "regular texgen source is not a raw texcoord";
-      return false;
-    }
-    if (texgen.sourcerow >=
-        static_cast<std::uint8_t>(gxc::TexSourceRow::Tex0) + gxc::kMaxRawTexCoords) {
-      *reason = "raw texcoord exceeds Vita vertex layout";
-      return false;
-    }
-    *out = "uv" + std::to_string(texgen.sourcerow -
-                                  static_cast<std::uint8_t>(gxc::TexSourceRow::Tex0));
-    return true;
-  case gxc::TexGenType::Color0:
-    *out = "float2(color0.r, 0.5)";
-    return true;
-  case gxc::TexGenType::Color1:
-    *out = "float2(color1.r, 0.5)";
-    return true;
-  default:
-    *reason = "unsupported texgen type";
+  *reason = gx_vita::texgen::support_reason(key, texgen);
+  if (*reason != nullptr)
     return false;
-  }
+  const std::string uv = "uv" + std::to_string(texcoord);
+  *out = texgen.projection ? "(" + uv + ".xy / max(" + uv + ".z, 0.000001))"
+                           : uv + ".xy";
+  return true;
 }
 
 } // namespace
@@ -59,8 +44,9 @@ CgProgram generate_cg(const gxc::ShaderKey& key) {
     program.unsupported_reason = "fog not supported by Vita Cg";
     return program;
   }
-  if (key.ztex_op != 0) {
-    program.unsupported_reason = "ZTexture depth output not supported by Vita Cg";
+  if (key.ztex_op > 2 || key.ztex_type > 2 ||
+      (key.ztex_op != 0 && (key.tev_valid == 0 || key.textured == 0))) {
+    program.unsupported_reason = "invalid ZTexture configuration";
     return program;
   }
   if (key.use_dst_alpha != 0) {
@@ -70,7 +56,7 @@ CgProgram generate_cg(const gxc::ShaderKey& key) {
 
   // Which vertex outputs the fragment needs: uv slots per stage texcoord and
   // the vertex colour for raster args or Colour texgens.
-  bool need_uv[gxc::kMaxRawTexCoords] = {};
+  bool need_uv[gxc::kMaxTexGens] = {};
   bool need_color0 = false;
   bool need_color1 = false;
 
@@ -104,9 +90,7 @@ CgProgram generate_cg(const gxc::ShaderKey& key) {
           need_color0 = true;
         if (texgen.texgentype == static_cast<std::uint8_t>(gxc::TexGenType::Color1))
           need_color1 = true;
-        if (texgen.texgentype == static_cast<std::uint8_t>(gxc::TexGenType::Regular))
-          need_uv[texgen.sourcerow -
-                  static_cast<std::uint8_t>(gxc::TexSourceRow::Tex0)] = true;
+        need_uv[texcoord] = true;
       }
       need_color0 |= stage.tevorders_colorchan == 0;
       need_color1 |= stage.tevorders_colorchan == 1;
@@ -123,9 +107,9 @@ CgProgram generate_cg(const gxc::ShaderKey& key) {
       out += ", float4 color0 : COLOR0";
     if (need_color1)
       out += ", float4 color1 : COLOR1";
-    for (std::uint32_t t = 0; t < gxc::kMaxRawTexCoords; ++t)
+    for (std::uint32_t t = 0; t < gxc::kMaxTexGens; ++t)
       if (need_uv[t])
-        out += ", float2 uv" + std::to_string(t) + " : TEXCOORD" +
+        out += ", float3 uv" + std::to_string(t) + " : TEXCOORD" +
                std::to_string(t);
     out += ",\n          uniform float4x4 position_matrix"
            ", uniform float4x4 projection"
@@ -134,18 +118,20 @@ CgProgram generate_cg(const gxc::ShaderKey& key) {
       out += ", out float4 out_color0 : COLOR0";
     if (need_color1)
       out += ", out float4 out_color1 : COLOR1";
-    for (std::uint32_t t = 0; t < gxc::kMaxRawTexCoords; ++t)
+    for (std::uint32_t t = 0; t < gxc::kMaxTexGens; ++t)
       if (need_uv[t])
-        out += ", out float2 out_uv" + std::to_string(t) + " : TEXCOORD" +
+        out += ", out float3 out_uv" + std::to_string(t) + " : TEXCOORD" +
                std::to_string(t);
     out += ") {\n";
     out += "  clip = mul(mul(float4(position, 1.0), position_matrix), "
            "projection);\n";
+    // GX clip Z is [-w,0]; vitaGL uses ordinary GL depth, not reversed Z.
+    out += "  clip.z = 2.0 * clip.z + clip.w;\n";
     if (need_color0)
       out += "  out_color0 = color0;\n";
     if (need_color1)
       out += "  out_color1 = color1;\n";
-    for (std::uint32_t t = 0; t < gxc::kMaxRawTexCoords; ++t)
+    for (std::uint32_t t = 0; t < gxc::kMaxTexGens; ++t)
       if (need_uv[t])
         out += "  out_uv" + std::to_string(t) + " = uv" +
                std::to_string(t) + ";\n";
@@ -167,9 +153,9 @@ CgProgram generate_cg(const gxc::ShaderKey& key) {
       param("float4 color0 : COLOR0");
     if (need_color1)
       param("float4 color1 : COLOR1");
-    for (std::uint32_t t = 0; t < gxc::kMaxRawTexCoords; ++t)
+    for (std::uint32_t t = 0; t < gxc::kMaxTexGens; ++t)
       if (need_uv[t])
-        param("float2 uv" + std::to_string(t) + " : TEXCOORD" +
+        param("float3 uv" + std::to_string(t) + " : TEXCOORD" +
               std::to_string(t));
     if (key.textured != 0u) {
       const std::uint32_t used = gxc::used_texmap_mask(key);
@@ -182,6 +168,12 @@ CgProgram generate_cg(const gxc::ShaderKey& key) {
       param("uniform float4 konst_colors[4]");
       param("uniform float2 alpha_ref");
     }
+    if (key.ztex_op != 0) {
+      param("uniform float2 ztexture_bias");
+      param("out float fragment_depth : DEPTH");
+      if (key.ztex_op == 1)
+        param("float4 screen : WPOS");
+    }
     out += ") : COLOR {\n";
 
     if (key.tev_valid != 0u) {
@@ -190,6 +182,8 @@ CgProgram generate_cg(const gxc::ShaderKey& key) {
              "  float4 c1 = tev_colors[2];\n"
              "  float4 c2 = tev_colors[3];\n"
              "  float4 tex, ras, konst, tevin_a, tevin_b, tevin_c, tevin_d;\n";
+      if (key.ztex_op != 0)
+        out += "  float4 rawtex = float4(0.0,0.0,0.0,0.0);\n";
       for (std::uint32_t n = 0; n < key.num_tev_stages; ++n) {
         const gxc::TevStageKey& stage = key.tev_stages[n];
         std::string coord;
@@ -197,15 +191,19 @@ CgProgram generate_cg(const gxc::ShaderKey& key) {
           const char* reason = nullptr;
           (void)texgen_coord(key, stage.tevorders_texcoord, &coord, &reason);
         }
-        tev::emit_stage(out, stage, coord);
+        tev::emit_stage(out, stage, coord, key.ztex_op != 0);
       }
       const auto& last = key.tev_stages[key.num_tev_stages - 1];
       out += "  prev = float4(" + std::string(tev::destinations[last.cc_dest]) +
              ".rgb, " + tev::destinations[last.ac_dest] + ".a);\n";
       tev::emit_alpha_test(out, key);
+      if (key.ztex_op != 0)
+        ztexture::emit_depth(out, key);
       out += "  return prev / 255.0;\n";
     } else if (key.textured != 0u) {
-      out += "  return tex2D(tex0, uv0);\n";
+      out += key.num_tex_gens > 0 && key.tex_gens[0].projection
+                 ? "  return tex2D(tex0, uv0.xy / max(uv0.z, 0.000001));\n"
+                 : "  return tex2D(tex0, uv0.xy);\n";
     } else {
       out += "  return float4(color0.rgb, color0.a);\n";
     }

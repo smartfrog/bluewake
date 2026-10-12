@@ -2,6 +2,7 @@
 // VITA-WW-02 GX -> vitaGL translation. See gx_vita.h.
 
 #include "gx_vita.h"
+#include "gx_texgen.h"
 
 #include <cstring>
 #include <utility>
@@ -100,6 +101,10 @@ void translate_pipeline(const gxc::DrawPlan& plan, PipelineState& out) {
   out.depth_test = key.depth_test;
   out.depth_func = compare_mode_token(key.depth_func);
   out.depth_write = key.depth_update;
+  if (plan.viewport_valid) {
+    out.depth_near = (plan.viewport[5] - plan.viewport[2]) / 16777216.f;
+    out.depth_far = plan.viewport[5] / 16777216.f;
+  }
   out.blend_enable = key.blend_enable;
   out.blend_src = blend_factor_token(key.src_factor);
   out.blend_dst = destination_blend_factor_token(key.dst_factor);
@@ -137,7 +142,8 @@ bool translate_geometry(const gxc::DrawPlan& plan, Geometry& out,
   }
   out.vertex_count = plan.vertex_count;
   out.vertices.resize(plan.vertices.size() * sizeof(float));
-  std::memcpy(out.vertices.data(), plan.vertices.data(), out.vertices.size());
+  if (!out.vertices.empty())
+    std::memcpy(out.vertices.data(), plan.vertices.data(), out.vertices.size());
   out.indices = plan.indices;
   if (plan.pipeline.shader.has_pos_mtx_idx != 0u) {
     for (std::uint32_t v = 0; v < plan.vertex_count; ++v) {
@@ -259,6 +265,8 @@ TranslatedDraw translate(const gxc::DrawPlan& plan) {
   translate_pipeline(plan, out.pipeline);
   if (!translate_geometry(plan, out.geometry, &out.skip_reason))
     return out;
+  if (!texgen::translate(plan, out.geometry.vertices, out.geometry.texcoords, &out.skip_reason))
+    return out;
   translate_transform(plan, out);
   for (std::uint32_t reg = 0; reg < 4; ++reg) {
     for (std::uint32_t channel = 0; channel < 4; ++channel) {
@@ -268,6 +276,9 @@ TranslatedDraw translate(const gxc::DrawPlan& plan) {
   }
   for (std::uint32_t ref = 0; ref < 2; ++ref)
     out.alpha_ref[ref] = plan.pixel_constants.alpha_ref[ref];
+  const std::uint32_t z_bias = plan.pixel_constants.zbias[3] & 0xFFFFFFu;
+  out.ztexture_bias[0] = z_bias >> 8;
+  out.ztexture_bias[1] = z_bias & 0xFFu;
   if (plan.texmap_mask != 0u)
     translate_per_texmap_textures(plan, out);
   else {
