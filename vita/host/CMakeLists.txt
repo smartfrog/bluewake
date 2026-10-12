@@ -36,6 +36,7 @@ target_compile_options(gxruntime PRIVATE -ffp-contract=off -fno-fast-math -fstac
 
 add_library(ww05_services STATIC boot_host.c gx_checkpoint.c gx_stream.c fifo_gather.c fifo_consumer.c
     code_guard.c dsp_interface.c bat_contract.c disc_service.c rel_provider.c rel_service.c rel_link.c
+    scheduler_observation.c
     $<TARGET_OBJECTS:ww13_dvd_pin>
     "${BLUEWAKE_ROOT}/runtime/host/src/cycle_domain.c"
     "${BLUEWAKE_ROOT}/runtime/host/src/aram_dma.c"
@@ -103,6 +104,10 @@ if(WW05_TESTS_ONLY)
     target_compile_options(rel_materialize_probe PRIVATE -UNDEBUG)
     target_link_libraries(rel_materialize_probe PRIVATE ww05_services)
     target_link_options(rel_materialize_probe PRIVATE -Wl,--wrap=fprintf -Wl,--wrap=calloc)
+    add_executable(scheduler_observation_probe scheduler_observation_probe.c)
+    target_compile_options(scheduler_observation_probe PRIVATE -UNDEBUG)
+    target_link_libraries(scheduler_observation_probe PRIVATE ww05_services)
+    target_link_options(scheduler_observation_probe PRIVATE -Wl,--wrap=fprintf)
     add_executable(gather_probe gather_probe.c)
     target_compile_options(gather_probe PRIVATE -UNDEBUG)
     target_link_libraries(gather_probe PRIVATE ww05_services)

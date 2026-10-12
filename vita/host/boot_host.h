@@ -86,6 +86,7 @@ typedef struct WwHost {
     bool aram_owned;
     bool disc_owned;
     bool dvd_callback_active;
+    bool scheduler_idle_observed;
 } WwHost;
 
 enum { WW_DVD_CALLBACK_DELAY_CYCLES = 486000u };
@@ -112,6 +113,7 @@ const char* ww_host_disc_ready(WwHost* host);
 const char* ww_host_rel_image(WwHost* host, const char* name, u8** image, u32* bytes);
 const char* ww_host_materialize_rel(WwHost* host, u32 owner, const char* name);
 const char* ww_host_link_profile_list(WwHost* host, u32 object);
+const char* ww_host_observe_scheduler_idle(WwHost* host);
 const char* ww_gx_stream_write(WwHost* host, u8 byte, const WwFifoOrigin* origin, u32 trailing);
 
 #endif

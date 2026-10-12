@@ -582,3 +582,47 @@ and the actual ARM host links (`logs/ww16-decrementer-vector-arm-link.log`). Aud
 attribution and whitespace checks pass. No source pin, composite digest, runtime
 default or desktop behavior changes. The next clean committed build and watched
 authentic continuation follow; no visible pixel, FPS or physical Vita claimed.
+
+Watched trial `4ce56e3c1971443dbe1dfee117cb525f` at `21f6a64` proves **eight real
+decrementer deliveries and eight verified-vector RFI handoffs to `803025D4`**.
+The last progress sample reaches **4,187,606,691 executed guest cycles**. It then
+repeats `80307EF4`, with the timer rearmed and no further journaled GX entries.
+There are 127 read requests (including four post-link audio archive reads) and
+116 completed DVD callbacks. CPU/log progress stay high, so this is not an
+inactivity-watchdog hang. The deliberately shortened **60-second phase ceiling**
+stops/reaps it; installation took 1.18 seconds. The observed emulator is gone.
+
+There is no closed report: result stays INCOMPLETE/UNAVAILABLE, process_status 124,
+with status 2 for the missing report. The partial report, native log, CPU/log
+watch and `evidence/active-plateau-analysis.json` are retained. No signal was sent
+by the later manual-stop check because the process had already exited. There is
+no newly certified renderer count or pixel/FPS claim from this unfinished run.
+
+## Unit 17: observe the sourced SelectThread wait, without inventing a wakeup
+
+The private translated `80307EF4` loop loads `r13-26288`, tests zero and loops;
+the shared desktop labels it **SelectThread's run-queue wait** and already
+observes the retail run bits/current thread/context, thread state/wait queue and
+saved stack frames. This evidence does not establish a VI failure or permission
+to wake a thread, so none is assumed.
+
+The Vita lane now emits one post-link idle observation, reusing a shared pure
+selection of the existing desktop's run bits/current thread/context values.
+It records the actual r13-derived poll address/value, scheduler depth, pending
+DVD work and live GX/renderer counters (with an explicit availability flag).
+The sourced default/main/DVD thread records, bounded active-thread list and
+four saved frames per thread identify the actual caller/wait, not a guessed
+future event. Reads require bounded real MEM1; trace failures stop loudly.
+It changes no guest RAM, register, runnable bit, queue, callback or clock budget.
+The observer's once-only latch is host diagnostic state only.
+
+Linux AArch64: **514 host tests pass** (`logs/ww16-scheduler-idle-green.log`),
+with final observer checks in `logs/ww16-scheduler-idle-final-focused.log`; tests
+compare all guest RAM before/after, preserve PC/cycles, exercise once-only and
+unlinked guards, and refuse failed trace output. Red evidence is
+`logs/ww16-scheduler-idle-red.log`. The actual ARM host links
+(`logs/ww16-scheduler-idle-arm-link-final.log`); audit, attribution and whitespace
+checks pass. The desktop's initial idle diagnostic uses the same three reads
+through the shared helper; no desktop scheduling behavior changes. Windows
+verification remains unavailable and is tracked. The next committed build and
+short watched diagnostic trial follow immediately.

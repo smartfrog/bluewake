@@ -15412,12 +15412,11 @@ int main(int argc, char** argv) {
             audio_tick_wait_reported = true;
         }
         if (!scheduler_wait_reported && cpu.pc == 0x80307EF4u) {
+            const BluewakeSchedulerIdleState idle = bluewake_scheduler_idle_state(&cpu);
             fprintf(stderr,
                     "[sched] SelectThread idle run_bits=0x%08X current_thread=0x%08X "
                     "current_context=0x%08X r1=0x%08X\n",
-                    mem_read32(&cpu, 0x803F7A30u),
-                    mem_read32(&cpu, 0x800000E4u),
-                    mem_read32(&cpu, 0x800000D4u), cpu.gpr[1]);
+                    idle.run_bits, idle.current_thread, idle.current_context, cpu.gpr[1]);
             u32 frame = cpu.gpr[1];
             for (unsigned depth = 0; depth < 8u && frame >= 0x80000000u; depth++) {
                 fprintf(stderr, "[sched] frame%u sp=0x%08X lr=0x%08X\n",
