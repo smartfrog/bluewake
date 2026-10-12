@@ -2,8 +2,10 @@
 
 **Core acceptance verified, 2026-10-12:** authentic `GX_FRONTIER complete=1`,
 `hex=610F0000FF`, writer PC `80325DAC`, completion PC `80325DB8`, on source
-`35ac6365a2b03d023d78e4b1605b917b1fddc89e`. Delivery integration and optional
-post-frontier exploration are recorded below; this is not rendering or gameplay acceptance.
+`35ac6365a2b03d023d78e4b1605b917b1fddc89e`. Delivery is rebased on `f0a82ed`, with
+the existing DVD seam wired and opt-in continuation proven through **11 real commands**
+on `feeb8facc9f53d0cf1bd6c2685f5ab317d8e6e04`. Local handoff is complete; remote
+publication/merge is not performed. This is not rendering or gameplay acceptance.
 
 **Private, opt-in startup experiment.** The product owner superseded the original execution gate:
 WW05 may run repeatedly in fresh isolated private profiles. There is no process-count budget,
@@ -17,7 +19,8 @@ an exception or unsupported service is negative evidence, never permission to pa
 
 ## Source and opt-in shape
 
-- Integration base: `8583ba88666f6131bebbb6354a3f412861201738`, branch `vita-ww-05-host`.
+- Original integration base: `8583ba88666f6131bebbb6354a3f412861201738`; final local
+  delivery base: `f0a82ed`, branch `vita-ww-05-host`.
 - Pristine RecompCore `ddd031b2a7f45fcbda37a49daac9b308b8d95da1` and DolRecomp
   `b8b534591cba8ca7cd43943a655ee6e2591cf5de`; no pin/source/FP edits.
 - The existing importer verifies the privately supplied USA GZLE01 rev0 disc and DOL hash before
@@ -2924,7 +2927,7 @@ counts remain tracked until the final checks actually run.
 ## Opt-in post-frontier continuation
 
 The DVD/rebase checkpoint **`abdafa6`** passes exact clean-source checks on Linux AArch64:
-**392 host tests, 177 ARMv7 tests, 29 DVD tests, runtime CTest 3/3**, audit and attribution.
+**392 host tests, 198 ARMv7 tests, 29 DVD tests, runtime CTest 3/3**, audit and attribution.
 The DVD tests were redirected into a new `build-f5/services-tests/dvd-integration-abdafa6`
 output tree; no other worker's `build-f13` output was changed. Receipt:
 `logs/checkpoint-abdafa6.json`. The module archive remains unchanged.
@@ -2984,3 +2987,115 @@ Windows compiler/runtime/CI is unavailable in this offline Linux AArch64 environ
 no Windows ARAM result is claimed. The required shared-ARAM Windows check is now listed in
 `docs/WINDOWS_TASKS.md`. No genuine VI retrace, presentation, live REL event or FPS marker
 has occurred; no physical Vita rendering or standalone hardware STOP bound is claimed.
+
+## Final delivery: authentic continuation reaches CP performance selection
+
+Run **`da0c3c7226f8441d8b9a6d5ccc1d3c0a`**, exact clean source
+**`feeb8facc9f53d0cf1bd6c2685f5ab317d8e6e04`**, uses the opt-in 64-command journal
+and the verified private disc mounted read-only. The independently validated closed report:
+
+```text
+STATE entry=80003140 pc=80325534 sp=8040CEB0 edges=64360 exception=00000001 cycles=7143068
+GX_FRONTIER complete=1 opcode=61 bytes=5 pc=80325DAC completion_pc=80325DB8 sp=8040CEB0 trailing=27 edge_stop=0 hex=610F0000FF
+GX_STREAM mode=continue decoded=11 logged=11 limit=64 pending=2 read_bytes=64
+STOP reason=unsupported MMIO write address=CC000006 pc=803202C4 width=2 value=0000000000000000
+END frontier=PASS live=0 rendered=0
+```
+
+This is **11 authentic commands**, not 11 synthetic fixture commands: **four BP loads and
+seven CP loads**, accepted by the unchanged pinned parser. The first frontier is identical
+to the original acceptance, and **`edge_stop=0`** proves the first-command stop is disabled.
+Compared with that run, execution reaches 69 additional reported edges and 1,488 additional
+credited cycles. These are boot-progress observations, not frame rate or a performance claim.
+
+Two actual 32-byte reads from `80429F60` and `80429F80` advance the ring read pointer to
+`00429FA0` and distance back to zero. The complete commands total **62 bytes**; the next
+command has a genuine **two-byte incomplete prefix**. No host padding or command skipping
+was used. All eleven journal entries preserve each command's original writer and completion
+PC, with SP **`8040CEB0`** throughout:
+
+| Index | Opcode | Bytes | Writer PC | Completion PC | Exact hex |
+| --- | --- | --- | --- | --- | --- |
+| 1 | 61 | 5 | 80325DAC | 80325DB8 | `610F0000FF` |
+| 2 | 61 | 5 | 8031FF90 | 8031FF98 | `616900049E` |
+| 3 | 61 | 5 | 80325DAC | 80325DB8 | `610F0000FF` |
+| 4 | 61 | 5 | 8031FFA4 | 8031FFBC | `614600024C` |
+| 5 | 08 | 6 | 8032002C | 8032004C | `088080000000` |
+| 6 | 08 | 6 | 80320080 | 8032009C | `088180000000` |
+| 7 | 08 | 6 | 803200D0 | 803200EC | `088280000000` |
+| 8 | 08 | 6 | 80320110 | 8032011C | `088380000000` |
+| 9 | 08 | 6 | 8032002C | 8032004C | `088480000000` |
+| 10 | 08 | 6 | 80320080 | 8032009C | `088580000000` |
+| 11 | 08 | 6 | 803200D0 | 803200EC | `088680000000` |
+
+The next real blocker is **CP `PERF_SELECT`**, offset `06`, identified by unchanged
+`VideoCommon/CommandProcessor.h:62` and its MMIO registration in
+`VideoCommon/CommandProcessor.cpp:221`. The guest attempts halfword zero at `803202C4`;
+it is still refused. There is no speculative CP metrics implementation in this delivery.
+That subsequent boot work is a follow-up, **not a reason to keep WW05's met acceptance open**.
+The journal limit was not reached and did not cause the STOP.
+
+The build exits zero in **127.210 s**. Both owned emulator phases time out at **600 s**,
+TERM/exit -15, `waited=true`, and the launcher returns **124/INCOMPLETE**. This process
+disposition is separate from the proven first-frontier **guest PASS** and the later explicit
+guest service failure. Sources stayed clean and unchanged throughout build and trial;
+the translated archive remains
+`9d1c59238cea4b83798f1c16b0549950d41ec0011a89e95591d5a307718aea08`.
+
+Independent verification in `logs/gx-stream-evidence-feeb8fa.json` matches source, package,
+plan/request/result, the canonical opt-in, all eleven journal entries, immutable first
+frontier, the original disc hash and the empty read-only bind target after execution. The
+dispatch journal is closed **LER**. Five SHA-256 bindings:
+
+- VPK: `1e5a89bf62eeac80afc6c909bfe7238289ea0dc5c5f7ed98ffa2760925a084f9`;
+- report: `12dc9287a39e745f44eae02f46f3a9ca20dfe6ddba6d879120febb51e8dbc0a3`;
+- result: `2a8f61cf3b52ceb03414f8498a94c004f1903140ee4da7f2f3362468ddba875d`;
+- log: `d84adb839ceb83c19c968c64d6e7fc26c41805d1cf2f891b2e4e5f20dfcd8ba2`;
+- LER: `169da8b7a0e0d3067e984a0701130bdf9916ce1c09ccf887d9004ec9f413b079`.
+
+### Exact checks and delta review
+
+Exact clean **`feeb8fa`** checks pass on Linux AArch64:
+
+- **416 host tests**;
+- **198 ARMv7 tests**;
+- **29 DVD tests**, isolated outputs under `build-f5`;
+- pinned runtime **CTest 3/3**;
+- shared native ARAM contract, compiled from the current shared source and executed;
+- repository safety audit and human-attribution check;
+- `BlueWakeRelData` offset, stride and alignment assertions compiled for both Linux
+  AArch64 and ARMv7 Vita.
+
+Receipts are `logs/checkpoint-feeb8fa.json` and `logs/delta-review-feeb8fa.json`.
+The post-rebase ARMv7 suite contains **198**, not the earlier 177: the incoming trunk added
+tests. The initial verbal count and the `abdafa6` section were corrected by recounting the
+actual logs; all 198 pass. The original pre-rebase 177-test records retain their real counts.
+
+The reviewed code delta is nine local commits on `f0a82ed`, plus this final documentation
+record. The seven frontier increments were rebased without conflicts; DVD13's existing
+delivery is reused, not recreated. No delta changes the pinned sources, dependency pins,
+strict command framer, FP operations, shared runtime code since trunk or module-export ABI.
+The actual boot ELF also passes unique-owner inspection for `dvd_open_image`,
+`dvd_read_to_guest`, `bw_dvd_fopen` and `bw_dvd_fread`; the Vita seam is compiled and linked
+into the boot path. The final documentation checkpoint changes no executable source;
+its exact-SHA regression receipt is retained after committing it.
+
+### Handoff and limits
+
+**WW05 core acceptance and local delivery are complete.** The continuation is available for
+fresh independent attempts; no further automatic boot-march work is needed to close this
+acceptance. The new CP performance-selector STOP is retained as the next authentic frontier.
+The local branch is ready for coordinator review/integration. No push, PR, merge or Trello
+publication occurred under the offline constraint; Windows CI must still gate any merge.
+
+The disc was correctly exposed read-only, but **no genuine DI image/file read occurred**
+before this STOP. Its integration is tested synthetically and its real-image seam was tested
+by DVD13, not claimed here as real WW05 game I/O. There is still no renderer, draw, presentation,
+VI retrace, live REL load/unload or FPS event. Audio remains stopped/silent; dynamic Zelda DSP
+protocols remain unsupported. No physical Vita, standalone physical STOP bound, Windows
+compiler/runtime/CI or gameplay/performance acceptance is claimed. The shared Windows ARAM
+verification remains in `docs/WINDOWS_TASKS.md`.
+
+Private VPKs, game inputs and every attempt remain ignored and local. No network, shared
+profile, protected `build-r1`/`build-f8`/`build-f9`/`build-f11` tree, other worktree or player
+data was changed. The final delivery does not publish or attach any personal game build.
