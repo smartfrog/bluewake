@@ -113,7 +113,7 @@ const char* ww_host_materialize_rel(WwHost* host, u32 owner, const char* name) {
             if (!ppc_guest_alias_remove(guest, capacity))
                 ww_host_fail(host, "REL failed mapping could not be removed", guest, host->cpu.pc);
         } else {
-            host->rel_image = (WwRelImage){owner, guest, bytes, capacity, module_id};
+            host->rel_image = (WwRelImage){owner, guest, bytes, capacity, module_id, false};
             host->alias_count++;
             host->alias_bytes += capacity;
         }

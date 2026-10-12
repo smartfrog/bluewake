@@ -41,6 +41,8 @@ typedef struct WwHost {
     WwDspInterface dsp;
     WwBatContract bat;
     const StaticRecompModuleDesc* module;
+    const BlueWakeRelData* rel_data;
+    u32 rel_data_count;
     u32 l2cr;
     u32 wpar;
     u32 pi_fifo_base;
@@ -109,6 +111,7 @@ void ww_host_dvd_complete(WwHost* host);
 const char* ww_host_disc_ready(WwHost* host);
 const char* ww_host_rel_image(WwHost* host, const char* name, u8** image, u32* bytes);
 const char* ww_host_materialize_rel(WwHost* host, u32 owner, const char* name);
+const char* ww_host_link_profile_list(WwHost* host, u32 object);
 const char* ww_gx_stream_write(WwHost* host, u8 byte, const WwFifoOrigin* origin, u32 trailing);
 
 #endif

@@ -434,3 +434,46 @@ word is still refused. This reproduction is red in `logs/ww16-rel-catalog-red.lo
 **486 host tests pass** after the producer-contract correction
 (`logs/ww16-rel-catalog-green.log`); audit, attribution and whitespace checks pass.
 The next clean committed rebuild and watched trial follow immediately.
+
+Watched trial `f2be755920014d42a910d4ac1691834d` at `bf2d61e` proves the requested
+raw module was materialized: **module 1, `f_pc_profile_lst`, 16,500 bytes at
+`81822E80`, source=iso-RELS.arc, backend=vita-sceio**. The owned alias rounds to
+16,512 bytes, outside 24 MiB MEM1 and outside linked section/code extents.
+The next explicit STOP is **relocation/link/prolog**, at the same 78,789,721 cycles;
+raw materialization is not claimed as successful `do_link`. Installation is 1.23
+seconds, guest 10.31 seconds, with live CPU/log observations retained in
+`evidence/run-watch.jsonl`. The known post-report crash remains 133. No draw or
+presentation occurs; the closed report and 64 journaled GX commands validate.
+
+## Unit 13: the sourced profile-list static-composite link contract
+
+`runtime/host/src/main.c`'s materialization branch publishes the module pointer,
+then `host_activate_rel_profile_list` binds module 1's prelinked section 4 to
+**`g_fpcPf_ProfileList_p` at `803F6A68`** before returning TRUE to the actual
+caller. The private translated module's publication routine confirms that same
+global and prelinked data address. This is the shared desktop compatibility
+contract, not a generic relocation engine or proof that a guest prolog executed.
+
+The Vita lane now services **only the owned module-1 contract** after the proven
+ISO materialization. Its linked data must be present, byte-identical to the
+borrowed immutable composite export, and match the module's section descriptor
+and raw section size. Unsupported BSS, absent/changed data, an unaligned return,
+another object's pointer/global or a failed trace stops before publication.
+Only after those gates does it publish the raw module pointer and the already
+linked profile table, return TRUE and resume at the real LR. Repeated calls for
+that same owned resident image do not read or materialize again. Other module
+owners/link contracts remain explicit STOPs; no constructor, generic relocation,
+unload, active-set measurement, frame or timing credit is fabricated.
+
+The profile-data selection is extracted into shared `rel_profile_list.h` and
+reused by desktop's existing publication routine; its selected entry, global and
+return behavior are unchanged. The Vita lane borrows the already provided REL
+exports until shutdown, without owning or freeing those static bytes.
+
+Linux AArch64: **490 host tests pass** (`logs/ww16-rel-profile-link-green.log`),
+including exact publication, preserved unrelated object bytes, repeated-link
+no-read behavior, invalid binding/return refusal and trace-failure preservation.
+The missing contract is red in `logs/ww16-rel-profile-link-red.log`. The real ARM
+host links (`logs/ww16-rel-profile-link-arm.log`); audit, attribution and whitespace
+checks pass. Windows/desktop gameplay and physical Vita remain untested. The next
+committed VPK rebuild and watched authentic continuation follow immediately.

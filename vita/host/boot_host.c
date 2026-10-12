@@ -905,6 +905,8 @@ void ww_host_shutdown(WwHost* host) {
         host->aram_owned = false;
     }
     host->module = NULL;
+    host->rel_data = NULL;
+    host->rel_data_count = 0u;
     ww_code_guard_free(&host->code_guard);
     ppc_guest_alias_clear();
     host->alias_bytes = 0u;
@@ -973,6 +975,8 @@ bool ww_host_load(WwHost* host, const StaticRecompModuleDesc* module,
     }
     boot_setup_os_globals(&host->cpu, &layout);
     host->module = module;
+    host->rel_data = data;
+    host->rel_data_count = count;
     host->cpu.pc = module->entry_point;
     ppc_lazy_fp_set_enabled(true);
     return true;
