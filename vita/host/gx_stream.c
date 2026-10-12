@@ -6,8 +6,8 @@ const char* ww_gx_stream_write(WwHost* host, u8 byte, const WwFifoOrigin* origin
         return "invalid GX command journal limit";
     if (stream->decoded == UINT64_MAX)
         return "GX decoded command counter exhausted";
-    if (host->gx.trace_count == DOL_GX_RECOMP_MAX_TRACE_EVENTS)
-        return "pinned GX trace is full; renderer drain not implemented";
+    if (host->gx.trace_count >= DOL_GX_RECOMP_MAX_TRACE_EVENTS)
+        return "pinned GX trace is full before command consumption";
     WwGxCheckpoint* command = &stream->command;
     if (!ww_gx_write(command, &host->gx, byte, 1u, origin->pc, origin->sp))
         return command->error;
@@ -18,8 +18,8 @@ const char* ww_gx_stream_write(WwHost* host, u8 byte, const WwFifoOrigin* origin
     }
     if (!command->complete)
         return NULL;
-    if (host->gx.trace_count == DOL_GX_RECOMP_MAX_TRACE_EVENTS)
-        return "pinned GX trace reached capacity; renderer drain not implemented";
+    if (host->gx.trace_count >= DOL_GX_RECOMP_MAX_TRACE_EVENTS)
+        return "pinned GX command trace reached capacity before renderer acceptance";
     const u64 index = stream->decoded + 1u;
     if (stream->logged < stream->log_limit) {
         if (command->bytes[0] >= 0x80u &&
@@ -61,6 +61,8 @@ const char* ww_gx_stream_write(WwHost* host, u8 byte, const WwFifoOrigin* origin
             *command = (WwGxCheckpoint){0};
             return renderer_error;
         }
+        host->gx.fifo.size = 0u;
+        host->gx.trace_count = 0u;
     }
     *command = (WwGxCheckpoint){0};
     return NULL;

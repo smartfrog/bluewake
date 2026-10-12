@@ -1168,3 +1168,67 @@ extension (`logs/ww16-full-journal-red.log`). Actual ARM host links
 (`logs/ww16-full-journal-arm-link.log`); audit, attribution and whitespace pass.
 Commit, rebuild with VI, then launch the combined async-finish/full-prefix units
 in a new continuously watched Info profile with **2,048** requested commands.
+
+## Unit 34: four authentic presentations and a draw-containing journal
+
+Committed VI build **`1c5e252`** succeeds. Watched attempt
+**`5a4fb3b0ba4c46efa69ab545e225c8dd`**, with **2,048** requested journal entries,
+passes both synchronous and asynchronous draw-done completion through the actual
+backend and guest PE path. New result: **four plans/draws/programs and four display
+copies/presentations**, one distinct program, **zero skips/refusals/gaps**. The
+closed report reaches **48,608,267 cycles / 4,249 decoded commands / 28,385 renderer
+bytes / 8,194 events**. All **2,048 journal commands**, including draw records
+**990 and 1962**, certify with their pinned layout witnesses (four vertices,
+16-byte stride, 67-byte quad packet).
+
+The new honest STOP is **`pinned GX trace reached capacity; renderer drain not
+implemented`**, FIFO `CC008000`, writer `80326554`, stopped guest PC `802D9174`.
+The backend's streaming frontend already drains; this limit belongs to the
+host's separate C-parser diagnostic mirror. Install 1.18 s / guest 18.86 s;
+the retained post-report shutdown crash is still **exit 133**, not a hang kill.
+The continuously recorded CPU/output observations and certified closed reports
+remain private. This historical log has no `[frame-present]` wall stamps, so
+**FPS is unmeasured**, not calculated from boot/teardown duration.
+
+Reused WW18's delivered extractor after taking the repaired local integration
+tree **`b2e06d7`** by fast-forward (no pin or history rewrite). The new private
+fixture is under that attempt's **`evidence/gx-draw-prefix/`**: **14,464 exact
+bytes / 2,048 commands / two captured draws**, FIFO SHA-256
+`4f9b7592e088442ab9156410b9e5b1517e5a22e18f10d6623d2e67d6a1e13149`.
+`capture.json` distinguishes the logged prefix from the 4,249 decoded commands
+and five pending bytes. The extractor conservatively flags **requires_mem1=true**;
+there is no matching historical memory snapshot. No memory is invented, no
+zero-filled replay is attempted and no game data is committed or uploaded.
+The verified summary is `evidence/four-presentations-analysis.json`.
+
+## Unit 35: reuse consumed diagnostic trace/FIFO storage, preserving GX state
+
+The pinned frontend already provides the source pattern:
+`retail_gx_frontend.cpp:1479-1507` clears the **FIFO size and trace count** after
+emitted packets are consumed, without resetting persistent CP/BP/XF/resolver
+state. The C-parser mirror has no retained external consumer: its command bytes
+are already journaled and handed unchanged to WW17, whose own stateful parser
+and backend own rendering. Reuse that consumed-buffer lifecycle here instead of
+enlarging either fixed capacity or resetting all GX state.
+
+After a **complete command** is accepted by renderer write and the corresponding
+present/no-present call succeeds, the host mirror now reuses only its FIFO/trace
+cursors. First-frontier provenance, bounded history, journal, decoded counters,
+resolver, CP arrays/VCD/VAT/layouts, BP registers and XF transforms stay intact.
+Renderer failures keep the pending native bytes/events as evidence; partial
+commands are neither cleared nor submitted. A host without a renderer retains
+the original diagnostic buffers. A single command that reaches the pinned trace
+capacity still stops before backend acceptance; no dropped trace event is
+silently declared consumed. Bounds and memory allocations are unchanged.
+
+Linux AArch64: **602 host tests pass** (`logs/ww16-gx-drain-green.log`), including
+six real-interface recording-backend scenarios: persistent-state byte equality,
+more than **300,000 FIFO bytes / 8,192 cumulative events** consumed without
+changing the bounds, subsequent draw using retained layout, draw/present failure,
+partial command and no-renderer preservation. Red before the lifecycle change:
+`logs/ww16-gx-drain-red.log`; focused: `logs/ww16-gx-drain-focused.log`.
+All four integrated renderer executables pass
+(`logs/ww16-gx-drain-renderer-regressions.log`), and the actual ARM host links
+(`logs/ww16-gx-drain-arm-link.log`). Audit, attribution and whitespace pass.
+These recording tests are not GPU/pixel measurements. Commit this seam, then
+add the sourced WW12 wall markers before the next rebuilt, watched authentic run.
