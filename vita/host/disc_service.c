@@ -154,22 +154,37 @@ void ww_host_dvd_complete(WwHost* host) {
         ww_host_fail(host, "DVD guest callback did not complete", ready.callback, delivery.terminal_pc);
 }
 
-static const char* dvd_path(CPUState* cpu, char path[256]) {
-    const u32 address = cpu->gpr[3];
+static const char* guest_text(CPUState* cpu, u32 address, char path[256]) {
     for (u32 index = 0u; index < 256u; ++index) {
         if (address == 0u || address > UINT32_MAX - index)
-            return "DVD path requires a bounded mapped guest string";
+            return "path requires a bounded mapped guest string";
         const u8* byte = get_ram_ptr(cpu, address + index, 1u, NULL);
         if (byte == NULL)
-            return "DVD path requires a bounded mapped guest string";
+            return "path requires a bounded mapped guest string";
         path[index] = (char)*byte;
         if (*byte == 0u)
             return NULL;
     }
-    return "DVD path is not terminated within 256 bytes";
+    return "path is not terminated within 256 bytes";
 }
 
 bool ww_host_dvd_edge(WwHost* host, u32 address) {
+    if (address == 0x80240744u) {
+        CPUState* cpu = &host->cpu;
+        const u32 object = cpu->gpr[3];
+        char name[256] = {0};
+        const char* error = NULL;
+        if ((object & 3u) != 0u || !mem1_range(host, object, 0x20u))
+            error = "REL frontier requires a mapped real MEM1 module object";
+        else
+            error = guest_text(cpu, mem_read32(cpu, object + 0x1Cu), name);
+        if (error == NULL && fprintf(stderr, "[rel-frontier] name=%s object=%08X module=%08X pc=%08X\n",
+                                    name, object, mem_read32(cpu, object + 0x10u), address) < 0)
+            error = "REL frontier trace write failed";
+        ww_host_fail(host, error != NULL ? error : "REL materialization requires a checked raw-image provider and scratch mapping",
+                     address, address);
+        return true;
+    }
     if (address == 0x8030FBCCu || address == 0x8030FADCu) {
         dvd_read_edge(host, address);
         return true;
@@ -187,7 +202,7 @@ bool ww_host_dvd_edge(WwHost* host, u32 address) {
     else if (!entry_only && !file_info_valid(host, file_info))
         error = "DVD file info requires an aligned real MEM1 range without aliases";
     if (error == NULL && !fast)
-        error = dvd_path(cpu, path);
+        error = guest_text(cpu, cpu->gpr[3], path);
     if (error == NULL)
         error = disc_ready(host);
     if (error == NULL) {

@@ -17,7 +17,8 @@ class DvdOpenTest(unittest.TestCase):
             root = Path(directory)
             if scenario != 'missing-disc':
                 test_di_read.DiscReadTest.image.write_image(root / 'ux0:data/bluewake/GZLE01.iso')
-            subprocess.run([str(test_host.OUT / 'dvd_open_probe'), scenario], cwd=root, check=True)
+            return subprocess.run([str(test_host.OUT / 'dvd_open_probe'), scenario], cwd=root, check=True,
+                                  capture_output=scenario.startswith('rel-'), text=True)
 
     def test_real_path_opens_through_the_pinned_fst_and_returns_to_the_guest(self):
         self.run_probe('open')
@@ -44,6 +45,19 @@ class DvdOpenTest(unittest.TestCase):
 
     def test_another_owners_disc_is_not_borrowed_or_closed(self):
         self.run_probe('borrowed')
+
+    def test_unimplemented_rel_materialization_logs_its_name_before_stopping(self):
+        result = self.run_probe('rel-frontier')
+        self.assertIn('[rel-frontier] name=synthetic_module', result.stderr)
+
+    def test_invalid_rel_frontier_inputs_stop_without_accessing_the_disc(self):
+        for scenario in ('rel-bad-object', 'rel-bad-name', 'rel-unterminated'):
+            with self.subTest(scenario=scenario):
+                result = self.run_probe(scenario)
+                self.assertNotIn('[rel-frontier]', result.stderr)
+
+    def test_rel_frontier_trace_failure_is_reported_without_modifying_the_guest(self):
+        self.run_probe('rel-trace')
 
 
 if __name__ == '__main__':

@@ -306,3 +306,38 @@ Linux AArch64: **472 host tests pass** (`logs/ww16-dvd-callback-green.log`); aud
 attribution and whitespace checks pass. Shared callback code only exposes its
 existing sentinel constant; Windows CI/hardware remains untested here. The next
 committed ARM build/trial follows. No first visible pixel or FPS claim yet.
+
+## Unit 11: identify the real REL request without claiming a load
+
+Authentic trial `ec5ac8f1e7054f6faf4b28af89a175bb` at `49caf81` proves **116
+completed guest callbacks, zero failed callbacks**, and 123 real reads totalling
+961,120 bytes through vita-sceio. It reaches **78,789,721 cycles**, then stops at
+`80240744`, the archived REL materialization edge. Installation takes 1.26 seconds
+and the guest phase 9.89 seconds. The closed report and 64 journaled commands
+validate; the same post-report Vita3K teardown crash exits 133. Renderer counters
+remain 265 completed GX setup commands, 1,759 bytes, zero draws/presentations.
+
+The diagnostic now records the module name and object at that edge, then stops
+without writing the module object, copying a REL, returning success, opening a
+disc or emitting a `[rel-load]` marker. It reuses the bounded mapped string reader
+from the DVD path. Invalid objects/strings and trace failures remain loud STOPs.
+The guest object fields match the existing desktop dynamic-load observation
+(`runtime/host/src/main.c`, object `+0x10` module and `+0x1C` name).
+
+The next implementation needs a deliberate mapping/provider decision. The shared
+desktop materializer reads privately prepared raw `.rel` files and reserves
+scratch at `81820000..81F80000`, above this host's **24 MiB MEM1**. The current
+private build has 415 raw RELs totalling 6,996,836 bytes (largest 154,876 bytes),
+but neither a Vita provider for them nor a scratch mapping is wired. The
+generated section aliases and shared first-fit allocator already exist; blindly
+copying the desktop path would not establish safe ownership or mapped storage.
+No source pin, translated module, MEM1 size or guest loading behavior is changed
+by this diagnostic. Actual materialization waits for that decision.
+
+Linux AArch64: **475 host tests pass** (`logs/ww16-rel-frontier-host-tests.log`),
+including name logging, invalid input refusal, unchanged guest objects and no
+disc access. The trace-failure injection check is recorded red before extending
+the existing probe wrapper (`logs/ww16-rel-frontier-trace-red.log`); it does not
+claim a test-first cycle for the earlier diagnostic edit. Audit, attribution and
+whitespace checks pass. A clean committed ARM build and isolated diagnostic
+trial follow; no visible game pixel, physical Vita result or FPS claimed.
