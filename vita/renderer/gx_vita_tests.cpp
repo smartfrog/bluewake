@@ -109,11 +109,175 @@ std::vector<std::uint8_t> fixture_tlut() {
   return tlut;
 }
 
+gxc::DrawPlan lighting_plan() {
+  gxc::DrawPlan plan;
+  plan.ok = true;
+  plan.vertex_count = 1;
+  plan.vertices.resize(gxc::kVertexFloats);
+  for (int i = 4; i < 12; ++i)
+    plan.vertices[i] = 1;
+  plan.vertices[gxc::kVertexNormalOffset / 4 + 2] = 1;
+  for (int i = 0; i < 3; ++i) {
+    plan.constants.posnormalmatrix[i][i] = 1;
+    plan.constants.posnormalmatrix[i + 3][i] = 1;
+  }
+  for (int c = 0; c < 4; ++c) {
+    plan.constants.materials[2][c] = 255;
+    plan.constants.lights[0].color[c] = 255;
+  }
+  plan.constants.lights[0].pos[2] = 2;
+  plan.constants.lights[0].dir[2] = 1;
+  plan.constants.lights[0].cosatt[0] = 1;
+  plan.constants.lights[0].distatt[0] = 2;
+  auto& key = plan.pipeline.shader;
+  key.lit_valid = 1;
+  key.num_color_chans = 1;
+  key.chan_captured_mask = 1;
+  key.has_vertex_normal = 1;
+  key.litchan[0].enablelighting = 1;
+  key.litchan[0].light_mask = 1;
+  return plan;
+}
+
+float color_component(const gx_vita::TranslatedDraw& draw, std::uint32_t component) {
+  float value;
+  std::memcpy(&value, draw.geometry.vertices.data() + gxc::kVertexColor0Offset +
+                         component * sizeof(float), sizeof value);
+  return value;
+}
+
 } // namespace
 
 int main() {
   int failures = 0;
   std::uint64_t textured_key = 0;
+
+  {
+    auto plan = lighting_plan();
+    plan.pipeline.shader.litchan[0].enablelighting = 0;
+    plan.constants.materials[2][0] = 100;
+    plan.constants.materials[2][3] = 40;
+    const auto draw = gx_vita::translate(plan);
+    CHECK(draw.ok);
+    CHECK(color_component(draw, 0) == 100.f / 255.f);
+    CHECK(color_component(draw, 3) == 40.f / 255.f);
+  }
+
+  for (std::uint8_t attenuation : {0, 1, 2, 3}) {
+    for (std::uint8_t diffuse : {0, 1, 2}) {
+      auto plan = lighting_plan();
+      plan.pipeline.shader.litchan[0].attnfunc = attenuation;
+      plan.pipeline.shader.litchan[0].diffusefunc = diffuse;
+      const auto draw = gx_vita::translate(plan);
+      CHECK(draw.ok);
+      const float expected = attenuation == 3 || (attenuation == 1 && diffuse == 0)
+                                 ? 128.f / 255.f : 1.f;
+      CHECK(color_component(draw, 0) == expected);
+    }
+  }
+
+  for (std::uint8_t diffuse : {0, 1, 2}) {
+    auto plan = lighting_plan();
+    plan.pipeline.shader.litchan[0].diffusefunc = diffuse;
+    plan.vertices[gxc::kVertexNormalOffset / 4 + 2] = -1;
+    for (int c = 0; c < 3; ++c)
+      plan.constants.materials[0][c] = 128;
+    const auto draw = gx_vita::translate(plan);
+    CHECK(draw.ok);
+    CHECK(color_component(draw, 0) == (diffuse == 0 ? 1.f : diffuse == 1 ? 0.f : 128.f / 255.f));
+  }
+
+  {
+    auto plan = lighting_plan();
+    plan.vertices[gxc::kVertexColor0Offset / 4 + 3] = 0.5f;
+    auto& alpha = plan.pipeline.shader.litchan[2];
+    alpha.enablelighting = alpha.matsource = alpha.ambsource = alpha.light_mask = 1;
+    plan.constants.lights[0].color[3] = 40;
+    const auto draw = gx_vita::translate(plan);
+    CHECK(draw.ok);
+    CHECK(color_component(draw, 0) == 1.f && color_component(draw, 3) == 84.f / 255.f);
+  }
+
+  {
+    auto plan = lighting_plan();
+    plan.pipeline.shader.has_vertex_normal = 0;
+    plan.pipeline.shader.litchan[0].diffusefunc = 2;
+    plan.constants.cached_normal[2] = 1;
+    const auto draw = gx_vita::translate(plan);
+    CHECK(draw.ok && color_component(draw, 0) == 1.f);
+  }
+
+  {
+    auto plan = lighting_plan();
+    plan.pipeline.shader.has_pos_mtx_idx = 1;
+    plan.pipeline.shader.litchan[0].diffusefunc = 2;
+    const std::uint32_t row = 3;
+    std::memcpy(&plan.vertices[gxc::kVertexPosMtxOffset / 4], &row, sizeof row);
+    for (int axis = 0; axis < 3; ++axis) {
+      plan.constants.transformmatrices[3 + axis][axis] = 1;
+      plan.constants.normalmatrices[3 + axis][axis] = axis == 2 ? -1 : 1;
+    }
+    const auto draw = gx_vita::translate(plan);
+    CHECK(draw.ok && color_component(draw, 0) == 0.f);
+  }
+
+  {
+    auto plan = lighting_plan();
+    plan.pipeline.shader.litchan[0].attnfunc = 3;
+    plan.constants.lights[0].distatt[0] = 0;
+    const auto draw = gx_vita::translate(plan);
+    CHECK(!draw.ok && std::string(draw.skip_reason) == "invalid lighting attenuation");
+  }
+
+  {
+    auto plan = lighting_plan();
+    plan.pipeline.shader.litchan[0].light_mask = 128;
+    plan.constants.lights[7] = plan.constants.lights[0];
+    plan.constants.lights[7].color[0] = 128;
+    const auto draw = gx_vita::translate(plan);
+    CHECK(draw.ok && color_component(draw, 0) == 128.f / 255.f);
+  }
+
+  {
+    auto plan = lighting_plan();
+    plan.pipeline.shader.chan_captured_mask = 0;
+    plan.vertices[gxc::kVertexColor0Offset / 4] = 0.25f;
+    const auto draw = gx_vita::translate(plan);
+    CHECK(draw.ok && color_component(draw, 0) == 0.25f);
+  }
+
+  {
+    auto plan = lighting_plan();
+    plan.pipeline.shader.litchan[0].diffusefunc = 2;
+    plan.constants.lights[0].pos[2] = 0;
+    const auto draw = gx_vita::translate(plan);
+    CHECK(draw.ok && color_component(draw, 0) == 1.f);
+  }
+
+  {
+    auto plan = lighting_plan();
+    auto& key = plan.pipeline.shader;
+    key.num_color_chans = 2;
+    key.chan_captured_mask = 2;
+    key.litchan[1] = key.litchan[0];
+    key.num_tex_gens = 1;
+    key.tex_gens[0].texgentype = 3;
+    for (int c = 0; c < 4; ++c)
+      plan.constants.materials[3][c] = 80 + 10 * c;
+    const auto draw = gx_vita::translate(plan);
+    CHECK(draw.ok && color_component(draw, 0) == 1.f);
+    CHECK(draw.geometry.texcoords[0] == 80.f / 255.f);
+    CHECK(draw.geometry.texcoords[1] == 90.f / 255.f);
+  }
+
+  {
+    auto plan = lighting_plan();
+    plan.pipeline.shader.has_pos_mtx_idx = 1;
+    const std::uint32_t row = 30;
+    std::memcpy(&plan.vertices[gxc::kVertexPosMtxOffset / 4], &row, sizeof row);
+    const auto draw = gx_vita::translate(plan);
+    CHECK(!draw.ok && std::string(draw.skip_reason) == "lighting normal matrix row out of range");
+  }
 
   for (bool indexed : {false, true}) {
     for (bool projected : {false, true}) {

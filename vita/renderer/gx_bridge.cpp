@@ -117,6 +117,7 @@ std::vector<GapEntry> nonzero_gaps(const gxc::GapCounters& counters) {
       {"indirect_ignored", counters.indirect_ignored},
       {"fog_ignored", counters.fog_ignored},
       {"lighting_ignored", counters.lighting_ignored},
+      {"lit_light_missing", counters.lit_light_missing},
       {"unresolved_tex_matrix", counters.unresolved_tex_matrix},
       {"alpha_compare_ignored", counters.alpha_compare_ignored},
       {"tev_stages_over", counters.tev_stages_over},
