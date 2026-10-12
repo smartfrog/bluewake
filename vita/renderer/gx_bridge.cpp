@@ -62,6 +62,14 @@ void observe_plan(const gxc::DrawPlan& plan, void* user) {
                                         : "plan not ok");
     return;
   }
+  const gx_vita::TranslatedDraw draw = gx_vita::translate(plan);
+  if (!draw.ok) {
+    ++result->counts.plans_skipped;
+    result->plan_skips.emplace_back(draw.skip_reason != nullptr
+                                       ? draw.skip_reason
+                                       : "translation not ok");
+    return;
+  }
   ++result->counts.plans_ok;
   const gx_vita::CgProgram program = gx_vita::generate_cg(plan.pipeline.shader);
   if (!program.ok) {

@@ -116,6 +116,19 @@ int main() {
   std::uint64_t textured_key = 0;
 
   {
+    gxc::DrawPlan plan;
+    plan.ok = true;
+    plan.vertex_count = 1;
+    plan.vertices.resize(gxc::kVertexFloats);
+    plan.pipeline.shader.has_pos_mtx_idx = 1;
+    const std::uint32_t row = 63;
+    std::memcpy(&plan.vertices[gxc::kVertexPosMtxOffset / 4], &row, sizeof row);
+    const auto draw = gx_vita::translate(plan);
+    CHECK(!draw.ok);
+    CHECK(std::string(draw.skip_reason) == "position matrix row out of range");
+  }
+
+  {
     gx_vita::TranslatedDraw draw;
     CHECK(replay("textured_triangle", draw));
     CHECK(draw.ok);

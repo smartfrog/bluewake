@@ -317,6 +317,41 @@ int display_list_coverage() {
   return 0;
 }
 
+int per_vertex_matrix_coverage() {
+  Fixture fixture;
+  RecordingBackend backend;
+  WwRenderer* renderer = nullptr;
+  WwRendererConfig config = fixture.config();
+  CHECK(ww_renderer_create(&renderer, &config, &backend) == nullptr);
+  std::vector<std::uint8_t> fifo;
+  gx_fixture::push_common_state(fifo);
+  gx_fixture::push_cp(fifo, 0x50, 1u | (1u << 9));
+  gx_fixture::push_cp(fifo, 0x60, 0);
+  gx_fixture::push_xf_f32(fifo, 12,
+                        {2.f, 0.f, 0.f, 10.f, 0.f, 3.f, 0.f, 20.f,
+                         0.f, 0.f, 4.f, 30.f});
+  gx_fixture::push_u8(fifo, 0x90);
+  gx_fixture::push_u16(fifo, 3);
+  for (std::uint8_t row : {0, 3, 0}) {
+    gx_fixture::push_u8(fifo, row);
+    for (float value : {1.f, 2.f, 3.f})
+      gx_fixture::push_f32(fifo, value);
+  }
+  CHECK(ww_renderer_write(renderer, fifo.data(), fifo.size()) == nullptr);
+  CHECK(backend.draws.size() == 1);
+  const DrawRecord& draw = backend.draws[0];
+  CHECK(vertex_float(draw, 0, 0) == 1.f);
+  CHECK(vertex_float(draw, 1, 0) == 12.f);
+  CHECK(vertex_float(draw, 1, 4) == 26.f);
+  CHECK(vertex_float(draw, 1, 8) == 42.f);
+  CHECK(vertex_float(draw, 2, 0) == 1.f);
+  CHECK(draw.position_matrix[0] == 1.f && draw.position_matrix[5] == 1.f &&
+        draw.position_matrix[10] == 1.f && draw.position_matrix[15] == 1.f);
+  ww_renderer_destroy(renderer);
+  std::printf("renderer PNMTXIDX selects per-vertex rows ok\n");
+  return 0;
+}
+
 } // namespace
 
 int main() {
@@ -324,6 +359,7 @@ int main() {
   CHECK(indexed_vertex_coverage() == 0);
   CHECK(indexed_xf_coverage() == 0);
   CHECK(display_list_coverage() == 0);
+  CHECK(per_vertex_matrix_coverage() == 0);
   {
     // Create refuses a missing memory view and a missing backend loudly.
     WwRenderer* renderer = nullptr;

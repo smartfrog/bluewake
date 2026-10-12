@@ -48,7 +48,7 @@ PE/Z configuration; these are register groups, not separate FIFO opcodes.
 | `80`, `90`, `98`, `A0`, `A8`, `B0`, `B8` + VAT | Parsed/expanded, incompletely exercised here | 56 recording-backend cases check exact indices/winding/topology and byte-at-a-time streaming |
 | CP vertex arrays, indexed XF `20/28/30/38` | Pinned resolver/layout support | Index8/index16 position values; all four XF arrays load translated matrices |
 | `40` display list, `48` invalidate, `00` padding | Pinned support | Aligned display-list quad reaches the recording backend with exact indices |
-| PNMTXIDX | Decoded but backend ignored it | Pending |
+| PNMTXIDX | Decoded but backend ignored it | Translation applies each vertex's selected XF rows; mixed-matrix renderer test and out-of-range refusal test |
 | TEV `C0–DF`, colors `E0–E7`, KONST `F6–FD` | Bounded subset, common args refused | Pending |
 | Blend `41`, Z `40`, PE `43`, alpha `F3` | Basic GL state; alpha test omitted | Pending |
 | Indirect BP `06–1F/25/27`, fog `E8–F2`, ZTexture `F4/F5` | Cg missing/refused | Not proven |
@@ -64,6 +64,15 @@ Primitive/supply unit: expanded `ww_renderer_tests` passes. These are
 characterization tests of existing pinned support, not a claimed missing-feature
 red/green cycle. Fixture corrections were necessary: CP bases are physical;
 display-list lengths must be 32-byte aligned. No pinned parser change was needed.
+
+PNMTXIDX unit: renderer test failed on the second vertex's position (`1` instead
+of `12`) before implementation; translation bounds test also failed. Both pass
+afterward. Translation transforms indexed positions on the CPU and gives Cg an
+identity position matrix, preserving projection and avoiding unsigned attribute
+binding on vitaGL. Normals/lighting/texture-matrix selection are separate gaps,
+not implied by position support. The bridge now actually calls `translate`,
+which it previously advertised but did not execute. Real journal still ran:
+121 events, zero plans, `verdict=ran`.
 
 Rendering changes remain in the experimental Vita path; do not enable a
 production default on the strength of host tests. Windows CI and Vita hardware
