@@ -1280,3 +1280,51 @@ starting at physical zero**, matching WW18's `--mem1` input, with a bounded priv
 manifest naming capture command/time and addresses/sizes. Preserve time-matched
 evidence rather than relabel an old boot dump; keep that capture profile separate
 from the no-dump FPS baseline. No memory or resources are invented or uploaded.
+
+## Unit 37: eight authentic presentations and the first wall-stamped rate
+
+Committed **VI / module O1** build **`07189db`** succeeds. Fresh continuously
+watched **no-dump** run **`a4906dc5413141f5b4c1afc249f1382d`** passes the old
+trace-capacity frontier: **8,963 decoded commands / 60,512 renderer bytes /
+17,252 events**, with **nine plans/draws/programs and eight actual display
+copies/presentations**, one distinct program, **zero skips/refusals/gaps**.
+The first frontier, all **2,048 journal entries** and closed report certify.
+
+All **eight `[frame-present]` stamps** match END/RENDER exactly, and ten actual
+VI retrace stamps are a separate strictly advancing series. First/second/last:
+
+```text
+[frame-present] frame=1 us=1791848059554619
+[frame-present] frame=2 us=1791848059827685
+[frame-present] frame=8 us=1791848074637261
+```
+
+The unchanged WW12 harness now measures a **15.082642 s** presentation span:
+**0.464110 mean FPS**, **0.60 FPS in the one complete 10 s window**, median frame
+time **2,585.844 ms**, p95 **3,155.1604 ms**. Secondary: **0.509063 retraces/s**
+over **17.679557 s**, 0.70 in its complete 10 s window. The incomplete tail is
+excluded by the established harness. This is **one exploratory boot/clear-path
+measurement under Vita3K/OpenGL llvmpipe**, not the three-run fixed-title
+benchmark, verified visible pixels, sustained gameplay or physical-Vita FPS.
+The 30 FPS floor is clearly missed. The long final high-CPU/no-new-frame segment
+is outside the completed marker window; do not describe 0.60 as a sustained rate
+throughout the whole guest lifetime.
+
+New closed STOP: **AI volume register `CC006C04`**, writer/read PC **`80316E00`**,
+stopped guest PC **`80316B9C`**, at **85,311,500 executed cycles**. Pinned Dolphin
+`AudioInterface.cpp:59,280` names the register and direct u32 read; the AI sample
+counter is instead at **+08**. Install 1.25 s / guest **88.93 s**, then the known
+post-report shutdown **exit 133**. The watcher keeps a high-CPU process active
+even during long silence, as required; it does not mislabel that segment as a
+low-CPU hang or treat the teardown as gameplay success.
+
+Private evidence in this attempt: **`evidence/frame-markers.json`** and
+**`evidence/fps-no-dump-10s-verified/{baseline.json,summary.txt}`**. The initial
+baseline's numeric metrics are identical; its preliminary mistaken sample-counter
+register-name note is preserved and superseded by the sourced volume diagnosis.
+Reused WW18 extraction yields **`evidence/gx-draw-prefix/stream.fifo`**: **14,464
+bytes / two real draws / the exact 2,048-command prefix**, with the same FIFO hash
+as the earlier run. Nine reported draws are not nine captured draws. Matching
+MEM1 is still required; the requested bounded memory capture follows, separate
+from this no-dump baseline. No opcode, timestamp, resource or presentation is
+invented, and no private artifact is committed or uploaded.
