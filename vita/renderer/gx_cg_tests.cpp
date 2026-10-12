@@ -11,6 +11,7 @@
 
 #include <cstdio>
 #include <fstream>
+#include <filesystem>
 #include <string>
 
 namespace gxc = gxruntime::gxcore;
@@ -219,7 +220,7 @@ int unsupported_pixel_state_coverage() {
   for (int feature = 0; feature < 3; ++feature) {
     auto key = tev_key();
     if (feature == 0)
-      key.fog_fsel = 2;
+      key.fog_fsel = 1;
     else if (feature == 1)
       key.ztex_op = 2;
     else
@@ -228,6 +229,62 @@ int unsupported_pixel_state_coverage() {
     CHECK(!cg.ok);
     CHECK(cg.unsupported_reason != nullptr);
   }
+  return 0;
+}
+
+int fog_mode_coverage() {
+  for (std::uint8_t mode : {2, 4, 5, 6, 7}) {
+    for (std::uint8_t projection : {0, 1}) {
+      for (std::uint8_t range : {0, 1}) {
+        auto key = tev_key();
+        key.fog_fsel = mode;
+        key.fog_proj = projection;
+        key.fog_range = range;
+        const auto cg = gx_vita::generate_cg(key);
+        CHECK(cg.ok);
+        CHECK(contains(cg.fragment, "float4 screen : WPOS"));
+        CHECK(contains(cg.fragment, "uniform float4 fog_params"));
+        CHECK(contains(cg.fragment, "uniform float4 fog_color"));
+        CHECK(contains(cg.fragment, "uniform float2 fog_depth") == (projection == 0));
+        CHECK(contains(cg.fragment, "uniform float4 fog_range[3]") == (range != 0));
+        CHECK(cg.fragment.find("discard;") < cg.fragment.find("float fog_z"));
+        CHECK(contains(cg.fragment, "prev.r = floor("));
+        CHECK(!contains(cg.fragment, "prev.a = floor("));
+      }
+    }
+  }
+  return 0;
+}
+
+int fog_uses_ztexture_depth() {
+  for (std::uint8_t operation : {1, 2}) {
+    auto key = tev_key();
+    key.textured = 1;
+    key.num_tex_gens = 1;
+    key.tex_gens[0].sourcerow = 5;
+    key.tev_stages[0].tevorders_enable = 1;
+    key.ztex_op = operation;
+    key.ztex_type = 2;
+    key.fog_fsel = 2;
+    const auto cg = gx_vita::generate_cg(key);
+    CHECK(cg.ok);
+    CHECK(contains(cg.fragment, "float fog_z = floor(clamp(fragment_depth * 16777216.0"));
+    CHECK(cg.fragment.find("fragment_depth =") < cg.fragment.find("float fog_z"));
+    const auto screen = cg.fragment.find("float4 screen : WPOS");
+    CHECK(cg.fragment.find("float4 screen : WPOS", screen + 1) == std::string::npos);
+  }
+  return 0;
+}
+
+int fog_key_bounds() {
+  for (std::uint8_t mode : {1, 3, 8}) {
+    auto key = tev_key();
+    key.fog_fsel = mode;
+    const auto cg = gx_vita::generate_cg(key);
+    CHECK(!cg.ok && std::string(cg.unsupported_reason) == "invalid fog mode");
+  }
+  const auto cg = gx_vita::generate_cg(tev_key());
+  CHECK(cg.ok && !contains(cg.fragment, "fog_params"));
   return 0;
 }
 
@@ -282,6 +339,38 @@ int ztexture_last_unswapped_sample() {
 } // namespace
 
 int main(int argc, char** argv) {
+  if (argc == 3 && std::string(argv[1]) == "--write-fog-shaders") {
+    const std::filesystem::path directory(argv[2]);
+    std::filesystem::create_directories(directory);
+    for (std::uint8_t mode : {2, 4, 5, 6, 7}) {
+      for (std::uint8_t projection : {0, 1}) {
+        for (std::uint8_t range : {0, 1}) {
+          for (std::uint8_t depth : {0, 1}) {
+            auto key = tev_key();
+            key.fog_fsel = mode;
+            key.fog_proj = projection;
+            key.fog_range = range;
+            if (depth) {
+              key.ztex_op = 2;
+              key.textured = 1;
+              key.num_tex_gens = 1;
+              key.tex_gens[0].sourcerow = 5;
+              key.tev_stages[0].tevorders_enable = 1;
+            }
+            const auto cg = gx_vita::generate_cg(key);
+            CHECK(cg.ok);
+            const auto name = std::to_string(mode) + "-" + std::to_string(projection) +
+                              "-" + std::to_string(range) + "-" + std::to_string(depth);
+            std::ofstream file(directory / (name + ".cg"));
+            file << cg.fragment;
+            file.close();
+            CHECK(file.good());
+          }
+        }
+      }
+    }
+    return 0;
+  }
   if (argc == 3 && std::string(argv[1]) == "--write-ztexture-math") {
     std::ofstream file(argv[2]);
     CHECK(file.good());
@@ -330,6 +419,9 @@ int main(int argc, char** argv) {
     return 0;
   }
   CHECK(argc == 1);
+  CHECK(fog_mode_coverage() == 0);
+  CHECK(fog_uses_ztexture_depth() == 0);
+  CHECK(fog_key_bounds() == 0);
   CHECK(ztexture_output_coverage() == 0);
   CHECK(ztexture_last_unswapped_sample() == 0);
   CHECK(tev_argument_coverage() == 0);

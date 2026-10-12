@@ -264,6 +264,8 @@ TranslatedDraw translate(const gxc::DrawPlan& plan) {
     return out;
   }
   translate_pipeline(plan, out.pipeline);
+  if (!fog::translate(plan, out.fog, &out.skip_reason))
+    return out;
   if (!translate_geometry(plan, out.geometry, &out.skip_reason))
     return out;
   if (!lighting::translate(plan, out.geometry.vertices, &out.skip_reason))

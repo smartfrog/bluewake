@@ -14,6 +14,7 @@
 #include "../feasibility/gx/gx_fixture.hpp"
 
 #include <cstdint>
+#include <cmath>
 #include <cstdio>
 #include <cstring>
 #include <string>
@@ -146,11 +147,64 @@ float color_component(const gx_vita::TranslatedDraw& draw, std::uint32_t compone
   return value;
 }
 
+gxc::DrawPlan fog_plan() {
+  gxc::DrawPlan plan;
+  plan.ok = true;
+  plan.pipeline.shader.tev_valid = 1;
+  plan.pipeline.shader.fog_fsel = 2;
+  plan.pixel_constants.fogf[0] = 0.25f;
+  plan.pixel_constants.fogf[1] = 0.125f;
+  plan.pixel_constants.fogi[1] = 0xC00000;
+  plan.pixel_constants.fogi[3] = 1;
+  return plan;
+}
+
 } // namespace
 
 int main() {
   int failures = 0;
   std::uint64_t textured_key = 0;
+
+  for (std::uint32_t shift : {0, 1, 24, 31, 32, 63}) {
+    auto plan = fog_plan();
+    plan.pixel_constants.fogi[3] = shift;
+    const auto draw = gx_vita::translate(plan);
+    CHECK(draw.ok && draw.fog.depth[1] == std::ldexp(1.f, shift & 31));
+  }
+
+  for (bool positive : {false, true}) {
+    auto plan = fog_plan();
+    plan.pixel_constants.fogf[0] = 0;
+    plan.pixel_constants.fogf[1] = positive ? INFINITY : -INFINITY;
+    const auto draw = gx_vita::translate(plan);
+    CHECK(draw.ok && draw.fog.params[0] == 0);
+    CHECK(draw.fog.params[1] == (positive ? 1.f : -1.f));
+  }
+
+  for (int invalid : {0, 1, 2, 3}) {
+    auto plan = fog_plan();
+    if (invalid == 0)
+      plan.pixel_constants.fogf[0] = INFINITY;
+    else if (invalid == 1)
+      plan.pixel_constants.fogf[1] = NAN;
+    else if (invalid == 2)
+      plan.pixel_constants.fogcolor[0] = 256;
+    else
+      plan.pixel_constants.fogi[1] = -1;
+    const auto draw = gx_vita::translate(plan);
+    CHECK(!draw.ok && draw.skip_reason != nullptr);
+  }
+
+  {
+    auto plan = fog_plan();
+    plan.pipeline.shader.fog_range = 1;
+    plan.viewport_valid = true;
+    plan.viewport[0] = 320;
+    plan.viewport[3] = 662;
+    plan.pixel_constants.fogf[3] = 1280;
+    const auto draw = gx_vita::translate(plan);
+    CHECK(!draw.ok && std::string(draw.skip_reason) == "invalid fog range coefficient");
+  }
 
   {
     auto plan = lighting_plan();

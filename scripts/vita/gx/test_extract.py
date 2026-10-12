@@ -1,0 +1,134 @@
+import hashlib
+import json
+from pathlib import Path
+import tempfile
+import unittest
+from unittest.mock import patch
+
+import extract
+from test_capture import command
+
+
+class ExtractionTests(unittest.TestCase):
+    def setUp(self):
+        self.temporary = tempfile.TemporaryDirectory(dir='/tmp/opencode')
+        self.root = Path(self.temporary.name)
+        self.journal = self.root / 'ww05.log'
+        self.report = self.root / 'ww05.report'
+
+    def tearDown(self):
+        self.temporary.cleanup()
+
+    def test_preserves_exact_fifo_and_provenance(self):
+        data = bytes.fromhex('610F0000FF')
+        self.journal.write_text(command(1, 0x61, data))
+        result = extract.extract_fixture(self.journal, self.root / 'fixture')
+        self.assertEqual((self.root / 'fixture/stream.fifo').read_bytes(), data)
+        self.assertEqual(result['fifo_sha256'], hashlib.sha256(data).hexdigest())
+        self.assertEqual(result['captured_draws'], 0)
+
+    def test_reports_unlogged_draws_without_inventing_them(self):
+        self.journal.write_text(command(1, 0, b'\0'))
+        self.report.write_text('GX_STREAM decoded=20 logged=1 limit=1 pending=0 read_bytes=90\n'
+                               'RENDER fifo_bytes=90 draws=1\n')
+        result = extract.extract_fixture(self.journal, self.root / 'fixture', report=self.report)
+        self.assertEqual(result['coverage'], 'logged-command-prefix-only')
+        self.assertEqual(result['reported_draws'], 1)
+        self.assertEqual(result['captured_draws'], 0)
+
+    def test_refuses_metadata_sequence_gaps(self):
+        self.journal.write_text(command(2, 0, b'\0'))
+        with self.assertRaisesRegex(ValueError, 'sequence'):
+            extract.extract_fixture(self.journal, self.root / 'fixture')
+
+    def test_marks_indexed_draw_as_memory_dependent(self):
+        cp = bytes.fromhex('085000000400')
+        draw = bytes.fromhex('900003000102')
+        self.journal.write_text(command(1, 8, cp) + '\n' + command(2, 0x90, draw))
+        result = extract.extract_fixture(self.journal, self.root / 'fixture')
+        self.assertTrue(result['requires_mem1'])
+        self.assertEqual(result['captured_draws'], 1)
+
+    def test_copies_supplied_memory_instead_of_zero_filling(self):
+        self.journal.write_text(command(1, 0, b'\0'))
+        memory = self.root / 'guest.mem1'
+        memory.write_bytes(b'guest-owned-memory')
+        result = extract.extract_fixture(self.journal, self.root / 'fixture', mem1=memory)
+        self.assertEqual((self.root / 'fixture/mem1.bin').read_bytes(), memory.read_bytes())
+        self.assertEqual(result['mem1_sha256'], hashlib.sha256(memory.read_bytes()).hexdigest())
+
+    def test_refuses_to_overwrite_a_fixture(self):
+        self.journal.write_text(command(1, 0, b'\0'))
+        output = self.root / 'fixture'
+        extract.extract_fixture(self.journal, output)
+        with self.assertRaises(FileExistsError):
+            extract.extract_fixture(self.journal, output)
+
+    def test_manifest_matches_returned_metadata(self):
+        self.journal.write_text(command(1, 0, b'\0'))
+        result = extract.extract_fixture(self.journal, self.root / 'fixture')
+        manifest = json.loads((self.root / 'fixture/capture.json').read_text())
+        self.assertEqual(manifest, result)
+
+    def test_latest_selection_uses_journal_draws_not_renderer_totals(self):
+        directory = self.root / 'vita3k-run-one'
+        directory.mkdir()
+        (directory / 'ww05.report').write_text('RENDER draws=9\n')
+        (directory / 'ww05.log').write_text(command(1, 0, b'\0'))
+        self.assertIsNone(extract.latest_draw_capture(self.root, minimum_draws=1))
+
+    def test_validates_commands_after_memory_dependent_command(self):
+        self.journal.write_text(command(1, 0x20, bytes.fromhex('2000000000')) + '\n'
+                                + command(2, 0x61, bytes.fromhex('6100')))
+        with self.assertRaisesRegex(ValueError, 'frame length'):
+            extract.extract_fixture(self.journal, self.root / 'fixture')
+
+    def test_tlut_load_requires_memory_without_a_draw(self):
+        self.journal.write_text(command(1, 0x61, bytes.fromhex('6165000000')))
+        result = extract.extract_fixture(self.journal, self.root / 'fixture')
+        self.assertTrue(result['requires_mem1'])
+
+    def test_complete_command_prefix_preserves_pending_bytes_status(self):
+        self.journal.write_text(command(1, 0, b'\0'))
+        self.report.write_text('GX_STREAM decoded=1 logged=1 pending=3\n')
+        result = extract.extract_fixture(self.journal, self.root / 'fixture', report=self.report)
+        self.assertEqual(result['pending_bytes'], 3)
+        self.assertEqual(result['coverage'], 'all-reported-commands-partial-tail')
+
+    def test_replay_requires_memory_before_calling_bridge(self):
+        with patch.object(extract.bridge, 'run_stream') as runner:
+            text, status = extract.replay_fixture(self.root, {'requires_mem1': True, 'mem1_sha256': None})
+        runner.assert_not_called()
+        self.assertEqual((text, status), ('verdict=memory-required\n', 2))
+
+    def test_replay_rejects_silent_draw_loss(self):
+        (self.root / 'stream.fifo').write_bytes(b'\0')
+        output = 'bridge ok=1 plans_skipped=0 programs_refused=0 copies_refused=0 programs=0\n'
+        metadata = dict(requires_mem1=False, mem1_sha256=None, captured_draws=1)
+        with patch.object(extract.bridge, 'find_binary'), patch.object(extract.bridge, 'run_stream', return_value=(output, None)):
+            text, status = extract.replay_fixture(self.root, metadata)
+        self.assertEqual(status, 1)
+        self.assertIn('verdict=ran-with-coverage-gaps', text)
+
+    def test_replay_retains_nonzero_feature_gaps(self):
+        (self.root / 'stream.fifo').write_bytes(b'\0')
+        output = 'bridge ok=1 plans_skipped=0 programs_refused=0 copies_refused=0 programs=1\ngap fog_ignored=1\n'
+        metadata = dict(requires_mem1=False, mem1_sha256=None, captured_draws=1)
+        with patch.object(extract.bridge, 'find_binary'), patch.object(extract.bridge, 'run_stream', return_value=(output, None)):
+            text, status = extract.replay_fixture(self.root, metadata)
+        self.assertEqual(status, 1)
+        self.assertIn('gap fog_ignored=1', text)
+
+    def test_latest_selection_finds_multiple_logged_draws(self):
+        directory = self.root / 'vita3k-run-two'
+        directory.mkdir()
+        report = directory / 'ww05.report'
+        journal = directory / 'ww05.log'
+        report.write_text('RENDER draws=2\n')
+        draw = bytes.fromhex('900000')
+        journal.write_text(command(1, 0x90, draw) + '\n' + command(2, 0x90, draw))
+        self.assertEqual(extract.latest_draw_capture(self.root, minimum_draws=2), (journal, report))
+
+
+if __name__ == '__main__':
+    unittest.main()

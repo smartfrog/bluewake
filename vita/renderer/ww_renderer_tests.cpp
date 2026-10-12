@@ -13,6 +13,7 @@
 #include "ww_renderer.h"
 #include "ww_renderer_backend.h"
 #include "gx_ztexture_fixture.h"
+#include "gx_fog_fixture.h"
 
 #include "../feasibility/gx/gx_fixture.hpp"
 
@@ -59,6 +60,7 @@ struct DrawRecord {
   float konst_colors[4][4]{};
   float alpha_ref[2]{};
   float ztexture_bias[2]{};
+  gx_vita::fog::Uniforms fog;
   float depth_near = 0;
   float depth_far = 1;
   std::string cg_vertex;
@@ -112,6 +114,7 @@ public:
     std::memcpy(record.konst_colors, draw.konst_colors, sizeof record.konst_colors);
     std::memcpy(record.alpha_ref, draw.alpha_ref, sizeof record.alpha_ref);
     std::memcpy(record.ztexture_bias, draw.ztexture_bias, sizeof record.ztexture_bias);
+    record.fog = draw.fog;
     record.cg_vertex = program.vertex;
     record.cg_fragment = program.fragment;
     draws.push_back(std::move(record));
@@ -564,6 +567,39 @@ int lighting_and_toon_coordinates_are_submitted() {
   return 0;
 }
 
+int fog_is_submitted() {
+  for (bool orthographic : {false, true}) {
+    Fixture fixture;
+    RecordingBackend backend;
+    WwRenderer* renderer = nullptr;
+    WwRendererConfig config = fixture.config();
+    CHECK(ww_renderer_create(&renderer, &config, &backend) == nullptr);
+    const auto fifo = gx_fog_fixture::quad(5, orthographic, true);
+    for (std::uint8_t byte : fifo)
+      CHECK(ww_renderer_write(renderer, &byte, 1) == nullptr);
+    CHECK(backend.draws.size() == 1);
+    const auto& draw = backend.draws[0];
+    CHECK(draw.cg_fragment.find("float fog_z") != std::string::npos);
+    CHECK(draw.fog.params[0] == (orthographic ? 1.f : 0.25f));
+    CHECK(draw.fog.params[1] == 0.125f);
+    CHECK(draw.fog.params[2] == 0 && draw.fog.params[3] == 640);
+    CHECK(draw.fog.color[0] == 32 && draw.fog.color[1] == 64 && draw.fog.color[2] == 128);
+    CHECK(draw.fog.viewport[0] == 640 && draw.fog.viewport[1] == 0);
+    if (!orthographic)
+      CHECK(draw.fog.depth[0] == 0xC00000 && draw.fog.depth[1] == 2);
+    for (int pair = 0; pair < 5; ++pair) {
+      CHECK(draw.fog.range[(2 * pair) / 4][(2 * pair) % 4] == 4.5f + pair);
+      CHECK(draw.fog.range[(2 * pair + 1) / 4][(2 * pair + 1) % 4] == 4.f + pair);
+    }
+    WwRendererStats stats{};
+    ww_renderer_stats(renderer, &stats);
+    CHECK(stats.draws == 1 && stats.programs_refused == 0 && stats.gap_count == 0);
+    ww_renderer_destroy(renderer);
+  }
+  std::printf("renderer GX fog coefficients, range table and native viewport submitted byte-split\n");
+  return 0;
+}
+
 } // namespace
 
 int main() {
@@ -578,6 +614,7 @@ int main() {
   CHECK(texture_matrices_are_submitted() == 0);
   CHECK(folded_post_matrix_is_submitted() == 0);
   CHECK(lighting_and_toon_coordinates_are_submitted() == 0);
+  CHECK(fog_is_submitted() == 0);
   {
     // Create refuses a missing memory view and a missing backend loudly.
     WwRenderer* renderer = nullptr;
