@@ -116,6 +116,8 @@ struct TranslatedDraw {
   // Dolphin-layout projection (rows are dot rows).
   float position_matrix[16]{};
   float projection[16]{};
+  float tev_colors[4][4]{};
+  float konst_colors[4][4]{};
   // Single-texmap case (plan.texmap_mask == 0): the draw's one texture and the
   // sampler of the texmap it samples.
   TextureUpload texture;

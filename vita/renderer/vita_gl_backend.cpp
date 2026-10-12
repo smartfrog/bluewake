@@ -66,6 +66,10 @@ public:
                        GL_FALSE, draw.position_matrix);
     glUniformMatrix4fv(glGetUniformLocation(gl_program, "projection"), 1,
                        GL_FALSE, draw.projection);
+    glUniform4fv(glGetUniformLocation(gl_program, "tev_colors"), 4,
+                 &draw.tev_colors[0][0]);
+    glUniform4fv(glGetUniformLocation(gl_program, "konst_colors"), 4,
+                 &draw.konst_colors[0][0]);
 
     if (draw.pipeline.depth_test != 0u)
       glEnable(GL_DEPTH_TEST);

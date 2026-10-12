@@ -2,6 +2,7 @@
 // VITA-WW-02 bounded Cg generation. See gx_cg.h.
 
 #include "gx_cg.h"
+#include "gx_tev.h"
 
 #include <cstdio>
 #include <cstring>
@@ -11,81 +12,6 @@ namespace gx_vita {
 namespace gxc = gxruntime::gxcore;
 
 namespace {
-
-// --- TEV argument expressions (supported subset) -----------------------------
-
-bool color_arg_expr(std::uint8_t arg, std::string* out, const char** reason) {
-  switch (arg) {
-  case 0u:
-    *out = "prev.rgb";
-    return true;
-  case 1u:
-    *out = "prev.aaa";
-    return true;
-  case 8u:
-    *out = "tex.rgb";
-    return true;
-  case 9u:
-    *out = "tex.aaa";
-    return true;
-  case 10u:
-    *out = "color0.rgb";
-    return true;
-  case 11u:
-    *out = "color0.aaa";
-    return true;
-  case 12u:
-    *out = "float3(1.0, 1.0, 1.0)";
-    return true;
-  case 13u:
-    *out = "float3(0.5, 0.5, 0.5)";
-    return true;
-  case 15u:
-    *out = "float3(0.0, 0.0, 0.0)";
-    return true;
-  default: // C0/C1/C2 registers (2-7) and KONST (14) need uniforms the
-           // bounded generator does not emit yet.
-    *reason = "unsupported TEV colour argument";
-    return false;
-  }
-}
-
-bool alpha_arg_expr(std::uint8_t arg, std::string* out, const char** reason) {
-  switch (arg) {
-  case 0u:
-    *out = "prev.a";
-    return true;
-  case 4u:
-    *out = "tex.a";
-    return true;
-  case 5u:
-    *out = "color0.a";
-    return true;
-  case 7u:
-    *out = "0.0";
-    return true;
-  default: // C0/C1/C2 registers (1-3) and KONST (6) need uniforms.
-    *reason = "unsupported TEV alpha argument";
-    return false;
-  }
-}
-
-bool scale_factor(std::uint8_t scale, const char** out, const char** reason) {
-  switch (scale) {
-  case 0u:
-    *out = "1.0";
-    return true;
-  case 1u:
-    *out = "0.5";
-    return true;
-  case 2u:
-    *out = "0.25";
-    return true;
-  default: // Divide2 (3) has a different rounding path in the hardware.
-    *reason = "unsupported TEV scale";
-    return false;
-  }
-}
 
 // The coordinate a stage's texgen produces.
 bool texgen_coord(const gxc::ShaderKey& key, std::uint8_t texcoord,
@@ -120,6 +46,12 @@ bool texgen_coord(const gxc::ShaderKey& key, std::uint8_t texcoord,
 
 CgProgram generate_cg(const gxc::ShaderKey& key) {
   CgProgram program;
+  if (key.num_tex_gens > gxc::kMaxTexGens ||
+      key.num_tev_stages > gxc::kMaxTevStages ||
+      (key.tev_valid != 0 && key.num_tev_stages == 0)) {
+    program.unsupported_reason = "invalid GX shader stage count";
+    return program;
+  }
 
   // Which vertex outputs the fragment needs: uv slots per stage texcoord and
   // the vertex colour for raster args or Colour texgens.
@@ -142,29 +74,8 @@ CgProgram generate_cg(const gxc::ShaderKey& key) {
         program.unsupported_reason = "indirect TEV lookups not supported";
         return program;
       }
-      if (stage.cc_bias != 0u) {
-        program.unsupported_reason = "TEV bias not supported";
-        return program;
-      }
-      const std::uint8_t args[4] = {stage.cc_a, stage.cc_b, stage.cc_c,
-                                    stage.cc_d};
-      const std::uint8_t aargs[4] = {stage.ac_a, stage.ac_b, stage.ac_c,
-                                     stage.ac_d};
-      for (int i = 0; i < 4; ++i) {
-        std::string expression;
-        if (!color_arg_expr(args[i], &expression,
-                            &program.unsupported_reason))
-          return program;
-        if (!alpha_arg_expr(aargs[i], &expression,
-                            &program.unsupported_reason))
-          return program;
-      }
-      const char* scale = nullptr;
-      if (!scale_factor(stage.cc_scale, &scale,
-                        &program.unsupported_reason))
-        return program;
-      if (stage.cc_scale != stage.ac_scale) {
-        program.unsupported_reason = "colour and alpha scales differ";
+      if (!tev::valid_stage(stage)) {
+        program.unsupported_reason = "invalid TEV stage fields";
         return program;
       }
       if (stage.tevorders_enable != 0u) {
@@ -182,10 +93,8 @@ CgProgram generate_cg(const gxc::ShaderKey& key) {
             texcoord <= gxc::kMaxRawTexCoords)
           need_uv[texcoord] = true;
       }
-      for (int i = 0; i < 4; ++i) {
-        if (args[i] == 10u || args[i] == 11u || aargs[i] == 5u)
-          need_color0 = true;
-      }
+      need_color0 |= stage.tevorders_colorchan == 0;
+      need_color1 |= stage.tevorders_colorchan == 1;
     }
   }
   if (key.tev_valid == 0u && key.textured == 0u)
@@ -253,49 +162,31 @@ CgProgram generate_cg(const gxc::ShaderKey& key) {
         if ((used & (1u << t)) != 0u)
           param("uniform sampler2D tex" + std::to_string(t));
     }
+    if (key.tev_valid != 0) {
+      param("uniform float4 tev_colors[4]");
+      param("uniform float4 konst_colors[4]");
+    }
     out += ") : COLOR {\n";
 
     if (key.tev_valid != 0u) {
-      out += "  float4 prev = float4(0.0, 0.0, 0.0, 0.0);\n";
-      out += "  float4 tex = float4(1.0, 1.0, 1.0, 1.0);\n";
+      out += "  float4 prev = tev_colors[0];\n"
+             "  float4 c0 = tev_colors[1];\n"
+             "  float4 c1 = tev_colors[2];\n"
+             "  float4 c2 = tev_colors[3];\n"
+             "  float4 tex, ras, konst, tevin_a, tevin_b, tevin_c, tevin_d;\n";
       for (std::uint32_t n = 0; n < key.num_tev_stages; ++n) {
         const gxc::TevStageKey& stage = key.tev_stages[n];
+        std::string coord;
         if (stage.tevorders_enable != 0u) {
-          std::string coord;
           const char* reason = nullptr;
           (void)texgen_coord(key, stage.tevorders_texcoord, &coord, &reason);
-          char line[128];
-          std::snprintf(line, sizeof line, "  tex = tex2D(tex%u, %s);\n",
-                        stage.tevorders_texmap, coord.c_str());
-          out += line;
-        } else {
-          out += "  tex = float4(1.0, 1.0, 1.0, 1.0);\n";
         }
-        std::string a_rgb, b_rgb, c_rgb, d_rgb, a_a, b_a, c_a, d_a;
-        const char* reason = nullptr;
-        (void)color_arg_expr(stage.cc_a, &a_rgb, &reason);
-        (void)color_arg_expr(stage.cc_b, &b_rgb, &reason);
-        (void)color_arg_expr(stage.cc_c, &c_rgb, &reason);
-        (void)color_arg_expr(stage.cc_d, &d_rgb, &reason);
-        (void)alpha_arg_expr(stage.ac_a, &a_a, &reason);
-        (void)alpha_arg_expr(stage.ac_b, &b_a, &reason);
-        (void)alpha_arg_expr(stage.ac_c, &c_a, &reason);
-        (void)alpha_arg_expr(stage.ac_d, &d_a, &reason);
-        const char* scale = nullptr;
-        (void)scale_factor(stage.cc_scale, &scale, &reason);
-        const char* op = stage.cc_op == 0u ? "+" : "-";
-        char line[512];
-        std::snprintf(line, sizeof line,
-                      "  prev = float4(clamp(%s %s ((%s + (%s - %s) * %s) * "
-                      "%s), 0.0, 1.0), clamp(%s %s ((%s + (%s - %s) * %s) * "
-                      "%s), 0.0, 1.0));\n",
-                      d_rgb.c_str(), op, a_rgb.c_str(), b_rgb.c_str(),
-                      a_rgb.c_str(), c_rgb.c_str(), scale, d_a.c_str(), op,
-                      a_a.c_str(), b_a.c_str(), a_a.c_str(), c_a.c_str(),
-                      scale);
-        out += line;
+        tev::emit_stage(out, stage, coord);
       }
-      out += "  return prev;\n";
+      const auto& last = key.tev_stages[key.num_tev_stages - 1];
+      out += "  prev = float4(" + std::string(tev::destinations[last.cc_dest]) +
+             ".rgb, " + tev::destinations[last.ac_dest] + ".a);\n";
+      out += "  return prev / 255.0;\n";
     } else if (key.textured != 0u) {
       out += "  return tex2D(tex0, uv0);\n";
     } else {

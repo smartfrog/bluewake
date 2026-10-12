@@ -54,6 +54,8 @@ struct DrawRecord {
   std::uint8_t alpha_write = 0;
   float position_matrix[16] = {};
   float projection[16] = {};
+  float tev_colors[4][4]{};
+  float konst_colors[4][4]{};
   std::string cg_vertex;
   std::string cg_fragment;
 };
@@ -99,6 +101,8 @@ public:
     std::memcpy(record.position_matrix, draw.position_matrix,
                 sizeof record.position_matrix);
     std::memcpy(record.projection, draw.projection, sizeof record.projection);
+    std::memcpy(record.tev_colors, draw.tev_colors, sizeof record.tev_colors);
+    std::memcpy(record.konst_colors, draw.konst_colors, sizeof record.konst_colors);
     record.cg_vertex = program.vertex;
     record.cg_fragment = program.fragment;
     draws.push_back(std::move(record));
@@ -352,6 +356,48 @@ int per_vertex_matrix_coverage() {
   return 0;
 }
 
+int tev_register_supply() {
+  Fixture fixture;
+  RecordingBackend backend;
+  WwRenderer* renderer = nullptr;
+  WwRendererConfig config = fixture.config();
+  CHECK(ww_renderer_create(&renderer, &config, &backend) == nullptr);
+  std::vector<std::uint8_t> fifo;
+  gx_fixture::push_common_state(fifo);
+  gx_fixture::push_cp(fifo, 0x60, 0);
+  gx_fixture::push_bp(fifo, 0xE2, (std::uint32_t(-12) & 0x7FF) | (78u << 12));
+  gx_fixture::push_bp(fifo, 0xE3, 56u | (34u << 12));
+  gx_fixture::push_bp(fifo, 0xE2, 90u | (67u << 12) | (1u << 23));
+  gx_fixture::push_bp(fifo, 0xE3, 45u | (123u << 12) | (1u << 23));
+  gx_fixture::push_bp(fifo, 0, 1u << 10);
+  gx_fixture::push_bp(fifo, 0xC0, 2u | (15u << 4) | (15u << 8) |
+                                (15u << 12) | (2u << 22));
+  gx_fixture::push_bp(fifo, 0xC1, (1u << 4) | (7u << 7) | (7u << 10) |
+                                (7u << 13) | (2u << 22));
+  gx_fixture::push_bp(fifo, 0xC2, 4u | (14u << 4) | (4u << 8) |
+                                (15u << 12) | (1u << 19));
+  gx_fixture::push_bp(fifo, 0xC3, (2u << 4) | (6u << 7) | (2u << 10) |
+                                (7u << 13) | (1u << 19));
+  gx_fixture::push_bp(fifo, 0xF6, 4u | (13u << 14) | (29u << 19));
+  gx_fixture::push_bp(fifo, 0xF7, 14u);
+  gx_fixture::push_draw(fifo, 0x90, 3, {0, 0, 0, 1, 0, 0, 0, 1, 0});
+  CHECK(ww_renderer_write(renderer, fifo.data(), fifo.size()) == nullptr);
+  CHECK(backend.draws.size() == 1);
+  const auto& draw = backend.draws[0];
+  CHECK(draw.tev_colors[1][0] == -12.f && draw.tev_colors[1][1] == 34.f &&
+        draw.tev_colors[1][2] == 56.f && draw.tev_colors[1][3] == 78.f);
+  CHECK(draw.konst_colors[1][0] == 90.f && draw.konst_colors[1][1] == 123.f &&
+        draw.konst_colors[1][2] == 45.f && draw.konst_colors[1][3] == 67.f);
+  CHECK(draw.cg_fragment.find("c1.rgb = clamp(") != std::string::npos);
+  CHECK(draw.cg_fragment.find("konst_colors[1].rgb") != std::string::npos);
+  WwRendererStats stats{};
+  ww_renderer_stats(renderer, &stats);
+  CHECK(stats.programs_refused == 0 && stats.draws == 1);
+  ww_renderer_destroy(renderer);
+  std::printf("renderer signed TEV and aliased KONST register supply ok\n");
+  return 0;
+}
+
 } // namespace
 
 int main() {
@@ -360,6 +406,7 @@ int main() {
   CHECK(indexed_xf_coverage() == 0);
   CHECK(display_list_coverage() == 0);
   CHECK(per_vertex_matrix_coverage() == 0);
+  CHECK(tev_register_supply() == 0);
   {
     // Create refuses a missing memory view and a missing backend loudly.
     WwRenderer* renderer = nullptr;

@@ -251,6 +251,12 @@ TranslatedDraw translate(const gxc::DrawPlan& plan) {
   if (!translate_geometry(plan, out.geometry, &out.skip_reason))
     return out;
   translate_transform(plan, out);
+  for (std::uint32_t reg = 0; reg < 4; ++reg) {
+    for (std::uint32_t channel = 0; channel < 4; ++channel) {
+      out.tev_colors[reg][channel] = plan.pixel_constants.colors[reg][channel];
+      out.konst_colors[reg][channel] = plan.pixel_constants.kcolors[reg][channel];
+    }
+  }
   if (plan.texmap_mask != 0u)
     translate_per_texmap_textures(plan, out);
   else

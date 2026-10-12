@@ -49,7 +49,7 @@ PE/Z configuration; these are register groups, not separate FIFO opcodes.
 | CP vertex arrays, indexed XF `20/28/30/38` | Pinned resolver/layout support | Index8/index16 position values; all four XF arrays load translated matrices |
 | `40` display list, `48` invalidate, `00` padding | Pinned support | Aligned display-list quad reaches the recording backend with exact indices |
 | PNMTXIDX | Decoded but backend ignored it | Translation applies each vertex's selected XF rows; mixed-matrix renderer test and out-of-range refusal test |
-| TEV `C0–DF`, colors `E0–E7`, KONST `F6–FD` | Bounded subset, common args refused | Pending |
+| TEV `C0–DF`, colors `E0–E7`, KONST `F6–FD` | Bounded subset, common args refused; scales 2/4 inverted | All 16 color / 8 alpha arguments, signed color and KONST uniforms, separate destinations/scales/bias/clamp, compare modes and swaps generated; source-contract and raw-BP supply tests |
 | Blend `41`, Z `40`, PE `43`, alpha `F3` | Basic GL state; alpha test omitted | Pending |
 | Indirect BP `06–1F/25/27`, fog `E8–F2`, ZTexture `F4/F5` | Cg missing/refused | Not proven |
 
@@ -73,6 +73,15 @@ binding on vitaGL. Normals/lighting/texture-matrix selection are separate gaps,
 not implied by position support. The bridge now actually calls `translate`,
 which it previously advertised but did not execute. Real journal still ran:
 121 events, zero plans, `verdict=ran`.
+
+TEV unit: argument coverage failed on C0 before implementation; all argument,
+12 bias/scale, eight compare-mode and swap/KONST source-contract cases pass now.
+A raw two-stage BP stream reaches the recording backend with signed C0 and
+KONST values preserved despite their aliased BP addresses. `gx_tev.h` follows
+the pinned generator's integer rounding, input wrapping and destination ordering
+using float values with explicit floor. Scale2/Scale4 are multiplication, not
+the old `0.5/0.25`; Divide2 and separate alpha scale are admitted. These tests
+verify generation and uniform supply, **not GPU pixel parity or Cg compilation**.
 
 Rendering changes remain in the experimental Vita path; do not enable a
 production default on the strength of host tests. Windows CI and Vita hardware
