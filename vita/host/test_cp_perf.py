@@ -10,7 +10,7 @@ class CpPerfTest(unittest.TestCase):
         test_host.StartupHostTest.setUpClass()
 
     def run_probe(self, scenario):
-        subprocess.run([str(test_host.OUT / 'cp_perf_probe'), scenario], check=True)
+        subprocess.run([str(test_host.OUT / 'retained_register_probe'), scenario], check=True)
 
     def test_perf_selector_retains_only_the_pinned_three_bit_mask(self):
         for value in (0, 1, 2, 3, 4, 5, 6, 7, 8, 65535):

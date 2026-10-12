@@ -432,6 +432,12 @@ static bool fifo_has_input(const WwHost* host) {
     return host->frontier.size != 0u || host->gather.size != 0u || host->gather.transfers != 0u;
 }
 
+static u16* pe_config_register(WwHost* host, u32 address, u8 size) {
+    if (size != 2u || address < 0xCC001000u || address > 0xCC001008u || (address & 1u) != 0u)
+        return NULL;
+    return &host->pe_config[(address - 0xCC001000u) / 2u];
+}
+
 static u64 mmio_read(CPUState* cpu, u32 address, u8 size) {
     WwHost* host = owner(cpu);
     u64 value;
@@ -453,7 +459,10 @@ static u64 mmio_read(CPUState* cpu, u32 address, u8 size) {
         return 0u;
     }
     u32* fifo = fifo_register(host, address, size);
-    if (fifo != NULL)
+    u16* pe = pe_config_register(host, address, size);
+    if (pe != NULL)
+        value = *pe;
+    else if (fifo != NULL)
         value = size == 2u ? (u16)(*fifo >> ((address & 2u) != 0u ? 16u : 0u)) : *fifo;
     else if (address == 0xCC000002u && size == 2u)
         value = host->cp_control;
@@ -549,7 +558,10 @@ static void mmio_write(CPUState* cpu, u32 address, u64 value, u8 size) {
         return;
     }
     u32* fifo = fifo_register(host, address, size);
-    if (address == 0xCC000002u && size == 2u) {
+    u16* pe = pe_config_register(host, address, size);
+    if (pe != NULL) {
+        *pe = (u16)value;
+    } else if (address == 0xCC000002u && size == 2u) {
         if (value != 0u && value != 4u && value != 0x14u && value != 0x15u) {
             fail_mmio_write(host, "CP control requests an unimplemented FIFO mode or interrupt mask", address, value, size);
             return;

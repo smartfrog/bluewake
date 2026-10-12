@@ -108,3 +108,34 @@ the existing exact-deadline checks). Evidence: private
 `logs/ww16-inactivity-host-tests.log` and `logs/ww16-inactivity-fp-tests.log`.
 Repository audit, attribution and whitespace checks pass. A new clean committed
 build/trial follows; the game still has not drawn or presented an authentic frame.
+
+## Unit 5: the renderer sees the real stream; PE direct configuration
+
+Authentic trial `5b4a7353a17847288b16f3873a34c80c` at `fb2800e` proves the new
+installation gate: 1.28 seconds, `installed_payload`, exact verified bytes, then
+guest execution. The guest phase ends after 8.03 seconds at **7,153,307 cycles**,
+with **265 completed authentic GX commands**, 64 journaled and verified. `RENDER`
+reports **1,759 FIFO bytes, 521 frontend events, zero draws and zero presentations**;
+`END rendered=0` agrees. This is real renderer initialization and streaming,
+not synthetic pixels or a visible scene.
+
+The next honest STOP is a halfword read at `CC001002`, PC `80322D58`. The unchanged
+RecompCore pin's `Source/Core/VideoCommon/PixelEngine.h:31-35` names the five
+direct configuration halfwords at offsets `00,02,04,06,08`. `PixelEngine.cpp:59-63`
+resets them to zero; `:85-95` registers direct reads/writes of the full halfword.
+The host retains exactly those five independent values. Other widths remain
+unsupported; no EFB readback, GPU completion, rendering state or interrupt is
+invented. The CP selector probe is generalized and reused rather than duplicated.
+
+The closed report and complete journal were validated before the emulator itself
+crashed during app shutdown (`Unhandled SIGSEGV`, outer exit 133, after report
+rename). The crash is preserved in the trial's `phases/guest/evidence/process.log`;
+it is a separate unresolved teardown issue, not a passing emulator exit.
+The PE test's unsupported-register failures are preserved in private
+`logs/ww16-pe-config-red.log`; the focused source seam is under host regression checks.
+
+Linux AArch64: **443 host tests pass** (`logs/ww16-pe-config-green.log`), including
+PE retention, independence, width refusals, unchanged pending FIFO/IRQ state and
+cycle credit without quantum renewal. Audit, attribution and whitespace checks pass.
+The next committed ARM build and authentic continuation follow. Still no draws,
+shown pixels, physical Vita test or FPS measurement.
