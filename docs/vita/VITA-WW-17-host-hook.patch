@@ -1,0 +1,228 @@
+VITA-WW-17 host hook: where the captured GX stream and the guest's present
+events reach the renderer. Apply with `git apply` (verified against 8d50556);
+this file is delivered as a patch, not committed to the renderer branch.
+
+What it does:
+  - builds the renderer (vita/renderer) into the host: C++ enabled, the pinned
+    RetailGxFrontend/gxcore enabled, ww_renderer linked into ww05_services (so
+    every probe gets it) and the Vita link line given vitaGL + the Cg stubs.
+    Use the same no-splash vitaGL archive the WW02 launcher pins.
+  - creates the renderer after ww_host_init over the host's own memory view
+    and destroys it in ww_host_shutdown.
+  - hands every completed captured GX command to ww_renderer_write and calls
+    ww_renderer_present after it. The present call shows a frame exactly when a
+    display copy completed one; move it to the march's VI/present site when
+    that exists.
+  - reports what the renderer saw: a RENDER line between STOP and END and a
+    real rendered=<presented frames> in END, with scripts/vita/ww05/report.py
+    accepting the new shape (its PASS/STOP-reason conditions stay the march's).
+
+Not in this patch (the march's lane): continuing past the first complete GX
+command, the VI retrace clock, and the [frame-timing]/[frame-present] markers.
+
+diff --git a/scripts/vita/ww05/report.py b/scripts/vita/ww05/report.py
+index 1a4b969..5d0f8a9 100644
+--- a/scripts/vita/ww05/report.py
++++ b/scripts/vita/ww05/report.py
+@@ -47,7 +47,7 @@ def validate(content, token, source, package, continue_gx=0):
+         raise ValueError('WW05 guest identity mismatch')
+     if len(lines) == 3 and lines[1:] == ['STOP reason=host allocation failed', 'END frontier=FAIL live=0 rendered=0']:
+         return 'FAIL'
+-    if len(lines) != (9 if continue_gx else 8) or lines[1] != 'ABI pointer=4 cpu=3496 version=6':
++    if len(lines) != (10 if continue_gx else 9) or lines[1] != 'ABI pointer=4 cpu=3496 version=6':
+         raise ValueError('WW05 record count or target CPU ABI mismatch')
+     decoded = 0
+     if continue_gx:
+@@ -70,7 +70,11 @@ def validate(content, token, source, package, continue_gx=0):
+         r'STOP reason=(.{1,256}) address=([0-9A-F]{8}) pc=([0-9A-F]{8})(?: width=([1248]) value=([0-9A-F]{16}))?', lines[6])
+     if width is not None and int(value, 16) >= 1 << (8 * int(width)):
+         raise ValueError('WW05 service write value exceeds its width')
+-    verdict, = matched(r'END frontier=(PASS|FAIL) live=0 rendered=0', lines[7])
++    # VITA-WW-17: the renderer summary (RENDER) sits between STOP and END;
++    # the END verdict carries the presented frame count.
++    if not lines[7].startswith('RENDER ') or ' presented=' not in lines[7]:
++        raise ValueError('WW05 renderer summary missing or malformed')
++    verdict, = matched(r'END frontier=(PASS|FAIL) live=0 rendered=\d+', lines[8])
+     if continue_gx and bool(decoded) != (complete == '1'):
+         raise ValueError('WW05 continuation lost its first frontier')
+     if verdict == 'PASS':
+diff --git a/vita/host/CMakeLists.txt b/vita/host/CMakeLists.txt
+index d025d0b..f758d71 100644
+--- a/vita/host/CMakeLists.txt
++++ b/vita/host/CMakeLists.txt
+@@ -1,5 +1,5 @@
+ cmake_minimum_required(VERSION 3.16)
+-project(ww05_startup C)
++project(ww05_startup C CXX)
+ set(CMAKE_C_STANDARD 11)
+ set(CMAKE_C_STANDARD_REQUIRED ON)
+ set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
+@@ -8,9 +8,27 @@ get_filename_component(BLUEWAKE_ROOT "../.." ABSOLUTE BASE_DIR "${CMAKE_CURRENT_
+ set(GXRUNTIME_DIR "${RECOMPCORE_DIR}/GXRuntime" CACHE PATH "Pinned runtime" FORCE)
+ set(ABI_DIR "${RECOMPCORE_DIR}/Source/Core/Core/PowerPC/StaticRecomp" CACHE PATH "Pinned module ABI" FORCE)
+ set(GXRUNTIME_ENABLE_AURORA OFF CACHE BOOL "" FORCE)
+-set(GXRUNTIME_ENABLE_AURORA_RECOMP OFF CACHE BOOL "" FORCE)
++# VITA-WW-17: the renderer consumes the pinned RetailGxFrontend and gxcore.
++set(GXRUNTIME_ENABLE_AURORA_RECOMP ON CACHE BOOL "" FORCE)
+ set(BUILD_TESTING ${WW05_TESTS_ONLY} CACHE BOOL "" FORCE)
+ add_subdirectory("${GXRUNTIME_DIR}" runtime)
++
++# VITA-WW-17: the host-facing renderer (vita/renderer). On the Vita it submits
++# through vitaGL; the tests-only host build links the same core with the NULL
++# platform backend.
++set(WW17_RENDERER_DIR "${BLUEWAKE_ROOT}/vita/renderer" CACHE PATH "VITA-WW-17 renderer sources")
++set(WW17_RENDERER_SOURCES
++    "${WW17_RENDERER_DIR}/ww_renderer.cpp"
++    "${WW17_RENDERER_DIR}/gx_bridge.cpp"
++    "${WW17_RENDERER_DIR}/gx_vita.cpp"
++    "${WW17_RENDERER_DIR}/gx_cg.cpp")
++if(VITA)
++    list(APPEND WW17_RENDERER_SOURCES "${WW17_RENDERER_DIR}/vita_gl_backend.cpp")
++endif()
++add_library(ww_renderer STATIC ${WW17_RENDERER_SOURCES})
++target_include_directories(ww_renderer PUBLIC "${WW17_RENDERER_DIR}")
++target_link_libraries(ww_renderer PUBLIC GXRuntime::retail_gx_frontend GXRuntime::gxcore)
++target_compile_options(ww_renderer PRIVATE -O2 -Wall -Wextra)
+ set(WW13_TESTS_ONLY OFF CACHE BOOL "" FORCE)
+ set(WW13_VITA OFF CACHE BOOL "" FORCE)
+ add_subdirectory(dvd)
+@@ -26,7 +44,7 @@ add_library(ww05_services STATIC boot_host.c gx_checkpoint.c gx_stream.c fifo_ga
+     "${BLUEWAKE_ROOT}/runtime/host/src/interrupt_sources.c")
+ target_include_directories(ww05_services PUBLIC "${CMAKE_CURRENT_SOURCE_DIR}"
+     "${BLUEWAKE_ROOT}/runtime/host/src" "${BLUEWAKE_ROOT}/cmake/composite" "${ABI_DIR}")
+-target_link_libraries(ww05_services PUBLIC ww13_dvd_io GXRuntime::runtime)
++target_link_libraries(ww05_services PUBLIC ww13_dvd_io GXRuntime::runtime ww_renderer)
+ target_compile_options(ww05_services PRIVATE -O2 -ffp-contract=off -fno-fast-math -fstack-usage
+     -Wall -Wextra -Werror=implicit-function-declaration)
+ 
+@@ -117,10 +135,12 @@ else()
+     target_include_directories(ww05_host PRIVATE "${WW05_IDENTITY_DIR}"
+         "${BLUEWAKE_ROOT}/vita/feasibility/armv7")
+     target_link_libraries(ww05_host PRIVATE gGZLE01_recomp ww05_services
++        vitaGL vitashark SceShaccCgExt SceShaccCg_stub_weak SceGxm_stub_weak
++        SceDisplay_stub_weak
+         SceLibKernel_stub SceIofilemgr_stub SceProcessmgr_stub SceSysmem_stub)
+     target_compile_options(ww05_host PRIVATE -O2 -ffp-contract=off -fno-fast-math -fstack-usage)
+     target_link_options(ww05_host PRIVATE "-Wl,-Map=${CMAKE_CURRENT_BINARY_DIR}/ww05.map")
+-    foreach(target gxruntime ww05_services ww13_dvd_io ww13_dvd_pin gGZLE01_recomp ww05_host)
++    foreach(target gxruntime ww05_services ww13_dvd_io ww13_dvd_pin gGZLE01_recomp ww05_host ww_renderer)
+         target_compile_options(${target} PRIVATE -mcpu=cortex-a9 -mfpu=neon -mfloat-abi=hard)
+     endforeach()
+     include("$ENV{VITASDK}/share/vita.cmake" REQUIRED)
+diff --git a/vita/host/boot_host.c b/vita/host/boot_host.c
+index 5cf48a9..7c64cdd 100644
+--- a/vita/host/boot_host.c
++++ b/vita/host/boot_host.c
+@@ -867,6 +867,10 @@ bool ww_host_init(WwHost* host) {
+ }
+ 
+ void ww_host_shutdown(WwHost* host) {
++    // VITA-WW-17: the renderer resolves against this host's memory and CPU,
++    // so it goes before they are freed.
++    ww_renderer_destroy(host->renderer);
++    host->renderer = NULL;
+     if (host->disc_owned) {
+         dvd_close_image();
+         host->disc_owned = false;
+diff --git a/vita/host/boot_host.h b/vita/host/boot_host.h
+index 2b8f636..cdd696d 100644
+--- a/vita/host/boot_host.h
++++ b/vita/host/boot_host.h
+@@ -4,6 +4,7 @@
+ #include "module_exports.h"
+ #include "module_cpu_contract.h"
+ #include "gx_checkpoint.h"
++#include "ww_renderer.h"
+ #include "fifo_gather.h"
+ #include "code_guard.h"
+ #include "cycle_domain.h"
+@@ -23,6 +24,7 @@ typedef struct WwHost {
+     DolGxRecompState gx;
+     WwGxCheckpoint frontier;
+     WwGxStream stream;
++    WwRenderer* renderer;
+     WwGatherPipe gather;
+     WwFifoCapture fifo_capture;
+     BluewakeCycleDomain cycles;
+diff --git a/vita/host/gx_stream.c b/vita/host/gx_stream.c
+index df99503..98f2ef7 100644
+--- a/vita/host/gx_stream.c
++++ b/vita/host/gx_stream.c
+@@ -34,6 +34,22 @@ const char* ww_gx_stream_write(WwHost* host, u8 byte, const WwFifoOrigin* origin
+         host->frontier.trailing_bytes = trailing;
+     }
+     stream->decoded = index;
++    // VITA-WW-17: the same captured bytes the pinned trace observes go to the
++    // renderer, in stream order. The present call shows a frame the game
++    // finished (a display copy) and does nothing otherwise; when the march's
++    // VI/present path lands, move the present call there. A renderer failure is
++    // the host's failure: return it and stop.
++    if (host->renderer != NULL) {
++        const char* renderer_error = ww_renderer_write(host->renderer, command->bytes, command->size);
++        if (renderer_error == NULL) {
++            bool presented = false;
++            renderer_error = ww_renderer_present(host->renderer, &presented);
++        }
++        if (renderer_error != NULL) {
++            *command = (WwGxCheckpoint){0};
++            return renderer_error;
++        }
++    }
+     *command = (WwGxCheckpoint){0};
+     return NULL;
+ }
+diff --git a/vita/host/main.c b/vita/host/main.c
+index b416ade..c40b4d1 100644
+--- a/vita/host/main.c
++++ b/vita/host/main.c
+@@ -113,6 +113,17 @@ int fixture_run(int argc, char** argv) {
+     bool initialized = !error && ww_host_init(host);
+     host->stream.enabled = command_log_limit != 0u;
+     host->stream.log_limit = command_log_limit;
++    // VITA-WW-17: attach the renderer to the captured stream over the same MEM1
++    // view the pinned trace resolves against. A create failure is fatal: the run
++    // must not continue with no renderer while claiming to render.
++    if (initialized) {
++        WwRendererConfig renderer_config = {.memory = &host->memory, .cpu = &host->cpu};
++        const char* renderer_error = ww_renderer_create(&host->renderer, &renderer_config, NULL);
++        if (renderer_error != NULL) {
++            error |= fprintf(stderr, "[renderer] init failed: %s\n", renderer_error) < 0;
++            ww_host_fail(host, renderer_error, 0u, host->cpu.pc);
++        }
++    }
+     error |= fprintf(stderr, "[host] stage=load initialized=%u\n", initialized) < 0;
+     bool loaded = !error && initialized && ww_host_load(host, module, data, count, WW05_DOL_PATH);
+     error |= fprintf(stderr, "[host] stage=loaded loaded=%u pc=%08X\n", loaded, host->cpu.pc) < 0;
+@@ -253,6 +264,22 @@ int fixture_run(int argc, char** argv) {
+         error |= fprintf(report, " width=%u value=%016llX", host->error_width,
+                          (unsigned long long)host->error_value) < 0;
+     error |= fprintf(report, "\n") < 0;
++    // VITA-WW-17: what the renderer saw and showed. The line sits between STOP
++    // and END so the strict report records keep their positions.
++    WwRendererStats renderer_stats = {0};
++    ww_renderer_stats(host->renderer, &renderer_stats);
++    error |= fprintf(report, "RENDER fifo_bytes=%llu events=%llu plans=%llu plans_skipped=%llu "
++                             "draws=%llu programs=%llu programs_distinct=%llu programs_refused=%llu "
++                             "copies=%llu copies_refused=%llu display_copies=%llu presented=%llu gaps=%u\n",
++                     (unsigned long long)renderer_stats.fifo_bytes, (unsigned long long)renderer_stats.events,
++                     (unsigned long long)renderer_stats.plans, (unsigned long long)renderer_stats.plans_skipped,
++                     (unsigned long long)renderer_stats.draws, (unsigned long long)renderer_stats.programs,
++                     (unsigned long long)renderer_stats.programs_distinct,
++                     (unsigned long long)renderer_stats.programs_refused,
++                     (unsigned long long)renderer_stats.copies,
++                     (unsigned long long)renderer_stats.copies_refused,
++                     (unsigned long long)renderer_stats.display_copies,
++                     (unsigned long long)renderer_stats.presented, renderer_stats.gap_count) < 0;
+     const bool success = loaded && frontier->complete &&
+         (host->stream.enabled || (host->edge_stopped && host->error == NULL));
+     const bool failed = !success || host->error != NULL;
+@@ -260,7 +287,8 @@ int fixture_run(int argc, char** argv) {
+     free(host);
+     error |= fixture_log_close();
+     if (!error)
+-        error = fprintf(report, "END frontier=%s live=0 rendered=0\n", success ? "PASS" : "FAIL") < 0;
++        error = fprintf(report, "END frontier=%s live=0 rendered=%llu\n", success ? "PASS" : "FAIL",
++                        (unsigned long long)renderer_stats.presented) < 0;
+     if (error) {
+         const int closed = fclose(report);
+         return closed != 0 || error;

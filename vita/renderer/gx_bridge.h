@@ -12,6 +12,7 @@
 
 #pragma once
 
+#include "gxruntime/gxcore/gxcore.hpp"
 #include "gxruntime/guest_memory.h"
 
 #include <cstdint>
@@ -65,5 +66,11 @@ struct Result {
 // empty run.
 bool run(std::span<const std::uint8_t> fifo,
          const DolGuestAddressResolver& resolver, Result* out);
+
+// The nonzero gap counters as (name, value) pairs, in a fixed order. The
+// bridge report and the live renderer (ww_renderer) name the same gaps, so
+// the list lives in one place.
+std::vector<GapEntry> nonzero_gaps(
+    const gxruntime::gxcore::GapCounters& counters);
 
 } // namespace gx_bridge
