@@ -13,6 +13,7 @@
 #include "bat_contract.h"
 #include "trace_sampling.h"
 #include "dvd_completion.h"
+#include "rel_service.h"
 #include "gxruntime/di.h"
 #include "gxruntime/exi.h"
 #include "gxruntime/interrupts.h"
@@ -36,6 +37,7 @@ typedef struct WwHost {
     DolSiDevice si;
     DolAudioDma audio;
     BluewakeDvdCompletions dvd_completions;
+    WwRelImage rel_image;
     WwDspInterface dsp;
     WwBatContract bat;
     const StaticRecompModuleDesc* module;
@@ -104,6 +106,9 @@ DolDiCommandResult ww_host_di_read(WwHost* host, DolDiCommand* command);
 bool ww_host_dvd_edge(WwHost* host, u32 address);
 bool ww_host_module_contains_address(const StaticRecompModuleDesc* module, u32 address);
 void ww_host_dvd_complete(WwHost* host);
+const char* ww_host_disc_ready(WwHost* host);
+const char* ww_host_rel_image(WwHost* host, const char* name, u8** image, u32* bytes);
+const char* ww_host_materialize_rel(WwHost* host, u32 owner, const char* name);
 const char* ww_gx_stream_write(WwHost* host, u8 byte, const WwFifoOrigin* origin, u32 trailing);
 
 #endif

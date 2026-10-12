@@ -35,7 +35,7 @@ add_subdirectory(dvd)
 target_compile_options(gxruntime PRIVATE -ffp-contract=off -fno-fast-math -fstack-usage)
 
 add_library(ww05_services STATIC boot_host.c gx_checkpoint.c gx_stream.c fifo_gather.c fifo_consumer.c
-    code_guard.c dsp_interface.c bat_contract.c disc_service.c
+    code_guard.c dsp_interface.c bat_contract.c disc_service.c rel_provider.c rel_service.c
     $<TARGET_OBJECTS:ww13_dvd_pin>
     "${BLUEWAKE_ROOT}/runtime/host/src/cycle_domain.c"
     "${BLUEWAKE_ROOT}/runtime/host/src/aram_dma.c"
@@ -43,9 +43,11 @@ add_library(ww05_services STATIC boot_host.c gx_checkpoint.c gx_stream.c fifo_ga
     "${BLUEWAKE_ROOT}/runtime/host/src/ipl_sram.c"
     "${BLUEWAKE_ROOT}/runtime/host/src/callback_delivery.c"
     "${BLUEWAKE_ROOT}/runtime/host/src/scheduler_contract.c"
+    "${BLUEWAKE_ROOT}/runtime/host/src/rel_scratch_allocator.c"
     "${BLUEWAKE_ROOT}/runtime/host/src/interrupt_sources.c")
 target_include_directories(ww05_services PUBLIC "${CMAKE_CURRENT_SOURCE_DIR}"
-    "${BLUEWAKE_ROOT}/runtime/host/src" "${BLUEWAKE_ROOT}/cmake/composite" "${ABI_DIR}")
+    "${BLUEWAKE_ROOT}/runtime/host/src" "${BLUEWAKE_ROOT}/cmake/composite" "${ABI_DIR}"
+    "${BLUEWAKE_ROOT}/apple/ios/src")
 target_link_libraries(ww05_services PUBLIC ww13_dvd_io GXRuntime::runtime ww_renderer)
 target_compile_options(ww05_services PRIVATE -O2 -ffp-contract=off -fno-fast-math -fstack-usage
     -Wall -Wextra -Werror=implicit-function-declaration)
@@ -96,6 +98,10 @@ if(WW05_TESTS_ONLY)
     target_compile_options(dvd_callback_probe PRIVATE -UNDEBUG)
     target_link_libraries(dvd_callback_probe PRIVATE ww05_services)
     target_link_options(dvd_callback_probe PRIVATE -Wl,--wrap=fprintf)
+    add_executable(rel_materialize_probe rel_materialize_probe.c)
+    target_compile_options(rel_materialize_probe PRIVATE -UNDEBUG)
+    target_link_libraries(rel_materialize_probe PRIVATE ww05_services)
+    target_link_options(rel_materialize_probe PRIVATE -Wl,--wrap=fprintf -Wl,--wrap=calloc)
     add_executable(gather_probe gather_probe.c)
     target_compile_options(gather_probe PRIVATE -UNDEBUG)
     target_link_libraries(gather_probe PRIVATE ww05_services)

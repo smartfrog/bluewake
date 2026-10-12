@@ -909,6 +909,7 @@ void ww_host_shutdown(WwHost* host) {
     ppc_guest_alias_clear();
     host->alias_bytes = 0u;
     host->alias_count = 0u;
+    memset(&host->rel_image, 0, sizeof(host->rel_image));
     dol_guest_memory_shutdown(&host->memory);
     BlueWakeModuleStorage storage = {.cpu = &host->cpu};
     bw_module_cpu_free(&storage);

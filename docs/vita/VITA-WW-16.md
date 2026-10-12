@@ -363,3 +363,52 @@ Provider/scratch integration remains pending: a read-only bind of verified raw
 RELs plus bounded owned storage through the existing alias API would preserve
 24 MiB MEM1; alternatively, loading from the existing archive would require its
 resource extraction contract. Neither path is implemented or silently selected.
+
+## Unit 12: read the requested raw REL from the ISO and map bounded scratch
+
+The resumed scope selects an ISO-backed provider, not prepared loose REL files.
+`rel_provider.c` resolves `/RELS.arc` with the unchanged WW13/pinned DVD FST,
+opens the already verified private image with WW13's read-only transport and
+requires exact reads. It selects the requested case-insensitive module name,
+refuses ambiguous names, and decodes only the selected member. RARC parsing and
+the importer's existing bounded Yaz0 decoder are extracted into
+`apple/ios/src/rel_archive.h` and reused by the first-run importer, not copied.
+There are no new dependencies or source-pin edits. Archive and raw-image bounds
+are 16 MiB and 1 MiB respectively; no archive cache is retained.
+
+The real archive is RARC, 943,360 bytes. The requested profile-list REL is version
+3, 16,500 bytes, with 17 section entries and an import table. The layout is sourced
+from `disc_import.c`'s archive extraction and the desktop REL materializer;
+`docs/vita/VITA-WW-14.md` names the materialization/link/lifecycle boundaries.
+Raw module id, version, file size and section-table metadata must match the
+compiled module catalog; section/import extents are checked before mapping.
+
+`rel_service.c` reuses the shared first-fit allocator over
+`81820000..81F80000`, excluding every compiled code range and linked section
+(including their tagged address form), and refuses any other alias owner. Only
+the chosen 32-byte-rounded range is backed by a runtime-owned alias. **MEM1 stays
+24 MiB**. Copy verification precedes recording the owned image; failed allocation
+or logging rolls back the unpublished mapping. Shutdown frees it through the
+existing alias cleanup and resets its accounting. The bounded single image is
+appropriate while linking remains the next unsupported boundary; no speculative
+slot cache, unload implementation or active-set measurement is added.
+
+The desktop's `do_link` interception also binds the prelinked composite and, for
+module 1, publishes the profile-list global. That is distinct from a raw copy.
+This unit therefore emits `[rel-materialized]`, then explicitly stops for the
+relocation/link/prolog contract, without setting the guest object's module pointer,
+returning success, executing a fabricated prolog or emitting `[rel-load]`. A real
+materialization is not yet a linked module. The next unit must source and test
+that static-link contract before claiming a successful `do_link`.
+
+Linux AArch64: **486 host tests pass** (`logs/ww16-rel-materialize-green.log`),
+including raw and Yaz0 member/wrapper copies, case handling, catalog mismatch,
+short/missing reads, bad ranges, exhausted/aliased scratch, allocation failure,
+trace rollback, preserved guest object and unchanged MEM1. The initial missing
+mapping test is red in `logs/ww16-rel-materialize-red.log`. The actual ARM host
+links (`logs/ww16-rel-materialize-arm-link.log`). A fresh private importer run
+checks `main.dol` and **all 415 REL files byte-identical** to the previous verified
+import (`rel-importer-check-h211_gub/result.json`); it executes no guest code.
+Audit, attribution and whitespace checks pass. Windows verification is tracked
+in `docs/WINDOWS_TASKS.md`; it was not run. A clean committed VPK build and watched
+authentic materialization trial follow, with the existing inactivity watchdog.

@@ -1,5 +1,6 @@
 // See disc_import.h.
 #include "disc_import.h"
+#include "rel_archive.h"
 
 #if defined(_WIN32)
 #define WIN32_LEAN_AND_MEAN
@@ -48,55 +49,6 @@ static uint8_t* read_at(FILE* f, uint64_t offset, size_t size) {
         return NULL;
     }
     return buffer;
-}
-
-// Yaz0: returns a malloc'd buffer of *out_size bytes, or NULL if malformed.
-static uint8_t* yaz0_decode(const uint8_t* in, size_t in_size,
-                            size_t* out_size) {
-    if (in_size < 16 || memcmp(in, "Yaz0", 4) != 0)
-        return NULL;
-    const size_t total = be32(in + 4);
-    if (total == 0 || total > (64u << 20))
-        return NULL;
-    uint8_t* out = (uint8_t*)malloc(total);
-    if (out == NULL)
-        return NULL;
-    size_t s = 16, d = 0;
-    while (d < total) {
-        if (s >= in_size)
-            goto bad;
-        uint8_t code = in[s++];
-        for (int bit = 0; bit < 8 && d < total; ++bit, code <<= 1) {
-            if (code & 0x80) {
-                if (s >= in_size)
-                    goto bad;
-                out[d++] = in[s++];
-                continue;
-            }
-            if (s + 1 >= in_size)
-                goto bad;
-            const uint8_t b1 = in[s], b2 = in[s + 1];
-            s += 2;
-            const size_t dist = ((size_t)(b1 & 0x0F) << 8 | b2) + 1;
-            size_t count = b1 >> 4;
-            if (count == 0) {
-                if (s >= in_size)
-                    goto bad;
-                count = (size_t)in[s++] + 0x12;
-            } else {
-                count += 2;
-            }
-            if (dist > d || d + count > total)
-                goto bad;
-            for (size_t i = 0; i < count; ++i, ++d)
-                out[d] = out[d - dist];
-        }
-    }
-    *out_size = total;
-    return out;
-bad:
-    free(out);
-    return NULL;
 }
 
 #if !defined(_WIN32) && !defined(__APPLE__)
@@ -268,39 +220,29 @@ int bluewake_disc_check(const char* iso_path, char* error, size_t error_size) {
 // Yaz0 wrapper, whose members are Yaz0 RELs). Returns the count or -1.
 static int unpack_rels_arc(uint8_t* arc, size_t arc_size, const char* out,
                            BlueWakeImportProgress progress, void* context) {
-    if (arc_size < 0x40 || memcmp(arc, "RARC", 4) != 0)
-        return -1;
-    const size_t data_start = (size_t)be32(arc + 0x0C) + 0x20;
-    const uint8_t* info = arc + 0x20;
-    const uint32_t nfiles = be32(info + 8);
-    const size_t file_off = (size_t)be32(info + 12) + 0x20;
-    const size_t str_off = (size_t)be32(info + 20) + 0x20;
-    if (file_off + (size_t)nfiles * 0x14 > arc_size || str_off >= arc_size)
+    BluewakeRelArchive view;
+    if (bluewake_rel_archive_init(&view, arc, arc_size) != 0)
         return -1;
     int written = 0;
-    for (uint32_t i = 0; i < nfiles; ++i) {
-        const uint8_t* e = arc + file_off + (size_t)i * 0x14;
-        const uint32_t type_name = be32(e + 4);
-        if (((type_name >> 24) & 1u) == 0)
-            continue;
-        const size_t name_off = str_off + (type_name & 0xFFFFu);
-        if (name_off >= arc_size ||
-            memchr(arc + name_off, 0, arc_size - name_off) == NULL)
+    for (uint32_t i = 0; i < view.count; ++i) {
+        const char* name;
+        const uint8_t* member;
+        size_t dlen;
+        const int status = bluewake_rel_archive_member(&view, i, &name, &member, &dlen);
+        if (status < 0)
             return -1;
-        const char* name = (const char*)arc + name_off;
+        if (status == 0)
+            continue;
         if (!has_rel_suffix(name))
             continue;
-        const size_t doff = data_start + be32(e + 8), dlen = be32(e + 12);
-        if (doff + dlen > arc_size)
-            return -1;
         uint8_t* data;
         size_t data_size = dlen;
-        if (dlen >= 4 && memcmp(arc + doff, "Yaz0", 4) == 0) {
-            data = yaz0_decode(arc + doff, dlen, &data_size);
+        if (dlen >= 4 && memcmp(member, "Yaz0", 4) == 0) {
+            data = yaz0_decode(member, dlen, &data_size);
         } else {
             data = (uint8_t*)malloc(dlen > 0 ? dlen : 1);
             if (data != NULL)
-                memcpy(data, arc + doff, dlen);
+                memcpy(data, member, dlen);
         }
         if (data == NULL || write_rel(out, name, data, data_size) != 0) {
             free(data);
@@ -309,7 +251,7 @@ static int unpack_rels_arc(uint8_t* arc, size_t arc_size, const char* out,
         free(data);
         ++written;
         if (progress != NULL && (i & 31u) == 0)
-            progress(context, 0.3 + 0.65 * (double)i / nfiles,
+            progress(context, 0.3 + 0.65 * (double)i / view.count,
                      "Unpacking game modules");
     }
     return written;
