@@ -764,3 +764,60 @@ the requested authentic replay must use its already verified exact artifact.
 The watched trial follows at the longer authorized 600-second ceiling, with
 inactivity requiring **both silence and low CPU**; an explicit deadline, if hit,
 will still be reported as timeout, never a spontaneous crash or certified boot.
+
+The exact baseline replay is `26b9c4f4d837452d83587bb4cdad7350`: guest source
+**`2e8deb1`**, launcher **`356fb91`**, not a relabelled new guest build. The fixed
+observer never reports inactive. The guest reaches its explicit **600.001 s
+ceiling**, is TERM/reaped (exit -15, process_status 124), and remains in SelectThread
+at `80307EF4`; no closed `ww05.report` exists. Global result is INCOMPLETE/status 2
+because the 132,312,305-byte process trace exceeds the existing 64 MiB validation
+bound. The result/logs are retained intact, not rewritten or trimmed.
+
+`evidence/trace-baseline-analysis.json` records **46,165,817,388 last logged cycles,
+94 real decrementer deliveries, 127 DVD reads, one raw materialization and one
+module-1 link**. The native journal is 207,399,113 bytes / 1,769,311 lines;
+the process trace contains **1,764,093 `sceIoWrite` TRACE lines**. The observed
+emulator is gone. These counts are mostly the sourced scheduler wait, not evidence
+that many RELs ran or that a frame was presented. The initial snapshot remains
+265 GX commands / 1,759 bytes / zero draws or presentations.
+
+The poll is specifically `lwz r0,-26288(r13); cmplwi r0,0; beq 80307EF4`.
+Actual r13 `803FE0E0` resolves to run bits at **`803F7A30`**, not a VI MMIO register.
+Main's saved receive caller `80255E18` waits on the video queue at `80429EF0`.
+The timer is demonstrably delivered/rearmed; DVD pending is zero. Shared desktop
+code identifies the normal producer as VI handler -> `JUTVideo::postRetraceProc`
+-> real message send. The missing VI-clock producer is already implemented,
+tested and default-off in `c93951d`; no artificial callback/wakeup will replace it.
+
+## Unit 22: remove emulator TRACE amplification from future private profiles
+
+Coordinator-approved profile change: **`log-level: 0` -> `log-level: 2` (Info)**.
+Local read-only Vita3K source, `config/src/config.cpp:387,460-468`, explicitly maps
+0=TRACE, 2=INFO and applies the selected level to the guest logging backend;
+`util/src/logging.cpp:141-142` passes it to spdlog. This keeps Info/warnings/errors
+instead of suppressing failure evidence. The installed executable's full source
+mapping remains the existing UNVERIFIED provenance; the next real run must verify
+the emitted config and observed syscall-trace suppression empirically.
+
+The shared FP/WW05 template changes **one byte only**; all other bytes of the old
+neutral schema are tested identical. Baseline and cpu-opt-off identities are
+updated together, still 4,284 / 4,285 bytes and 154 unique keys. The alternate
+continues to differ only in its cpu-opt line. Config metadata explicitly records
+the authorized log-level change; unknown changes and late parse errors remain
+refused. Old run configs/results are untouched. No renderer, guest code, IRQ,
+frame counter, CPU optimization, pin or composite digest changes.
+
+Linux AArch64: **551 host tests and 83 FP tests pass**
+(`logs/ww16-info-config-host-green.log`, `logs/ww16-info-config-fp-green.log`), with
+red/green profile checks in `logs/ww16-info-config-red.log` and
+`logs/ww16-info-profile-{red,green}.log`. Audit, attribution and whitespace pass.
+The change was deferred until the live TRACE run finished, preserving its clean
+source/config checks. Reused immutable guest artifacts keep comparisons honest.
+
+Baseline throughput receipt: in the fixed `80307EF4` wait, samples **10..70 seconds
+after the first observed idle sample** give **77.744 M executed guest cycles per
+wall second** over 59.074 seconds with TRACE. This is a single diagnostic-throughput
+observation, **not FPS or gameplay performance**. The next Info-only run reuses
+the same `2e8deb1` guest for that window, then the opt-in VI artifact is exercised
+separately. The shared template benefits future lanes after integration; absolute
+numbers from old TRACE runs remain log-contaminated and are not silently revised.
