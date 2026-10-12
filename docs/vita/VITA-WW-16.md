@@ -848,3 +848,66 @@ and has not yet executed. Selecting that unchanged artifact avoids a redundant
 rebuild/relabel and keeps guest and launcher provenance distinct. Info and the
 corrected CPU/output-growth observer remain in the new profile; no synthetic
 message, callback, retrace-as-frame or forced runnable bit is introduced.
+
+## Unit 23: authentic VI delivery reaches the first primitive boundary
+
+Watched trial `910ccc01648a41d891601bd42c1f0fa7`: guest **`c93951d`** (VI enabled),
+launcher **`f769519`**, new isolated Info profile. The first due retrace occurs at
+**8,100,000 executed cycles**, asserts real VI status/cause under the existing
+guest masks, and immediately enters the verified physical `00000500` vector.
+The translated vector saves the real context and hands off by RFI to `80304E24`.
+This is a real guest interrupt path, not a host-invoked JUTVideo callback.
+
+The guest progresses to its first primitive header. New closed STOP:
+**`unsupported first GX opcode (draw requires preceding layout)`**, FIFO
+`CC008000`, writer PC `80323194`, at **14,491,186 cycles**. The stream decoded
+**989 commands** and the renderer received **6,941 bytes / 2,012 events**;
+plans/draws/presentations are still **zero**. Installation is 1.23 s, guest 9.12 s.
+The full launcher certifies the closed report and 64 logged commands, while
+preserving the known post-report shutdown **SIGSEGV / exit 133**. This is not a
+timeout/inactivity kill or gameplay success. The observed primitive is not yet
+a submitted GPU draw or visible pixel.
+
+## Unit 24: frame primitives using the already accepted CP layout
+
+Source investigation corrects the error message's implication: the preceding
+989 commands have been accepted; CP VCD/VAT state is retained in `host->gx` and
+the pinned CP loader derives its vertex layouts. **The checkpoint's framing
+switch had no primitive cases at all**. The missing piece is packet byte length,
+not an invented layout or a replacement for renderer state interpretation.
+
+`gx_checkpoint.c` now uses the pinned layout and wire shape from
+`GXRuntime/src/gx_recomp_parser.c:266-285` and
+`graphics/frontend/src/retail_gx_frontend.cpp:1010-1048`: retail primitive opcode,
+big-endian u16 count, low-three-bit vertex format, then count * derived vertex
+size bytes. Derivation reuses `dol_gx_recomp_derive_vertex_layout`; no VAT/attribute
+math is reimplemented. Only a complete bounded packet is replayed by the same
+pinned parser and forwarded unchanged to WW17. First-frontier bytes/provenance
+remain intact. Reserved `0x88`, absent layout and packets above the existing
+1,025-byte bound stop explicitly; zero-vertex draws remain refused by this
+checkpoint's C parser rather than being declared a successful draw. No fake
+vertices, padding, counters or presentations are added.
+
+The original journal deliberately keeps only the **first 64 commands**, so the
+commands immediately before number 990 cannot be reconstructed honestly from
+that run. The new one-shot draw audit retains **16 recent complete commands** and
+**64 recent CP writes**, with exact byte/PC/order provenance, and records the
+effective VCD/VAT/validity/stride when the first actual three-byte draw header
+arrives. It freezes after that audit and never becomes a per-frame logger.
+This bounded private capture supplies the requested sequence on the next real
+attempt without claiming that an observed header was accepted/submitted already.
+Logging failures stop before completed-draw publication.
+
+Linux AArch64: **561 host tests pass** (`logs/ww16-gx-draw-final.log`), including
+actual preceding CP loads, split vertex payload, nonzero format, later VAT stride
+change, following-command alignment, missing layout, reserved/zero/oversize
+refusals, exact ordered history/wrap and failed audit handling. The draw test is
+red before framing support (`logs/ww16-gx-draw-red.log`); focused and ARM link
+evidence are `logs/ww16-gx-draw-audit-{focused,arm}.log`. Audit, attribution and
+whitespace checks pass. MEM1, pins, composite and renderer source are unchanged.
+
+The coordinator's VITA-WW-18 coverage commits are available locally through
+`f734af1`, but this branch still carries the earlier WW17 renderer; its remaining
+coverage must be reused from that lane, not reimplemented in the stream. This
+unit changes only framing/capture. A fresh committed **VI-enabled** rebuild and
+watched continuation follow; any nonzero plan/draw/present is reported immediately.

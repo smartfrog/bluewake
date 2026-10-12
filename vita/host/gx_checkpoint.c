@@ -1,6 +1,8 @@
 #include "gx_checkpoint.h"
 
-static bool frame(WwGxCheckpoint* checkpoint) {
+static bool frame(WwGxCheckpoint* checkpoint, DolGxRecompState* gx) {
+    if (checkpoint->required != 0u)
+        return true;
     switch (checkpoint->bytes[0]) {
     case 0x00u:
     case DOL_GX_CMD_INVL_VC:
@@ -29,9 +31,40 @@ static bool frame(WwGxCheckpoint* checkpoint) {
             checkpoint->required = 5u + count * 4u;
         }
         break;
-    default:
-        checkpoint->error = "unsupported first GX opcode (draw requires preceding layout)";
-        return false;
+    default: {
+        switch (checkpoint->bytes[0] & 0xF8u) {
+        case 0x80u:
+        case 0x90u:
+        case 0x98u:
+        case 0xA0u:
+        case 0xA8u:
+        case 0xB0u:
+        case 0xB8u:
+            break;
+        default:
+            checkpoint->error = "unsupported GX opcode";
+            return false;
+        }
+        if (checkpoint->size < 3u)
+            break;
+        const u32 count = read_be16(checkpoint->bytes + 1u);
+        const u8 format = checkpoint->bytes[0] & 7u;
+        if (count == 0u) {
+            checkpoint->error = "zero-vertex draw is unsupported by the pinned checkpoint parser";
+            return false;
+        }
+        if (!gx->vertex_layouts[format].valid && !dol_gx_recomp_derive_vertex_layout(gx, format)) {
+            checkpoint->error = "GX draw requires a real preceding CP vertex layout";
+            return false;
+        }
+        const u64 required = 3u + (u64)count * gx->vertex_layouts[format].vertex_size;
+        if (required > sizeof(checkpoint->bytes)) {
+            checkpoint->error = "GX draw exceeds bounded command buffer";
+            return false;
+        }
+        checkpoint->required = (u32)required;
+        break;
+    }
     }
     return true;
 }
@@ -60,7 +93,7 @@ bool ww_gx_write(WwGxCheckpoint* checkpoint, DolGxRecompState* gx,
             return false;
         }
         checkpoint->bytes[checkpoint->size++] = (u8)(value >> ((size - index - 1u) * 8u));
-        if (!frame(checkpoint))
+        if (!frame(checkpoint, gx))
             return false;
         if (checkpoint->required != 0u && checkpoint->size == checkpoint->required) {
             if (!dol_gx_recomp_replay_fifo(gx, checkpoint->bytes, checkpoint->size)) {
