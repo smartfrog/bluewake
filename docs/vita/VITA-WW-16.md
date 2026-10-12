@@ -821,3 +821,30 @@ observation, **not FPS or gameplay performance**. The next Info-only run reuses
 the same `2e8deb1` guest for that window, then the opt-in VI artifact is exercised
 separately. The shared template benefits future lanes after integration; absolute
 numbers from old TRACE runs remain log-contaminated and are not silently revised.
+
+Watched Info replay `1ed418a3151e44e29caa3245a4283598` uses the exact same guest
+`2e8deb1` and launcher `b368ad1`. Emitted config records **`log-level: 2`**; the
+actual runtime announces **Info** and emits **zero `sceIoWrite` TRACE lines**.
+The guest process log is **12,848 bytes**, versus 132 MB for the longer TRACE
+run. Native guest journaling remains intact (39,956,520 bytes). The deliberate
+120-second measurement ceiling stops/reaps the unchanged video wait; global
+status is correctly **124 / INCOMPLETE**, no closed report, no inactive stop.
+
+Same guest / `80307EF4` / relative 10..70-second window:
+**77.744 -> 78.385 M cycles per wall second (+0.824%)**, with median emulator CPU
+**156.2% -> 105.9%**. This single pair demonstrates eliminated syscall TRACE
+amplification and reduced median CPU consumption, **not a significant speedup,
+FPS gain or faster gameplay**. Source/phase are held constant, but host scheduling
+and other activity are not controlled enough to certify a sub-percent difference.
+Full receipts are `evidence/log-level-comparison.json` in the Info run and
+`evidence/trace-baseline-analysis.json` in the TRACE run. The observed emulator is
+gone; previous results are not relabelled. Info does not fabricate the missing VI.
+
+The next authentic trial explicitly selects the preserved VI-enabled artifact
+**`c93951d1e5cd56595fe2be9e591cda86d7cbec5e`**, receipt
+`artifacts-3d147fbbfbe94d449979c7480a5ea917/build-evidence.json`, whose config says
+`vi_clock: true`. It was built before the coordinator's watchdog priority change
+and has not yet executed. Selecting that unchanged artifact avoids a redundant
+rebuild/relabel and keeps guest and launcher provenance distinct. Info and the
+corrected CPU/output-growth observer remain in the new profile; no synthetic
+message, callback, retrace-as-frame or forced runnable bit is introduced.
