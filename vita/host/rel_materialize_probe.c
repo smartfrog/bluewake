@@ -36,7 +36,7 @@ int main(int argc, char** argv) {
         {.module_id = 1u, .section_index = 1u, .linked_start = WW_REL_SCRATCH_BASE,
          .size = strcmp(scenario, "full") == 0 ? WW_REL_SCRATCH_LIMIT - WW_REL_SCRATCH_BASE : 0x100u},
     };
-    const StaticRecompRelModule rels[] = {{.module_id = 1u, .version = 3u, .section_count = 2u,
+    const StaticRecompRelModule rels[] = {{.module_id = 1u, .version = 0u, .section_count = 2u,
                                          .section_info_offset = 0x4Cu, .file_size = 256u,
                                          .sections = sections, .num_sections = 1u}};
     const StaticRecompModuleDesc module = {.code_ranges = ranges, .num_code_ranges = 1u,

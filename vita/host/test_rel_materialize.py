@@ -34,7 +34,9 @@ def rel_archive(scenario):
     if scenario == 'wrong-module':
         struct.pack_into('>I', raw, 0, 99)
     if scenario == 'metadata':
-        struct.pack_into('>I', raw, 0x1C, 2)
+        struct.pack_into('>I', raw, 0xC, 3)
+    if scenario == 'catalog-word':
+        struct.pack_into('>I', raw, 4, 1)
     member = yaz0_literals(raw) if scenario in ('compressed', 'bad-yaz0') else bytes(raw)
     if scenario == 'bad-yaz0':
         member = member[:17]
@@ -100,7 +102,7 @@ class RelMaterializeTest(unittest.TestCase):
                 self.run_probe(scenario)
 
     def test_malformed_or_oversize_images_stop_before_guest_mapping(self):
-        for scenario in ('bad-archive', 'bad-yaz0', 'bad-rel', 'wrong-module', 'metadata', 'oversize'):
+        for scenario in ('bad-archive', 'bad-yaz0', 'bad-rel', 'wrong-module', 'metadata', 'catalog-word', 'oversize'):
             with self.subTest(scenario=scenario):
                 self.run_probe(scenario)
 

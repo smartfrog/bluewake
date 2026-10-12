@@ -412,3 +412,25 @@ import (`rel-importer-check-h211_gub/result.json`); it executes no guest code.
 Audit, attribution and whitespace checks pass. Windows verification is tracked
 in `docs/WINDOWS_TASKS.md`; it was not run. A clean committed VPK build and watched
 authentic materialization trial follow, with the existing inactivity watchdog.
+
+The committed VPK rebuild at `e8f6c6a` succeeds. Watched authentic trial
+`30c30fe7ca064d528c372928120e4274` reads/decodes the requested ISO member but
+refuses its catalog check before mapping: **`REL raw image metadata disagrees
+with the compiled descriptor`**, at the same 78,789,721 cycles. Installation is
+1.24 seconds, guest 9.54 seconds; zero draws/presents and the known post-report
+teardown crash 133 remain. No successful materialization is claimed for this run.
+
+This reveals a producer naming defect, not a different REL: the immutable
+`scripts/generate_composite.py:118-127` reads the descriptor's field named
+`version` from **raw +0x04 (next-link)**, not the actual version at **+0x1C**.
+The existing composite exports zero in that field for module 1. The guard now
+compares that legacy catalog word to its actual producer input and independently
+validates the real version (1..3); file size, section count and table offset
+remain exact catalog matches. Changing the generator/composite would invalidate
+the private verified digest and is outside this seam: neither is rewritten.
+The synthetic descriptor now models the real producer, and a changed catalog
+word is still refused. This reproduction is red in `logs/ww16-rel-catalog-red.log`.
+
+**486 host tests pass** after the producer-contract correction
+(`logs/ww16-rel-catalog-green.log`); audit, attribution and whitespace checks pass.
+The next clean committed rebuild and watched trial follow immediately.
