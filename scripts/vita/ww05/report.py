@@ -47,7 +47,7 @@ def validate(content, token, source, package, continue_gx=0):
         raise ValueError('WW05 guest identity mismatch')
     if len(lines) == 3 and lines[1:] == ['STOP reason=host allocation failed', 'END frontier=FAIL live=0 rendered=0']:
         return 'FAIL'
-    if len(lines) != (9 if continue_gx else 8) or lines[1] != 'ABI pointer=4 cpu=3496 version=6':
+    if len(lines) != (10 if continue_gx else 9) or lines[1] != 'ABI pointer=4 cpu=3496 version=6':
         raise ValueError('WW05 record count or target CPU ABI mismatch')
     decoded = 0
     if continue_gx:
@@ -70,7 +70,17 @@ def validate(content, token, source, package, continue_gx=0):
         r'STOP reason=(.{1,256}) address=([0-9A-F]{8}) pc=([0-9A-F]{8})(?: width=([1248]) value=([0-9A-F]{16}))?', lines[6])
     if width is not None and int(value, 16) >= 1 << (8 * int(width)):
         raise ValueError('WW05 service write value exceeds its width')
-    verdict, = matched(r'END frontier=(PASS|FAIL) live=0 rendered=0', lines[7])
+    renderer = re.fullmatch(
+        r'RENDER fifo_bytes=(\d+) events=(\d+) plans=(\d+) plans_skipped=(\d+) '
+        r'draws=(\d+) programs=(\d+) programs_distinct=(\d+) programs_refused=(\d+) '
+        r'copies=(\d+) copies_refused=(\d+) display_copies=(\d+) presented=(\d+) gaps=(\d+)', lines[7])
+    if renderer is None:
+        raise ValueError('WW05 renderer summary missing or malformed')
+    counts = tuple(int(value) for value in renderer.groups())
+    verdict, rendered = matched(r'END frontier=(PASS|FAIL) live=0 rendered=(\d+)', lines[8])
+    if (any(value > (1 << 64) - 1 for value in counts) or counts[-1] > 16 or
+        counts[11] > counts[10] or int(rendered) != counts[11]):
+        raise ValueError('WW05 renderer presentation counts disagree')
     if continue_gx and bool(decoded) != (complete == '1'):
         raise ValueError('WW05 continuation lost its first frontier')
     if verdict == 'PASS':

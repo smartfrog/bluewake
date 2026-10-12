@@ -14,6 +14,17 @@ sys.path.insert(0, str(ROOT / 'scripts/vita/armv7'))
 
 
 class PlanTest(unittest.TestCase):
+    def test_shader_compiler_is_copied_into_the_private_profile_with_its_identity(self):
+        import stage_plan
+        with tempfile.TemporaryDirectory(dir='/tmp/opencode', prefix='ww16-shader-') as directory:
+            root = Path(directory)
+            shader = root / 'shader.suprx'
+            shader.write_bytes(b'synthetic private system module')
+            record = stage_plan.stage_shader_compiler(root / 'run', shader)
+            target = root / 'run' / record['install_path']
+            self.assertEqual(target.read_bytes(), shader.read_bytes())
+            self.assertEqual(record['staged'], stage_plan.file_identity(target))
+
     def test_optional_disc_staging_keeps_a_verified_identity_and_creates_only_an_empty_bind_target(self):
         import stage_plan
         with tempfile.TemporaryDirectory(dir='/home/fred/projects/zeldaWWHDRecomp/build-f5', prefix='ww05-disc-') as directory:

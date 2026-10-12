@@ -99,7 +99,8 @@ def sandbox_command(root, executable, arguments, libraries=None, wayland_socket=
     return [*command, "/stack/vita3k/" + executable, *arguments]
 
 
-def run_owned(command, root, timeout, report_identity=None, evidence_root=None, memory=False, control=False):
+def run_owned(command, root, timeout, report_identity=None, evidence_root=None, memory=False, control=False,
+              phase_observer=None):
     if not math.isfinite(timeout) or timeout <= 0:
         raise ValueError("timeout must be finite and positive")
     if resource.getrlimit(resource.RLIMIT_FSIZE) != (resource.RLIM_INFINITY, resource.RLIM_INFINITY):
@@ -119,7 +120,7 @@ def run_owned(command, root, timeout, report_identity=None, evidence_root=None, 
                               env={"PATH": "/usr/bin", "LANG": "C.UTF-8"},
                               start_new_session=True) as process:
             try:
-                if report_identity is None:
+                if report_identity is None and phase_observer is None:
                     status = process.wait(timeout=remaining_time())
                 else:
                     while True:
@@ -128,6 +129,15 @@ def run_owned(command, root, timeout, report_identity=None, evidence_root=None, 
                         remaining_time()
                         if status is not None:
                             break
+                        if phase_observer is not None:
+                            observation = phase_observer(process.pid)
+                            if observation is not None:
+                                record.update(observation)
+                                status = 125
+                                break
+                        if report_identity is None:
+                            time.sleep(min(.05, remaining_time()))
+                            continue
                         try:
                             content = read_report(root, control=True) if control else read_report(root, memory=True) if memory else read_report(root)
                         except FileNotFoundError:

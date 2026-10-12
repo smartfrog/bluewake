@@ -4,6 +4,7 @@
 #include "module_exports.h"
 #include "module_cpu_contract.h"
 #include "gx_checkpoint.h"
+#include "ww_renderer.h"
 #include "fifo_gather.h"
 #include "code_guard.h"
 #include "cycle_domain.h"
@@ -23,6 +24,7 @@ typedef struct WwHost {
     DolGxRecompState gx;
     WwGxCheckpoint frontier;
     WwGxStream stream;
+    WwRenderer* renderer;
     WwGatherPipe gather;
     WwFifoCapture fifo_capture;
     BluewakeCycleDomain cycles;
@@ -58,6 +60,7 @@ typedef struct WwHost {
     u32 hid0;
     u32 sprg0;
     u16 cp_control;
+    u16 cp_perf_select;
     u16 mi_interrupt_mask;
     u16 mi_unknown1;
     u16 mi_protection;

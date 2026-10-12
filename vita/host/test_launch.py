@@ -60,6 +60,40 @@ class PrivateLaunchTest(unittest.TestCase):
         self.assertFalse((self.root / 'phases/guest/evidence/process.json').exists())
         self.assertFalse(list(self.root.rglob('ww05.request')))
 
+    def test_idle_guest_is_reaped_early_with_partial_log_evidence(self):
+        self.fake("app=root/'data/Vita3K/Vita3K/ux0/app/BWWG00005'\napp.mkdir(parents=True)\n"
+                  "with zipfile.ZipFile('ww05.vpk') as archive: archive.extractall(app)\n",
+                  "print('partial guest log', flush=True)\ntime.sleep(10)")
+        self.plan['idle_timeout_seconds'] = 0.3
+        self.plan['phases']['guest']['timeout_seconds'] = 5
+        status, result = self.run_fake()
+        self.assertEqual(status, 125)
+        self.assertEqual(result['process']['stop_reason'], 'inactive')
+        self.assertLess(result['process']['duration_seconds'], 3)
+        self.assertEqual(result['completion'], 'INCOMPLETE')
+        self.assertIn('partial guest log',
+                      (self.root / 'phases/guest/evidence/process.log').read_text())
+        self.assertFalse(any(Path('/proc', str(pid)).exists()
+                             for pid in result['process']['monitored_pids']))
+
+    def test_busy_sandbox_descendant_is_not_mistaken_for_an_idle_bwrap_parent(self):
+        self.successful_fake('end=time.monotonic()+1\nwhile time.monotonic()<end: pass')
+        self.plan['idle_timeout_seconds'] = 0.3
+        self.plan['phases']['guest']['timeout_seconds'] = 5
+        status, result = self.run_fake()
+        self.assertEqual(status, 0)
+        self.assertEqual(result['process']['stop_reason'], 'exit')
+
+    def test_installer_stops_as_soon_as_its_exact_payload_is_complete(self):
+        self.successful_fake()
+        fake = self.root / 'runtime/Fake'
+        fake.write_text(fake.read_text().replace("else:\n", " time.sleep(10)\nelse:\n"))
+        self.plan['phases']['install']['timeout_seconds'] = 5
+        status, result = self.run_fake()
+        self.assertEqual(status, 0)
+        self.assertEqual(result['install_process']['stop_reason'], 'installed_payload')
+        self.assertLess(result['install_process']['duration_seconds'], 3)
+
     def successful_fake(self, ending=''):
         from test_report import ReportTest
         oracle = ReportTest()
@@ -81,6 +115,16 @@ class PrivateLaunchTest(unittest.TestCase):
         self.assertEqual(result['completion'], 'COMPLETE')
         self.assertTrue(result['frontier_verified'])
         self.assertFalse(result['rendered'])
+
+    def test_presented_frames_are_recorded_without_claiming_a_visible_scene(self):
+        self.successful_fake()
+        fake = self.root / 'runtime/Fake'
+        fake.write_text(fake.read_text().replace('display_copies=0 presented=0', 'display_copies=2 presented=2')
+                        .replace('rendered=0', 'rendered=2'))
+        status, result = self.run_fake()
+        self.assertEqual(status, 0)
+        self.assertTrue(result['rendered'])
+        self.assertEqual(result['presented'], 2)
 
     def test_continuation_request_and_closed_journal_certify_frontier_despite_later_guest_stop(self):
         from test_report import ReportTest
