@@ -15,7 +15,9 @@ import uuid
 
 ROOT = Path(__file__).resolve().parents[3]
 STACK = Path('/home/fred/projects/zeldaWWHDRecomp/build-vita-tools/local-stack')
-OUTPUT = Path('/home/fred/projects/zeldaWWHDRecomp/build-f5/ww05')
+OUTPUT = Path(os.environ.get('WW05_BUILD_ROOT', '/home/fred/projects/zeldaWWHDRecomp/build-f5/ww05'))
+if not OUTPUT.is_absolute():
+    raise ValueError('WW05_BUILD_ROOT must be an absolute path')
 PINS = {'RecompCore': 'ddd031b2a7f45fcbda37a49daac9b308b8d95da1',
         'DolRecomp': 'b8b534591cba8ca7cd43943a655ee6e2591cf5de'}
 COMPOSITE_DIGEST = '54f54434c3f9c899d43a96373dc0b4c1aed0e50db8b820b9698dfa76571a770a'
