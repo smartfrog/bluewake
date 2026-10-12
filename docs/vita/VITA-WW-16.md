@@ -341,3 +341,25 @@ the existing probe wrapper (`logs/ww16-rel-frontier-trace-red.log`); it does not
 claim a test-first cycle for the earlier diagnostic edit. Audit, attribution and
 whitespace checks pass. A clean committed ARM build and isolated diagnostic
 trial follow; no visible game pixel, physical Vita result or FPS claimed.
+
+The clean ARM/VPK rebuild at `b3f45f4` succeeds. Diagnostic trial
+`a802fc25c74e443b9851877f52f3f802` identifies **`f_pc_profile_lst`**, object
+`803A71C0`, module pointer zero, at `80240744`. Its existing private raw file is
+16,500 bytes and header module id 1, matching the translator catalog. The host
+still refuses materialization at 78,789,721 cycles; it emits no load event and
+does not change the object. The same 116 callbacks complete with zero failures,
+123 checked reads total 961,120 bytes, and draws/presentations remain zero.
+
+This attempt was watched while live: `evidence/run-watch.jsonl` retains the
+verified staged Vita3K PIDs, per-second CPU observations and log tails. Active
+guest CPU samples range from 98.9% to 123.8% of one CPU with log progress.
+Installation stops at its verified payload after 1.19 seconds; guest exits after
+9.58 seconds. The brief zero-CPU tail precedes the already recorded post-report
+shutdown crash (133), not a 30-second hang. Both observed Vita3K PIDs are gone.
+The launcher validates the closed report and 64 journaled commands, preserves
+the nonzero exit, and reaps its owned sandbox. All evidence stays private.
+
+Provider/scratch integration remains pending: a read-only bind of verified raw
+RELs plus bounded owned storage through the existing alias API would preserve
+24 MiB MEM1; alternatively, loading from the existing archive would require its
+resource extraction contract. Neither path is implemented or silently selected.
