@@ -138,6 +138,15 @@ else()
     target_include_directories(ww05_host PRIVATE "${WW05_IDENTITY_DIR}"
         "${BLUEWAKE_ROOT}/vita/feasibility/armv7")
     set(WW05_VITAGL_LIBRARY vitaGL CACHE STRING "No-splash vitaGL archive")
+    set(WW05_RENDERER_SDK "" CACHE PATH "SDK target directory supplying vitaGL headers and support libraries")
+    if(WW05_RENDERER_SDK)
+        if(NOT EXISTS "${WW05_RENDERER_SDK}/include/vitaGL.h" OR
+           NOT EXISTS "${WW05_RENDERER_SDK}/lib/libvitashark.a")
+            message(FATAL_ERROR "Missing renderer SDK headers or support libraries")
+        endif()
+        target_include_directories(ww_renderer SYSTEM PRIVATE "${WW05_RENDERER_SDK}/include")
+        target_link_directories(ww05_host PRIVATE "${WW05_RENDERER_SDK}/lib")
+    endif()
     target_link_libraries(ww05_host PRIVATE gGZLE01_recomp ww05_services
         "${WW05_VITAGL_LIBRARY}" vitashark SceShaccCgExt SceShaccCg_stub_weak SceGxm_stub_weak
         SceDisplay_stub_weak SceSysmodule_stub_weak SceCommonDialog_stub_weak SceAppMgr_stub_weak

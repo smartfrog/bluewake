@@ -49,3 +49,12 @@ Evidence: private `build-f5/ww05/logs/ww16-renderer-host-tests-3.log`.
 Repository audit, attribution and whitespace checks pass. ARM VPK rebuild and
 isolated authentic continuation are the next checks; there is still no visible
 pixel, physical Vita test or FPS claim.
+
+The first ARM rebuild failed explicitly at `vita_gl_backend.cpp`: WW05's local
+SDK lacks `vitaGL.h` and the third-party renderer support libraries (private
+`logs/vita-build-68.log`). The build now supplies the read-only Cloudpunk SDK
+target include/library paths, the same headers/libraries used by WW02/WW17,
+without changing WW05's compiler or either pin. The build receipt also truthfully
+records `aurora_recomp=true` for the pinned frontend (Aurora itself remains off).
+The renderer/GX regression suite rebuilt from this worktree passes **73 tests**
+in private `build-f5/ww16-gx`; this is synthetic, not a visible game frame.
