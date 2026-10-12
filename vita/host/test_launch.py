@@ -76,6 +76,27 @@ class PrivateLaunchTest(unittest.TestCase):
         self.assertFalse(any(Path('/proc', str(pid)).exists()
                              for pid in result['process']['monitored_pids']))
 
+    def test_timeout_without_a_closed_report_keeps_deadline_status_and_partial_logs(self):
+        self.fake("app=root/'data/Vita3K/Vita3K/ux0/app/BWWG00005'\napp.mkdir(parents=True)\n"
+                  "with zipfile.ZipFile('ww05.vpk') as archive: archive.extractall(app)\n",
+                  "print('partial timed guest log', flush=True)\ntime.sleep(10)")
+        self.plan['phases']['guest']['timeout_seconds'] = 0.2
+        status, result = self.run_fake()
+        self.assertEqual(status, 124)
+        self.assertEqual(result['completion'], 'INCOMPLETE')
+        self.assertEqual(result['reported_frontier'], 'UNAVAILABLE')
+        self.assertIn('partial timed guest log', (self.root / 'phases/guest/evidence/process.log').read_text())
+
+    def test_missing_verified_input_after_a_timeout_is_not_hidden_as_report_absence(self):
+        import launch
+        self.successful_fake('time.sleep(10)')
+        self.plan['phases']['guest']['timeout_seconds'] = 0.2
+        with patch.object(launch, 'verify_inputs', side_effect=[None, None, FileNotFoundError(2, 'missing input', 'main.dol')]):
+            status = launch.execute_run(self.root, self.plan)
+        self.assertEqual(status, 2)
+        result = json.loads((self.root / 'evidence/result.json').read_text())
+        self.assertIn('main.dol', result['error'])
+
     def test_busy_sandbox_descendant_is_not_mistaken_for_an_idle_bwrap_parent(self):
         self.successful_fake('end=time.monotonic()+1\nwhile time.monotonic()<end: pass')
         self.plan['idle_timeout_seconds'] = 0.3

@@ -201,10 +201,10 @@ def execute_run(root, plan):
                        completion='COMPLETE' if process['stop_reason'] == 'exit' else 'INCOMPLETE',
                        status=status or (0 if verdict == 'PASS' else 1))
     except Exception as error:
-        inactive_report_missing = (isinstance(error, FileNotFoundError) and
-                                   record.get('process', {}).get('stop_reason') == 'inactive')
+        expected_report_missing = (isinstance(error, FileNotFoundError) and error.filename == 'ww05.report' and
+                                   record.get('process', {}).get('stop_reason') in ('inactive', 'timeout'))
         record.update(error=str(error), traceback=traceback.format_exc(),
-                      status=125 if inactive_report_missing else 2)
+                      status=record['process_status'] if expected_report_missing else 2)
     with evidence_file(root, 'result.json') as stream:
         json.dump(record, stream, indent=2)
         stream.write('\n')

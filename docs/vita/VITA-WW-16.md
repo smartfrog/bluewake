@@ -626,3 +626,20 @@ checks pass. The desktop's initial idle diagnostic uses the same three reads
 through the shared helper; no desktop scheduling behavior changes. Windows
 verification remains unavailable and is tracked. The next committed build and
 short watched diagnostic trial follow immediately.
+
+## Unit 18: keep an owned deadline without a closed report honest
+
+When a verified owned guest phase reaches its timeout or inactivity stop before
+closing `ww05.report`, the launcher now preserves **124 or 125 / INCOMPLETE /
+UNAVAILABLE** and the partial-log/error context. This is not report certification.
+Only the actual missing report filename is treated as expected after those
+stops; a missing approved input or any other exception still returns status 2.
+The earlier failed run results are not rewritten.
+
+The no-report deadline test is red before the fix
+(`logs/ww16-timeout-status-red.log`). Linux AArch64: **516 host tests pass**
+(`logs/ww16-timeout-status-green.log`), including untouched partial logs and a
+missing verified DOL after timeout that must not be hidden. Audit, attribution
+and whitespace checks pass. The next clean build includes the read-only scheduler
+observer and this status correction; a short watched trial will identify the
+actual waiting thread/caller, without forcing a wakeup or claiming a frame.
