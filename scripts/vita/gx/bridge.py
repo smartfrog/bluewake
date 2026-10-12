@@ -1,7 +1,8 @@
 #!/usr/bin/env python3
 """VITA-WW-15: one capture file through the whole GX chain.
 
-Reads a WW05 boot-host capture — the report's GX_FRONTIER hex= field, a
+Reads a WW05 boot-host capture — the report's GX_FRONTIER hex= field, its
+bounded command journal, a
 gather-pipe batch log, or a raw FIFO dump — and feeds the captured bytes
 through the pinned frontend, the DrawPlan build, the gx_vita translation and
 bounded Cg generation (the gx_bridge binary), printing one machine-readable

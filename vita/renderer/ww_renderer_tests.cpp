@@ -323,6 +323,68 @@ int display_list_coverage() {
   return 0;
 }
 
+int vertex_attribute_coverage() {
+  const std::vector<std::uint8_t> normals = {0xC0, 0, 0x40, 0, 0x40, 0, 0x40, 0, 0xC0};
+  const std::vector<std::uint8_t> colors = {255, 128, 64, 32, 0, 255, 0, 255,
+                                           64, 0, 255, 128};
+  std::vector<std::uint8_t> texcoords;
+  for (std::int16_t value : {-8, 12, 4, -4, 16, 20})
+    gx_fixture::push_u16(texcoords, static_cast<std::uint16_t>(value));
+  for (std::uint8_t mode : {1, 2, 3}) {
+    Fixture fixture;
+    RecordingBackend backend;
+    WwRenderer* renderer = nullptr;
+    WwRendererConfig config = fixture.config();
+    CHECK(ww_renderer_create(&renderer, &config, &backend) == nullptr);
+    std::memcpy(fixture.memory.mem1.data() + 0x2100, normals.data(), normals.size());
+    std::memcpy(fixture.memory.mem1.data() + 0x2200, colors.data(), colors.size());
+    std::memcpy(fixture.memory.mem1.data() + 0x2300, texcoords.data(), texcoords.size());
+    std::vector<std::uint8_t> fifo;
+    gx_fixture::push_common_state(fifo);
+    gx_fixture::push_cp(fifo, 0x50, (1u << 9) | (mode << 11) | (mode << 13));
+    gx_fixture::push_cp(fifo, 0x60, mode);
+    gx_fixture::push_cp(fifo, 0x70, 1u | (4u << 1) | (1u << 10) | (5u << 14) |
+                                  (1u << 21) | (3u << 22) | (2u << 25));
+    gx_fixture::push_cp(fifo, 0xA1, 0x2100);
+    gx_fixture::push_cp(fifo, 0xB1, 3);
+    gx_fixture::push_cp(fifo, 0xA2, 0x2200);
+    gx_fixture::push_cp(fifo, 0xB2, 4);
+    gx_fixture::push_cp(fifo, 0xA4, 0x2300);
+    gx_fixture::push_cp(fifo, 0xB4, 4);
+    gx_fixture::push_u8(fifo, 0x90);
+    gx_fixture::push_u16(fifo, 3);
+    auto attribute = [&](const std::vector<std::uint8_t>& bytes, int stride,
+                         std::uint16_t index) {
+      if (mode == 1)
+        fifo.insert(fifo.end(), bytes.begin() + index * stride,
+                    bytes.begin() + (index + 1) * stride);
+      else if (mode == 2)
+        gx_fixture::push_u8(fifo, index);
+      else
+        gx_fixture::push_u16(fifo, index);
+    };
+    for (std::uint16_t index : {2, 0, 1}) {
+      for (float value : {1.f, 2.f, 3.f})
+        gx_fixture::push_f32(fifo, value);
+      attribute(normals, 3, index);
+      attribute(colors, 4, index);
+      attribute(texcoords, 4, index);
+    }
+    CHECK(ww_renderer_write(renderer, fifo.data(), fifo.size()) == nullptr);
+    CHECK(backend.draws.size() == 1);
+    const auto& draw = backend.draws[0];
+    CHECK(vertex_float(draw, 0, gx_fixture::gxc::kVertexNormalOffset) == 1.f);
+    CHECK(vertex_float(draw, 0, gx_fixture::gxc::kVertexNormalOffset + 8) == -1.f);
+    CHECK(vertex_float(draw, 0, gx_fixture::gxc::kVertexColor0Offset) == 64.f / 255.f);
+    CHECK(vertex_float(draw, 0, gx_fixture::gxc::kVertexColor0Offset + 12) == 128.f / 255.f);
+    CHECK(vertex_float(draw, 0, gx_fixture::gxc::kVertexUvOffset) == 4.f);
+    CHECK(vertex_float(draw, 1, gx_fixture::gxc::kVertexUvOffset) == -2.f);
+    ww_renderer_destroy(renderer);
+  }
+  std::printf("renderer direct/index8/index16 S8 normal, RGBA8 and S16 texcoords ok\n");
+  return 0;
+}
+
 int per_vertex_matrix_coverage() {
   Fixture fixture;
   RecordingBackend backend;
@@ -403,15 +465,44 @@ int tev_register_supply() {
   return 0;
 }
 
+int unsupported_ztexture_is_reported() {
+  Fixture fixture;
+  RecordingBackend backend;
+  WwRenderer* renderer = nullptr;
+  WwRendererConfig config = fixture.config();
+  CHECK(ww_renderer_create(&renderer, &config, &backend) == nullptr);
+  auto fifo = gx_fixture::build_textured_triangle();
+  constexpr std::size_t triangle_size = 3 + 3 * 5 * sizeof(float);
+  fifo.resize(fifo.size() - triangle_size);
+  gx_fixture::push_bp(fifo, 0x28, 1u << 6);
+  gx_fixture::push_bp(fifo, 0xC0, 8u | (15u << 4) | (15u << 8) |
+                                (15u << 12) | (1u << 19));
+  gx_fixture::push_bp(fifo, 0xC1, (4u << 4) | (7u << 7) | (7u << 10) |
+                                (7u << 13) | (1u << 19));
+  gx_fixture::push_bp(fifo, 0xF5, 2u | (2u << 2));
+  gx_fixture::push_triangle(fifo);
+  CHECK(ww_renderer_write(renderer, fifo.data(), fifo.size()) == nullptr);
+  CHECK(backend.draws.empty());
+  WwRendererStats stats{};
+  ww_renderer_stats(renderer, &stats);
+  CHECK(stats.plans == 1 && stats.programs_refused == 1 && stats.refusal_count == 1);
+  CHECK(std::string(stats.refusal_reasons[0]).find("ZTexture") != std::string::npos);
+  ww_renderer_destroy(renderer);
+  std::printf("renderer unsupported ZTexture counted, not silently drawn\n");
+  return 0;
+}
+
 } // namespace
 
 int main() {
   CHECK(primitive_coverage() == 0);
   CHECK(indexed_vertex_coverage() == 0);
   CHECK(indexed_xf_coverage() == 0);
+  CHECK(vertex_attribute_coverage() == 0);
   CHECK(display_list_coverage() == 0);
   CHECK(per_vertex_matrix_coverage() == 0);
   CHECK(tev_register_supply() == 0);
+  CHECK(unsupported_ztexture_is_reported() == 0);
   {
     // Create refuses a missing memory view and a missing backend loudly.
     WwRenderer* renderer = nullptr;

@@ -51,6 +51,13 @@ const gx_bridge::GapEntry* find_gap(const gx_bridge::Result& result,
 
 int main() {
   {
+    gx_fixture::gxc::GapCounters counters;
+    counters.logic_op_ignored = 1;
+    const auto gaps = gx_bridge::nonzero_gaps(counters);
+    CHECK(gaps.size() == 1);
+    CHECK(gaps[0].name == "logic_op_ignored" && gaps[0].value == 1);
+  }
+  {
     // An empty capture (the real state today) is an honest no-op.
     gx_bridge::Result result;
     CHECK(run_stream({}, result));

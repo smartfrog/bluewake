@@ -4,6 +4,7 @@
 #include "gx_vita.h"
 
 #include <cstring>
+#include <utility>
 
 namespace gx_vita {
 

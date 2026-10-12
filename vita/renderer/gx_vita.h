@@ -119,8 +119,7 @@ struct TranslatedDraw {
   float tev_colors[4][4]{};
   float konst_colors[4][4]{};
   float alpha_ref[2]{};
-  // Single-texmap case (plan.texmap_mask == 0): the draw's one texture and the
-  // sampler of the texmap it samples.
+  // Single texmap-0 case: the draw's one texture and sampler.
   TextureUpload texture;
   // Bit t set means textures[t] must be bound. Includes single nonzero texmaps;
   // only a single texmap-0 draw uses the flat texture field.

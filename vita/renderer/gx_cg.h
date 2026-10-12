@@ -9,8 +9,9 @@
 //   - TEV combines (up to kMaxTevStages), all register/KONST arguments,
 //     separate colour/alpha destinations, bias, scale, compare and swap tables;
 //     each stage's
-//     texcoord is a Regular texgen reading its own uv, or a Color0/Color1
+//     texcoord is a Regular texgen reading a raw uv0..4, or a Color0/Color1
 //     texgen reading the vertex colour.
+//   - BP F3 alpha comparisons on the TEV path.
 // Integer TEV steps use exactly representable float arithmetic and floor;
 // the pinned WGSL generator remains the semantics reference. This does not
 // imply GPU pixel parity for sampling, lighting or unsupported texgens.

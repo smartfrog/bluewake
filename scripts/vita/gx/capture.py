@@ -1,8 +1,9 @@
 """VITA-WW-15: parse what the WW05 boot host captures from the GX gather pipe.
 
-Three capture shapes are accepted, each with well-formed refusal (ValueError):
+Four capture shapes are accepted, each with well-formed refusal (ValueError):
 
 - the report's GX_FRONTIER record (the first complete GX command as hex);
+- the bounded `[gx-command]` journal (only its logged command prefix);
 - gather-pipe batch log lines (`[gather-pipe] bytes=<n> hex=<HEX>`), the
   documented trace shape for the host's BwGatherPipeBytes callback;
 - a raw binary FIFO dump (exactly the callback's bytes).
@@ -153,8 +154,8 @@ def journal_commands(text):
 def classify_capture(data, source=""):
     """Classify one capture file's bytes.
 
-    Returns (kind, payload): 'report' carries a Capture, 'gather' and
-    'binary' the FIFO bytes. Text with no capture markers is refused; bytes
+    Returns (kind, payload): 'report' carries a Capture; 'journal', 'gather' and
+    'binary' carry FIFO bytes. Text with no capture markers is refused; bytes
     that do not decode as text are taken as a raw FIFO dump.
     """
     if b'[gx-command]' in data:

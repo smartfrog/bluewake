@@ -4,9 +4,6 @@
 #include "gx_cg.h"
 #include "gx_tev.h"
 
-#include <cstdio>
-#include <cstring>
-
 namespace gx_vita {
 
 namespace gxc = gxruntime::gxcore;
@@ -23,12 +20,17 @@ bool texgen_coord(const gxc::ShaderKey& key, std::uint8_t texcoord,
   const gxc::TexGenKey& texgen = key.tex_gens[texcoord];
   switch (static_cast<gxc::TexGenType>(texgen.texgentype)) {
   case gxc::TexGenType::Regular:
-    if (texgen.sourcerow !=
-        static_cast<std::uint8_t>(gxc::TexSourceRow::Tex0) + texcoord) {
-      *reason = "regular texgen reads a source row other than its own uv";
+    if (texgen.sourcerow < static_cast<std::uint8_t>(gxc::TexSourceRow::Tex0)) {
+      *reason = "regular texgen source is not a raw texcoord";
       return false;
     }
-    *out = "uv" + std::to_string(texcoord);
+    if (texgen.sourcerow >=
+        static_cast<std::uint8_t>(gxc::TexSourceRow::Tex0) + gxc::kMaxRawTexCoords) {
+      *reason = "raw texcoord exceeds Vita vertex layout";
+      return false;
+    }
+    *out = "uv" + std::to_string(texgen.sourcerow -
+                                  static_cast<std::uint8_t>(gxc::TexSourceRow::Tex0));
     return true;
   case gxc::TexGenType::Color0:
     *out = "float2(color0.r, 0.5)";
@@ -50,13 +52,25 @@ CgProgram generate_cg(const gxc::ShaderKey& key) {
       key.num_tev_stages > gxc::kMaxTevStages ||
       (key.tev_valid != 0 && key.num_tev_stages == 0) ||
       key.alpha_comp0 > 7 || key.alpha_comp1 > 7 || key.alpha_logic > 3) {
-    program.unsupported_reason = "invalid GX shader stage count";
+    program.unsupported_reason = "invalid GX shader key";
+    return program;
+  }
+  if (key.fog_fsel != 0) {
+    program.unsupported_reason = "fog not supported by Vita Cg";
+    return program;
+  }
+  if (key.ztex_op != 0) {
+    program.unsupported_reason = "ZTexture depth output not supported by Vita Cg";
+    return program;
+  }
+  if (key.use_dst_alpha != 0) {
+    program.unsupported_reason = "destination alpha requires dual-source blending";
     return program;
   }
 
   // Which vertex outputs the fragment needs: uv slots per stage texcoord and
   // the vertex colour for raster args or Colour texgens.
-  bool need_uv[gxc::kMaxRawTexCoords + 3] = {};
+  bool need_uv[gxc::kMaxRawTexCoords] = {};
   bool need_color0 = false;
   bool need_color1 = false;
 
@@ -90,9 +104,9 @@ CgProgram generate_cg(const gxc::ShaderKey& key) {
           need_color0 = true;
         if (texgen.texgentype == static_cast<std::uint8_t>(gxc::TexGenType::Color1))
           need_color1 = true;
-        if (texgen.texgentype == static_cast<std::uint8_t>(gxc::TexGenType::Regular) &&
-            texcoord <= gxc::kMaxRawTexCoords)
-          need_uv[texcoord] = true;
+        if (texgen.texgentype == static_cast<std::uint8_t>(gxc::TexGenType::Regular))
+          need_uv[texgen.sourcerow -
+                  static_cast<std::uint8_t>(gxc::TexSourceRow::Tex0)] = true;
       }
       need_color0 |= stage.tevorders_colorchan == 0;
       need_color1 |= stage.tevorders_colorchan == 1;

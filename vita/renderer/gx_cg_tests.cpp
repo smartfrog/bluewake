@@ -184,6 +184,52 @@ int alpha_test_coverage() {
   return 0;
 }
 
+int texgen_boundary_coverage() {
+  for (std::uint8_t coord = 5; coord < 8; ++coord) {
+    auto key = tev_key();
+    key.textured = 1;
+    key.num_tex_gens = coord + 1;
+    key.tex_gens[coord].sourcerow = 5 + coord;
+    key.tev_stages[0].tevorders_enable = 1;
+    key.tev_stages[0].tevorders_texcoord = coord;
+    const auto cg = gx_vita::generate_cg(key);
+    CHECK(!cg.ok);
+    CHECK(std::string(cg.unsupported_reason) == "raw texcoord exceeds Vita vertex layout");
+  }
+  return 0;
+}
+
+int cross_source_texgen_coverage() {
+  auto key = tev_key();
+  key.textured = 1;
+  key.num_tex_gens = 2;
+  key.tex_gens[1].sourcerow = 5;
+  key.tev_stages[0].tevorders_enable = 1;
+  key.tev_stages[0].tevorders_texcoord = 1;
+  const auto cg = gx_vita::generate_cg(key);
+  CHECK(cg.ok);
+  CHECK(contains(cg.fragment, "tex2D(tex0, uv0)"));
+  CHECK(contains(cg.vertex, "float2 uv0 : TEXCOORD0"));
+  CHECK(!contains(cg.vertex, "float2 uv1"));
+  return 0;
+}
+
+int unsupported_pixel_state_coverage() {
+  for (int feature = 0; feature < 3; ++feature) {
+    auto key = tev_key();
+    if (feature == 0)
+      key.fog_fsel = 2;
+    else if (feature == 1)
+      key.ztex_op = 2;
+    else
+      key.use_dst_alpha = 1;
+    const auto cg = gx_vita::generate_cg(key);
+    CHECK(!cg.ok);
+    CHECK(cg.unsupported_reason != nullptr);
+  }
+  return 0;
+}
+
 } // namespace
 
 int main() {
@@ -192,6 +238,9 @@ int main() {
   CHECK(tev_konst_and_swap_coverage() == 0);
   CHECK(tev_compare_coverage() == 0);
   CHECK(alpha_test_coverage() == 0);
+  CHECK(texgen_boundary_coverage() == 0);
+  CHECK(cross_source_texgen_coverage() == 0);
+  CHECK(unsupported_pixel_state_coverage() == 0);
   {
     gxc::ShaderKey key;
     CHECK(replay_key("cel_triangle", key));

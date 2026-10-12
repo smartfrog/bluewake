@@ -109,6 +109,8 @@ std::vector<GapEntry> nonzero_gaps(const gxc::GapCounters& counters) {
   const std::pair<const char*, unsigned long long> gaps[] = {
       {"missing_vcd", counters.missing_vcd},
       {"vertex_decode_failures", counters.vertex_decode_failures},
+      {"vertex_array_unresolved", counters.vertex_array_unresolved},
+      {"vertex_array_out_of_bounds", counters.vertex_array_out_of_bounds},
       {"unsupported_texgen", counters.unsupported_texgen},
       {"tlut_texture", counters.tlut_texture},
       {"efb_copy_ignored", counters.efb_copy_ignored},
@@ -116,6 +118,11 @@ std::vector<GapEntry> nonzero_gaps(const gxc::GapCounters& counters) {
       {"fog_ignored", counters.fog_ignored},
       {"lighting_ignored", counters.lighting_ignored},
       {"unresolved_tex_matrix", counters.unresolved_tex_matrix},
+      {"per_vertex_tex_mtx", counters.per_vertex_tex_mtx},
+      {"alpha_compare_ignored", counters.alpha_compare_ignored},
+      {"tev_stages_over", counters.tev_stages_over},
+      {"logic_op_ignored", counters.logic_op_ignored},
+      {"ztexture_ignored", counters.ztexture_ignored},
   };
   std::vector<GapEntry> entries;
   for (const auto& [name, value] : gaps) {
