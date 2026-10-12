@@ -1,0 +1,61 @@
+#include "probe_support.h"
+#include <stdlib.h>
+
+int main(int argc, char** argv) {
+    assert(argc == 2);
+    WwHost* host = calloc(1u, sizeof(*host));
+    assert(host != NULL && ww_host_init(host));
+    ww_probe_fifo_setup(host, true);
+    host->cpu.pc = 0x803202C4u;
+    const char* scenario = argv[1];
+    const bool bad_read = strncmp(scenario, "read-width-", 11u) == 0;
+    const bool bad_write = strncmp(scenario, "write-width-", 12u) == 0;
+    const bool credit = strcmp(scenario, "credit") == 0;
+    const bool active = strcmp(scenario, "active") == 0;
+    const u8 width = bad_read ? (u8)strtoul(scenario + 11u, NULL, 0) :
+                     bad_write ? (u8)strtoul(scenario + 12u, NULL, 0) : 2u;
+    const u16 value = strncmp(scenario, "value-", 6u) == 0 ? (u16)strtoul(scenario + 6u, NULL, 0) : 0u;
+    if (active) {
+        host->cp_control = 0x15u;
+        host->gather.size = 2u;
+        host->gather.bytes[0] = 0x08u;
+        host->gather.bytes[1] = 0x87u;
+        host->cp_fifo_distance = 32u;
+        host->frontier.size = 2u;
+        dol_interrupts_set_source(&host->interrupts, DOL_PI_CAUSE_CP, true);
+    }
+    const WwHost before = *host;
+    assert(mem_read16(&host->cpu, 0xCC000006u) == 0u);
+    if (credit) {
+        bluewake_cycle_domain_begin_turn(&host->cycles, &host->cpu);
+        bluewake_cycle_domain_prepare_dispatch(&host->cycles, &host->cpu);
+        host->cpu.downcount -= 256;
+    }
+    if (bad_read)
+        host->cpu.external_read(&host->cpu, 0xCC000006u, width);
+    else
+        host->cpu.external_write(&host->cpu, 0xCC000006u, value, width);
+    if (bad_read || bad_write) {
+        assert(host->error != NULL && host->error_address == 0xCC000006u && host->error_pc == 0x803202C4u);
+        if (bad_write)
+            assert(host->error_width == width && host->error_value == value);
+    } else {
+        assert(host->error == NULL && host->cpu.exception == 0u);
+        assert(mem_read16(&host->cpu, 0xCC000006u) == (value & 7u));
+    }
+    assert(memcmp(&before.gather, &host->gather, sizeof(host->gather)) == 0);
+    assert(memcmp(&before.frontier, &host->frontier, sizeof(host->frontier)) == 0);
+    assert(memcmp(&before.gx, &host->gx, sizeof(host->gx)) == 0);
+    assert(memcmp(&before.interrupts, &host->interrupts, sizeof(host->interrupts)) == 0);
+    assert(host->cp_control == before.cp_control && host->cp_fifo_distance == before.cp_fifo_distance);
+    assert(host->cp_fifo_read_pointer == before.cp_fifo_read_pointer);
+    assert(host->cp_fifo_write_pointer == before.cp_fifo_write_pointer);
+    assert(host->cycles.absolute_cycles == (credit ? 256u : 0u));
+    if (credit) {
+        assert(host->cpu.cycle_budget == 0 && host->cpu.timebase == 21u);
+        assert(bluewake_cycle_domain_end_turn(&host->cycles, &host->cpu) == 0u);
+    }
+    ww_host_shutdown(host);
+    free(host);
+    return 0;
+}

@@ -58,6 +58,7 @@ typedef struct WwHost {
     u32 hid0;
     u32 sprg0;
     u16 cp_control;
+    u16 cp_perf_select;
     u16 mi_interrupt_mask;
     u16 mi_unknown1;
     u16 mi_protection;
