@@ -132,7 +132,31 @@ class PrivateLaunchTest(unittest.TestCase):
     def test_trace_log_limit_remains_enforced(self):
         import launch
         self.successful_fake("print('x' * 1024)")
-        with patch.object(launch, 'PROCESS_LOG_LIMIT', 512):
+        with patch.object(launch, 'PHASE_LOG_LIMIT', 512):
+            status, result = self.run_fake()
+        self.assertEqual(status, 2)
+        self.assertIn('bounded regular file', result['error'])
+
+    def test_large_runtime_cache_trace_can_certify_a_closed_guest_report(self):
+        self.successful_fake("cache=root/'cache/Vita3K'\ncache.mkdir(exist_ok=True)\n"
+                             "(cache/'vita3k.log').write_text('x' * (1024 * 1024 + 1))")
+        status, result = self.run_fake()
+        self.assertEqual(status, 0)
+        self.assertTrue(result['frontier_verified'])
+
+    def test_configuration_error_at_the_end_of_a_large_cache_trace_is_refused(self):
+        self.successful_fake("cache=root/'cache/Vita3K'\ncache.mkdir(exist_ok=True)\n"
+                             "(cache/'vita3k.log').write_text('x' * (1024 * 1024 + 1) + "
+                             "\"Config file can't be loaded: synthetic failure\")")
+        status, result = self.run_fake()
+        self.assertEqual(status, 2)
+        self.assertIn('configuration parse failure', result['error'])
+
+    def test_runtime_cache_trace_remains_bounded(self):
+        import launch
+        self.successful_fake("cache=root/'cache/Vita3K'\ncache.mkdir(exist_ok=True)\n"
+                             "(cache/'vita3k.log').write_text('x' * 1024)")
+        with patch.object(launch, 'PHASE_LOG_LIMIT', 512):
             status, result = self.run_fake()
         self.assertEqual(status, 2)
         self.assertIn('bounded regular file', result['error'])

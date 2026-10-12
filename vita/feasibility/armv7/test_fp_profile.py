@@ -198,6 +198,16 @@ class ProfileTest(unittest.TestCase):
         with self.assertRaises(ValueError):
             profile.verify_config_log(self.root)
 
+    def test_runtime_cache_log_keeps_the_default_fp_limit(self):
+        from fp_campaign import verify_phase_logs
+        (self.root / 'evidence/process.log').write_text('')
+        directory = self.root / 'cache/Vita3K'
+        directory.mkdir()
+        with (directory / 'vita3k.log').open('xb') as stream:
+            stream.truncate(1024 * 1024 + 1)
+        with self.assertRaisesRegex(ValueError, 'bounded regular file'):
+            verify_phase_logs(self.root, self.root)
+
     def test_invalid_system_tree_does_not_disable_welcome(self):
         for kind in ("empty", "symlink", "fifo"):
             with self.subTest(kind=kind):

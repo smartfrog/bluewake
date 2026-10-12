@@ -511,3 +511,35 @@ including accepted long traces, late configuration errors, bounded-log refusal
 and the unchanged FP default-limit test. Audit, attribution and whitespace checks
 pass. The next clean rebuild and watched continuation will certify the report
 through the complete launcher again; no pixel/FPS or physical Vita claim is made.
+
+## Unit 15: include Vita3K's duplicate cache trace in the same bounded gate
+
+Watched trial `e8da4458aea54d55b703ba96e6df912a` at `070e354` reproduces the same
+successful ISO materialization/profile-list binding and honest `00000900` STOP.
+The process-log check now passes, but Vita3K duplicates the trace into its cache:
+**1,597,797 process-log bytes / 1,593,344 cache-log bytes**. The latter still hit
+the shared FP 1 MiB default. Its original launcher result is preserved as
+INCOMPLETE/status 2, with the exact cache-check traceback; no certification is
+forced. Installation is 1.31 seconds and guest 18.11 seconds, continuously
+observed, with the unchanged post-report emulator exit 133.
+
+The optional phase limit now applies consistently to both traces: **WW05 64 MiB,
+FP default 1 MiB**. Both logs retain their regular-file/range checks; cache logs
+remain privately owned and unshared. Both are scanned fully for configuration
+errors, including after the first megabyte. Cache evidence is retained instead
+of trimmed. The default FP cache limit and oversize WW05 cache refusal are
+explicit regression tests, alongside accepted large cache traces and late errors.
+
+Linux AArch64: **496 host tests and 81 shared FP tests pass**
+(`logs/ww16-long-cache-log-green.log`, `logs/ww16-cache-limit-fp-regressions.log`),
+with red evidence in `logs/ww16-long-cache-log-red.log`. Audit, attribution and
+whitespace checks pass. Another clean build and watched authenticated trial
+follow; gameplay code is unchanged by this gate correction.
+
+The subsequent physical decrementer-vector seam is already sourced, not executed:
+the authentic 152-byte `00000900` observation from run `64cfb05c...` matches the
+verified retail DOL template with **only exception-number immediate 8 changed**.
+Private lineage evidence is `evidence/decrementer-vector-lineage.json` in that
+run; SHA-256 `bc97b5f351867639d7c79721c1ed87d8670e4ac1ae741d89ef1782906f00e352`.
+No vector code or disc bytes are committed, and no timer skip, fake IRQ, frame
+or FPS result is claimed.
