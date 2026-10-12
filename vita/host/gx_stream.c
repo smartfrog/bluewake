@@ -56,6 +56,16 @@ const char* ww_gx_stream_write(WwHost* host, u8 byte, const WwFifoOrigin* origin
         if (renderer_error == NULL) {
             bool presented = false;
             renderer_error = ww_renderer_present(host->renderer, &presented);
+            if (presented) {
+                if (renderer_error != NULL &&
+                    fprintf(stderr, "[renderer-after-present] error=%s\n", renderer_error) < 0)
+                    return renderer_error;
+                WwRendererStats stats;
+                ww_renderer_stats(host->renderer, &stats);
+                const char* marker_error = ww_host_frame_present(host, stats.presented);
+                if (marker_error != NULL)
+                    return marker_error;
+            }
         }
         if (renderer_error != NULL) {
             *command = (WwGxCheckpoint){0};

@@ -6,6 +6,45 @@ extern "C" {
 
 #include <cstdlib>
 #include <cstring>
+#include <cstdio>
+#include <ctime>
+#include <cstdarg>
+#include <cerrno>
+
+static const char* marker_scenario;
+static u64 marker_us = 1000000u;
+
+extern "C" int __real_clock_gettime(clockid_t clock, struct timespec* stamp);
+
+extern "C" int __wrap_clock_gettime(clockid_t clock, struct timespec* stamp) {
+    if (marker_scenario == nullptr)
+        return __real_clock_gettime(clock, stamp);
+    assert(clock == CLOCK_MONOTONIC);
+    if (std::strcmp(marker_scenario, "marker-clock-failure") == 0) {
+        errno = EIO;
+        return -1;
+    }
+    stamp->tv_sec = marker_us / 1000000u;
+    stamp->tv_nsec = (marker_us % 1000000u) * 1000u;
+    if (std::strcmp(marker_scenario, "marker-invalid-clock") == 0)
+        stamp->tv_nsec = -1;
+    if (std::strcmp(marker_scenario, "marker-overflow") == 0)
+        stamp->tv_sec = INT64_MAX;
+    return 0;
+}
+
+extern "C" int __wrap_fprintf(FILE* stream, const char* format, ...) {
+    if (marker_scenario != nullptr && std::strcmp(marker_scenario, "marker-write-failure") == 0 &&
+        stream == stderr && std::strncmp(format, "[frame-present]", 15u) == 0) {
+        errno = ENOSPC;
+        return -1;
+    }
+    va_list arguments;
+    va_start(arguments, format);
+    const int result = std::vfprintf(stream, format, arguments);
+    va_end(arguments);
+    return result;
+}
 
 class RecordingDrainBackend final : public WwRendererBackend {
 public:
@@ -45,6 +84,8 @@ static const char* feed(WwHost* host, const u8* bytes, u32 size) {
 int main(int argc, char** argv) {
     assert(argc == 2);
     const char* scenario = argv[1];
+    const bool markers = std::strncmp(scenario, "marker-", 7u) == 0;
+    marker_scenario = markers ? scenario : nullptr;
     WwHost* host = static_cast<WwHost*>(std::calloc(1u, sizeof(*host)));
     assert(host != nullptr && ww_host_init(host));
     gx_fixture::FixtureContext fixture;
@@ -52,7 +93,8 @@ int main(int argc, char** argv) {
     std::memcpy(host->cpu.ram, fixture.mem1.data(), fixture.mem1.size());
     RecordingDrainBackend backend;
     backend.fail_draw = std::strcmp(scenario, "draw-failure") == 0;
-    backend.fail_present = std::strcmp(scenario, "present-failure") == 0;
+    backend.fail_present = std::strcmp(scenario, "present-failure") == 0 ||
+                           std::strcmp(scenario, "marker-failed-present") == 0;
     if (std::strcmp(scenario, "no-renderer") != 0) {
         const WwRendererConfig config = {.memory = &host->memory, .cpu = &host->cpu};
         assert(ww_renderer_create(&host->renderer, &config, &backend) == nullptr);
@@ -81,7 +123,29 @@ int main(int argc, char** argv) {
             assert(stats.fifo_bytes == fifo.size() + 300000u && stats.events > DOL_GX_RECOMP_MAX_TRACE_EVENTS);
             assert(host->stream.logged == 64u && host->gx.trace_count == 0u && host->gx.fifo.size == 0u);
         }
-        if (backend.fail_present) {
+        if (markers && !backend.fail_present) {
+            for (u32 frame = 1u; frame <= 2u; ++frame) {
+                if (frame == 2u) {
+                    std::vector<u8> draw;
+                    gx_fixture::push_triangle(draw);
+                    assert(feed(host, draw.data(), draw.size()) == nullptr);
+                    marker_us = std::strcmp(scenario, "marker-backward") == 0 ? 999999u :
+                                std::strcmp(scenario, "marker-repeated-time") == 0 ? 1000000u : 2000000u;
+                }
+                const u8 display_copy[] = {0x61u, 0x52u, 0u, 0x40u, 0u};
+                error = feed(host, display_copy, sizeof(display_copy));
+                WwRendererStats stats{};
+                ww_renderer_stats(host->renderer, &stats);
+                assert(stats.presented == frame && backend.presents == frame);
+                if (std::strcmp(scenario, "marker-present") != 0 &&
+                    (frame == 2u || (std::strcmp(scenario, "marker-backward") != 0 &&
+                                     std::strcmp(scenario, "marker-repeated-time") != 0))) {
+                    assert(error != nullptr);
+                    break;
+                }
+                assert(error == nullptr);
+            }
+        } else if (backend.fail_present) {
             const u8 display_copy[] = {0x61u, 0x52u, 0u, 0x40u, 0u};
             error = feed(host, display_copy, sizeof(display_copy));
             assert(error != nullptr && std::strstr(error, "synthetic drain present failed") != nullptr);
@@ -105,7 +169,7 @@ int main(int argc, char** argv) {
         assert(std::memcmp(&frontier, &host->frontier, sizeof(frontier)) == 0);
         std::free(state);
     }
-    assert(host->cycles.absolute_cycles == 0u && host->cpu.pc == 0u && backend.presents == 0u);
+    assert(host->cycles.absolute_cycles == 0u && host->cpu.pc == 0u && (backend.presents == 0u || markers));
     ww_host_shutdown(host);
     std::free(host);
     return 0;

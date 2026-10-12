@@ -1232,3 +1232,51 @@ All four integrated renderer executables pass
 (`logs/ww16-gx-drain-arm-link.log`). Audit, attribution and whitespace pass.
 These recording tests are not GPU/pixel measurements. Commit this seam, then
 add the sourced WW12 wall markers before the next rebuilt, watched authentic run.
+
+## Unit 36: stamp actual presentations and due retraces with real wall time
+
+Implemented the **existing WW12 contract**, without moving or manufacturing a
+frame boundary: **`[frame-present] frame=N us=T`** appears only when WW17 reports
+that its actual backend presentation succeeded for a GX display copy; N comes
+from the renderer's actual presentation counter. **`[frame-timing] retrace=N us=T`**
+is a separate secondary series, emitted only after the existing VI clock pops a
+real due retrace. A draw, an unready/failed presentation or a disabled clock does
+not become a frame marker. These marks remain in the private guest journal.
+
+Vita timestamps use **sceKernelGetSystemTimeWide**, linked through the standard
+SDK **SceKernelThreadMgr** stub. The locally sourced Vita3K implementation
+(`SceThreadmgr.cpp:35-38,1210-1212`) returns host high-resolution wall time in
+microseconds, not guest executed cycles or an emulator presentation counter.
+Host contract tests use **CLOCK_MONOTONIC**. Each series requires consecutive
+actual indices and strictly advancing, valid u64 microseconds; clock failure,
+overflow, tied/backward time or failed marker output stops explicitly. There is
+no fabricated timestamp increment, fallback to guest cycles or FPS extrapolation.
+Guest registers, RAM, cycle credit/deadlines and interrupt delivery are unchanged.
+
+Linux AArch64: **611 host tests pass** (`logs/ww16-frame-markers-green.log`),
+including nine native-interface marker scenarios parsed by the **unchanged WW12
+frame-event reader**: two confirmed display copies with exact deterministic
+test stamps, absence for failed/unready presentation, clock/write failure,
+invalid/overflowing/tied/backward time, and due/off VI series separation.
+These injected test clocks and recording backends do not claim real GPU FPS.
+The two-presentation test is red before the instrumentation
+(`logs/ww16-frame-markers-red.log`); focused tests pass
+(`logs/ww16-frame-markers-focused.log`). Actual ARM host links with the sourced
+system-clock import (`logs/ww16-frame-markers-arm-link.log`).
+
+The performance suite revealed its historical assertion that **every real run
+must forever report rendered=0**. The new authentic one/four-presentation reports
+properly invalidate that assumption. Its integration test now preserves each
+real END counter, with a synthetic nonzero-counter test proving that a count
+alone never creates an FPS field. **27 WW12 tests and 83 FP launcher tests pass**
+(`logs/ww16-frame-markers-perf-green.log`, `logs/ww16-frame-markers-fp-tests.log`);
+the original failed assertion is retained in `logs/ww16-frame-markers-perf-tests.log`.
+Audit, attribution and whitespace pass. No renderer coverage, pin or player
+default changes. Commit/rebuild and run the drain+marker units without a memory
+dump first, to measure actual presentation growth without snapshot-write cost.
+
+The coordinator's memory-proof request is accepted next: raw **24 MiB MEM1
+starting at physical zero**, matching WW18's `--mem1` input, with a bounded private
+manifest naming capture command/time and addresses/sizes. Preserve time-matched
+evidence rather than relabel an old boot dump; keep that capture profile separate
+from the no-dump FPS baseline. No memory or resources are invented or uploaded.

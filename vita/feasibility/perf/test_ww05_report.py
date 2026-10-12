@@ -1,9 +1,9 @@
 """Tests for scripts/vita/perf/ww05_report.py: boot-frontier evidence.
 
-The WW05 report is the only real counter the Vita lane has today: one STATE
-line per run with the guest's edge count and absolute cycles at the stop, and
-a verdict that always says rendered=0. The parser extracts those numbers for a
-run series; it does not replace scripts/vita/ww05/report.py, which certifies
+The WW05 report carries one STATE line per run with the guest's edge count and
+absolute cycles at the stop, plus the actual presentation count. The parser
+extracts those numbers for a run series; it does not replace
+scripts/vita/ww05/report.py, which certifies
 the frontier. The integration tests read the real build-f5 evidence when it is
 present on this machine and skip elsewhere.
 """
@@ -74,6 +74,12 @@ class BootReportTest(unittest.TestCase):
         self.assertEqual(series['edges'], {'min': 2, 'median': 395.0, 'max': 788})
         self.assertEqual(series['cycles'], {'min': 120, 'median': 58268.5, 'max': 116417})
 
+    def test_reported_presentations_are_counted_without_inventing_frame_rate(self):
+        report = parse_boot_report(PASS_REPORT.replace('rendered=0', 'rendered=4'))
+        series = boot_series([report])
+        self.assertEqual(series['rendered_frames'], 4)
+        self.assertNotIn('mean_fps', series)
+
 
 class RealEvidenceTest(unittest.TestCase):
     def setUp(self):
@@ -88,9 +94,12 @@ class RealEvidenceTest(unittest.TestCase):
         self.assertGreaterEqual(series['edges']['max'], 1)
         self.assertGreaterEqual(series['cycles']['max'], 0)
 
-    def test_real_ww05_evidence_holds_no_rendered_frame(self):
-        reports = [parse_boot_report(path.read_text()) for path in self.reports]
-        self.assertEqual([report.rendered for report in reports], [0] * len(reports))
+    def test_real_ww05_evidence_preserves_its_actual_reported_presentations(self):
+        for path in self.reports:
+            with self.subTest(report=path):
+                content = path.read_text()
+                reported = int(content.splitlines()[-1].rsplit('rendered=', 1)[1])
+                self.assertEqual(parse_boot_report(content).rendered, reported)
 
 
 if __name__ == '__main__':
