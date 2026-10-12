@@ -11,6 +11,7 @@
 #include "gxruntime/aram.h"
 #include "gxruntime/dvd.h"
 #include "ww05_dsp_init.h"
+#include "guest_timing.h"
 
 #include <string.h>
 
@@ -18,7 +19,7 @@
 #define PPC_VECTOR_EXTERNAL 0x00500u
 #define PPC_EXC_DECREMENTER 0x00000080u
 #define PPC_VECTOR_DECREMENTER 0x00900u
-#define WW_HOST_CYCLES_PER_TIMEBASE_TICK 12u
+#define WW_HOST_CYCLES_PER_TIMEBASE_TICK GUEST_CYCLES_PER_TIMEBASE_TICK
 
 void ww_host_fail(WwHost* host, const char* error, u32 address, u32 pc) {
     if (host->error == NULL) {
@@ -81,6 +82,7 @@ static void advance(CPUState* cpu, u64 cycles, void* user) {
             host->decrementer_pending = true;
         host->decrementer -= (u32)ticks;
     }
+    ww_host_vi_advance(host, cycles);
 }
 
 static u64 deadline(const CPUState* cpu, void* user) {
@@ -91,6 +93,15 @@ static u64 deadline(const CPUState* cpu, void* user) {
         ((u64)host->decrementer + 1u) * WW_HOST_CYCLES_PER_TIMEBASE_TICK - host->clock_remainder : UINT64_MAX;
     const u64 dsp_expiry = ww_dsp_interface_deadline(&host->dsp);
     u64 expiry = decrementer_expiry < dsp_expiry ? decrementer_expiry : dsp_expiry;
+    if (host->vi_clock_enabled) {
+        u64 next;
+        if (dol_event_clock_next_deadline(&host->vi_clock.events, &next)) {
+            const u64 now = dol_vi_clock_now(&host->vi_clock);
+            const u64 vi_expiry = next > now ? next - now : 1u;
+            if (vi_expiry < expiry)
+                expiry = vi_expiry;
+        }
+    }
     if (host->dsp.init_ticks_remaining != 0u) {
         const u64 init_expiry = (u64)host->dsp.init_ticks_remaining * WW_HOST_CYCLES_PER_TIMEBASE_TICK - host->clock_remainder;
         if (init_expiry < expiry)
@@ -887,6 +898,10 @@ bool ww_host_init(WwHost* host) {
     host->decrementer_valid = true;
     bluewake_cycle_domain_init(&host->cycles, 256, advance, deadline, host);
     dol_interrupts_init(&host->interrupts);
+    dol_vi_clock_init(&host->vi_clock);
+    dol_vi_clock_configure(&host->vi_clock, GUEST_CPU_CYCLES_PER_VI_RETRACE, GUEST_VI_REFRESH_HZ,
+                           GUEST_CPU_CYCLES_PER_SECOND / GUEST_CYCLES_PER_TIMEBASE_TICK);
+    host->vi_clock_enabled = WW05_ENABLE_VI_CLOCK;
     dol_di_init(&host->di);
     dol_di_set_command_callback(&host->di, di_command, host);
     dol_exi_init(&host->exi);

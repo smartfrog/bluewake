@@ -643,3 +643,51 @@ missing verified DOL after timeout that must not be hidden. Audit, attribution
 and whitespace checks pass. The next clean build includes the read-only scheduler
 observer and this status correction; a short watched trial will identify the
 actual waiting thread/caller, without forcing a wakeup or claiming a frame.
+
+Watched trial `c8e99533a39d458294b36ea1fff1ec6a` at `2e8deb1` identifies the wait:
+at 78,796,192 cycles, run bits/current thread/lock/DVD pending are zero, and
+`r13-26288` resolves to the real run bits at `803F7A30`. Main thread `803A2960`
+waits on `80429EF0`; saved stack returns through `80305A28` to **`80255E18`**.
+The read-only renderer snapshot proves **265 decoded commands / 1,759 FIFO bytes /
+zero draws or presentations**. The run later executes two decrementer deliveries,
+reaches 1,136,685,334 logged cycles, and is stopped/reaped at its 20-second ceiling.
+Result is correctly **124 / INCOMPLETE / UNAVAILABLE**, not a closed report; the
+snapshot and `evidence/scheduler-wait-analysis.json` preserve that distinction.
+The observed emulator is gone. No runtime wakeup is inferred just from the wait.
+
+## Unit 19: opt-in guest-cycle VI clock, using the existing interrupt model
+
+The translated caller at `80255E18` receives from the video message queue;
+the shared desktop traces `JUTVideo::postRetraceProc` at `802C8110`, and the
+translated routine calls the real message-send path at `80305908`. Desktop's
+`host_vi_advance_cycles` uses pinned `DolViClock` to assert the existing
+`DolInterrupts` VI status. The Vita host already has those VI registers and the
+real external-vector delivery, but **never advances a VI clock**. This sources
+the missing producer rather than granting permission to fabricate a message.
+
+The private boot host now advances that same pinned clock from **credited executed
+guest cycles**, with the desktop cadence: **8,100,000 cycles per retrace (486 MHz /
+60 Hz)**. Those unchanged constants move to shared `guest_timing.h`; desktop
+behavior is unchanged. The next VI deadline bounds dispatch. Due events assert
+the existing VI status/source; the existing VI/PI masks and MSR EE gate real
+external-vector delivery. The translated handler/callback remains responsible
+for acknowledgement, queue messages and waking threads. This unit does not call
+the renderer's present function, count a retrace as a frame, alter guest RAM,
+grant timebase credit, skip instructions or change the decrementer.
+
+**Off by default:** `WW05_ENABLE_VI_CLOCK=OFF`; only the explicit private builder
+`--vi-clock` enables it, resets the CMake option for each build and records the
+choice in `build-evidence.json`. The native journal records the enabled state,
+period, first 16 retraces and live idle-snapshot count. No pin/composite edits or
+network operations are made. Windows verification of the unchanged shared timing
+constants is tracked; desktop, Windows and physical Vita gameplay remain untested.
+
+Linux AArch64: **530 host tests and 81 FP tests pass**
+(`logs/ww16-vi-clock-green.log`, `logs/ww16-vi-clock-fp-regressions.log`). The actual
+cycle-threshold test fails before implementation (`logs/ww16-vi-clock-red.log`).
+Tests cover the default-off/build opt-in, exact threshold/deadline, VI/PI/EE masks,
+prior exception preservation, real VI acknowledgement, elapsed periods, zero
+charge, timebase writes and failed trace handling; every clock probe compares all
+guest RAM before/after and observes no GX/message/frame work. The actual ARM host
+links (`logs/ww16-vi-clock-arm-link.log`). Audit, attribution and whitespace checks
+pass. A committed **opt-in** rebuild and fresh watched authentic trial follow.

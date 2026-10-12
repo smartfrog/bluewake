@@ -114,6 +114,11 @@ int fixture_run(int argc, char** argv) {
     bool initialized = !error && ww_host_init(host);
     host->stream.enabled = command_log_limit != 0u;
     host->stream.log_limit = command_log_limit;
+    if (initialized)
+        error |= fprintf(stderr, "[vi-clock] enabled=%u period_cycles=%llu refresh_hz=%u\n",
+                         host->vi_clock_enabled,
+                         (unsigned long long)dol_vi_clock_work_units_per_retrace(&host->vi_clock),
+                         dol_vi_clock_refresh_hz(&host->vi_clock)) < 0;
     // VITA-WW-17: attach the renderer to the captured stream over the same MEM1
     // view the pinned trace resolves against. A create failure is fatal: the run
     // must not continue with no renderer while claiming to render.

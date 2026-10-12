@@ -44,12 +44,13 @@ const char* ww_host_observe_scheduler_idle(WwHost* host) {
     WwRendererStats renderer = {0};
     if (host->renderer != NULL)
         ww_renderer_stats(host->renderer, &renderer);
-    if (fprintf(stderr, "[scheduler-idle] run_bits=%08X current_thread=%08X context=%08X lock=%u dvd_pending=%u r13=%08X poll=%08X poll_valid=%u poll_value=%08X gx_decoded=%llu renderer_available=%u fifo_bytes=%llu draws=%llu presented=%llu pc=%08X cycles=%llu\n",
+    if (fprintf(stderr, "[scheduler-idle] run_bits=%08X current_thread=%08X context=%08X lock=%u dvd_pending=%u r13=%08X poll=%08X poll_valid=%u poll_value=%08X gx_decoded=%llu renderer_available=%u fifo_bytes=%llu draws=%llu presented=%llu vi_enabled=%u vi_retraces=%llu pc=%08X cycles=%llu\n",
                 idle.run_bits, idle.current_thread, idle.current_context, mem_read32(cpu, 0x803F7A38u),
                 host->dvd_completions.count, cpu->gpr[13], poll, poll_valid,
                 poll_valid ? mem_read32(cpu, poll) : 0u, (unsigned long long)host->stream.decoded,
                 host->renderer != NULL, (unsigned long long)renderer.fifo_bytes,
-                (unsigned long long)renderer.draws, (unsigned long long)renderer.presented, cpu->pc,
+                (unsigned long long)renderer.draws, (unsigned long long)renderer.presented,
+                host->vi_clock_enabled, (unsigned long long)host->vi_retraces, cpu->pc,
                 (unsigned long long)host->cycles.absolute_cycles) < 0)
         return "scheduler idle observation trace write failed";
     const u32 known[] = {0x803F06D0u, 0x803A2960u, 0x803A5F90u};

@@ -19,6 +19,7 @@ and remaining defects are tracked in [TECH_DEBT.md](TECH_DEBT.md). New unrelease
 
 | Change | Issue | What to check | Windows result, October 5 |
 | --- | --- | --- | --- |
+| Candidate VITA-WW-16 shared guest timing constants (`vita-ww-16-firstdraw`; not merged) | VITA-WW-16 | Compile the Windows host after integration; confirm the existing cycle/timebase and VI cadence is unchanged (12 cycles per tick, 486 MHz guest CPU, 60 Hz VI). The private Vita clock is separately opt-in and does not enable a Windows feature. | Linux host/FP tests and ARM link pass; Windows CI/compiler and physical gameplay unavailable here. |
 | Pictobox photos no longer freeze the picture | #13 | Take a Pictobox photo; the game keeps drawing. | Not tested |
 | Swap A and B, Swap X and Y | #55 | F1 › Controls; the swap takes effect at once. | Not tested |
 | Camera no longer flips direction in water | #73 | Swim and turn the camera with the stick and the mouse. | Not tested |

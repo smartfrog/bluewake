@@ -4,6 +4,7 @@ set(CMAKE_C_STANDARD 11)
 set(CMAKE_C_STANDARD_REQUIRED ON)
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 option(WW05_TESTS_ONLY "Build game-free host contract tests only" OFF)
+option(WW05_ENABLE_VI_CLOCK "Experimental guest-cycle VI clock for private boot trials" OFF)
 get_filename_component(BLUEWAKE_ROOT "../.." ABSOLUTE BASE_DIR "${CMAKE_CURRENT_SOURCE_DIR}")
 set(GXRUNTIME_DIR "${RECOMPCORE_DIR}/GXRuntime" CACHE PATH "Pinned runtime" FORCE)
 set(ABI_DIR "${RECOMPCORE_DIR}/Source/Core/Core/PowerPC/StaticRecomp" CACHE PATH "Pinned module ABI" FORCE)
@@ -36,7 +37,7 @@ target_compile_options(gxruntime PRIVATE -ffp-contract=off -fno-fast-math -fstac
 
 add_library(ww05_services STATIC boot_host.c gx_checkpoint.c gx_stream.c fifo_gather.c fifo_consumer.c
     code_guard.c dsp_interface.c bat_contract.c disc_service.c rel_provider.c rel_service.c rel_link.c
-    scheduler_observation.c
+    scheduler_observation.c vi_clock.c
     $<TARGET_OBJECTS:ww13_dvd_pin>
     "${BLUEWAKE_ROOT}/runtime/host/src/cycle_domain.c"
     "${BLUEWAKE_ROOT}/runtime/host/src/aram_dma.c"
@@ -50,6 +51,7 @@ target_include_directories(ww05_services PUBLIC "${CMAKE_CURRENT_SOURCE_DIR}"
     "${BLUEWAKE_ROOT}/runtime/host/src" "${BLUEWAKE_ROOT}/cmake/composite" "${ABI_DIR}"
     "${BLUEWAKE_ROOT}/apple/ios/src")
 target_link_libraries(ww05_services PUBLIC ww13_dvd_io GXRuntime::runtime ww_renderer)
+target_compile_definitions(ww05_services PRIVATE WW05_ENABLE_VI_CLOCK=$<BOOL:${WW05_ENABLE_VI_CLOCK}>)
 target_compile_options(ww05_services PRIVATE -O2 -ffp-contract=off -fno-fast-math -fstack-usage
     -Wall -Wextra -Werror=implicit-function-declaration)
 
@@ -108,6 +110,10 @@ if(WW05_TESTS_ONLY)
     target_compile_options(scheduler_observation_probe PRIVATE -UNDEBUG)
     target_link_libraries(scheduler_observation_probe PRIVATE ww05_services)
     target_link_options(scheduler_observation_probe PRIVATE -Wl,--wrap=fprintf)
+    add_executable(vi_clock_probe vi_clock_probe.c)
+    target_compile_options(vi_clock_probe PRIVATE -UNDEBUG)
+    target_link_libraries(vi_clock_probe PRIVATE ww05_services)
+    target_link_options(vi_clock_probe PRIVATE -Wl,--wrap=fprintf)
     add_executable(gather_probe gather_probe.c)
     target_compile_options(gather_probe PRIVATE -UNDEBUG)
     target_link_libraries(gather_probe PRIVATE ww05_services)

@@ -44,6 +44,7 @@
 #include "dvd_completion.h"
 #include "dvd_file_info.h"
 #include "rel_profile_list.h"
+#include "guest_timing.h"
 #include "di_inquiry.h"
 #include "cycle_domain.h"
 #include "interrupt_sources.h"
@@ -1332,12 +1333,6 @@ static u64 g_dsp_cycle_cursor;
 static u64 g_current_host_block;
 static unsigned g_vi_assert_reports;
 static u64 g_previous_retrace_timebase;
-
-#define GUEST_CYCLES_PER_TIMEBASE_TICK 12u
-#define GUEST_CPU_CYCLES_PER_SECOND 486000000ull
-#define GUEST_VI_REFRESH_HZ 60u
-#define GUEST_CPU_CYCLES_PER_VI_RETRACE \
-    (GUEST_CPU_CYCLES_PER_SECOND / GUEST_VI_REFRESH_HZ)
 
 #ifdef BLUEWAKE_HAS_DSP_ADAPTER
 // How often the LLE DSP is stepped, in guest cycles. The deadline census on the
