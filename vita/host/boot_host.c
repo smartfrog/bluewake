@@ -8,6 +8,7 @@
 #include "gxruntime/boot.h"
 #include "gxruntime/guest_memory_dirty.h"
 #include "gxruntime/aram.h"
+#include "gxruntime/dvd.h"
 #include "ww05_dsp_init.h"
 
 #include <string.h>
@@ -31,8 +32,8 @@ static WwHost* owner(CPUState* cpu) {
     return cpu->external_user_data;
 }
 
-bool ww_host_linked_alias_overlaps(u32 address, u8 size) {
-    for (u8 offset = 0u; offset < size; ++offset) {
+bool ww_host_linked_alias_overlaps(u32 address, u32 size) {
+    for (u32 offset = 0u; offset < size; ++offset) {
         u8* alias;
         if (ppc_guest_alias_resolve(address + offset, 1u, &alias, NULL))
             return true;
@@ -312,8 +313,7 @@ static DolDiCommandResult di_command(void* user, DolDiCommand* command) {
         bluewake_di_inquiry_write(command->cpu, guest);
         return DOL_DI_COMMAND_COMPLETE;
     }
-    ww_host_fail(host, "DVD command requires private disc service (not packaged)", command->command[0], host->cpu.pc);
-    return DOL_DI_COMMAND_ERROR;
+    return ww_host_di_read(host, command);
 }
 
 static u8 sram_read8(void* user, u32 physical) {
@@ -867,6 +867,10 @@ bool ww_host_init(WwHost* host) {
 }
 
 void ww_host_shutdown(WwHost* host) {
+    if (host->disc_owned) {
+        dvd_close_image();
+        host->disc_owned = false;
+    }
     if (host->aram_owned) {
         aram_free();
         host->aram_owned = false;

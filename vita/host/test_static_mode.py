@@ -66,6 +66,14 @@ class StaticModeTest(unittest.TestCase):
         self.assertTrue(runtime)
         self.assertTrue(all('-fno-tree-dominator-opts' not in row['command'] for row in runtime))
 
+    def test_vita_boot_aggregator_compiles_the_pinned_dvd_through_the_existing_seam(self):
+        commands, ninja = self.configure(True, vita=True)
+        redirected = [row for row in commands if row['file'].endswith('/src/dvd.c') and 'dvd_seam.h' in row['command']]
+        self.assertEqual(len(redirected), 1)
+        self.assertIn('ww13_dvd_io', ninja)
+        self.assertIn('ww13_dvd_pin', ninja)
+        self.assertIn('-mcpu=cortex-a9', redirected[0]['command'])
+
 
 if __name__ == '__main__':
     unittest.main()

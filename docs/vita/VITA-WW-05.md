@@ -1,5 +1,10 @@
 # VITA-WW-05 — private Wind Waker startup host
 
+**Core acceptance verified, 2026-10-12:** authentic `GX_FRONTIER complete=1`,
+`hex=610F0000FF`, writer PC `80325DAC`, completion PC `80325DB8`, on source
+`35ac6365a2b03d023d78e4b1605b917b1fddc89e`. Delivery integration and optional
+post-frontier exploration are recorded below; this is not rendering or gameplay acceptance.
+
 **Private, opt-in startup experiment.** The product owner superseded the original execution gate:
 WW05 may run repeatedly in fresh isolated private profiles. There is no process-count budget,
 authorization token or permanent reservation. Every attempt, including failures, must retain its
@@ -2845,3 +2850,73 @@ DOL and static archive are unchanged. Audio remains stopped/silent. First actual
 access still requires DVD integration `35f7c8a`; live REL, VI retrace, presentation, Windows
 ARAM verification, final integration counts, Windows CI and physical Vita remain open.
 No network, push, shared profile, protected build tree or other worktree was changed.
+
+## Core acceptance closed; trunk and DVD integration
+
+Run **`43e33140036b4d58a70ca41a81ecd3ae`**, clean source
+**`35ac6365a2b03d023d78e4b1605b917b1fddc89e`**, records authentic **guest PASS**:
+
+```text
+GX_FRONTIER complete=1 opcode=61 bytes=5 pc=80325DAC completion_pc=80325DB8 sp=8040CEB0 trailing=27 edge_stop=1 hex=610F0000FF
+```
+
+The BP command comes from actual guest stores, a committed 32-byte MEM1 gather burst
+and a real CP read, and was accepted by the pinned parser. It is not a synthetic
+fixture or padding added by the host. Final guest state is PC `80325020`, **64,291 edges,
+7,141,580 cycles**, no exception, `live=0`, `rendered=0`. The stop is the deliberate
+first-command frontier, not a GPU/backend refusal. The coordinator also reports the
+GX-15 bridge decoded these bytes with `verdict=ran`; that bridge result is separately
+reported evidence, not a local hardware/rendering claim.
+
+Build status zero in 115.738 s; static archive unchanged. Both owned emulator phases
+were reaped after their **600 s** timeouts, TERM/exit -15, `waited=true`. Thus the closed
+guest **PASS** and process **124/INCOMPLETE** remain distinct. Independent verification
+`logs/wpar-config-evidence-35ac636.json` binds source, request, package, report, result
+and closed LER. SHA-256:
+
+- VPK: `daa467e87922377f85dc7aefe984f42a092be74fb0964d2f53fa5a0535615514`;
+- report: `69ad9a949f816a4486aaec724abf17312fa23734f7e155d41d6febbc32b44f0a`;
+- result: `8ad6b7472d4a3800ec2cc4db713be4aa0e23034b636de544bfdbaf8b7870f9aa`;
+- log: `fd07df4b6024cec31396bf08be1d1bd1993f13dfdd89de688cdedf533d42838a`;
+- LER: `169da8b7a0e0d3067e984a0701130bdf9916ce1c09ccf887d9004ec9f413b079`.
+
+Exact clean `35ac636` checks pass **384 host tests, 177 ARMv7 tests**, runtime
+**CTest 3/3**, audit and attribution on Linux AArch64 (`logs/checkpoint-35ac636.json`).
+This fulfills WW05's first-authentic-command acceptance. Trello publication remains with
+the coordinator under the offline constraint.
+
+After that trial closed, the seven post-milestone commits were rebased without conflicts
+onto local trunk **`f0a82ed`**, which already contains DVD delivery
+**`35f7c8a05e69648a5e57241ef8ed08b9093fb337`**. No shared branch was pushed or reset.
+The previously listed DI/CMake debt is now wired:
+
+- the boot aggregator reuses `ww13_dvd_io` and the force-included, byte-identical
+  `ww13_dvd_pin` object; the DVD subproject reuses an existing `gxruntime` target;
+- ARMv7 flags apply to both seam targets, and offline inspection requires one DVD
+  owner plus the shim symbols in the actual boot ELF;
+- `disc_service.c` routes supported `A8000000` read DMAs through the pinned DVD
+  layer, opens only `ux0:data/bluewake/GZLE01.iso` lazily on a genuine DI request,
+  and closes its owned image during shutdown;
+- the existing inquiry path is unchanged. Read DMA validates CPU ownership, command
+  length, real MEM1, full/partial alias overlap and the seam's documented signed
+  32-bit disc-offset bound. It does not acknowledge seek/unknown subcommands;
+- successful transport is measured by the seam's byte delta. A missing image, read
+  failure or short read is an explicit host failure and DI error, never successful
+  zero-filled DMA. Failed reads can have copied partial data before failing; DMA
+  registers do not advance and TCINT is not raised. No staging copy is added;
+- trace failure refuses before the destination changes. Actual completion uses
+  the existing DI interrupt and EE gating; no fictitious disc latency is introduced.
+
+The existing alias-overlap guard now takes a 32-bit size, so a disc DMA cannot truncate
+its overlap check at 255 bytes. Its logic is reused, not duplicated. TDD failures are
+retained in `logs/dvd-di-integration-red.log`; `logs/dvd-di-integration-host-green.log`
+passes **392 host tests** on Linux AArch64, including a synthetic image from WW13's
+existing generator, actual DI byte copies/FST resolution, IRQ gating, missing and truncated
+files, short reads, rejected packet shapes, an alias more than 255 bytes into the range,
+trace failure and the Vita CMake seam object/flags. No genuine game disc read is claimed
+by these synthetic checks.
+
+The next unit is opt-in post-frontier command observation, keeping the verified default
+first-command behavior intact. No renderer, live VI/REL/FPS, physical Vita or Windows
+runtime execution is claimed. Shared Windows ARAM validation and final exact integration
+counts remain tracked until the final checks actually run.

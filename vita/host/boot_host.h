@@ -65,6 +65,7 @@ typedef struct WwHost {
     u32 alias_count;
     u64 edges;
     u64 exi_transfers;
+    u64 disc_reads;
     u64 next_edge_progress;
     u64 syscall_resumes;
     u32 dispatch_trace_remaining;
@@ -72,6 +73,7 @@ typedef struct WwHost {
     bool decrementer_valid;
     bool decrementer_pending;
     bool aram_owned;
+    bool disc_owned;
 } WwHost;
 
 static inline bool ww_host_trace_syscall(u64 resume) {
@@ -87,6 +89,7 @@ bool ww_host_resume_exception(WwHost* host);
 int ww_host_dispatch(WwHost* host, u32 address);
 u64 ww_host_end_dispatch(WwHost* host);
 void ww_host_fail(WwHost* host, const char* error, u32 address, u32 pc);
-bool ww_host_linked_alias_overlaps(u32 address, u8 size);
+bool ww_host_linked_alias_overlaps(u32 address, u32 size);
+DolDiCommandResult ww_host_di_read(WwHost* host, DolDiCommand* command);
 
 #endif
