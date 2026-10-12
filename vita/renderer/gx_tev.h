@@ -123,7 +123,8 @@ inline bool valid_stage(const gxruntime::gxcore::TevStageKey& s) {
 
 inline void emit_stage(std::string& out,
                        const gxruntime::gxcore::TevStageKey& s,
-                       const std::string& coordinate, bool preserve_raw = false) {
+                       const std::string& coordinate, bool preserve_raw = false,
+                       const std::string& raster = {}) {
   if (s.tevorders_enable != 0) {
     out += "  tex = floor(tex2D(tex" + std::to_string(s.tevorders_texmap) +
            ", " + coordinate + ") * 255.0 + 0.5);\n";
@@ -133,7 +134,9 @@ inline void emit_stage(std::string& out,
   } else {
     out += "  tex = float4(255.0,255.0,255.0,255.0);\n";
   }
-  if (s.tevorders_colorchan <= 1) {
+  if (!raster.empty()) {
+    out += "  ras = " + raster + ";\n";
+  } else if (s.tevorders_colorchan <= 1) {
     out += "  ras = floor(color" + std::to_string(s.tevorders_colorchan) +
            "." + swizzle(s.ras_swap) + " * 255.0 + 0.5);\n";
   } else {

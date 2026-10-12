@@ -81,6 +81,10 @@ public:
     glUniform4fv(glGetUniformLocation(gl_program, "fog_range"), 3, &draw.fog.range[0][0]);
     const float fog_screen[] = {draw.fog.viewport[0] / kScreenWidth, draw.fog.viewport[1]};
     glUniform2fv(glGetUniformLocation(gl_program, "fog_screen"), 1, fog_screen);
+    glUniform4fv(glGetUniformLocation(gl_program, "texture_dimensions"), 8,
+                 &draw.texture_dimensions[0][0]);
+    glUniform4fv(glGetUniformLocation(gl_program, "indirect_matrices"), 6,
+                 &draw.indirect_matrices[0][0]);
 
     if (draw.pipeline.depth_test != 0u)
       glEnable(GL_DEPTH_TEST);

@@ -12,6 +12,8 @@
 #include "gx_bridge.h"
 #include "gx_ztexture_fixture.h"
 #include "gx_fog_fixture.h"
+#include "gx_indirect_fixture.h"
+#include "gx_emboss_fixture.h"
 
 #include "../feasibility/gx/gx_fixture.hpp"
 
@@ -57,7 +59,9 @@ int main(int argc, char** argv) {
   if (argc == 3 && (std::string(argv[1]) == "--write-ztexture-fixture" ||
                     std::string(argv[1]) == "--write-matrix-fixture" ||
                     std::string(argv[1]) == "--write-light-fixture" ||
-                    std::string(argv[1]) == "--write-fog-fixture")) {
+                    std::string(argv[1]) == "--write-fog-fixture" ||
+                    std::string(argv[1]) == "--write-indirect-fixture" ||
+                    std::string(argv[1]) == "--write-emboss-fixture")) {
     const std::filesystem::path directory(argv[2]);
     std::filesystem::create_directories(directory);
     gx_fixture::FixtureContext memory;
@@ -69,6 +73,12 @@ int main(int argc, char** argv) {
       fifo = gx_ztexture_fixture::lighting_quad(7);
     else if (std::string(argv[1]) == "--write-fog-fixture")
       fifo = gx_fog_fixture::quad(4, false, true);
+    else if (std::string(argv[1]) == "--write-indirect-fixture") {
+      gx_fixture::fill_texture_zones(memory);
+      fifo = gx_indirect_fixture::quad(2, 1, 3, 7);
+    }
+    else if (std::string(argv[1]) == "--write-emboss-fixture")
+      fifo = gx_emboss_fixture::quad(true, true, 7);
     std::ofstream fifo_file(directory / "clear.fifo", std::ios::binary);
     std::ofstream memory_file(directory / "clear.mem1", std::ios::binary);
     fifo_file.write(reinterpret_cast<const char*>(fifo.data()), fifo.size());
@@ -79,6 +89,23 @@ int main(int argc, char** argv) {
     return 0;
   }
   CHECK(argc == 1);
+  for (bool indexed : {false, true}) {
+    for (bool chained : {false, true}) {
+      gx_bridge::Result result;
+      CHECK(run_stream(gx_emboss_fixture::quad(indexed, chained, 7), result));
+      CHECK(result.counts.plans_ok == 1 && result.counts.programs == 1);
+      CHECK(result.counts.programs_refused == 0 && result.gaps.empty());
+    }
+  }
+  for (std::uint8_t matrix : {0, 1, 2}) {
+    for (std::uint8_t format : {0, 1, 2, 3}) {
+      gx_bridge::Result result;
+      CHECK(run_stream(gx_indirect_fixture::quad(matrix, format, 3, 7), result));
+      CHECK(result.counts.plans_ok == 1 && result.counts.programs == 1);
+      CHECK(result.counts.programs_refused == 0 && result.plan_skips.empty());
+      CHECK(result.gaps.empty());
+    }
+  }
   for (std::uint8_t mode : {2, 4, 5, 6, 7}) {
     for (bool orthographic : {false, true}) {
       for (bool range : {false, true}) {
@@ -158,17 +185,14 @@ int main(int argc, char** argv) {
   }
 
   {
-    // An active indirect lookup translates but the bounded Cg generator
-    // refuses it: the refusal keeps its reason instead of vanishing.
+    // The original indirect lookup remains a valid single-texmap path.
     gx_bridge::Result result;
     CHECK(run_stream(gx_fixture::build_indirect_triangle(), result));
     CHECK(result.ok);
     CHECK(result.counts.plans_ok == 1u);
-    CHECK(result.counts.programs == 0u && result.counts.programs_refused == 1u);
-    CHECK(result.program_refusals.size() == 1u);
-    CHECK(result.program_refusals[0] == "indirect TEV lookups not supported");
-    std::printf("bridge indirect refused: %s\n",
-                result.program_refusals[0].c_str());
+    CHECK(result.counts.programs == 1u && result.counts.programs_refused == 0u);
+    CHECK(result.program_refusals.empty());
+    std::printf("bridge indirect single-texmap generated\n");
   }
 
   {

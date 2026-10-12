@@ -159,11 +159,122 @@ gxc::DrawPlan fog_plan() {
   return plan;
 }
 
+gxc::DrawPlan indirect_plan(const std::uint8_t* texture) {
+  gxc::DrawPlan plan;
+  plan.ok = true;
+  plan.has_texture = true;
+  plan.tex_width = plan.tex_height = 4;
+  plan.tex_data = texture;
+  plan.tex_available = 64;
+  plan.tex_format = 6;
+  auto& key = plan.pipeline.shader;
+  key.textured = key.tev_valid = key.num_tev_stages = key.num_tex_gens = key.num_ind_stages = 1;
+  key.tex_gens[0].sourcerow = 5;
+  key.tev_stages[0].tevorders_enable = 1;
+  key.tev_stages[0].ind_matrix_index = 1;
+  plan.pixel_constants.texdims[0][2] = 8;
+  plan.pixel_constants.texdims[0][3] = 16;
+  return plan;
+}
+
+gxc::DrawPlan emboss_plan() {
+  auto plan = lighting_plan();
+  auto& key = plan.pipeline.shader;
+  key.num_tex_gens = 2;
+  key.uv_mask = 1;
+  key.tex_gens[0].sourcerow = 5;
+  key.tex_gens[0].projection = 1;
+  key.tex_gens[1].texgentype = 1;
+  key.has_vertex_tangent = key.has_vertex_binormal = 1;
+  plan.vertices[gxc::kVertexUvOffset / 4] = 0.25f;
+  plan.vertices[gxc::kVertexUvOffset / 4 + 1] = 0.5f;
+  plan.vertices[gxc::kVertexTangentOffset / 4] = 1;
+  plan.vertices[gxc::kVertexBinormalOffset / 4 + 1] = 1;
+  plan.constants.cached_tangent[0] = 2;
+  plan.constants.cached_binormal[1] = 3;
+  plan.constants.posnormalmatrix[3][0] = 2;
+  plan.constants.posnormalmatrix[4][1] = 3;
+  plan.constants.texmatrices[0][0] = plan.constants.texmatrices[1][1] = 1;
+  plan.constants.texmatrices[2][3] = 2;
+  plan.constants.lights[0].pos[0] = 3;
+  plan.constants.lights[0].pos[1] = 4;
+  plan.constants.lights[0].pos[2] = 0;
+  return plan;
+}
+
 } // namespace
 
 int main() {
   int failures = 0;
   std::uint64_t textured_key = 0;
+
+  for (bool tangent : {false, true}) {
+    for (bool binormal : {false, true}) {
+      auto plan = emboss_plan();
+      plan.pipeline.shader.has_vertex_tangent = tangent;
+      plan.pipeline.shader.has_vertex_binormal = binormal;
+      const auto draw = gx_vita::translate(plan);
+      CHECK(draw.ok);
+      CHECK(std::fabs(draw.geometry.texcoords[3] - (tangent ? 1.45f : 2.65f)) < 0.000001f);
+      CHECK(std::fabs(draw.geometry.texcoords[4] - (binormal ? 2.9f : 7.7f)) < 0.000001f);
+      CHECK(draw.geometry.texcoords[5] == 2);
+    }
+  }
+
+  {
+    auto plan = emboss_plan();
+    plan.constants.lights[0].pos[0] = plan.constants.lights[0].pos[1] = 0;
+    const auto draw = gx_vita::translate(plan);
+    CHECK(draw.ok && draw.geometry.texcoords[3] == 0.25f && draw.geometry.texcoords[4] == 0.5f);
+  }
+
+  for (int invalid : {0, 1, 2, 3}) {
+    auto plan = emboss_plan();
+    if (invalid == 0)
+      plan.pipeline.shader.tex_gens[1].embosssourceshift = 1;
+    else if (invalid == 1)
+      plan.pipeline.shader.tex_gens[1].embosslightshift = 8;
+    else if (invalid == 2) {
+      plan.constants.cached_tangent[0] = NAN;
+      plan.pipeline.shader.has_vertex_tangent = 0;
+    } else
+      plan.pipeline.shader.lit_valid = 0;
+    const auto draw = gx_vita::translate(plan);
+    CHECK(!draw.ok && draw.skip_reason != nullptr);
+  }
+
+  for (std::uint8_t matrix : {1, 2, 3}) {
+    for (int shift : {-14, -1, 0, 1, 17}) {
+      const std::uint8_t pixels[64]{};
+      auto plan = indirect_plan(pixels);
+      plan.pipeline.shader.tev_stages[0].ind_matrix_index = matrix;
+      const auto row = 2 * (matrix - 1);
+      plan.pixel_constants.indtexmtx[row][0] = -1024;
+      plan.pixel_constants.indtexmtx[row + 1][1] = 1023;
+      plan.pixel_constants.indtexmtx[row][3] = shift;
+      const auto draw = gx_vita::translate(plan);
+      CHECK(draw.ok);
+      CHECK(draw.indirect_matrices[row][0] == -1024 && draw.indirect_matrices[row + 1][1] == 1023);
+      CHECK(draw.indirect_matrices[row][3] == std::ldexp(1.f, -shift));
+      CHECK(draw.texture_dimensions[0][0] == 4 && draw.texture_dimensions[0][1] == 4);
+      CHECK(draw.texture_dimensions[0][2] == 8 && draw.texture_dimensions[0][3] == 16);
+    }
+  }
+
+  for (int invalid : {0, 1, 2, 3}) {
+    const std::uint8_t pixels[64]{};
+    auto plan = indirect_plan(pixels);
+    if (invalid == 0)
+      plan.tex_data = nullptr;
+    else if (invalid == 1)
+      plan.pixel_constants.indtexmtx[0][0] = 1024;
+    else if (invalid == 2)
+      plan.pixel_constants.indtexmtx[0][3] = 18;
+    else
+      plan.pixel_constants.texdims[0][2] = 0;
+    const auto draw = gx_vita::translate(plan);
+    CHECK(!draw.ok && draw.skip_reason != nullptr);
+  }
 
   for (std::uint32_t shift : {0, 1, 24, 31, 32, 63}) {
     auto plan = fog_plan();
@@ -330,7 +441,7 @@ int main() {
     const std::uint32_t row = 30;
     std::memcpy(&plan.vertices[gxc::kVertexPosMtxOffset / 4], &row, sizeof row);
     const auto draw = gx_vita::translate(plan);
-    CHECK(!draw.ok && std::string(draw.skip_reason) == "lighting normal matrix row out of range");
+    CHECK(!draw.ok && std::string(draw.skip_reason) == "normal matrix row out of range");
   }
 
   for (bool indexed : {false, true}) {

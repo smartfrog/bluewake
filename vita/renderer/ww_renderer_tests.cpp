@@ -14,10 +14,13 @@
 #include "ww_renderer_backend.h"
 #include "gx_ztexture_fixture.h"
 #include "gx_fog_fixture.h"
+#include "gx_indirect_fixture.h"
+#include "gx_emboss_fixture.h"
 
 #include "../feasibility/gx/gx_fixture.hpp"
 
 #include <cstdint>
+#include <cmath>
 #include <cstdio>
 #include <cstring>
 #include <string>
@@ -61,6 +64,8 @@ struct DrawRecord {
   float alpha_ref[2]{};
   float ztexture_bias[2]{};
   gx_vita::fog::Uniforms fog;
+  float texture_dimensions[8][4]{};
+  float indirect_matrices[6][4]{};
   float depth_near = 0;
   float depth_far = 1;
   std::string cg_vertex;
@@ -115,6 +120,8 @@ public:
     std::memcpy(record.alpha_ref, draw.alpha_ref, sizeof record.alpha_ref);
     std::memcpy(record.ztexture_bias, draw.ztexture_bias, sizeof record.ztexture_bias);
     record.fog = draw.fog;
+    std::memcpy(record.texture_dimensions, draw.texture_dimensions, sizeof record.texture_dimensions);
+    std::memcpy(record.indirect_matrices, draw.indirect_matrices, sizeof record.indirect_matrices);
     record.cg_vertex = program.vertex;
     record.cg_fragment = program.fragment;
     draws.push_back(std::move(record));
@@ -610,6 +617,61 @@ int fog_is_submitted() {
   return 0;
 }
 
+int indirect_is_submitted() {
+  for (std::uint8_t stage : {0, 1, 2, 3}) {
+    Fixture fixture;
+    RecordingBackend backend;
+    WwRenderer* renderer = nullptr;
+    WwRendererConfig config = fixture.config();
+    CHECK(ww_renderer_create(&renderer, &config, &backend) == nullptr);
+    const auto fifo = gx_indirect_fixture::quad(1, 2, stage, 7);
+    for (std::uint8_t byte : fifo)
+      CHECK(ww_renderer_write(renderer, &byte, 1) == nullptr);
+    CHECK(backend.draws.size() == 1);
+    const auto& draw = backend.draws[0];
+    CHECK(draw.texmap_mask == 0x81);
+    CHECK(draw.texture_dimensions[7][0] == 4 && draw.texture_dimensions[7][1] == 4);
+    CHECK(draw.texture_dimensions[0][2] == 4 && draw.texture_dimensions[0][3] == 4);
+    CHECK(draw.indirect_matrices[0][0] == 256 && draw.indirect_matrices[1][1] == 256);
+    CHECK(draw.indirect_matrices[0][3] == 1 && draw.indirect_matrices[1][3] == 1);
+    CHECK(draw.cg_fragment.find("tex2D(tex7,") != std::string::npos);
+    CHECK(draw.cg_fragment.find("previous_coord = tevcoord") != std::string::npos);
+    WwRendererStats stats{};
+    ww_renderer_stats(renderer, &stats);
+    CHECK(stats.draws == 1 && stats.programs_refused == 0 && stats.gap_count == 0);
+    ww_renderer_destroy(renderer);
+  }
+  std::printf("renderer four indirect orders, matrix/SU uniforms and previous-coordinate iterations submitted\n");
+  return 0;
+}
+
+int emboss_is_submitted() {
+  for (bool indexed : {false, true}) {
+    for (bool chained : {false, true}) {
+      Fixture fixture;
+      RecordingBackend backend;
+      WwRenderer* renderer = nullptr;
+      WwRendererConfig config = fixture.config();
+      CHECK(ww_renderer_create(&renderer, &config, &backend) == nullptr);
+      const auto fifo = gx_emboss_fixture::quad(indexed, chained, 7);
+      for (std::uint8_t byte : fifo)
+        CHECK(ww_renderer_write(renderer, &byte, 1) == nullptr);
+      CHECK(backend.draws.size() == 1);
+      const auto& uv = backend.draws[0].geometry.texcoords;
+      const auto offset = 3 * (chained ? 2 : 1);
+      const float factor = chained ? 2 : 1;
+      CHECK(std::fabs(uv[offset] - factor * (indexed ? -1.2f : 1.2f)) < 0.000001f);
+      CHECK(std::fabs(uv[offset + 1] - factor * 2.4f) < 0.000001f);
+      CHECK(uv[offset + 2] == 1);
+      WwRendererStats stats{};
+      ww_renderer_stats(renderer, &stats);
+      CHECK(stats.draws == 1 && stats.programs_refused == 0 && stats.gap_count == 0);
+      ww_renderer_destroy(renderer);
+    }
+  }
+  return 0;
+}
+
 } // namespace
 
 
@@ -712,6 +774,8 @@ int main() {
   CHECK(folded_post_matrix_is_submitted() == 0);
   CHECK(lighting_and_toon_coordinates_are_submitted() == 0);
   CHECK(fog_is_submitted() == 0);
+  CHECK(indirect_is_submitted() == 0);
+  CHECK(emboss_is_submitted() == 0);
   {
     // Create refuses a missing memory view and a missing backend loudly.
     WwRenderer* renderer = nullptr;
@@ -911,7 +975,11 @@ int main() {
     WwRenderer* renderer = nullptr;
     WwRendererConfig config = fixture.config();
     CHECK(ww_renderer_create(&renderer, &config, &backend) == nullptr);
-    const std::vector<std::uint8_t> fifo = gx_fixture::build_indirect_triangle();
+    std::vector<std::uint8_t> fifo;
+    gx_fixture::push_bp(fifo, 0x43, 1);
+    gx_fixture::push_bp(fifo, 0x42, 0x180);
+    const auto triangle = gx_fixture::build_indirect_triangle();
+    fifo.insert(fifo.end(), triangle.begin(), triangle.end());
     CHECK(ww_renderer_write(renderer, fifo.data(), fifo.size()) == nullptr);
     CHECK(backend.draws.empty());
     WwRendererStats stats{};
@@ -919,7 +987,7 @@ int main() {
     CHECK(stats.plans == 1u && stats.programs_refused == 1u);
     CHECK(stats.refusal_count == 1u);
     CHECK(std::strcmp(stats.refusal_reasons[0],
-                      "indirect TEV lookups not supported") == 0);
+                       "destination alpha requires dual-source blending") == 0);
     ww_renderer_destroy(renderer);
     std::printf("renderer program refusal kept ok\n");
   }

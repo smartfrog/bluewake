@@ -2,6 +2,7 @@
 #pragma once
 
 #include "gxruntime/gxcore/shader.hpp"
+#include "gx_lighting.h"
 
 #include <algorithm>
 #include <cstring>
@@ -12,12 +13,22 @@ namespace gx_vita::texgen {
 namespace gxc = gxruntime::gxcore;
 inline constexpr std::uint32_t kFloatsPerVertex = 3 * gxc::kMaxTexGens;
 
-inline const char* support_reason(const gxc::ShaderKey& key, const gxc::TexGenKey& gen) {
+inline const char* support_reason(const gxc::ShaderKey& key, const gxc::TexGenKey& gen,
+                                  std::uint32_t destination) {
   const auto type = static_cast<gxc::TexGenType>(gen.texgentype);
   if (type == gxc::TexGenType::Color0 || type == gxc::TexGenType::Color1)
     return nullptr;
+  if (type == gxc::TexGenType::EmbossMap) {
+    if (!key.lit_valid)
+      return "emboss light constants absent from pinned plan";
+    if (gen.embosslightshift > 7 || gen.embosssourceshift >= key.num_tex_gens)
+      return "invalid emboss source/light";
+    if (gen.embosssourceshift >= destination)
+      return "emboss source must precede destination";
+    return nullptr;
+  }
   if (type != gxc::TexGenType::Regular)
-    return "emboss texgen not supported";
+    return "invalid texgen type";
   if (gen.inputform > 1 || gen.projection > 1 || gen.sourcerow > 12)
     return "invalid regular texgen fields";
   if (gen.sourcerow >= 2 && gen.sourcerow < 5)
@@ -36,7 +47,7 @@ inline bool translate(const gxc::DrawPlan& plan,
     return false;
   }
   for (std::uint32_t t = 0; t < key.num_tex_gens; ++t) {
-    *reason = support_reason(key, key.tex_gens[t]);
+    *reason = support_reason(key, key.tex_gens[t], t);
     if (*reason != nullptr)
       return false;
   }
@@ -54,6 +65,38 @@ inline bool translate(const gxc::DrawPlan& plan,
       }
       const auto& gen = key.tex_gens[t];
       const auto type = static_cast<gxc::TexGenType>(gen.texgentype);
+      if (type == gxc::TexGenType::EmbossMap) {
+        lighting::VertexFrame frame;
+        if (!lighting::vertex_frame(plan, raw,
+                                    vertices.data() + v * gxc::kVertexStrideBytes,
+                                    frame, reason))
+          return false;
+        float direction[3];
+        for (int axis = 0; axis < 3; ++axis)
+          direction[axis] = plan.constants.lights[gen.embosslightshift].pos[axis] - frame.position[axis];
+        if (!lighting::normalize(direction)) {
+          *reason = "non-finite emboss light direction";
+          return false;
+        }
+        const float* tangent = key.has_vertex_tangent ? raw + gxc::kVertexTangentOffset / 4
+                                                      : plan.constants.cached_tangent;
+        const float* binormal = key.has_vertex_binormal ? raw + gxc::kVertexBinormalOffset / 4
+                                                        : plan.constants.cached_binormal;
+        float basis[2][3];
+        for (int axis = 0; axis < 3; ++axis) {
+          basis[0][axis] = lighting::dot(frame.normal_rows[axis], tangent);
+          basis[1][axis] = lighting::dot(frame.normal_rows[axis], binormal);
+        }
+        std::memcpy(uv, generated + 3 * gen.embosssourceshift, 3 * sizeof(float));
+        for (int axis = 0; axis < 2; ++axis) {
+          uv[axis] += lighting::dot(direction, basis[axis]);
+          if (!std::isfinite(uv[axis])) {
+            *reason = "non-finite emboss coordinate";
+            return false;
+          }
+        }
+        continue;
+      }
       if (type == gxc::TexGenType::Color0 || type == gxc::TexGenType::Color1) {
         const auto offset = type == gxc::TexGenType::Color0
                                 ? gxc::kVertexColor0Offset : gxc::kVertexColor1Offset;
