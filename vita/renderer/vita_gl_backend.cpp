@@ -131,6 +131,11 @@ public:
     return check_gl("draw");
   }
 
+  const char* finish() override {
+    glFinish();
+    return check_gl("GPU finish");
+  }
+
   const char* submit_copy(const gx_vita::TranslatedCopy& copy) override {
     CopyTexture& destination = copy_textures_[copy.dest_address];
     if (destination.name == 0u)

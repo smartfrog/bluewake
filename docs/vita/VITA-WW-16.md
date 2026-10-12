@@ -963,3 +963,59 @@ refusal and caller/queue/SDA/alias negatives. The observed route is red before t
 gate (`logs/ww16-retrace-sleep-red.log`). ARM host links
 (`logs/ww16-retrace-sleep-arm-link.log`); audit, attribution and whitespace pass.
 A clean committed VI-enabled rebuild and watched continuation follow immediately.
+
+## Unit 27: the real VI handler wakes the retrace waiter
+
+Committed VI-enabled build **`55177cb`** passes all private build stages. Fresh
+watched run **`10c1b74cc7b647aab66bf18882e53a39`** passes the observed retrace
+sleep route without a host wakeup: due VI interrupts occur at **8,100,000,
+16,200,000 and 24,300,000 executed cycles**, with the latter two interrupting
+the real scheduler idle loop. The guest progresses to **24,302,469 cycles**,
+**1,171 decoded commands / 8,256 renderer bytes / 2,332 events**. The real backend
+still records **one plan/draw/program**, zero refusals/gaps, zero copies/presents.
+
+The next closed STOP is the same sleep entry **`80308A9C`**, but a different,
+now-observed caller: **LR `80322C38`, FinishQueue `803F7C9C`**, the **GXDrawDone**
+barrier. No extra route was admitted by the retrace-only guard. The report and
+64-entry journal certify; install 1.29 s / guest 11.99 s, followed by the retained
+shutdown crash **exit 133**. The monitor observes CPU and guest-output growth
+throughout, and no inactivity kill occurs. Still no presentation, visible-pixel
+verification, physical Vita test or FPS measurement.
+
+## Unit 28: confirm backend completion before publishing the real PE finish
+
+Source: the shared desktop barrier at `runtime/host/src/main.c:9776-9811` flushes
+actual GX work and commits PE finish only for this GXDrawDone caller. The local
+vitaGL source `source/gxm.c:962-969` implements **glFinish** by resetting the
+scene and calling **sceGxmFinish**. Reuse that real blocking completion primitive;
+do not wake FinishQueue, skip OSSleepThread, set sDrawDone or synthesize a return.
+
+The small renderer/backend finish contract flushes existing stream work, rejects
+partial commands, a held unpresented frame or refused/skipped rendering, then
+waits for the backend. A backend without a real completion primitive explicitly
+refuses. Vita uses **glFinish + the existing GL error check**, not a swap or a
+counter increment. A failure is latched and propagates to the host.
+
+The host admits only the owned observed **GXDrawDone LR/queue/SDA/real-MEM1**
+shape, after all gather/FIFO/capture/command bytes have been consumed. Only a
+successful, logged completion commits the pinned **dol_interrupts_commit_pe_finish**;
+the guest's PE enable, PI mask and MSR EE still control delivery through the
+existing real external-vector path. The actual guest sleep, PE handler, queue
+wakeup and return must run. Repeated zero-charge entry does not refence or
+republish the same consumed stream; later FIFO work requires a new completion.
+Retrace sleep behavior remains unchanged. No pins, composite, desktop code or
+draw/state coverage change; this seam is in the opt-in private continuing stream.
+
+Linux AArch64: **574 host tests pass** (`logs/ww16-gpu-finish-green.log`), including
+confirmed finish, failure/trace failure, missing renderer/disabled stream,
+owned caller/queue/SDA/alias refusals, all unconsumed-work shapes, guest PI masking,
+idempotence and later work. The observed success is red before implementation
+(`logs/ww16-gpu-finish-red.log`). The renderer's **six new completion contracts**
+plus existing bridge/translation/Cg/renderer executables pass; refusing an
+unsubmitted program is separately red then green
+(`logs/ww16-gpu-finish-refusal-red.log`, `logs/ww16-gpu-finish-renderer-green.log`).
+These host backends record synthetic events, **not GPU completion on hardware**.
+The actual ARM host links (`logs/ww16-gpu-finish-arm-link.log`); audit, attribution
+and whitespace checks pass. A clean committed VI build and watched authentic
+continuation are next. Do not claim a finished GPU job until that attempt reaches
+the successful completion log, or a visible pixel from a submission alone.

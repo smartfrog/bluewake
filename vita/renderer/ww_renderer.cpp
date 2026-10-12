@@ -267,6 +267,27 @@ void ww_renderer_stats(WwRenderer* renderer, WwRendererStats* out) {
   *out = renderer->stats;
 }
 
+const char* ww_renderer_finish(WwRenderer* renderer) {
+  if (renderer == nullptr)
+    return "renderer is null";
+  if (renderer->failed)
+    return renderer->error.c_str();
+  if (renderer->frame_ready)
+    return fail(renderer, "GPU finish cannot bypass an unpresented display copy");
+  if (const char* error = flush(renderer))
+    return error;
+  if (renderer->frontend.pending_fifo_size() != 0u)
+    return fail(renderer, "GPU finish requires complete captured commands");
+  if (renderer->frame_ready)
+    return fail(renderer, "GPU finish cannot bypass an unpresented display copy");
+  if (renderer->stats.plans_skipped != 0u || renderer->stats.programs_refused != 0u ||
+      renderer->stats.copies_refused != 0u)
+    return fail(renderer, "GPU finish cannot confirm refused renderer work");
+  if (const char* error = renderer->backend->finish())
+    return fail(renderer, error);
+  return nullptr;
+}
+
 #if !defined(__vita__)
 // Host builds have no GPU: a renderer created without an explicit backend
 // fails loudly in ww_renderer_create. The Vita definition lives in

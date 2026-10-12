@@ -111,6 +111,10 @@ const char* ww_renderer_write(WwRenderer* renderer, const uint8_t* bytes,
 // `presented` may be NULL when the caller does not need the flag.
 const char* ww_renderer_present(WwRenderer* renderer, bool* presented);
 
+// Wait for the submitted GPU work without presenting or accepting partial or
+// refused work. NULL confirms completion; an error is latched like write/present.
+const char* ww_renderer_finish(WwRenderer* renderer);
+
 // Copy the counters out. NULL `out` is a programming error (the call does
 // nothing); `renderer` NULL is a programming error too.
 void ww_renderer_stats(WwRenderer* renderer, WwRendererStats* out);
