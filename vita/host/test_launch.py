@@ -116,6 +116,27 @@ class PrivateLaunchTest(unittest.TestCase):
         self.assertTrue(result['frontier_verified'])
         self.assertFalse(result['rendered'])
 
+    def test_progress_log_larger_than_the_fp_limit_can_certify_a_closed_guest_report(self):
+        self.successful_fake("print('x' * (1024 * 1024 + 1))")
+        status, result = self.run_fake()
+        self.assertEqual(status, 0)
+        self.assertTrue(result['frontier_verified'])
+
+    def test_configuration_parse_failure_after_a_large_trace_is_still_refused(self):
+        self.successful_fake("print('x' * (1024 * 1024 + 1))\n"
+                             "print(\"Config file can't be loaded: synthetic failure\")")
+        status, result = self.run_fake()
+        self.assertEqual(status, 2)
+        self.assertIn('configuration parse failure', result['error'])
+
+    def test_trace_log_limit_remains_enforced(self):
+        import launch
+        self.successful_fake("print('x' * 1024)")
+        with patch.object(launch, 'PROCESS_LOG_LIMIT', 512):
+            status, result = self.run_fake()
+        self.assertEqual(status, 2)
+        self.assertIn('bounded regular file', result['error'])
+
     def test_presented_frames_are_recorded_without_claiming_a_visible_scene(self):
         self.successful_fake()
         fake = self.root / 'runtime/Fake'

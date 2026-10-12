@@ -70,8 +70,8 @@ def checked_alt_config(path):
     return content
 
 
-def verify_config_log(root):
-    content = read_profile_file(root / "evidence/process.log", 1024 * 1024)
+def verify_config_log(root, limit=1024 * 1024):
+    content = read_profile_file(root / "evidence/process.log", limit)
     if b"Config file can't be loaded:" in content:
         raise ValueError("runtime reported configuration parse failure; see evidence/process.log")
 

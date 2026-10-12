@@ -154,10 +154,10 @@ def emitted_config(root, phase, alt=False):
     return canonical
 
 
-def verify_phase_logs(root, phase):
+def verify_phase_logs(root, phase, process_log_limit=1024 * 1024):
     from fp_launch import evidence_file
 
-    verify_config_log(phase)
+    verify_config_log(phase, process_log_limit)
     try:
         content = read_profile_file(root / "cache/Vita3K/vita3k.log", 1024 * 1024, owned=True)
     except FileNotFoundError:

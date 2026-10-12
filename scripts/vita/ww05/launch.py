@@ -22,6 +22,8 @@ from fp_libraries import directory_fd, file_identity, library_identity
 from fp_profile import config_identity, read_profile_file, verify_firmware
 from activity import ProcessIdleObserver
 
+PROCESS_LOG_LIMIT = 64 * 1024 * 1024
+
 
 def verify_inputs(root, plan):
     source = subprocess.check_output(['git', 'rev-parse', 'HEAD'], cwd=ROOT, text=True).strip()
@@ -158,7 +160,7 @@ def execute_run(root, plan):
                  process['exit'] in (0, -signal.SIGTERM, -signal.SIGKILL))):
             raise ValueError('unexpected installer disposition')
         canonical = emitted_config(root, phase)
-        verify_phase_logs(root, phase)
+        verify_phase_logs(root, phase, PROCESS_LOG_LIMIT)
         verify_inputs(root, plan)
         payload = verify_installed(root, plan)
         restore_config(root, canonical)
@@ -181,7 +183,7 @@ def execute_run(root, plan):
         record.update(process_status=status, process=process)
         verify_stopped(process)
         canonical = emitted_config(root, phase)
-        verify_phase_logs(root, phase)
+        verify_phase_logs(root, phase, PROCESS_LOG_LIMIT)
         verify_inputs(root, plan)
         verify_installed(root, plan)
         restore_config(root, canonical)

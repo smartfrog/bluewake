@@ -477,3 +477,37 @@ The missing contract is red in `logs/ww16-rel-profile-link-red.log`. The real AR
 host links (`logs/ww16-rel-profile-link-arm.log`); audit, attribution and whitespace
 checks pass. Windows/desktop gameplay and physical Vita remain untested. The next
 committed VPK rebuild and watched authentic continuation follow immediately.
+
+Watched authentic trial `64cfb05ca68748cb8e90dfe2bb8e8670` at `d091955` proves
+the owned module-1 static contract: raw module at `81822E80`, prelinked profile
+table **`C1F80178`, 2,012 bytes**, published before returning to the real guest.
+Execution advances to **493,979,208 cycles**, then stops on the actual delivered
+decrementer vector **`00000900`** (`srr0=80307EFC`, cause 8 in the vector).
+Installation is 1.39 seconds; the guest phase is 19.14 seconds. CPU and log
+progress were observed throughout; no 30-second inactivity occurred.
+
+The original launcher result remains **INCOMPLETE/status 2**: its shared FP
+configuration-log reader refuses the now 1,597,866-byte process log at the old
+1 MiB bound before report certification. The emulator still exits 133 during
+post-report shutdown. Separate `evidence/protocol-check.json` validates only the
+closed report and 64 journaled commands, explicitly not full launcher readiness.
+That preserves the failed result rather than rewriting it. Renderer counters
+still show 265 commands / 1,759 bytes / zero draws or presentations.
+
+## Unit 14: bounded validation for the longer authentic WW05 trace
+
+WW05 now explicitly allows a **64 MiB process log**, matching its existing GX
+journal bound, through optional limits on the shared configuration-log check.
+The shared FP campaign's default remains **1 MiB**; its runtime-cache bound,
+configuration schema, ownership/source checks, report validator and stop handling
+are unchanged. Oversize WW05 logs still fail. A configuration error after the
+first megabyte is still inspected and refused, never hidden by truncation.
+
+The real oversized-log failure and the synthetic reproductions are retained;
+`logs/ww16-long-launch-log-red.log` records the failed tests before the change.
+Linux AArch64: **493 host tests and 80 shared FP tests pass**
+(`logs/ww16-long-launch-log-green.log`, `logs/ww16-long-log-fp-regressions.log`),
+including accepted long traces, late configuration errors, bounded-log refusal
+and the unchanged FP default-limit test. Audit, attribution and whitespace checks
+pass. The next clean rebuild and watched continuation will certify the report
+through the complete launcher again; no pixel/FPS or physical Vita claim is made.
