@@ -76,6 +76,53 @@ class PrivateLaunchTest(unittest.TestCase):
         self.assertFalse(any(Path('/proc', str(pid)).exists()
                              for pid in result['process']['monitored_pids']))
 
+    def test_low_cpu_guest_with_growing_process_log_is_not_declared_inactive(self):
+        self.successful_fake("for index in range(30):\n print('guest progress', flush=True)\n time.sleep(.05)")
+        self.plan['idle_timeout_seconds'] = 0.2
+        status, result = self.run_fake()
+        self.assertEqual(status, 0)
+        self.assertEqual(result['process']['stop_reason'], 'exit')
+
+    def test_low_cpu_guest_with_growing_native_journal_is_not_declared_inactive(self):
+        self.successful_fake("journal=root/'data/Vita3K/Vita3K/ux0/data/bluewake-ww-fixture/ww05.log'\n"
+                             "for index in range(30):\n"
+                             " with journal.open('a') as stream: stream.write('guest progress\\n')\n"
+                             " time.sleep(.05)")
+        self.plan['idle_timeout_seconds'] = 0.2
+        status, result = self.run_fake()
+        self.assertEqual(status, 0)
+        self.assertEqual(result['process']['stop_reason'], 'exit')
+
+    def test_growing_logs_do_not_hide_the_separate_explicit_phase_deadline(self):
+        self.successful_fake("for index in range(30):\n print('guest progress', flush=True)\n time.sleep(.05)")
+        self.plan['idle_timeout_seconds'] = 0.2
+        self.plan['phases']['guest']['timeout_seconds'] = 0.6
+        status, result = self.run_fake()
+        self.assertEqual(status, 124)
+        self.assertEqual(result['process']['stop_reason'], 'timeout')
+        self.assertEqual(result['completion'], 'INCOMPLETE')
+
+    def test_timeout_without_a_closed_report_keeps_deadline_status_and_partial_logs(self):
+        self.fake("app=root/'data/Vita3K/Vita3K/ux0/app/BWWG00005'\napp.mkdir(parents=True)\n"
+                  "with zipfile.ZipFile('ww05.vpk') as archive: archive.extractall(app)\n",
+                  "print('partial timed guest log', flush=True)\ntime.sleep(10)")
+        self.plan['phases']['guest']['timeout_seconds'] = 0.2
+        status, result = self.run_fake()
+        self.assertEqual(status, 124)
+        self.assertEqual(result['completion'], 'INCOMPLETE')
+        self.assertEqual(result['reported_frontier'], 'UNAVAILABLE')
+        self.assertIn('partial timed guest log', (self.root / 'phases/guest/evidence/process.log').read_text())
+
+    def test_missing_verified_input_after_a_timeout_is_not_hidden_as_report_absence(self):
+        import launch
+        self.successful_fake('time.sleep(10)')
+        self.plan['phases']['guest']['timeout_seconds'] = 0.2
+        with patch.object(launch, 'verify_inputs', side_effect=[None, None, FileNotFoundError(2, 'missing input', 'main.dol')]):
+            status = launch.execute_run(self.root, self.plan)
+        self.assertEqual(status, 2)
+        result = json.loads((self.root / 'evidence/result.json').read_text())
+        self.assertIn('main.dol', result['error'])
+
     def test_busy_sandbox_descendant_is_not_mistaken_for_an_idle_bwrap_parent(self):
         self.successful_fake('end=time.monotonic()+1\nwhile time.monotonic()<end: pass')
         self.plan['idle_timeout_seconds'] = 0.3
@@ -115,6 +162,51 @@ class PrivateLaunchTest(unittest.TestCase):
         self.assertEqual(result['completion'], 'COMPLETE')
         self.assertTrue(result['frontier_verified'])
         self.assertFalse(result['rendered'])
+
+    def test_progress_log_larger_than_the_fp_limit_can_certify_a_closed_guest_report(self):
+        self.successful_fake("print('x' * (1024 * 1024 + 1))")
+        status, result = self.run_fake()
+        self.assertEqual(status, 0)
+        self.assertTrue(result['frontier_verified'])
+
+    def test_configuration_parse_failure_after_a_large_trace_is_still_refused(self):
+        self.successful_fake("print('x' * (1024 * 1024 + 1))\n"
+                             "print(\"Config file can't be loaded: synthetic failure\")")
+        status, result = self.run_fake()
+        self.assertEqual(status, 2)
+        self.assertIn('configuration parse failure', result['error'])
+
+    def test_trace_log_limit_remains_enforced(self):
+        import launch
+        self.successful_fake("print('x' * 1024)")
+        with patch.object(launch, 'PHASE_LOG_LIMIT', 512):
+            status, result = self.run_fake()
+        self.assertEqual(status, 2)
+        self.assertIn('bounded regular file', result['error'])
+
+    def test_large_runtime_cache_trace_can_certify_a_closed_guest_report(self):
+        self.successful_fake("cache=root/'cache/Vita3K'\ncache.mkdir(exist_ok=True)\n"
+                             "(cache/'vita3k.log').write_text('x' * (1024 * 1024 + 1))")
+        status, result = self.run_fake()
+        self.assertEqual(status, 0)
+        self.assertTrue(result['frontier_verified'])
+
+    def test_configuration_error_at_the_end_of_a_large_cache_trace_is_refused(self):
+        self.successful_fake("cache=root/'cache/Vita3K'\ncache.mkdir(exist_ok=True)\n"
+                             "(cache/'vita3k.log').write_text('x' * (1024 * 1024 + 1) + "
+                             "\"Config file can't be loaded: synthetic failure\")")
+        status, result = self.run_fake()
+        self.assertEqual(status, 2)
+        self.assertIn('configuration parse failure', result['error'])
+
+    def test_runtime_cache_trace_remains_bounded(self):
+        import launch
+        self.successful_fake("cache=root/'cache/Vita3K'\ncache.mkdir(exist_ok=True)\n"
+                             "(cache/'vita3k.log').write_text('x' * 1024)")
+        with patch.object(launch, 'PHASE_LOG_LIMIT', 512):
+            status, result = self.run_fake()
+        self.assertEqual(status, 2)
+        self.assertIn('bounded regular file', result['error'])
 
     def test_presented_frames_are_recorded_without_claiming_a_visible_scene(self):
         self.successful_fake()
@@ -224,6 +316,23 @@ class PrivateLaunchTest(unittest.TestCase):
         result = json.loads((self.root / 'evidence/result.json').read_text())
         self.assertIn('synthetic source read failure', result['error'])
         self.assertIn('RuntimeError', result['traceback'])
+
+    def test_baseline_does_not_allow_the_current_launcher_checkpoint_to_change(self):
+        import launch
+        self.plan['launcher_source'] = 'b' * 40
+        with patch('subprocess.check_output', return_value='c' * 40 + '\n'):
+            with self.assertRaisesRegex(ValueError, 'source checkpoint'):
+                launch.verify_inputs(self.root, self.plan)
+
+    def test_selected_baseline_receipt_must_remain_byte_identical(self):
+        import launch
+        path = self.root / 'evidence/snapshot-receipt.json'
+        path.write_text('changed receipt')
+        self.plan.update(launcher_source='b' * 40, build_evidence_path=str(path), build_evidence_sha256='f' * 64)
+        with patch('subprocess.check_output', side_effect=['b' * 40 + '\n', '']), \
+             patch.object(launch, 'checked_sources'):
+            with self.assertRaisesRegex(ValueError, 'build receipt changed'):
+                launch.verify_inputs(self.root, self.plan)
 
     def test_request_parent_symlink_cannot_create_outside_profile(self):
         import launch

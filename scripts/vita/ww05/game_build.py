@@ -101,11 +101,14 @@ def main():
     parser.add_argument('--disc', type=Path, required=True)
     parser.add_argument('--out', type=Path, default=OUTPUT)
     parser.add_argument('--prepare-only', action='store_true')
+    parser.add_argument('--vi-clock', action='store_true', help='enable the experimental guest-cycle VI clock (off by default)')
     parser.add_argument('--jobs', type=int, default=2)
     parser.add_argument('--external-vector', type=Path, default=OUTPUT / 'private/external-vector.bin',
                         help='exact private vector captured from the documented guest trial')
     parser.add_argument('--fp-vector', type=Path, default=OUTPUT / 'private/fp-vector.bin',
-                        help='exact private FP-unavailable vector captured from the documented guest trial')
+                         help='exact private FP-unavailable vector captured from the documented guest trial')
+    parser.add_argument('--decrementer-vector', type=Path, default=OUTPUT / 'private/decrementer-vector.bin',
+                        help='exact private decrementer vector captured from the documented guest trial')
     args = parser.parse_args()
     if args.jobs < 1 or args.jobs > 4:
         parser.error('jobs must be between one and four')
@@ -162,8 +165,8 @@ def main():
     init_header = identity / 'ww05_dsp_init.h'
     init_header.write_text('static const unsigned char ww05_dsp_init_reference[128] = {' +
                             ','.join(str(value) for value in init_code) + '};\n')
-    from external_vector import (OBSERVED_SHA256, FP_OBSERVED_SHA256, TEMPLATE_SHA256,
-                                 emit_external_vector, emit_fp_vector)
+    from external_vector import (OBSERVED_SHA256, FP_OBSERVED_SHA256, DECREMENTER_OBSERVED_SHA256,
+                                 TEMPLATE_SHA256, emit_external_vector, emit_fp_vector, emit_decrementer_vector)
     vector_generator = output / 'vector-generator'
     build.run('vector-generator-configure', [cmake, '-S', ROOT / 'vita/feasibility/armv7/generator',
         '-B', vector_generator, '-G', 'Ninja', f'-DCMAKE_C_COMPILER={cc}',
@@ -174,7 +177,9 @@ def main():
     vectors = {}
     for name, path, address, expected, emit in (
             ('external_vector', args.external_vector, '00000500', OBSERVED_SHA256, emit_external_vector),
-            ('fp_vector', args.fp_vector, '00000800', FP_OBSERVED_SHA256, emit_fp_vector)):
+            ('fp_vector', args.fp_vector, '00000800', FP_OBSERVED_SHA256, emit_fp_vector),
+            ('decrementer_vector', args.decrementer_vector, '00000900', DECREMENTER_OBSERVED_SHA256,
+             emit_decrementer_vector)):
         observed = path.read_bytes()
         vector_source = identity / f'ww05_{name}.c'
         emit((private / 'main.dol').read_bytes(), observed, vector_generator / 'ww_vector_emit', vector_source)
@@ -190,7 +195,8 @@ def main():
                                  f'-DCMAKE_MAKE_PROGRAM={ninja}', '-DCMAKE_BUILD_TYPE=Release',
                                  f'-DRECOMPCORE_DIR={sources["RecompCore"]}', f'-DCOMPOSITE_DIR={composite}',
                                   f'-DWW05_IDENTITY_DIR={identity}', f'-DWW05_DOL={private}/main.dol',
-                                  f'-DWW05_VITAGL_LIBRARY={vitagl}', f'-DWW05_RENDERER_SDK={renderer_sdk}'])
+                                   f'-DWW05_VITAGL_LIBRARY={vitagl}', f'-DWW05_RENDERER_SDK={renderer_sdk}',
+                                   f'-DWW05_ENABLE_VI_CLOCK={"ON" if args.vi_clock else "OFF"}'])
     build.run('vita-build', [cmake, '--build', vita, '-j', args.jobs])
     from inspect_build import inspect
     inspect(vita)
@@ -213,7 +219,7 @@ def main():
         'composite_digest': digest, 'title': 'BWWG00005', 'method': 'startup-gx-v1',
         'artifacts': artifacts, 'config': {'static_module': True, 'aurora': False, 'aurora_recomp': True,
         'optimization': 1, 'compiler_pass_disabled': 'tree-dominator-opts', 'fp_patch': None,
-        'lazy_fp': True, 'fp_exception_suffix_refund': True},
+        'lazy_fp': True, 'fp_exception_suffix_refund': True, 'vi_clock': args.vi_clock},
         'footprint_sha256': sha256(output / 'footprint.json'),
         'snapshot': str(snapshot)}, indent=2) + '\n'
     (snapshot / 'build-evidence.json').write_text(receipt)

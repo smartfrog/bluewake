@@ -29,12 +29,17 @@ def raw_rel():
 
 def rel_archive(scenario):
     raw = bytearray(raw_rel())
+    if scenario.startswith('link'):
+        struct.pack_into('>I', raw, 0xC, 5)
+        struct.pack_into('>II', raw, 0x6C, 0xB0, 16)
     if scenario == 'bad-rel':
         struct.pack_into('>I', raw, 0x10, 0xFFFFFFFC)
     if scenario == 'wrong-module':
         struct.pack_into('>I', raw, 0, 99)
     if scenario == 'metadata':
-        struct.pack_into('>I', raw, 0x1C, 2)
+        struct.pack_into('>I', raw, 0xC, 3)
+    if scenario == 'catalog-word':
+        struct.pack_into('>I', raw, 4, 1)
     member = yaz0_literals(raw) if scenario in ('compressed', 'bad-yaz0') else bytes(raw)
     if scenario == 'bad-yaz0':
         member = member[:17]
@@ -100,7 +105,7 @@ class RelMaterializeTest(unittest.TestCase):
                 self.run_probe(scenario)
 
     def test_malformed_or_oversize_images_stop_before_guest_mapping(self):
-        for scenario in ('bad-archive', 'bad-yaz0', 'bad-rel', 'wrong-module', 'metadata', 'oversize'):
+        for scenario in ('bad-archive', 'bad-yaz0', 'bad-rel', 'wrong-module', 'metadata', 'catalog-word', 'oversize'):
             with self.subTest(scenario=scenario):
                 self.run_probe(scenario)
 
@@ -118,6 +123,20 @@ class RelMaterializeTest(unittest.TestCase):
 
     def test_alias_allocation_failure_stops_without_publishing_a_partial_module(self):
         self.run_probe('allocation')
+
+    def test_profile_list_links_to_the_verified_prelinked_export_and_returns_to_the_guest(self):
+        self.run_probe('link')
+
+    def test_repeated_profile_link_does_not_read_or_materialize_again(self):
+        self.run_probe('link-repeat')
+
+    def test_invalid_profile_binding_is_not_published(self):
+        for scenario in ('link-missing-data', 'link-unmapped', 'link-dirty-data', 'link-wrong-global', 'link-bad-return'):
+            with self.subTest(scenario=scenario):
+                self.run_probe(scenario)
+
+    def test_profile_link_log_failure_preserves_the_guest_module_and_global(self):
+        self.run_probe('link-trace')
 
 
 if __name__ == '__main__':

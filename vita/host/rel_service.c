@@ -24,7 +24,9 @@ static const char* validate_rel(WwHost* host, const u8* image, u32 bytes, u32* m
     for (u32 index = 0u; index < host->module->num_rel_modules; ++index) {
         const StaticRecompRelModule* rel = &host->module->rel_modules[index];
         if (rel->module_id == id) {
-            if (rel->file_size != bytes || rel->version != version || rel->section_count != sections ||
+            // The immutable composite producer names the +0x04 next-link word "version".
+            const u32 catalog_version_word = bluewake_archive_be32(image + 4u);
+            if (rel->file_size != bytes || rel->version != catalog_version_word || rel->section_count != sections ||
                 rel->section_info_offset != table)
                 return "REL raw image metadata disagrees with the compiled descriptor";
             *module_id = id;
@@ -111,7 +113,7 @@ const char* ww_host_materialize_rel(WwHost* host, u32 owner, const char* name) {
             if (!ppc_guest_alias_remove(guest, capacity))
                 ww_host_fail(host, "REL failed mapping could not be removed", guest, host->cpu.pc);
         } else {
-            host->rel_image = (WwRelImage){owner, guest, bytes, capacity, module_id};
+            host->rel_image = (WwRelImage){owner, guest, bytes, capacity, module_id, false};
             host->alias_count++;
             host->alias_bytes += capacity;
         }

@@ -2,6 +2,7 @@
 #define WW05_REL_SERVICE_H
 
 #include <stdint.h>
+#include <stdbool.h>
 
 typedef struct WwRelImage {
     uint32_t owner;
@@ -9,6 +10,7 @@ typedef struct WwRelImage {
     uint32_t bytes;
     uint32_t capacity;
     uint32_t module_id;
+    bool linked;
 } WwRelImage;
 
 #define WW_REL_SCRATCH_BASE 0x81820000u

@@ -412,3 +412,355 @@ import (`rel-importer-check-h211_gub/result.json`); it executes no guest code.
 Audit, attribution and whitespace checks pass. Windows verification is tracked
 in `docs/WINDOWS_TASKS.md`; it was not run. A clean committed VPK build and watched
 authentic materialization trial follow, with the existing inactivity watchdog.
+
+The committed VPK rebuild at `e8f6c6a` succeeds. Watched authentic trial
+`30c30fe7ca064d528c372928120e4274` reads/decodes the requested ISO member but
+refuses its catalog check before mapping: **`REL raw image metadata disagrees
+with the compiled descriptor`**, at the same 78,789,721 cycles. Installation is
+1.24 seconds, guest 9.54 seconds; zero draws/presents and the known post-report
+teardown crash 133 remain. No successful materialization is claimed for this run.
+
+This reveals a producer naming defect, not a different REL: the immutable
+`scripts/generate_composite.py:118-127` reads the descriptor's field named
+`version` from **raw +0x04 (next-link)**, not the actual version at **+0x1C**.
+The existing composite exports zero in that field for module 1. The guard now
+compares that legacy catalog word to its actual producer input and independently
+validates the real version (1..3); file size, section count and table offset
+remain exact catalog matches. Changing the generator/composite would invalidate
+the private verified digest and is outside this seam: neither is rewritten.
+The synthetic descriptor now models the real producer, and a changed catalog
+word is still refused. This reproduction is red in `logs/ww16-rel-catalog-red.log`.
+
+**486 host tests pass** after the producer-contract correction
+(`logs/ww16-rel-catalog-green.log`); audit, attribution and whitespace checks pass.
+The next clean committed rebuild and watched trial follow immediately.
+
+Watched trial `f2be755920014d42a910d4ac1691834d` at `bf2d61e` proves the requested
+raw module was materialized: **module 1, `f_pc_profile_lst`, 16,500 bytes at
+`81822E80`, source=iso-RELS.arc, backend=vita-sceio**. The owned alias rounds to
+16,512 bytes, outside 24 MiB MEM1 and outside linked section/code extents.
+The next explicit STOP is **relocation/link/prolog**, at the same 78,789,721 cycles;
+raw materialization is not claimed as successful `do_link`. Installation is 1.23
+seconds, guest 10.31 seconds, with live CPU/log observations retained in
+`evidence/run-watch.jsonl`. The known post-report crash remains 133. No draw or
+presentation occurs; the closed report and 64 journaled GX commands validate.
+
+## Unit 13: the sourced profile-list static-composite link contract
+
+`runtime/host/src/main.c`'s materialization branch publishes the module pointer,
+then `host_activate_rel_profile_list` binds module 1's prelinked section 4 to
+**`g_fpcPf_ProfileList_p` at `803F6A68`** before returning TRUE to the actual
+caller. The private translated module's publication routine confirms that same
+global and prelinked data address. This is the shared desktop compatibility
+contract, not a generic relocation engine or proof that a guest prolog executed.
+
+The Vita lane now services **only the owned module-1 contract** after the proven
+ISO materialization. Its linked data must be present, byte-identical to the
+borrowed immutable composite export, and match the module's section descriptor
+and raw section size. Unsupported BSS, absent/changed data, an unaligned return,
+another object's pointer/global or a failed trace stops before publication.
+Only after those gates does it publish the raw module pointer and the already
+linked profile table, return TRUE and resume at the real LR. Repeated calls for
+that same owned resident image do not read or materialize again. Other module
+owners/link contracts remain explicit STOPs; no constructor, generic relocation,
+unload, active-set measurement, frame or timing credit is fabricated.
+
+The profile-data selection is extracted into shared `rel_profile_list.h` and
+reused by desktop's existing publication routine; its selected entry, global and
+return behavior are unchanged. The Vita lane borrows the already provided REL
+exports until shutdown, without owning or freeing those static bytes.
+
+Linux AArch64: **490 host tests pass** (`logs/ww16-rel-profile-link-green.log`),
+including exact publication, preserved unrelated object bytes, repeated-link
+no-read behavior, invalid binding/return refusal and trace-failure preservation.
+The missing contract is red in `logs/ww16-rel-profile-link-red.log`. The real ARM
+host links (`logs/ww16-rel-profile-link-arm.log`); audit, attribution and whitespace
+checks pass. Windows/desktop gameplay and physical Vita remain untested. The next
+committed VPK rebuild and watched authentic continuation follow immediately.
+
+Watched authentic trial `64cfb05ca68748cb8e90dfe2bb8e8670` at `d091955` proves
+the owned module-1 static contract: raw module at `81822E80`, prelinked profile
+table **`C1F80178`, 2,012 bytes**, published before returning to the real guest.
+Execution advances to **493,979,208 cycles**, then stops on the actual delivered
+decrementer vector **`00000900`** (`srr0=80307EFC`, cause 8 in the vector).
+Installation is 1.39 seconds; the guest phase is 19.14 seconds. CPU and log
+progress were observed throughout; no 30-second inactivity occurred.
+
+The original launcher result remains **INCOMPLETE/status 2**: its shared FP
+configuration-log reader refuses the now 1,597,866-byte process log at the old
+1 MiB bound before report certification. The emulator still exits 133 during
+post-report shutdown. Separate `evidence/protocol-check.json` validates only the
+closed report and 64 journaled commands, explicitly not full launcher readiness.
+That preserves the failed result rather than rewriting it. Renderer counters
+still show 265 commands / 1,759 bytes / zero draws or presentations.
+
+## Unit 14: bounded validation for the longer authentic WW05 trace
+
+WW05 now explicitly allows a **64 MiB process log**, matching its existing GX
+journal bound, through optional limits on the shared configuration-log check.
+The shared FP campaign's default remains **1 MiB**; its runtime-cache bound,
+configuration schema, ownership/source checks, report validator and stop handling
+are unchanged. Oversize WW05 logs still fail. A configuration error after the
+first megabyte is still inspected and refused, never hidden by truncation.
+
+The real oversized-log failure and the synthetic reproductions are retained;
+`logs/ww16-long-launch-log-red.log` records the failed tests before the change.
+Linux AArch64: **493 host tests and 80 shared FP tests pass**
+(`logs/ww16-long-launch-log-green.log`, `logs/ww16-long-log-fp-regressions.log`),
+including accepted long traces, late configuration errors, bounded-log refusal
+and the unchanged FP default-limit test. Audit, attribution and whitespace checks
+pass. The next clean rebuild and watched continuation will certify the report
+through the complete launcher again; no pixel/FPS or physical Vita claim is made.
+
+## Unit 15: include Vita3K's duplicate cache trace in the same bounded gate
+
+Watched trial `e8da4458aea54d55b703ba96e6df912a` at `070e354` reproduces the same
+successful ISO materialization/profile-list binding and honest `00000900` STOP.
+The process-log check now passes, but Vita3K duplicates the trace into its cache:
+**1,597,797 process-log bytes / 1,593,344 cache-log bytes**. The latter still hit
+the shared FP 1 MiB default. Its original launcher result is preserved as
+INCOMPLETE/status 2, with the exact cache-check traceback; no certification is
+forced. Installation is 1.31 seconds and guest 18.11 seconds, continuously
+observed, with the unchanged post-report emulator exit 133.
+
+The optional phase limit now applies consistently to both traces: **WW05 64 MiB,
+FP default 1 MiB**. Both logs retain their regular-file/range checks; cache logs
+remain privately owned and unshared. Both are scanned fully for configuration
+errors, including after the first megabyte. Cache evidence is retained instead
+of trimmed. The default FP cache limit and oversize WW05 cache refusal are
+explicit regression tests, alongside accepted large cache traces and late errors.
+
+Linux AArch64: **496 host tests and 81 shared FP tests pass**
+(`logs/ww16-long-cache-log-green.log`, `logs/ww16-cache-limit-fp-regressions.log`),
+with red evidence in `logs/ww16-long-cache-log-red.log`. Audit, attribution and
+whitespace checks pass. Another clean build and watched authenticated trial
+follow; gameplay code is unchanged by this gate correction.
+
+The subsequent physical decrementer-vector seam is already sourced, not executed:
+the authentic 152-byte `00000900` observation from run `64cfb05c...` matches the
+verified retail DOL template with **only exception-number immediate 8 changed**.
+Private lineage evidence is `evidence/decrementer-vector-lineage.json` in that
+run; SHA-256 `bc97b5f351867639d7c79721c1ed87d8670e4ac1ae741d89ef1782906f00e352`.
+No vector code or disc bytes are committed, and no timer skip, fake IRQ, frame
+or FPS result is claimed.
+
+The clean build at `1277832` succeeds. Watched authentic trial
+`6ee5339a723342c79b639e27fad8a8a1` now completes the entire launcher validation:
+**closed report, 64 GX journal entries, rendered/presented=0**, with the real
+`00000900` STOP at 493,979,208 cycles. Installation takes 1.25 seconds and guest
+16.42 seconds. The process/cache bounds accept the intact traces without
+truncation; result status remains **133**, not a passing emulator exit. Source,
+input and preparation gates all run. The known shutdown crash remains unresolved.
+
+## Unit 16: dispatch the exact observed decrementer vector
+
+The authentic 152-byte vector at `00000900` has the same verified retail DOL
+template lineage as the existing physical external/FP vectors, except for cause
+**8**. The existing private emitter now accepts that observed base and emits its
+function/reference pair; `game_build.py` validates the captured binary's exact
+SHA and template lineage, includes it in the private build and snapshots its
+input/source identities. The generated game-derived code stays private.
+
+The host registers it in the existing observed-vector dispatcher. The same
+full-byte comparison, physical MSR mode, aligned PC, exact memory extent and
+exception-state guards apply before execution. The existing decrementer delivery,
+deadline, saved SRR0/SRR1, cycle accounting and rebudget behavior are **unchanged**.
+No timer skip, fake IRQ, synthetic return or host-call bypass is added: the real
+translated stores and RFI run under the remaining instruction budget.
+
+The existing vector probe is reused for cause 8. Tests cover each mutated byte,
+invalid mode/PC/state/range, zero remaining quantum and one-cycle resumption with
+actual saved context and RFI. Input tests refuse every unrelated observed byte
+change, the wrong exception immediate and unrelated source changes; valid input
+uses physical base `00000900`. The new emitter-base test is red before support
+(`logs/ww16-decrementer-vector-red.log`). The full-suite run also exposed two
+configuration fixtures still supplying only two vectors; they now provide the
+required third synthetic source, preserving the real-input preflight gate.
+
+Linux AArch64: **510 host tests pass** (`logs/ww16-decrementer-vector-final.log`),
+and the actual ARM host links (`logs/ww16-decrementer-vector-arm-link.log`). Audit,
+attribution and whitespace checks pass. No source pin, composite digest, runtime
+default or desktop behavior changes. The next clean committed build and watched
+authentic continuation follow; no visible pixel, FPS or physical Vita claimed.
+
+Watched trial `4ce56e3c1971443dbe1dfee117cb525f` at `21f6a64` proves **eight real
+decrementer deliveries and eight verified-vector RFI handoffs to `803025D4`**.
+The last progress sample reaches **4,187,606,691 executed guest cycles**. It then
+repeats `80307EF4`, with the timer rearmed and no further journaled GX entries.
+There are 127 read requests (including four post-link audio archive reads) and
+116 completed DVD callbacks. CPU/log progress stay high, so this is not an
+inactivity-watchdog hang. The deliberately shortened **60-second phase ceiling**
+stops/reaps it; installation took 1.18 seconds. The observed emulator is gone.
+
+There is no closed report: result stays INCOMPLETE/UNAVAILABLE, process_status 124,
+with status 2 for the missing report. The partial report, native log, CPU/log
+watch and `evidence/active-plateau-analysis.json` are retained. No signal was sent
+by the later manual-stop check because the process had already exited. There is
+no newly certified renderer count or pixel/FPS claim from this unfinished run.
+
+## Unit 17: observe the sourced SelectThread wait, without inventing a wakeup
+
+The private translated `80307EF4` loop loads `r13-26288`, tests zero and loops;
+the shared desktop labels it **SelectThread's run-queue wait** and already
+observes the retail run bits/current thread/context, thread state/wait queue and
+saved stack frames. This evidence does not establish a VI failure or permission
+to wake a thread, so none is assumed.
+
+The Vita lane now emits one post-link idle observation, reusing a shared pure
+selection of the existing desktop's run bits/current thread/context values.
+It records the actual r13-derived poll address/value, scheduler depth, pending
+DVD work and live GX/renderer counters (with an explicit availability flag).
+The sourced default/main/DVD thread records, bounded active-thread list and
+four saved frames per thread identify the actual caller/wait, not a guessed
+future event. Reads require bounded real MEM1; trace failures stop loudly.
+It changes no guest RAM, register, runnable bit, queue, callback or clock budget.
+The observer's once-only latch is host diagnostic state only.
+
+Linux AArch64: **514 host tests pass** (`logs/ww16-scheduler-idle-green.log`),
+with final observer checks in `logs/ww16-scheduler-idle-final-focused.log`; tests
+compare all guest RAM before/after, preserve PC/cycles, exercise once-only and
+unlinked guards, and refuse failed trace output. Red evidence is
+`logs/ww16-scheduler-idle-red.log`. The actual ARM host links
+(`logs/ww16-scheduler-idle-arm-link-final.log`); audit, attribution and whitespace
+checks pass. The desktop's initial idle diagnostic uses the same three reads
+through the shared helper; no desktop scheduling behavior changes. Windows
+verification remains unavailable and is tracked. The next committed build and
+short watched diagnostic trial follow immediately.
+
+## Unit 18: keep an owned deadline without a closed report honest
+
+When a verified owned guest phase reaches its timeout or inactivity stop before
+closing `ww05.report`, the launcher now preserves **124 or 125 / INCOMPLETE /
+UNAVAILABLE** and the partial-log/error context. This is not report certification.
+Only the actual missing report filename is treated as expected after those
+stops; a missing approved input or any other exception still returns status 2.
+The earlier failed run results are not rewritten.
+
+The no-report deadline test is red before the fix
+(`logs/ww16-timeout-status-red.log`). Linux AArch64: **516 host tests pass**
+(`logs/ww16-timeout-status-green.log`), including untouched partial logs and a
+missing verified DOL after timeout that must not be hidden. Audit, attribution
+and whitespace checks pass. The next clean build includes the read-only scheduler
+observer and this status correction; a short watched trial will identify the
+actual waiting thread/caller, without forcing a wakeup or claiming a frame.
+
+Watched trial `c8e99533a39d458294b36ea1fff1ec6a` at `2e8deb1` identifies the wait:
+at 78,796,192 cycles, run bits/current thread/lock/DVD pending are zero, and
+`r13-26288` resolves to the real run bits at `803F7A30`. Main thread `803A2960`
+waits on `80429EF0`; saved stack returns through `80305A28` to **`80255E18`**.
+The read-only renderer snapshot proves **265 decoded commands / 1,759 FIFO bytes /
+zero draws or presentations**. The run later executes two decrementer deliveries,
+reaches 1,136,685,334 logged cycles, and is stopped/reaped at its 20-second ceiling.
+Result is correctly **124 / INCOMPLETE / UNAVAILABLE**, not a closed report; the
+snapshot and `evidence/scheduler-wait-analysis.json` preserve that distinction.
+The observed emulator is gone. No runtime wakeup is inferred just from the wait.
+
+## Unit 19: opt-in guest-cycle VI clock, using the existing interrupt model
+
+The translated caller at `80255E18` receives from the video message queue;
+the shared desktop traces `JUTVideo::postRetraceProc` at `802C8110`, and the
+translated routine calls the real message-send path at `80305908`. Desktop's
+`host_vi_advance_cycles` uses pinned `DolViClock` to assert the existing
+`DolInterrupts` VI status. The Vita host already has those VI registers and the
+real external-vector delivery, but **never advances a VI clock**. This sources
+the missing producer rather than granting permission to fabricate a message.
+
+The private boot host now advances that same pinned clock from **credited executed
+guest cycles**, with the desktop cadence: **8,100,000 cycles per retrace (486 MHz /
+60 Hz)**. Those unchanged constants move to shared `guest_timing.h`; desktop
+behavior is unchanged. The next VI deadline bounds dispatch. Due events assert
+the existing VI status/source; the existing VI/PI masks and MSR EE gate real
+external-vector delivery. The translated handler/callback remains responsible
+for acknowledgement, queue messages and waking threads. This unit does not call
+the renderer's present function, count a retrace as a frame, alter guest RAM,
+grant timebase credit, skip instructions or change the decrementer.
+
+**Off by default:** `WW05_ENABLE_VI_CLOCK=OFF`; only the explicit private builder
+`--vi-clock` enables it, resets the CMake option for each build and records the
+choice in `build-evidence.json`. The native journal records the enabled state,
+period, first 16 retraces and live idle-snapshot count. No pin/composite edits or
+network operations are made. Windows verification of the unchanged shared timing
+constants is tracked; desktop, Windows and physical Vita gameplay remain untested.
+
+Linux AArch64: **530 host tests and 81 FP tests pass**
+(`logs/ww16-vi-clock-green.log`, `logs/ww16-vi-clock-fp-regressions.log`). The actual
+cycle-threshold test fails before implementation (`logs/ww16-vi-clock-red.log`).
+Tests cover the default-off/build opt-in, exact threshold/deadline, VI/PI/EE masks,
+prior exception preservation, real VI acknowledgement, elapsed periods, zero
+charge, timebase writes and failed trace handling; every clock probe compares all
+guest RAM before/after and observes no GX/message/frame work. The actual ARM host
+links (`logs/ww16-vi-clock-arm-link.log`). Audit, attribution and whitespace checks
+pass. A committed **opt-in** rebuild and fresh watched authentic trial follow.
+
+## Unit 20: CPU OR guest-output growth prevents false inactivity
+
+Coordinator priority supersedes the pending VI experiment: fix inactivity
+accounting, then replay the **exact archived `2e8deb1` guest build** without VI.
+The opt-in `c93951d` build completed, but no VI-enabled emulator trial was started.
+The lane/branch and previous work remain intact; no source reset or data deletion.
+
+The distinction is important: neither `4ce56e3c...` nor `c8e99533...` is a Vita3K
+crash. Their actual `phases/guest/evidence/process.json` says **timeout / exit -15
+(owned SIGTERM)**, at **60.006 s** and **20.001 s** respectively. They were killed
+by their explicit phase ceilings, not an `inactive` observer result. The old
+watchdog nevertheless had the CPU-only false-hang risk described by the
+coordinator: real I/O progress must keep a low-CPU process alive.
+
+Activity now means **CPU at least 5% OR positive size growth of an owned output**.
+The 30-second idle window resets on either. The launcher samples the real phase
+process log, Vita3K cache log, guest journal/partial/report/dispatch marker and,
+while installing, the actual payload files. It does not read their contents or
+walk broad trees. Symlinks, unowned/nonregular/multilink files and metadata errors
+are refused; missing not-yet-created files are normal. A replaced regular log can
+report new output; same-size overwrites are not growth.
+
+Delegated choice: "any evidence" means the **process-written outputs above**, not
+our observer's `run-watch.jsonl` or plan/result bookkeeping. Otherwise a monitor
+would keep its own hung guest alive forever. The native monitor and CPU-tree
+accounting remain active; true silence plus low CPU still TERM/KILL/reaps early.
+The independent phase ceiling remains explicit and is not called inactivity.
+The next baseline trial uses the longer authorized ceiling, not 20/60 seconds.
+
+Linux AArch64: **540 host tests and 81 FP tests pass**
+(`logs/ww16-output-watchdog-green.log`, `logs/ww16-output-watchdog-fp.log`). Real
+subprocess regressions prove low-CPU stdout/native-journal writers exit normally
+past the idle window; the original false-inactivity tests fail before the change
+(`logs/ww16-output-watchdog-red.log`). Deterministic checks cover the 2%-CPU growth
+case, silence after growth, each watched output, rotation, same-size writes,
+symlink refusal and exclusion of our own watch journal. Explicit ceilings still
+return timeout, not inactive. Audit, attribution and whitespace checks pass.
+No guest code, ABI, graphics, timer, source pin or composite digest changes in
+this unit. The baseline uses a preserved receipt/package, not a rebuild with a
+different guest SHA; launcher and guest provenance will be recorded separately.
+
+## Unit 21: replay a saved baseline without rewriting either source identity
+
+Delegated choice: replay the **original archived VPK**, not a new rebuild bearing
+a different guest commit label. `--baseline-build` selects an explicit preserved
+`artifacts-*/build-evidence.json`. Its full guest commit must be an ancestor of the
+current clean launcher checkpoint; errors/unrelated commits are refused. Pins,
+composite digest, snapshot footprint, all artifact hashes and the packaged
+SELF/SFO/DOL still pass their existing checks. The selected receipt is rehashed
+before/after each phase; the launcher itself must remain at its recorded clean
+SHA. Ordinary launches still require HEAD == build source, with both the ordinary
+offline footprint and its preserved snapshot checked. No HEAD/source test is
+bypassed or patched out.
+
+Plan/execution/result record **guest source separately from launcher source**.
+The guest request/report uses the real compiled guest source. Immutable snapshot
+footprint replaces the moving latest-build footprint only for an explicit
+baseline. The previous `2e8deb1cc2b04a221efbbfa60ab1e64bb109cd81` receipt is
+`artifacts-26970c401eac46e5a2790f54f3f2dd93/build-evidence.json`; it predates VI
+support, so this trial cannot enable the new clock. The finished VI build and
+current source branch remain untouched. A new isolated profile is mandatory.
+
+Linux AArch64: **551 host tests pass** (`logs/ww16-baseline-source-final.log`),
+with red evidence in `logs/ww16-baseline-source-red.log`. Tests check explicit
+ancestry, default stale-build refusal, matching default checkpoint, Git failure,
+changed footprint/pins/composite, misplaced receipt, changed current launcher
+and mutated selected receipt. Audit, attribution and whitespace checks pass.
+This launcher-only correction deliberately does **not rebuild the old guest**:
+the requested authentic replay must use its already verified exact artifact.
+The watched trial follows at the longer authorized 600-second ceiling, with
+inactivity requiring **both silence and low CPU**; an explicit deadline, if hit,
+will still be reported as timeout, never a spontaneous crash or certified boot.

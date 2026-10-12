@@ -181,10 +181,12 @@ bool ww_host_dvd_edge(WwHost* host, u32 address) {
         if (error == NULL && fprintf(stderr, "[rel-frontier] name=%s object=%08X module=%08X pc=%08X\n",
                                     name, object, mem_read32(cpu, object + 0x10u), address) < 0)
             error = "REL frontier trace write failed";
-        if (error == NULL)
+        if (error == NULL && host->rel_image.guest == 0u)
             error = ww_host_materialize_rel(host, object, name);
-        ww_host_fail(host, error != NULL ? error : "REL raw image materialized; relocation/link and prolog contract remain unsupported",
-                     address, address);
+        if (error == NULL)
+            error = ww_host_link_profile_list(host, object);
+        if (error != NULL)
+            ww_host_fail(host, error, address, address);
         return true;
     }
     if (address == 0x8030FBCCu || address == 0x8030FADCu) {

@@ -35,6 +35,10 @@ class StartupHostTest(unittest.TestCase):
         binary.write_bytes(external_vector_fixture(7))
         with (OUT / 'ww05_fp_vector.c').open('w') as stream:
             subprocess.run([str(generator / 'ww_vector_emit'), str(binary), '00000800'], check=True, stdout=stream)
+        binary = OUT / 'synthetic-decrementer-vector.bin'
+        binary.write_bytes(external_vector_fixture(8))
+        with (OUT / 'ww05_decrementer_vector.c').open('w') as stream:
+            subprocess.run([str(generator / 'ww_vector_emit'), str(binary), '00000900'], check=True, stdout=stream)
         subprocess.run([str(STACK / 'bin/cmake'), '-S', str(ROOT / 'vita/host'), '-B', str(OUT),
                         '-G', 'Ninja', f'-DCMAKE_C_COMPILER={os.environ["CC"]}',
                         f'-DCMAKE_MAKE_PROGRAM={STACK}/bin/ninja',
