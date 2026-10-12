@@ -1126,3 +1126,45 @@ Renderer draw coverage, pins and desktop code remain unchanged. Before the next
 committed VI build/trial, extend the bounded command journal to the coordinator's
 requested **2,048 commands**, so the authentic draw is available for WW18's
 byte-exact journal-to-fixture replay; the existing 64-entry evidence is preserved.
+
+## Unit 33: journal the draw-containing prefix without losing validation
+
+Coordinator request: the next authentic launch uses **`--continue-gx 2048`**,
+not 64, so WW18's extractor at local commit **`047d292`** can replay actual draw
+records rather than the setup-only prefix. The host request/stream and launcher
+plan/report contract previously capped this at 256. The limit is now **2,048**
+throughout, with unchanged opt-in/default-frontier behavior and no execution cap.
+After that many logged commands, decoding and guest execution continue normally.
+
+The old Python journal validator also knew only fixed state-command lengths:
+merely raising the limit would reject the first actual primitive after the game
+ran. For each logged draw the producer now emits a separate
+**`[gx-command-layout]`** witness of its **already derived pinned CP layout**:
+index, format, vertex count, stride and exact packet bytes. The standard
+**`[gx-command] ... hex=` record is unchanged**, so WW18's byte-exact extraction
+remains compatible and never needs to reconstruct missing bytes. No VAT math
+or new state parser is introduced.
+
+Journal certification checks contiguous records, opcode/raw size, first-frontier
+binding, each draw's positive actual count and format/stride/packet-size witness,
+missing/duplicate/orphaned witnesses and total journal bytes versus actual FIFO
+reads. Witness logging failure stops before publishing a logged draw. This is
+**producer-evidence validation, not independent semantic renderer replay**;
+the pinned stateful replay from WW18 remains the next coverage check.
+
+Only the command-output count bound changes. The 1,025-byte command limit,
+32-byte gather, pinned FIFO/trace capacities, bounded CP/history capture, 64 MiB
+phase-log validation, memory owners and read-only pins are unchanged. Even the
+worst allowed 2,048-command hex prefix plus witnesses is under 5 MiB. Old runs,
+receipts and 64-entry journals are preserved; larger journals require the new
+certified guest build, not a claim about a historical 256-bound artifact.
+
+Linux AArch64: **592 host tests and 83 FP launcher tests pass**
+(`logs/ww16-full-journal-{green,fp-tests}.log`). Tests include the real request
+path, 2,048 logged commands with decoding beyond the cap, native CP framing and
+the draw at index 990, malformed/missing layout witnesses, byte/read bounds and
+failed draw-witness logging. Plan/report/native limit tests are red before the
+extension (`logs/ww16-full-journal-red.log`). Actual ARM host links
+(`logs/ww16-full-journal-arm-link.log`); audit, attribution and whitespace pass.
+Commit, rebuild with VI, then launch the combined async-finish/full-prefix units
+in a new continuously watched Info profile with **2,048** requested commands.

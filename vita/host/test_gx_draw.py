@@ -52,6 +52,15 @@ class GxDrawFramingTest(unittest.TestCase):
     def test_first_draw_trace_failure_cannot_publish_a_completed_draw(self):
         self.probe('trace')
 
+    def test_full_journal_keeps_the_draw_at_990_with_its_native_pinned_layout_witness(self):
+        log = self.probe('journal')
+        self.assertIn('[gx-command-layout] index=990 format=0 vertices=3 stride=12 bytes=39', log)
+        self.assertIn('[gx-command] index=990 opcode=90 bytes=39 ', log)
+
+    def test_layout_journal_failure_cannot_publish_a_logged_draw(self):
+        log = self.probe('layout-journal-failure')
+        self.assertNotIn('[gx-command] index=5 ', log)
+
 
 if __name__ == '__main__':
     unittest.main()

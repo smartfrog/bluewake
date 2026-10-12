@@ -53,10 +53,17 @@ class PlanTest(unittest.TestCase):
 
     def test_continuation_log_limit_is_bounded(self):
         import stage_plan
-        for limit in (-1, 257):
+        for limit in (-1, 2049):
             with self.subTest(limit=limit), self.assertRaises(ValueError):
                 stage_plan.make_plan(Path('/unused'), SimpleNamespace(timeout=600, continue_gx=limit),
                                      'a' * 40, 'b' * 64, 'c' * 32)
+
+    def test_full_draw_prefix_journal_is_accepted_without_becoming_an_execution_cap(self):
+        import stage_plan
+        args = SimpleNamespace(libraries=None, wayland_socket=None, timeout=120, continue_gx=2048, disc=None)
+        plan = stage_plan.make_plan(Path('/unused'), args, 'a' * 40, 'b' * 64, 'c' * 32)
+        self.assertEqual(plan['continue_gx'], 2048)
+        self.assertIn('no guest execution cap', plan['continuation_policy'])
 
     def test_optional_disc_is_bound_read_only_at_the_existing_ww13_install_path(self):
         import stage_plan

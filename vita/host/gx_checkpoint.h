@@ -4,6 +4,7 @@
 #include "gxruntime/gx_recomp.h"
 
 enum { WW_GX_MAX_COMMAND_BYTES = 1025u };
+enum { WW_GX_MAX_JOURNAL_COMMANDS = 2048u };
 
 typedef struct WwGxCheckpoint {
     u8 bytes[WW_GX_MAX_COMMAND_BYTES];

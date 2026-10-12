@@ -196,11 +196,16 @@ class MainIoTest(unittest.TestCase):
         self.assertTrue(report.endswith('END frontier=PASS live=0 rendered=0\n'))
 
     def test_invalid_continuation_request_never_executes_or_publishes_a_report(self):
-        for limit in ('0', '257', '-1', '64 extra', '64\nextra'):
+        for limit in ('0', '2049', '-1', '64 extra', '64\nextra'):
             with self.subTest(limit=limit):
                 status, report = self.run_fixture(consumer=True, continue_gx=limit)
                 self.assertNotEqual(status, 0)
                 self.assertIsNone(report)
+
+    def test_full_journal_request_runs_through_the_real_request_and_host_stream_contract(self):
+        status, report = self.run_fixture(consumer=True, continue_gx=2048)
+        self.assertEqual(status, 1)
+        self.assertIn('GX_STREAM mode=continue decoded=28 logged=28 limit=2048 pending=0 read_bytes=32\n', report)
 
     def test_observed_wpar_configuration_continues_through_the_synthetic_memory_fifo_path(self):
         status, report = self.run_fixture(wpar=0x0C008000, consumer=True)

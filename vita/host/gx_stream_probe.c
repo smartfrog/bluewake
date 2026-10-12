@@ -25,10 +25,11 @@ int main(int argc, char** argv) {
     ww_probe_fifo_setup(host, true);
     host->cp_fifo_high_watermark = 96u;
     host->stream.enabled = true;
-    host->stream.log_limit = strcmp(argv[1], "log-limit") == 0 ? 2u : 64u;
+    const bool long_journal = strcmp(argv[1], "long-journal") == 0;
+    host->stream.log_limit = long_journal ? 2048u : strcmp(argv[1], "log-limit") == 0 ? 2u : 64u;
     mem_write16(&host->cpu, 0xCC000002u, 0x15u);
     assert(host->error == NULL);
-    u8 bytes[2048] = {0x61u, 0x41u, 0x12u, 0x34u, 0x56u,
+    u8 bytes[2112] = {0x61u, 0x41u, 0x12u, 0x34u, 0x56u,
                       0x08u, 0x30u, 0x12u, 0x34u, 0x56u, 0x78u,
                       0x10u, 0x00u, 0x01u, 0x10u, 0x00u,
                       0x3Fu, 0x80u, 0x00u, 0x00u, 0x40u, 0x00u, 0x00u, 0x00u};
@@ -68,10 +69,11 @@ int main(int argc, char** argv) {
             ww_probe_gather_bytes(host, bytes, 32u, 64u, 1u);
             assert(host->stream.decoded == 20u && host->gx.last_xf_count == 9u);
             assert(host->cp_fifo_read_pointer == 0x1020u && host->cp_fifo_distance == 0u);
-        } else if (strcmp(scenario, "many-blocks") == 0) {
-            ww_probe_gather_bytes(host, bytes, 32u, sizeof(bytes), 1u);
-            assert(host->stream.decoded == 2027u && host->stream.logged == 64u);
-            assert(host->gx.fifo.size == sizeof(bytes) && host->fifo_capture.transfers == 64u);
+        } else if (strcmp(scenario, "many-blocks") == 0 || long_journal) {
+            const u32 end = long_journal ? sizeof(bytes) : 2048u;
+            ww_probe_gather_bytes(host, bytes, 32u, end, 1u);
+            assert(host->stream.decoded == end - 21u && host->stream.logged == (long_journal ? 2048u : 64u));
+            assert(host->gx.fifo.size == end && host->fifo_capture.transfers == end / 32u);
             assert(host->fifo_capture.count == 0u && host->fifo_capture.read_bytes == 0u);
         } else {
             assert(host->stream.decoded == 11u && host->gx.fifo.size == 32u);

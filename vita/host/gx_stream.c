@@ -2,7 +2,7 @@
 
 const char* ww_gx_stream_write(WwHost* host, u8 byte, const WwFifoOrigin* origin, u32 trailing) {
     WwGxStream* stream = &host->stream;
-    if (stream->log_limit == 0u || stream->log_limit > 256u)
+    if (stream->log_limit == 0u || stream->log_limit > WW_GX_MAX_JOURNAL_COMMANDS)
         return "invalid GX command journal limit";
     if (stream->decoded == UINT64_MAX)
         return "GX decoded command counter exhausted";
@@ -22,6 +22,12 @@ const char* ww_gx_stream_write(WwHost* host, u8 byte, const WwFifoOrigin* origin
         return "pinned GX trace reached capacity; renderer drain not implemented";
     const u64 index = stream->decoded + 1u;
     if (stream->logged < stream->log_limit) {
+        if (command->bytes[0] >= 0x80u &&
+            fprintf(stderr, "[gx-command-layout] index=%llu format=%u vertices=%u stride=%u bytes=%u\n",
+                    (unsigned long long)index, command->bytes[0] & 7u,
+                    read_be16(command->bytes + 1u), host->gx.vertex_layouts[command->bytes[0] & 7u].vertex_size,
+                    command->size) < 0)
+            return "GX command layout journal write failed";
         if (fprintf(stderr, "[gx-command] index=%llu opcode=%02X bytes=%u pc=%08X completion_pc=%08X sp=%08X hex=",
                     (unsigned long long)index, command->bytes[0], command->size,
                     command->pc, command->completion_pc, command->sp) < 0)

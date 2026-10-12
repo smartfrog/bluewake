@@ -15,7 +15,7 @@ import zipfile
 
 from game_build import OUTPUT, ROOT, checked_sources, sha256
 from stage_plan import stage, validate_continuation, verify_package, checked_build_receipt
-from report import matched, validate, validate_commands
+from report import MAX_JOURNAL_COMMANDS, matched, validate, validate_commands
 from fp_campaign import emitted_config, restore_config, runtime_inputs, verify_phase_logs, verify_stopped
 from fp_launch import REPORT_DIRECTORY, evidence_file, run_owned
 from fp_libraries import directory_fd, file_identity, library_identity
@@ -230,7 +230,8 @@ def main():
     parser.add_argument('--idle-timeout', type=float, default=30,
                         help='abort only after this many seconds below 5%% CPU and without guest-output growth')
     parser.add_argument('--wayland-socket', type=Path, required=True)
-    parser.add_argument('--continue-gx', type=int, default=0, help='journal first N real commands, then keep executing (1..256)')
+    parser.add_argument('--continue-gx', type=int, default=0,
+                        help=f'journal first N real commands, then keep executing (1..{MAX_JOURNAL_COMMANDS})')
     parser.add_argument('--disc', type=Path, help='read-only bind of the already verified private image at the WW13 install path')
     parser.add_argument('--baseline-build', type=Path,
                         help='explicit preserved ancestor build receipt; guest and current launcher identities stay separate')

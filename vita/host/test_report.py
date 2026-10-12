@@ -64,6 +64,36 @@ END frontier=PASS live=0 rendered=0
         journal = '[gx-command] index=1 opcode=61 bytes=5 pc=80001000 completion_pc=80001004 sp=817FFF00 hex=61FEFFFFFF\n'
         self.assertEqual(self.module.validate_commands(journal, self.continuation_report(), 64), 1)
 
+    def draw_journal(self):
+        report = self.continuation_report().replace('decoded=1 logged=1 limit=64', 'decoded=2 logged=2 limit=2048')
+        report = report.replace('read_bytes=32', 'read_bytes=64')
+        first = '[gx-command] index=1 opcode=61 bytes=5 pc=80001000 completion_pc=80001004 sp=817FFF00 hex=61FEFFFFFF\n'
+        witness = '[gx-command-layout] index=2 format=0 vertices=3 stride=12 bytes=39\n'
+        draw = '[gx-command] index=2 opcode=90 bytes=39 pc=80001008 completion_pc=8000100C sp=817FFF00 hex=900003' + '00' * 36 + '\n'
+        return report, first, witness, draw
+
+    def test_full_journal_accepts_draw_bytes_bound_to_the_pinned_layout_witness(self):
+        report, first, witness, draw = self.draw_journal()
+        self.assertEqual(self.module.validate_commands(first + witness + draw, report, 2048), 2)
+
+    def test_missing_or_malformed_draw_witness_cannot_certify_the_journal(self):
+        report, first, witness, draw = self.draw_journal()
+        for changed in ('', witness + witness, witness.replace('index=2', 'index=3'),
+                        witness.replace('format=0', 'format=1'), witness.replace('vertices=3', 'vertices=0'),
+                        witness.replace('stride=12', 'stride=8'), witness.replace('bytes=39', 'bytes=40')):
+            with self.subTest(witness=changed), self.assertRaises(ValueError):
+                self.module.validate_commands(first + changed + draw, report, 2048)
+
+    def test_journal_cannot_claim_more_command_bytes_than_the_real_cp_reads(self):
+        report, first, witness, draw = self.draw_journal()
+        with self.assertRaises(ValueError):
+            self.module.validate_commands(first + witness + draw, report.replace('read_bytes=64', 'read_bytes=32'), 2048)
+
+    def test_non_draw_commands_cannot_carry_a_layout_witness(self):
+        report, first, witness, draw = self.draw_journal()
+        with self.assertRaises(ValueError):
+            self.module.validate_commands(first + witness.replace('index=2', 'index=1') + draw, report, 2048)
+
     def test_journal_rejects_missing_reordered_changed_or_unframed_command_evidence(self):
         journal = '[gx-command] index=1 opcode=61 bytes=5 pc=80001000 completion_pc=80001004 sp=817FFF00 hex=61FEFFFFFF\n'
         for content in ('', journal.replace('index=1', 'index=2'), journal.replace('61FEFFFFFF', '610F0000FF'),
