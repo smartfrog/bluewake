@@ -15,7 +15,9 @@ import uuid
 
 ROOT = Path(__file__).resolve().parents[3]
 STACK = Path('/home/fred/projects/zeldaWWHDRecomp/build-vita-tools/local-stack')
-OUTPUT = Path('/home/fred/projects/zeldaWWHDRecomp/build-f5/ww05')
+OUTPUT = Path(os.environ.get('WW05_BUILD_ROOT', '/home/fred/projects/zeldaWWHDRecomp/build-f5/ww05'))
+if not OUTPUT.is_absolute():
+    raise ValueError('WW05_BUILD_ROOT must be an absolute path')
 PINS = {'RecompCore': 'ddd031b2a7f45fcbda37a49daac9b308b8d95da1',
         'DolRecomp': 'b8b534591cba8ca7cd43943a655ee6e2591cf5de'}
 COMPOSITE_DIGEST = '54f54434c3f9c899d43a96373dc0b4c1aed0e50db8b820b9698dfa76571a770a'
@@ -103,6 +105,8 @@ def main():
     parser.add_argument('--prepare-only', action='store_true')
     parser.add_argument('--vi-clock', action='store_true', help='enable the experimental guest-cycle VI clock (off by default)')
     parser.add_argument('--jobs', type=int, default=2)
+    parser.add_argument('--opt-level', choices=('1', '2', '3'), default='1',
+                        help='translated module optimization level (default matches the verified private module)')
     parser.add_argument('--external-vector', type=Path, default=OUTPUT / 'private/external-vector.bin',
                         help='exact private vector captured from the documented guest trial')
     parser.add_argument('--fp-vector', type=Path, default=OUTPUT / 'private/fp-vector.bin',
@@ -196,6 +200,7 @@ def main():
                                  f'-DRECOMPCORE_DIR={sources["RecompCore"]}', f'-DCOMPOSITE_DIR={composite}',
                                   f'-DWW05_IDENTITY_DIR={identity}', f'-DWW05_DOL={private}/main.dol',
                                    f'-DWW05_VITAGL_LIBRARY={vitagl}', f'-DWW05_RENDERER_SDK={renderer_sdk}',
+                                   f'-DWW05_MODULE_OPT_LEVEL={args.opt_level}',
                                    f'-DWW05_ENABLE_VI_CLOCK={"ON" if args.vi_clock else "OFF"}'])
     build.run('vita-build', [cmake, '--build', vita, '-j', args.jobs])
     from inspect_build import inspect
@@ -218,7 +223,7 @@ def main():
         **vectors,
         'composite_digest': digest, 'title': 'BWWG00005', 'method': 'startup-gx-v1',
         'artifacts': artifacts, 'config': {'static_module': True, 'aurora': False, 'aurora_recomp': True,
-        'optimization': 1, 'compiler_pass_disabled': 'tree-dominator-opts', 'fp_patch': None,
+        'optimization': int(args.opt_level), 'compiler_pass_disabled': 'tree-dominator-opts', 'fp_patch': None,
         'lazy_fp': True, 'fp_exception_suffix_refund': True, 'vi_clock': args.vi_clock},
         'footprint_sha256': sha256(output / 'footprint.json'),
         'snapshot': str(snapshot)}, indent=2) + '\n'

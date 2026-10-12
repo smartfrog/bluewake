@@ -168,7 +168,8 @@ else()
                                        "${WW05_IDENTITY_DIR}/ww05_fp_vector.c"
                                        "${WW05_IDENTITY_DIR}/ww05_decrementer_vector.c")
     set(BLUEWAKE_STATIC_MODULE ON CACHE BOOL "" FORCE)
-    set(COMPOSITE_OPTIMIZATION_LEVEL 1 CACHE STRING "" FORCE)
+    set(WW05_MODULE_OPT_LEVEL 1 CACHE STRING "Translated module optimization level (1, 2, or 3)")
+    set(COMPOSITE_OPTIMIZATION_LEVEL ${WW05_MODULE_OPT_LEVEL} CACHE STRING "" FORCE)
     add_subdirectory("${BLUEWAKE_ROOT}/cmake/composite" composite)
     target_compile_options(gGZLE01_recomp PRIVATE -fno-tree-dominator-opts -fno-fast-math -fstack-usage)
     add_executable(ww05_host main.c "${BLUEWAKE_ROOT}/vita/feasibility/armv7/platform.c"
