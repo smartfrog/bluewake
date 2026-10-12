@@ -30,6 +30,33 @@ inline bool normalize(float* value) {
   return true;
 }
 
+struct VertexFrame {
+  float position[3]{};
+  const float (*normal_rows)[4] = nullptr;
+};
+
+inline bool vertex_frame(const gxc::DrawPlan& plan, const float* raw,
+                         const std::uint8_t* translated, VertexFrame& out,
+                         const char** reason) {
+  out.normal_rows = &plan.constants.posnormalmatrix[3];
+  if (plan.pipeline.shader.has_pos_mtx_idx) {
+    std::memcpy(out.position, translated, sizeof out.position);
+    std::uint32_t row;
+    std::memcpy(&row, raw + gxc::kVertexPosMtxOffset / 4, sizeof row);
+    row &= 31;
+    if (row > 29) {
+      *reason = "normal matrix row out of range";
+      return false;
+    }
+    out.normal_rows = &plan.constants.normalmatrices[row];
+  } else {
+    for (int axis = 0; axis < 3; ++axis)
+      out.position[axis] = dot(plan.constants.posnormalmatrix[axis], raw) +
+                           plan.constants.posnormalmatrix[axis][3];
+  }
+  return true;
+}
+
 inline bool round_integer(float value, std::int64_t& result) {
   if (!std::isfinite(value))
     return false;
@@ -115,27 +142,15 @@ inline bool translate(const gxc::DrawPlan& plan, std::vector<std::uint8_t>& vert
     float position[3]{};
     float normal[3]{};
     if (needs_lights) {
-      const float (*normal_rows)[4] = &plan.constants.posnormalmatrix[3];
-      if (key.has_pos_mtx_idx) {
-        std::memcpy(position, output, sizeof position);
-        std::uint32_t row;
-        std::memcpy(&row, raw + gxc::kVertexPosMtxOffset / 4, sizeof row);
-        row &= 31;
-        if (row > 29) {
-          *reason = "lighting normal matrix row out of range";
-          return false;
-        }
-        normal_rows = &plan.constants.normalmatrices[row];
-      } else {
-        for (int axis = 0; axis < 3; ++axis)
-          position[axis] = dot(plan.constants.posnormalmatrix[axis], raw) +
-                           plan.constants.posnormalmatrix[axis][3];
-      }
+      VertexFrame frame;
+      if (!vertex_frame(plan, raw, output, frame, reason))
+        return false;
+      std::memcpy(position, frame.position, sizeof position);
       const float* normal_input = key.has_vertex_normal
                                      ? raw + gxc::kVertexNormalOffset / 4
                                      : plan.constants.cached_normal;
       for (int axis = 0; axis < 3; ++axis)
-        normal[axis] = dot(normal_rows[axis], normal_input);
+        normal[axis] = dot(frame.normal_rows[axis], normal_input);
       if (!normalize(normal)) {
         *reason = "non-finite lighting normal";
         return false;

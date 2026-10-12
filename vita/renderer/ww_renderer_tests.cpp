@@ -15,10 +15,12 @@
 #include "gx_ztexture_fixture.h"
 #include "gx_fog_fixture.h"
 #include "gx_indirect_fixture.h"
+#include "gx_emboss_fixture.h"
 
 #include "../feasibility/gx/gx_fixture.hpp"
 
 #include <cstdint>
+#include <cmath>
 #include <cstdio>
 #include <cstring>
 #include <string>
@@ -633,6 +635,33 @@ int indirect_is_submitted() {
   return 0;
 }
 
+int emboss_is_submitted() {
+  for (bool indexed : {false, true}) {
+    for (bool chained : {false, true}) {
+      Fixture fixture;
+      RecordingBackend backend;
+      WwRenderer* renderer = nullptr;
+      WwRendererConfig config = fixture.config();
+      CHECK(ww_renderer_create(&renderer, &config, &backend) == nullptr);
+      const auto fifo = gx_emboss_fixture::quad(indexed, chained, 7);
+      for (std::uint8_t byte : fifo)
+        CHECK(ww_renderer_write(renderer, &byte, 1) == nullptr);
+      CHECK(backend.draws.size() == 1);
+      const auto& uv = backend.draws[0].geometry.texcoords;
+      const auto offset = 3 * (chained ? 2 : 1);
+      const float factor = chained ? 2 : 1;
+      CHECK(std::fabs(uv[offset] - factor * (indexed ? -1.2f : 1.2f)) < 0.000001f);
+      CHECK(std::fabs(uv[offset + 1] - factor * 2.4f) < 0.000001f);
+      CHECK(uv[offset + 2] == 1);
+      WwRendererStats stats{};
+      ww_renderer_stats(renderer, &stats);
+      CHECK(stats.draws == 1 && stats.programs_refused == 0 && stats.gap_count == 0);
+      ww_renderer_destroy(renderer);
+    }
+  }
+  return 0;
+}
+
 } // namespace
 
 int main() {
@@ -649,6 +678,7 @@ int main() {
   CHECK(lighting_and_toon_coordinates_are_submitted() == 0);
   CHECK(fog_is_submitted() == 0);
   CHECK(indirect_is_submitted() == 0);
+  CHECK(emboss_is_submitted() == 0);
   {
     // Create refuses a missing memory view and a missing backend loudly.
     WwRenderer* renderer = nullptr;

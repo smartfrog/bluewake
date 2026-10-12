@@ -22,7 +22,7 @@ bool texgen_coord(const gxc::ShaderKey& key, std::uint8_t texcoord,
     return false;
   }
   const gxc::TexGenKey& texgen = key.tex_gens[texcoord];
-  *reason = gx_vita::texgen::support_reason(key, texgen);
+  *reason = gx_vita::texgen::support_reason(key, texgen, texcoord);
   if (*reason != nullptr)
     return false;
   const std::string uv = "uv" + std::to_string(texcoord);

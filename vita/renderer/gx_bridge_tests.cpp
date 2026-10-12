@@ -13,6 +13,7 @@
 #include "gx_ztexture_fixture.h"
 #include "gx_fog_fixture.h"
 #include "gx_indirect_fixture.h"
+#include "gx_emboss_fixture.h"
 
 #include "../feasibility/gx/gx_fixture.hpp"
 
@@ -59,7 +60,8 @@ int main(int argc, char** argv) {
                     std::string(argv[1]) == "--write-matrix-fixture" ||
                     std::string(argv[1]) == "--write-light-fixture" ||
                     std::string(argv[1]) == "--write-fog-fixture" ||
-                    std::string(argv[1]) == "--write-indirect-fixture")) {
+                    std::string(argv[1]) == "--write-indirect-fixture" ||
+                    std::string(argv[1]) == "--write-emboss-fixture")) {
     const std::filesystem::path directory(argv[2]);
     std::filesystem::create_directories(directory);
     gx_fixture::FixtureContext memory;
@@ -75,6 +77,8 @@ int main(int argc, char** argv) {
       gx_fixture::fill_texture_zones(memory);
       fifo = gx_indirect_fixture::quad(2, 1, 3, 7);
     }
+    else if (std::string(argv[1]) == "--write-emboss-fixture")
+      fifo = gx_emboss_fixture::quad(true, true, 7);
     std::ofstream fifo_file(directory / "clear.fifo", std::ios::binary);
     std::ofstream memory_file(directory / "clear.mem1", std::ios::binary);
     fifo_file.write(reinterpret_cast<const char*>(fifo.data()), fifo.size());
@@ -85,6 +89,14 @@ int main(int argc, char** argv) {
     return 0;
   }
   CHECK(argc == 1);
+  for (bool indexed : {false, true}) {
+    for (bool chained : {false, true}) {
+      gx_bridge::Result result;
+      CHECK(run_stream(gx_emboss_fixture::quad(indexed, chained, 7), result));
+      CHECK(result.counts.plans_ok == 1 && result.counts.programs == 1);
+      CHECK(result.counts.programs_refused == 0 && result.gaps.empty());
+    }
+  }
   for (std::uint8_t matrix : {0, 1, 2}) {
     for (std::uint8_t format : {0, 1, 2, 3}) {
       gx_bridge::Result result;
