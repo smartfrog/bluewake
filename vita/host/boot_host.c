@@ -5,6 +5,7 @@
 #include "external_vector.h"
 #include "di_inquiry.h"
 #include "edge_intercept_table.h"
+#include "callback_delivery.h"
 #include "gxruntime/boot.h"
 #include "gxruntime/guest_memory_dirty.h"
 #include "gxruntime/aram.h"
@@ -270,7 +271,7 @@ static void fallback(CPUState* cpu, u32 raw, u32 cia) {
     ww_host_fail(owner(cpu), "unsupported instruction fallback", raw, cia);
 }
 
-static bool module_contains_address(const StaticRecompModuleDesc* module, u32 address) {
+bool ww_host_module_contains_address(const StaticRecompModuleDesc* module, u32 address) {
     if (module != NULL && (address & 3u) == 0u) {
         for (u32 index = 0u; index < module->num_code_ranges; ++index) {
             const StaticRecompRange* range = &module->code_ranges[index];
@@ -284,7 +285,7 @@ static bool module_contains_address(const StaticRecompModuleDesc* module, u32 ad
 static bool host_call(CPUState* cpu, u32 service) {
     WwHost* host = owner(cpu);
     const u32 address = canonical_dispatch_address(cpu, service);
-    if (module_contains_address(host->module, address))
+    if (ww_host_module_contains_address(host->module, address))
         return false;
     ww_host_fail(host, "unsupported host call", service, cpu->pc);
     return true;
@@ -432,6 +433,12 @@ static bool fifo_has_input(const WwHost* host) {
     return host->frontier.size != 0u || host->gather.size != 0u || host->gather.transfers != 0u;
 }
 
+static u16* pe_config_register(WwHost* host, u32 address, u8 size) {
+    if (size != 2u || address < 0xCC001000u || address > 0xCC001008u || (address & 1u) != 0u)
+        return NULL;
+    return &host->pe_config[(address - 0xCC001000u) / 2u];
+}
+
 static u64 mmio_read(CPUState* cpu, u32 address, u8 size) {
     WwHost* host = owner(cpu);
     u64 value;
@@ -453,7 +460,10 @@ static u64 mmio_read(CPUState* cpu, u32 address, u8 size) {
         return 0u;
     }
     u32* fifo = fifo_register(host, address, size);
-    if (fifo != NULL)
+    u16* pe = pe_config_register(host, address, size);
+    if (pe != NULL)
+        value = *pe;
+    else if (fifo != NULL)
         value = size == 2u ? (u16)(*fifo >> ((address & 2u) != 0u ? 16u : 0u)) : *fifo;
     else if (address == 0xCC000002u && size == 2u)
         value = host->cp_control;
@@ -549,7 +559,10 @@ static void mmio_write(CPUState* cpu, u32 address, u64 value, u8 size) {
         return;
     }
     u32* fifo = fifo_register(host, address, size);
-    if (address == 0xCC000002u && size == 2u) {
+    u16* pe = pe_config_register(host, address, size);
+    if (pe != NULL) {
+        *pe = (u16)value;
+    } else if (address == 0xCC000002u && size == 2u) {
         if (value != 0u && value != 4u && value != 0x14u && value != 0x15u) {
             fail_mmio_write(host, "CP control requests an unimplemented FIFO mode or interrupt mask", address, value, size);
             return;
@@ -561,8 +574,9 @@ static void mmio_write(CPUState* cpu, u32 address, u64 value, u8 size) {
             return;
         }
     } else if (address == 0xCC000004u && size == 2u) {
-        if (value != 3u || (host->cp_control & 1u) != 0u || host->cp_fifo_distance != 0u ||
-            fifo_has_input(host) || (dol_interrupts_pi_cause(&host->interrupts) & DOL_PI_CAUSE_CP) != 0u) {
+        // The pinned ClearMetrics path has no side effects and does not acknowledge FIFO flags.
+        if (value != 4u && (value != 3u || (host->cp_control & 1u) != 0u || host->cp_fifo_distance != 0u ||
+            fifo_has_input(host) || (dol_interrupts_pi_cause(&host->interrupts) & DOL_PI_CAUSE_CP) != 0u)) {
             fail_mmio_write(host, "CP clear requires observed idle overflow/underflow acknowledgement; active FIFO or CP IRQ handling not implemented", address, value, size);
             return;
         }
@@ -653,6 +667,8 @@ bool ww_host_edge(void* user, CPUState* cpu, u32 address) {
         host->edge_stopped = true;
         return true;
     }
+    if (host->dvd_callback_active && address == BLUEWAKE_CALLBACK_RETURN_SENTINEL)
+        return true;
     // Composite edges follow completed blocks; only in-block observations exclude an instruction suffix.
     bluewake_cycle_domain_flush(&host->cycles, cpu);
     refresh(host);
@@ -692,8 +708,13 @@ bool ww_host_edge(void* user, CPUState* cpu, u32 address) {
         }
     }
     const bool compiled_cpu_boundary = (address == 0x80328F84u || address == 0x80303A50u) &&
-                                       module_contains_address(host->module, address);
-    if (bluewake_edge_maybe_intercept(address) && !compiled_cpu_boundary) {
+                                        ww_host_module_contains_address(host->module, address);
+    const bool desktop_edge = bluewake_edge_maybe_intercept(address);
+    if (desktop_edge && ww_host_module_contains_address(host->module, address) && ww_host_dvd_edge(host, address)) {
+        host->edge_stopped = host->error != NULL;
+        return true;
+    }
+    if (desktop_edge && !compiled_cpu_boundary) {
         ww_host_fail(host, "desktop interception unsupported; guest not skipped", address, cpu->pc);
         host->edge_stopped = true;
         return true;
@@ -799,8 +820,8 @@ int ww_host_dispatch(WwHost* host, u32 address) {
     }
     const WwObservedVector* vector = observed_vector(address);
     if (vector != NULL &&
-        !module_contains_address(host->module, address) &&
-        !module_contains_address(host->module, canonical_dispatch_address(cpu, address))) {
+        !ww_host_module_contains_address(host->module, address) &&
+        !ww_host_module_contains_address(host->module, canonical_dispatch_address(cpu, address))) {
         if (cpu->pc != address || cpu->exception != 0u || !observed_vector_matches(cpu, vector)) {
             ww_host_fail(host, "exception vector requires the exact observed program and physical exception state", address, cpu->pc);
             return 0;
@@ -888,6 +909,7 @@ void ww_host_shutdown(WwHost* host) {
     ppc_guest_alias_clear();
     host->alias_bytes = 0u;
     host->alias_count = 0u;
+    memset(&host->rel_image, 0, sizeof(host->rel_image));
     dol_guest_memory_shutdown(&host->memory);
     BlueWakeModuleStorage storage = {.cpu = &host->cpu};
     bw_module_cpu_free(&storage);

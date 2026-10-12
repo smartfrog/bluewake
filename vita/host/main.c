@@ -209,6 +209,8 @@ int fixture_run(int argc, char** argv) {
             }
         }
         ww_host_end_dispatch(host);
+        if (dispatched == 1 && !error && host->error == NULL)
+            ww_host_dvd_complete(host);
         ++turns;
         if (trace_dispatch)
             error |= fprintf(stderr, "[dispatch] stage=return turn=%llu pc=%08X cycles=%llu exception=%08X\n",

@@ -2,11 +2,14 @@
 #include <stdlib.h>
 
 int main(int argc, char** argv) {
-    assert(argc == 2);
+    assert(argc == 2 || argc == 3);
     WwHost* host = calloc(1u, sizeof(*host));
     assert(host != NULL && ww_host_init(host));
     ww_probe_fifo_setup(host, true);
     host->cpu.pc = 0x803202C4u;
+    const u32 address = argc == 3 ? (u32)strtoul(argv[2], NULL, 0) : 0xCC000006u;
+    assert(address == 0xCC000006u || (address >= 0xCC001000u && address <= 0xCC001008u && !(address & 1u)));
+    const u16 mask = address == 0xCC000006u ? 7u : UINT16_MAX;
     const char* scenario = argv[1];
     const bool bad_read = strncmp(scenario, "read-width-", 11u) == 0;
     const bool bad_write = strncmp(scenario, "write-width-", 12u) == 0;
@@ -25,23 +28,28 @@ int main(int argc, char** argv) {
         dol_interrupts_set_source(&host->interrupts, DOL_PI_CAUSE_CP, true);
     }
     const WwHost before = *host;
-    assert(mem_read16(&host->cpu, 0xCC000006u) == 0u);
+    assert(mem_read16(&host->cpu, address) == 0u);
     if (credit) {
         bluewake_cycle_domain_begin_turn(&host->cycles, &host->cpu);
         bluewake_cycle_domain_prepare_dispatch(&host->cycles, &host->cpu);
         host->cpu.downcount -= 256;
     }
     if (bad_read)
-        host->cpu.external_read(&host->cpu, 0xCC000006u, width);
+        host->cpu.external_read(&host->cpu, address, width);
     else
-        host->cpu.external_write(&host->cpu, 0xCC000006u, value, width);
+        host->cpu.external_write(&host->cpu, address, value, width);
     if (bad_read || bad_write) {
-        assert(host->error != NULL && host->error_address == 0xCC000006u && host->error_pc == 0x803202C4u);
+        assert(host->error != NULL && host->error_address == address && host->error_pc == 0x803202C4u);
         if (bad_write)
             assert(host->error_width == width && host->error_value == value);
     } else {
         assert(host->error == NULL && host->cpu.exception == 0u);
-        assert(mem_read16(&host->cpu, 0xCC000006u) == (value & 7u));
+        assert(mem_read16(&host->cpu, address) == (value & mask));
+        if (strcmp(scenario, "independent") == 0) {
+            mem_write16(&host->cpu, address, 0xA55Au);
+            for (u32 reg = 0xCC001000u; reg <= 0xCC001008u; reg += 2u)
+                assert(mem_read16(&host->cpu, reg) == (reg == address ? 0xA55Au : 0u));
+        }
     }
     assert(memcmp(&before.gather, &host->gather, sizeof(host->gather)) == 0);
     assert(memcmp(&before.frontier, &host->frontier, sizeof(host->frontier)) == 0);

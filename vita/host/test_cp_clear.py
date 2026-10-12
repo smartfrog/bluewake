@@ -9,8 +9,8 @@ class CpClearTest(unittest.TestCase):
     def setUpClass(cls):
         test_host.StartupHostTest.setUpClass()
 
-    def run_probe(self, scenario):
-        subprocess.run([str(test_host.OUT / 'cp_clear_probe'), scenario], check=True)
+    def run_probe(self, scenario, metrics=False):
+        subprocess.run([str(test_host.OUT / 'cp_clear_probe'), scenario, *(['4'] if metrics else [])], check=True)
 
     def test_sourced_cp_clear_halfword_read_is_zero(self):
         self.run_probe('read')
@@ -20,10 +20,24 @@ class CpClearTest(unittest.TestCase):
             with self.subTest(scenario=scenario):
                 self.run_probe(scenario)
 
-    def test_unobserved_clear_masks_and_metrics_stop_with_the_actual_write_context(self):
-        for value in (0, 1, 2, 4, 7, 65535):
+    def test_unobserved_clear_masks_stop_with_the_actual_write_context(self):
+        for value in (0, 1, 2, 7, 65535):
             with self.subTest(value=value):
                 self.run_probe(f'value-{value}')
+
+    def test_observed_metrics_reset_preserves_fifo_and_pending_cp_irq(self):
+        for scenario in ('write', 'store', 'repeat', 'queued-gather', 'queued-produced',
+                         'queued-checkpoint', 'queued-gpread', 'queued-cp-irq'):
+            with self.subTest(scenario=scenario):
+                self.run_probe(scenario, metrics=True)
+
+    def test_metrics_reset_requires_the_observed_halfword_width(self):
+        for width in (1, 4, 8):
+            with self.subTest(width=width):
+                self.run_probe(f'write-width-{width}', metrics=True)
+
+    def test_metrics_reset_credits_real_cycles_without_renewing_the_spent_quantum(self):
+        self.run_probe('credit-write', metrics=True)
 
     def test_cp_clear_read_requires_the_sourced_halfword_width(self):
         for width in (1, 4, 8):

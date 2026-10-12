@@ -3,6 +3,8 @@
 
 #include "StaticRecompABI.h"
 
+#define BLUEWAKE_CALLBACK_RETURN_SENTINEL 0x8180FFF0u
+
 typedef struct BluewakeCallbackDeliveryResult {
     bool completed;
     unsigned dispatches;

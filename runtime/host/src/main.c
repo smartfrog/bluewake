@@ -42,6 +42,7 @@
 #include "mouse_camera.h"
 #include "callback_delivery.h"
 #include "dvd_completion.h"
+#include "dvd_file_info.h"
 #include "di_inquiry.h"
 #include "cycle_domain.h"
 #include "interrupt_sources.h"
@@ -2397,14 +2398,6 @@ static u32 host_raw_ram_read32(const CPUState* cpu, u32 guest_address) {
            (u32)cpu->ram[offset + 3u];
 }
 
-#define DVD_CB_STATE 0x0Cu
-#define DVD_CB_CURRXFER 0x1Cu
-#define DVD_CB_XFERRED 0x20u
-#define DVD_FI_STARTADDR 0x30u
-#define DVD_FI_LENGTH 0x34u
-#define DVD_FI_CALLBACK 0x38u
-#define DVD_MIN_TRANSFER_SIZE 0x20u
-
 static void guest_read_cstr(CPUState* cpu, u32 address, char* out,
                             unsigned capacity) {
     if (capacity == 0u)
@@ -2419,18 +2412,6 @@ static void guest_read_cstr(CPUState* cpu, u32 address, char* out,
     out[capacity - 1u] = '\0';
     if (length == 0u || out[length - 1u] != '\0')
         out[capacity - 1u] = '\0';
-}
-
-static bool host_dvd_fill_file_info(CPUState* cpu, s32 entry, u32 file_info) {
-    u32 start = 0;
-    u32 length = 0;
-    if (file_info == 0u || !dvd_entry_info(entry, &start, &length))
-        return false;
-    mem_write32(cpu, file_info + DVD_FI_STARTADDR, start);
-    mem_write32(cpu, file_info + DVD_FI_LENGTH, length);
-    mem_write32(cpu, file_info + DVD_FI_CALLBACK, 0u);
-    mem_write32(cpu, file_info + DVD_CB_STATE, 0u);
-    return true;
 }
 
 static void host_remove_rel_aliases(u32 raw_start, u32 raw_end) {
@@ -12329,9 +12310,8 @@ int main(int argc, char** argv) {
                         mem_read32(&cpu, 0x80AD2148u),
                         mem_read32(&cpu, 0x80AD214Cu));
             }
-            mem_write32(&cpu, file_info + DVD_CB_STATE, defer && valid ? 1u : 0u);
-            mem_write32(&cpu, file_info + DVD_CB_CURRXFER, valid && !defer ? length : 0u);
-            mem_write32(&cpu, file_info + DVD_CB_XFERRED, valid && !defer ? length : 0u);
+            host_dvd_set_transfer_state(&cpu, file_info, defer && valid ? 1u : 0u,
+                                        valid && !defer ? length : 0u);
             cpu.gpr[3] = synchronous ? (valid ? length : 0u) : (valid ? 1u : 0u);
             cpu.pc = cpu.lr & ~3u;
             if (defer && valid) {

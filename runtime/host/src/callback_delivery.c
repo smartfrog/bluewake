@@ -2,7 +2,6 @@
 
 #include <string.h>
 
-#define CALLBACK_RETURN_SENTINEL 0x8180FFF0u
 #define OS_RESCHEDULE 0x803F7A38u
 
 typedef struct GuestRegisterImage {
@@ -92,13 +91,13 @@ BluewakeCallbackDeliveryResult bluewake_deliver_guest_callback(
     mem_write32(cpu, cpu->gpr[1], interrupted.gpr[1]);
     cpu->gpr[3] = arg0;
     cpu->gpr[4] = arg1;
-    cpu->lr = CALLBACK_RETURN_SENTINEL;
+    cpu->lr = BLUEWAKE_CALLBACK_RETURN_SENTINEL;
     cpu->pc = callback & ~3u;
     cpu->msr &= ~PPC_MSR_EE;
     cpu->exception = 0u;
     cpu->program_exception = 0u;
 
-    while (cpu->pc != CALLBACK_RETURN_SENTINEL &&
+    while (cpu->pc != BLUEWAKE_CALLBACK_RETURN_SENTINEL &&
            result.dispatches < max_dispatches) {
         if (prepare_dispatch != NULL)
             prepare_dispatch(cpu, prepare_user);
@@ -109,7 +108,7 @@ BluewakeCallbackDeliveryResult bluewake_deliver_guest_callback(
             break;
     }
 
-    result.completed = cpu->pc == CALLBACK_RETURN_SENTINEL &&
+    result.completed = cpu->pc == BLUEWAKE_CALLBACK_RETURN_SENTINEL &&
                        cpu->exception == 0u;
     result.terminal_pc = cpu->pc;
     result.exception = cpu->exception;

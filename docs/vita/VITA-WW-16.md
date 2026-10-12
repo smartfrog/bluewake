@@ -108,3 +108,307 @@ the existing exact-deadline checks). Evidence: private
 `logs/ww16-inactivity-host-tests.log` and `logs/ww16-inactivity-fp-tests.log`.
 Repository audit, attribution and whitespace checks pass. A new clean committed
 build/trial follows; the game still has not drawn or presented an authentic frame.
+
+## Unit 5: the renderer sees the real stream; PE direct configuration
+
+Authentic trial `5b4a7353a17847288b16f3873a34c80c` at `fb2800e` proves the new
+installation gate: 1.28 seconds, `installed_payload`, exact verified bytes, then
+guest execution. The guest phase ends after 8.03 seconds at **7,153,307 cycles**,
+with **265 completed authentic GX commands**, 64 journaled and verified. `RENDER`
+reports **1,759 FIFO bytes, 521 frontend events, zero draws and zero presentations**;
+`END rendered=0` agrees. This is real renderer initialization and streaming,
+not synthetic pixels or a visible scene.
+
+The next honest STOP is a halfword read at `CC001002`, PC `80322D58`. The unchanged
+RecompCore pin's `Source/Core/VideoCommon/PixelEngine.h:31-35` names the five
+direct configuration halfwords at offsets `00,02,04,06,08`. `PixelEngine.cpp:59-63`
+resets them to zero; `:85-95` registers direct reads/writes of the full halfword.
+The host retains exactly those five independent values. Other widths remain
+unsupported; no EFB readback, GPU completion, rendering state or interrupt is
+invented. The CP selector probe is generalized and reused rather than duplicated.
+
+The closed report and complete journal were validated before the emulator itself
+crashed during app shutdown (`Unhandled SIGSEGV`, outer exit 133, after report
+rename). The crash is preserved in the trial's `phases/guest/evidence/process.log`;
+it is a separate unresolved teardown issue, not a passing emulator exit.
+The PE test's unsupported-register failures are preserved in private
+`logs/ww16-pe-config-red.log`; the focused source seam is under host regression checks.
+
+Linux AArch64: **443 host tests pass** (`logs/ww16-pe-config-green.log`), including
+PE retention, independence, width refusals, unchanged pending FIFO/IRQ state and
+cycle credit without quantum renewal. Audit, attribution and whitespace checks pass.
+The next committed ARM build and authentic continuation follow. Still no draws,
+shown pixels, physical Vita test or FPS measurement.
+
+## Unit 6: the observed CP metrics reset is not an IRQ acknowledgement
+
+Trial `0662c9511fad49b1b65d4b43d87ce23c` at `4294573` crosses PE configuration and
+stops at **7,153,469 cycles** on a halfword `CC000004=4`, PC `80327C38`.
+Installation takes 1.35 seconds, guest 8.18 seconds; the renderer counters remain
+265 completed commands / 1,759 bytes / no draws or presents. The same post-report
+Vita3K shutdown crash (133) remains unresolved and recorded.
+
+At the unchanged RecompCore pin, `CommandProcessor.h:139-148` identifies bit 2 as
+`ClearMetrics`, set by `GXClearGPMetric`; `CommandProcessor.cpp:210-217` has a
+constant-zero halfword read and calls `SetCpClearRegister`, which intentionally
+does nothing (`:597-601`). The host now accepts the observed **exact value 4** as
+that sourced no-op, including while gather/FIFO input or a CP IRQ is pending. It
+does not discard commands, acknowledge FIFO flags, clear renderer counters or
+invent query results. Value 3 retains its earlier idle-only guard; unobserved
+mixed masks still fail. The existing CP-clear probe is extended, not copied.
+
+Focused metrics-reset tests fail before the seam (`logs/ww16-cp-metrics-red.log`)
+and exercise the register through the normal host hooks, with pending input/IRQ
+state, width refusals, repeated stores and exact executed-cycle credit.
+
+Linux AArch64: **447 host tests pass** (`logs/ww16-cp-metrics-green.log`); audit,
+attribution and whitespace checks pass. The next clean ARM build/trial follows.
+No visible game pixel or FPS claim yet.
+
+## Unit 7: route DVD open edges through the existing private-image seam
+
+Trial `32d13d3823d043fd879118b851ab2bf1` at `a092d98` crosses the CP metrics reset
+and reaches **8,191,107 cycles**, then stops explicitly at `8030F618` (`DVDOpen`).
+Installation takes 1.17 seconds and guest 8.48 seconds. Still 265 real setup
+commands, no draw/present; the post-report emulator teardown crash remains 133.
+
+The existing shared desktop inventory identifies `8030F2B0` as path-to-entry,
+`8030F618` as open and `8030F5A4` as fast-open (`edge_intercepts.c:51-53`,
+`main.c:12142-12165`). The Vita host services only those module-owned edges,
+using WW13's unchanged FST/seam and the pin's existing `dol_hle_DVDFastOpen`
+(`GXRuntime/src/hle/hle_dvd.c:42-54`) for the four file-info writes. The native
+returns to the real aligned LR with the actual found/not-found result.
+
+Input guards refuse unmapped/unterminated paths, unaligned or out-of-range cached
+MEM1 file-info pointers, aliases and unowned edges. A missing image or another
+owner's image stops; trace failures stop before changing guest results or file
+info. Image ownership/open/close is shared with the already wired DI-read path,
+not duplicated. No read completion, callback, IRQ, FIFO data or frame is created
+by opening a file. Async/synchronous reads remain separate seams if reached.
+
+The game-free synthetic FST tests reuse WW13's image fixture, with real entry,
+offset and length checks and preserved unrelated file-info bytes. The authentic
+file bytes remain only in the read-only private image outside the VPK. The initial
+DVDOpen edge failure is retained in `logs/ww16-dvd-open-red.log`.
+
+Linux AArch64: **455 host tests pass** (`logs/ww16-dvd-open-green.log`), including
+all existing DI-read and edge-guard regressions; audit, attribution and whitespace
+checks pass. The next committed ARM build and authenticated continuation follow.
+No visible pixel, physical Vita result or FPS measurement claimed.
+
+The ARM link of `226e9ff` exposed the pin HLE's hidden registration dependencies:
+the DVD HLE object pulled its HLE registry and memory-card code, ending in an
+unsupported Vita `flock` symbol (`logs/vita-build-76.log`). No lock stub or save
+behavior was invented. The existing desktop `host_dvd_fill_file_info` is instead
+extracted into `runtime/host/src/dvd_file_info.h`, with its function body checked
+byte-identical to the previous shared main; both desktop and Vita reuse it.
+The four writes still match the pin's fast-open contract, without linking the
+unrelated HLE registry. Desktop behavior is a refactor only; Windows CI/build is
+unavailable here and is not claimed.
+
+**455 host tests still pass** (`logs/ww16-dvd-file-info-tests.log`), the actual ARM
+`ww05_host` now links (`logs/ww16-dvd-file-info-link.log`), and audit/attribution/
+whitespace checks pass. The committed VPK build/trial follows.
+
+## Unit 8: synchronous file reads copy real bytes before completing
+
+Trial `3debd70ed0094262b76006e2cc4a4922` at `3924c80` proves authentic DVD open:
+`/COPYDATE` resolves to FST entry 151 through **vita-sceio**, with the private
+image's 2,391-entry FST. It then stops at **8,191,115 cycles**, `8030FBCC`
+(`DVDReadPrio`). Installation takes 1.23 seconds, guest 8.48 seconds; the same
+265 commands / 1,759 renderer bytes still contain no draws or presents.
+
+The existing shared host's synchronous contract (`main.c`, DVD read bridge)
+supplies r3=file-info, r4=destination, r5=length, r6=file-offset, returns the
+actual completed length, and writes END/current/transferred state. Its existing
+32-byte SDK tail allowance is preserved, but the bytes must come from the real
+image, never a synthetic pad. The Vita host now services that module-owned sync
+edge through the WW13 seam. Async reads/callback delivery are still unsupported.
+
+Both DI DMA and synchronous API reads share the same owned-image and checked
+copy path. Source ranges, signed disc limits, cached real MEM1, file bounds and
+aliases are checked before copying. The seam's actual-byte counter must advance
+by exactly the requested length; short/failed reads cannot set completion fields
+or return success. No DI/PE interrupt, callback, GPU completion or cycle charge is
+created by this synchronous operation. The shared transfer-state helper is
+extracted from desktop's three unchanged writes to avoid duplicating the contract.
+
+The initial sync-edge failure is in `logs/ww16-dvd-read-red.log`. **461 host tests
+pass** (`logs/ww16-dvd-read-green.log`), including real synthetic bytes, SDK tail
+reads, short-file refusal, input/alias guards, unchanged interrupts and trace-fail
+preservation. DI regressions rerun after the final guard review pass too
+(`logs/ww16-dvd-read-di-regressions.log`). Audit, attribution and whitespace checks
+pass. Windows build/CI remains unavailable; shared desktop behavior is a helper
+refactor only. The next committed ARM build/trial follows. No visible pixel or FPS.
+
+## Unit 9: a narrowed no-callback path; trial checks the actual arguments
+
+Trial `f38d5a186f804bc8a64c68a7b5429c24` at `001f87d` proves real synchronous reads
+of `/COPYDATE` and the `RELS.arc` header/table, including a 6,816-byte copy through
+vita-sceio. It reaches **14,448,441 cycles**, then stops at `8030FADC`
+(`DVDReadAsyncPrio`). Installation takes 1.25 seconds, guest 9.18 seconds. Renderer
+still sees 265 setup commands / 1,759 bytes; no draw or presentation yet.
+
+One private translated call-site sets **r7=0**, but the subsequent trial below
+proves that it is not the call-site reached at this frontier. The unchanged
+pin's `GXRuntime/src/hle/hle_dvd.c:57-77` defines this no-callback path: copy real
+bytes, write END/current/transferred state, return TRUE (queued). The host now
+services exactly that path through the same checked copy used by synchronous
+reads, with `kind=async-null` in the journal. Actual full-byte completion is still
+required before updating state. No callback is requested or invented.
+
+Any nonzero callback is refused **before copying or changing file-info state**,
+and the STOP names the actual callback address. The shared callback delivery and
+deferred completion queue are inspected, but not wired speculatively: the current
+null-callback seam does not restore the pin's acknowledged uninvoked-callback bug
+or pretend the later nonzero-callback case works. Synthetic tests reuse the existing
+read probe and cover both null-callback normal/tail reads and the nonzero refusal.
+The missing-edge red evidence is in `logs/ww16-dvd-async-null-red.log`.
+
+Linux AArch64: **463 host tests pass** (`logs/ww16-dvd-async-null-green.log`),
+including all synchronous/DI/open regressions. Audit, attribution and whitespace
+checks pass. The next committed ARM build/trial follows; no visible pixel or FPS
+claim, and no physical Vita result.
+
+## Unit 10: defer the real JKRDvdFile callback and execute it
+
+Trial `f4780be958bb485fa9033d766329b3d3` at `c3f5b42` correctly refuses the actual
+nonzero callback **`802BCC78` (`JKRDvdFile::doneProcess`)** at `8030FADC`, still
+14,448,441 cycles. That evidence corrects unit 9's candidate-call-site hypothesis;
+no async read or callback was silently claimed successful.
+
+The host now reuses the shared `BluewakeDvdCompletions` queue and
+`bluewake_deliver_guest_callback`, the same real callback contract covered by
+`tests/generated_dvd_callback_contract_test.c`. Nonzero callbacks must be owned
+compiled module instructions. After a checked real copy, their file-info state
+is BUSY and a completion is queued; actual guest-cycle progress reaches the
+shared desktop's **one guest millisecond compatibility floor** (486,000 cycles,
+not a measured disc-speed model). Only EE-enabled, exception-free, scheduler-safe
+turn boundaries deliver it. No deadline or cycle credit is manufactured.
+
+The callback runs through the existing host dispatcher and cycle credit/refund
+path, with the shared interrupt-style scheduler lock, EE masking, register save/
+restore and real retained memory effects. Its injected return sentinel is handled
+only while this delivery is active. A full queue, deadline overflow, bad stack,
+unowned callback, trace failure or incomplete callback is an explicit STOP; no
+callback failure is swallowed. DI/PE interrupts, FIFO bytes and frames are not
+created by this service. Null-callback reads retain their already checked path.
+
+Synthetic dispatcher tests verify no early completion, EE and partial-context
+gates, one-shot callback effects, restored caller registers/scheduler depth and
+exact callback cycle credit, plus all failure paths. The real JKRDvdFile callback
+is still to be proven in the next isolated authentic trial, not by host execution
+of game code. Missing enqueue behavior is preserved in
+`logs/ww16-dvd-callback-red.log`; the real ARM host link now succeeds in
+`logs/ww16-dvd-callback-link.log`.
+
+Linux AArch64: **472 host tests pass** (`logs/ww16-dvd-callback-green.log`); audit,
+attribution and whitespace checks pass. Shared callback code only exposes its
+existing sentinel constant; Windows CI/hardware remains untested here. The next
+committed ARM build/trial follows. No first visible pixel or FPS claim yet.
+
+## Unit 11: identify the real REL request without claiming a load
+
+Authentic trial `ec5ac8f1e7054f6faf4b28af89a175bb` at `49caf81` proves **116
+completed guest callbacks, zero failed callbacks**, and 123 real reads totalling
+961,120 bytes through vita-sceio. It reaches **78,789,721 cycles**, then stops at
+`80240744`, the archived REL materialization edge. Installation takes 1.26 seconds
+and the guest phase 9.89 seconds. The closed report and 64 journaled commands
+validate; the same post-report Vita3K teardown crash exits 133. Renderer counters
+remain 265 completed GX setup commands, 1,759 bytes, zero draws/presentations.
+
+The diagnostic now records the module name and object at that edge, then stops
+without writing the module object, copying a REL, returning success, opening a
+disc or emitting a `[rel-load]` marker. It reuses the bounded mapped string reader
+from the DVD path. Invalid objects/strings and trace failures remain loud STOPs.
+The guest object fields match the existing desktop dynamic-load observation
+(`runtime/host/src/main.c`, object `+0x10` module and `+0x1C` name).
+
+The next implementation needs a deliberate mapping/provider decision. The shared
+desktop materializer reads privately prepared raw `.rel` files and reserves
+scratch at `81820000..81F80000`, above this host's **24 MiB MEM1**. The current
+private build has 415 raw RELs totalling 6,996,836 bytes (largest 154,876 bytes),
+but neither a Vita provider for them nor a scratch mapping is wired. The
+generated section aliases and shared first-fit allocator already exist; blindly
+copying the desktop path would not establish safe ownership or mapped storage.
+No source pin, translated module, MEM1 size or guest loading behavior is changed
+by this diagnostic. Actual materialization waits for that decision.
+
+Linux AArch64: **475 host tests pass** (`logs/ww16-rel-frontier-host-tests.log`),
+including name logging, invalid input refusal, unchanged guest objects and no
+disc access. The trace-failure injection check is recorded red before extending
+the existing probe wrapper (`logs/ww16-rel-frontier-trace-red.log`); it does not
+claim a test-first cycle for the earlier diagnostic edit. Audit, attribution and
+whitespace checks pass. A clean committed ARM build and isolated diagnostic
+trial follow; no visible game pixel, physical Vita result or FPS claimed.
+
+The clean ARM/VPK rebuild at `b3f45f4` succeeds. Diagnostic trial
+`a802fc25c74e443b9851877f52f3f802` identifies **`f_pc_profile_lst`**, object
+`803A71C0`, module pointer zero, at `80240744`. Its existing private raw file is
+16,500 bytes and header module id 1, matching the translator catalog. The host
+still refuses materialization at 78,789,721 cycles; it emits no load event and
+does not change the object. The same 116 callbacks complete with zero failures,
+123 checked reads total 961,120 bytes, and draws/presentations remain zero.
+
+This attempt was watched while live: `evidence/run-watch.jsonl` retains the
+verified staged Vita3K PIDs, per-second CPU observations and log tails. Active
+guest CPU samples range from 98.9% to 123.8% of one CPU with log progress.
+Installation stops at its verified payload after 1.19 seconds; guest exits after
+9.58 seconds. The brief zero-CPU tail precedes the already recorded post-report
+shutdown crash (133), not a 30-second hang. Both observed Vita3K PIDs are gone.
+The launcher validates the closed report and 64 journaled commands, preserves
+the nonzero exit, and reaps its owned sandbox. All evidence stays private.
+
+Provider/scratch integration remains pending: a read-only bind of verified raw
+RELs plus bounded owned storage through the existing alias API would preserve
+24 MiB MEM1; alternatively, loading from the existing archive would require its
+resource extraction contract. Neither path is implemented or silently selected.
+
+## Unit 12: read the requested raw REL from the ISO and map bounded scratch
+
+The resumed scope selects an ISO-backed provider, not prepared loose REL files.
+`rel_provider.c` resolves `/RELS.arc` with the unchanged WW13/pinned DVD FST,
+opens the already verified private image with WW13's read-only transport and
+requires exact reads. It selects the requested case-insensitive module name,
+refuses ambiguous names, and decodes only the selected member. RARC parsing and
+the importer's existing bounded Yaz0 decoder are extracted into
+`apple/ios/src/rel_archive.h` and reused by the first-run importer, not copied.
+There are no new dependencies or source-pin edits. Archive and raw-image bounds
+are 16 MiB and 1 MiB respectively; no archive cache is retained.
+
+The real archive is RARC, 943,360 bytes. The requested profile-list REL is version
+3, 16,500 bytes, with 17 section entries and an import table. The layout is sourced
+from `disc_import.c`'s archive extraction and the desktop REL materializer;
+`docs/vita/VITA-WW-14.md` names the materialization/link/lifecycle boundaries.
+Raw module id, version, file size and section-table metadata must match the
+compiled module catalog; section/import extents are checked before mapping.
+
+`rel_service.c` reuses the shared first-fit allocator over
+`81820000..81F80000`, excluding every compiled code range and linked section
+(including their tagged address form), and refuses any other alias owner. Only
+the chosen 32-byte-rounded range is backed by a runtime-owned alias. **MEM1 stays
+24 MiB**. Copy verification precedes recording the owned image; failed allocation
+or logging rolls back the unpublished mapping. Shutdown frees it through the
+existing alias cleanup and resets its accounting. The bounded single image is
+appropriate while linking remains the next unsupported boundary; no speculative
+slot cache, unload implementation or active-set measurement is added.
+
+The desktop's `do_link` interception also binds the prelinked composite and, for
+module 1, publishes the profile-list global. That is distinct from a raw copy.
+This unit therefore emits `[rel-materialized]`, then explicitly stops for the
+relocation/link/prolog contract, without setting the guest object's module pointer,
+returning success, executing a fabricated prolog or emitting `[rel-load]`. A real
+materialization is not yet a linked module. The next unit must source and test
+that static-link contract before claiming a successful `do_link`.
+
+Linux AArch64: **486 host tests pass** (`logs/ww16-rel-materialize-green.log`),
+including raw and Yaz0 member/wrapper copies, case handling, catalog mismatch,
+short/missing reads, bad ranges, exhausted/aliased scratch, allocation failure,
+trace rollback, preserved guest object and unchanged MEM1. The initial missing
+mapping test is red in `logs/ww16-rel-materialize-red.log`. The actual ARM host
+links (`logs/ww16-rel-materialize-arm-link.log`). A fresh private importer run
+checks `main.dol` and **all 415 REL files byte-identical** to the previous verified
+import (`rel-importer-check-h211_gub/result.json`); it executes no guest code.
+Audit, attribution and whitespace checks pass. Windows verification is tracked
+in `docs/WINDOWS_TASKS.md`; it was not run. A clean committed VPK build and watched
+authentic materialization trial follow, with the existing inactivity watchdog.
