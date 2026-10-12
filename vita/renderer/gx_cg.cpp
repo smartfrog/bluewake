@@ -3,6 +3,7 @@
 
 #include "gx_cg.h"
 #include "gx_tev.h"
+#include "gx_ztexture.h"
 
 namespace gx_vita {
 
@@ -59,8 +60,9 @@ CgProgram generate_cg(const gxc::ShaderKey& key) {
     program.unsupported_reason = "fog not supported by Vita Cg";
     return program;
   }
-  if (key.ztex_op != 0) {
-    program.unsupported_reason = "ZTexture depth output not supported by Vita Cg";
+  if (key.ztex_op > 2 || key.ztex_type > 2 ||
+      (key.ztex_op != 0 && (key.tev_valid == 0 || key.textured == 0))) {
+    program.unsupported_reason = "invalid ZTexture configuration";
     return program;
   }
   if (key.use_dst_alpha != 0) {
@@ -141,6 +143,8 @@ CgProgram generate_cg(const gxc::ShaderKey& key) {
     out += ") {\n";
     out += "  clip = mul(mul(float4(position, 1.0), position_matrix), "
            "projection);\n";
+    // GX clip Z is [-w,0]; vitaGL uses ordinary GL depth, not reversed Z.
+    out += "  clip.z = 2.0 * clip.z + clip.w;\n";
     if (need_color0)
       out += "  out_color0 = color0;\n";
     if (need_color1)
@@ -182,6 +186,12 @@ CgProgram generate_cg(const gxc::ShaderKey& key) {
       param("uniform float4 konst_colors[4]");
       param("uniform float2 alpha_ref");
     }
+    if (key.ztex_op != 0) {
+      param("uniform float2 ztexture_bias");
+      param("out float fragment_depth : DEPTH");
+      if (key.ztex_op == 1)
+        param("float4 screen : WPOS");
+    }
     out += ") : COLOR {\n";
 
     if (key.tev_valid != 0u) {
@@ -190,6 +200,8 @@ CgProgram generate_cg(const gxc::ShaderKey& key) {
              "  float4 c1 = tev_colors[2];\n"
              "  float4 c2 = tev_colors[3];\n"
              "  float4 tex, ras, konst, tevin_a, tevin_b, tevin_c, tevin_d;\n";
+      if (key.ztex_op != 0)
+        out += "  float4 rawtex = float4(0.0,0.0,0.0,0.0);\n";
       for (std::uint32_t n = 0; n < key.num_tev_stages; ++n) {
         const gxc::TevStageKey& stage = key.tev_stages[n];
         std::string coord;
@@ -197,12 +209,14 @@ CgProgram generate_cg(const gxc::ShaderKey& key) {
           const char* reason = nullptr;
           (void)texgen_coord(key, stage.tevorders_texcoord, &coord, &reason);
         }
-        tev::emit_stage(out, stage, coord);
+        tev::emit_stage(out, stage, coord, key.ztex_op != 0);
       }
       const auto& last = key.tev_stages[key.num_tev_stages - 1];
       out += "  prev = float4(" + std::string(tev::destinations[last.cc_dest]) +
              ".rgb, " + tev::destinations[last.ac_dest] + ".a);\n";
       tev::emit_alpha_test(out, key);
+      if (key.ztex_op != 0)
+        ztexture::emit_depth(out, key);
       out += "  return prev / 255.0;\n";
     } else if (key.textured != 0u) {
       out += "  return tex2D(tex0, uv0);\n";

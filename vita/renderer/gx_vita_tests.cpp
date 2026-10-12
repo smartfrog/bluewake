@@ -118,6 +118,19 @@ int main() {
   {
     gxc::DrawPlan plan;
     plan.ok = true;
+    plan.pixel_constants.zbias[3] = 0xFFFFFF;
+    plan.viewport_valid = true;
+    plan.viewport[2] = 0.5f * 16777216.f;
+    plan.viewport[5] = 0.75f * 16777216.f;
+    const auto draw = gx_vita::translate(plan);
+    CHECK(draw.ok);
+    CHECK(draw.ztexture_bias[0] == 65535 && draw.ztexture_bias[1] == 255);
+    CHECK(draw.pipeline.depth_near == 0.25f && draw.pipeline.depth_far == 0.75f);
+  }
+
+  {
+    gxc::DrawPlan plan;
+    plan.ok = true;
     plan.vertex_count = 3;
     plan.vertices.resize(3 * gxc::kVertexFloats);
     plan.pipeline.src_factor = 2;

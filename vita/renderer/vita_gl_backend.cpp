@@ -71,12 +71,15 @@ public:
     glUniform4fv(glGetUniformLocation(gl_program, "konst_colors"), 4,
                  &draw.konst_colors[0][0]);
     glUniform2fv(glGetUniformLocation(gl_program, "alpha_ref"), 1, draw.alpha_ref);
+    glUniform2fv(glGetUniformLocation(gl_program, "ztexture_bias"), 1,
+                 draw.ztexture_bias);
 
     if (draw.pipeline.depth_test != 0u)
       glEnable(GL_DEPTH_TEST);
     else
       glDisable(GL_DEPTH_TEST);
     glDepthFunc(draw.pipeline.depth_func);
+    glDepthRangef(draw.pipeline.depth_near, draw.pipeline.depth_far);
     glDepthMask(draw.pipeline.depth_write != 0u ? GL_TRUE : GL_FALSE);
     if (draw.pipeline.blend_enable != 0u) {
       glEnable(GL_BLEND);

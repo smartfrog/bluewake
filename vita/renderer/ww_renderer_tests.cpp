@@ -12,6 +12,7 @@
 
 #include "ww_renderer.h"
 #include "ww_renderer_backend.h"
+#include "gx_ztexture_fixture.h"
 
 #include "../feasibility/gx/gx_fixture.hpp"
 
@@ -57,6 +58,9 @@ struct DrawRecord {
   float tev_colors[4][4]{};
   float konst_colors[4][4]{};
   float alpha_ref[2]{};
+  float ztexture_bias[2]{};
+  float depth_near = 0;
+  float depth_far = 1;
   std::string cg_vertex;
   std::string cg_fragment;
 };
@@ -92,6 +96,8 @@ public:
     record.depth_test = draw.pipeline.depth_test;
     record.depth_func = draw.pipeline.depth_func;
     record.depth_write = draw.pipeline.depth_write;
+    record.depth_near = draw.pipeline.depth_near;
+    record.depth_far = draw.pipeline.depth_far;
     record.blend_enable = draw.pipeline.blend_enable;
     record.blend_src = draw.pipeline.blend_src;
     record.blend_dst = draw.pipeline.blend_dst;
@@ -105,6 +111,7 @@ public:
     std::memcpy(record.tev_colors, draw.tev_colors, sizeof record.tev_colors);
     std::memcpy(record.konst_colors, draw.konst_colors, sizeof record.konst_colors);
     std::memcpy(record.alpha_ref, draw.alpha_ref, sizeof record.alpha_ref);
+    std::memcpy(record.ztexture_bias, draw.ztexture_bias, sizeof record.ztexture_bias);
     record.cg_vertex = program.vertex;
     record.cg_fragment = program.fragment;
     draws.push_back(std::move(record));
@@ -465,30 +472,30 @@ int tev_register_supply() {
   return 0;
 }
 
-int unsupported_ztexture_is_reported() {
+int ztexture_is_submitted() {
   Fixture fixture;
+  gx_ztexture_fixture::fill_memory(fixture.memory);
+  fixture.cpu.ram = fixture.memory.mem1.data();
+  fixture.cpu.ram_size = fixture.memory.mem1.size();
   RecordingBackend backend;
   WwRenderer* renderer = nullptr;
   WwRendererConfig config = fixture.config();
   CHECK(ww_renderer_create(&renderer, &config, &backend) == nullptr);
-  auto fifo = gx_fixture::build_textured_triangle();
-  constexpr std::size_t triangle_size = 3 + 3 * 5 * sizeof(float);
-  fifo.resize(fifo.size() - triangle_size);
-  gx_fixture::push_bp(fifo, 0x28, 1u << 6);
-  gx_fixture::push_bp(fifo, 0xC0, 8u | (15u << 4) | (15u << 8) |
-                                (15u << 12) | (1u << 19));
-  gx_fixture::push_bp(fifo, 0xC1, (4u << 4) | (7u << 7) | (7u << 10) |
-                                (7u << 13) | (1u << 19));
-  gx_fixture::push_bp(fifo, 0xF5, 2u | (2u << 2));
-  gx_fixture::push_triangle(fifo);
+  const auto fifo = gx_ztexture_fixture::clear_quad(2, 2, 0xFFFEFF);
   CHECK(ww_renderer_write(renderer, fifo.data(), fifo.size()) == nullptr);
-  CHECK(backend.draws.empty());
+  CHECK(backend.draws.size() == 1);
+  CHECK(backend.draws[0].cg_fragment.find("out float fragment_depth : DEPTH") != std::string::npos);
+  CHECK(backend.draws[0].vertex_count == 4 && backend.draws[0].index_count == 6);
+  CHECK(backend.draws[0].depth_test == 1 && backend.draws[0].depth_write == 1);
+  CHECK(backend.draws[0].depth_func == gx_vita::kGlAlways);
+  CHECK(backend.draws[0].ztexture_bias[0] == 65534 && backend.draws[0].ztexture_bias[1] == 255);
+  CHECK(backend.draws[0].depth_near == 0);
+  CHECK(backend.draws[0].depth_far == 16777215.f / 16777216.f);
   WwRendererStats stats{};
   ww_renderer_stats(renderer, &stats);
-  CHECK(stats.plans == 1 && stats.programs_refused == 1 && stats.refusal_count == 1);
-  CHECK(std::string(stats.refusal_reasons[0]).find("ZTexture") != std::string::npos);
+  CHECK(stats.plans == 1 && stats.programs_refused == 0 && stats.draws == 1);
   ww_renderer_destroy(renderer);
-  std::printf("renderer unsupported ZTexture counted, not silently drawn\n");
+  std::printf("renderer ZTexture depth output submitted\n");
   return 0;
 }
 
@@ -502,7 +509,7 @@ int main() {
   CHECK(display_list_coverage() == 0);
   CHECK(per_vertex_matrix_coverage() == 0);
   CHECK(tev_register_supply() == 0);
-  CHECK(unsupported_ztexture_is_reported() == 0);
+  CHECK(ztexture_is_submitted() == 0);
   {
     // Create refuses a missing memory view and a missing backend loudly.
     WwRenderer* renderer = nullptr;

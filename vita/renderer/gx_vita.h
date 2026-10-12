@@ -63,6 +63,8 @@ struct PipelineState {
   std::uint8_t depth_test = 0;
   std::uint16_t depth_func = kGlAlways;
   std::uint8_t depth_write = 0;
+  float depth_near = 0;
+  float depth_far = 1;
   std::uint8_t blend_enable = 0;
   std::uint16_t blend_src = kGlOne;
   std::uint16_t blend_dst = kGlZero;
@@ -119,6 +121,7 @@ struct TranslatedDraw {
   float tev_colors[4][4]{};
   float konst_colors[4][4]{};
   float alpha_ref[2]{};
+  float ztexture_bias[2]{}; // exact high-16/low-8 parts of BP F4
   // Single texmap-0 case: the draw's one texture and sampler.
   TextureUpload texture;
   // Bit t set means textures[t] must be bound. Includes single nonzero texmaps;
