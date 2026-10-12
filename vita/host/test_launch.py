@@ -76,6 +76,32 @@ class PrivateLaunchTest(unittest.TestCase):
         self.assertFalse(any(Path('/proc', str(pid)).exists()
                              for pid in result['process']['monitored_pids']))
 
+    def test_low_cpu_guest_with_growing_process_log_is_not_declared_inactive(self):
+        self.successful_fake("for index in range(30):\n print('guest progress', flush=True)\n time.sleep(.05)")
+        self.plan['idle_timeout_seconds'] = 0.2
+        status, result = self.run_fake()
+        self.assertEqual(status, 0)
+        self.assertEqual(result['process']['stop_reason'], 'exit')
+
+    def test_low_cpu_guest_with_growing_native_journal_is_not_declared_inactive(self):
+        self.successful_fake("journal=root/'data/Vita3K/Vita3K/ux0/data/bluewake-ww-fixture/ww05.log'\n"
+                             "for index in range(30):\n"
+                             " with journal.open('a') as stream: stream.write('guest progress\\n')\n"
+                             " time.sleep(.05)")
+        self.plan['idle_timeout_seconds'] = 0.2
+        status, result = self.run_fake()
+        self.assertEqual(status, 0)
+        self.assertEqual(result['process']['stop_reason'], 'exit')
+
+    def test_growing_logs_do_not_hide_the_separate_explicit_phase_deadline(self):
+        self.successful_fake("for index in range(30):\n print('guest progress', flush=True)\n time.sleep(.05)")
+        self.plan['idle_timeout_seconds'] = 0.2
+        self.plan['phases']['guest']['timeout_seconds'] = 0.6
+        status, result = self.run_fake()
+        self.assertEqual(status, 124)
+        self.assertEqual(result['process']['stop_reason'], 'timeout')
+        self.assertEqual(result['completion'], 'INCOMPLETE')
+
     def test_timeout_without_a_closed_report_keeps_deadline_status_and_partial_logs(self):
         self.fake("app=root/'data/Vita3K/Vita3K/ux0/app/BWWG00005'\napp.mkdir(parents=True)\n"
                   "with zipfile.ZipFile('ww05.vpk') as archive: archive.extractall(app)\n",

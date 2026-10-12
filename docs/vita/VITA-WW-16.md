@@ -691,3 +691,44 @@ charge, timebase writes and failed trace handling; every clock probe compares al
 guest RAM before/after and observes no GX/message/frame work. The actual ARM host
 links (`logs/ww16-vi-clock-arm-link.log`). Audit, attribution and whitespace checks
 pass. A committed **opt-in** rebuild and fresh watched authentic trial follow.
+
+## Unit 20: CPU OR guest-output growth prevents false inactivity
+
+Coordinator priority supersedes the pending VI experiment: fix inactivity
+accounting, then replay the **exact archived `2e8deb1` guest build** without VI.
+The opt-in `c93951d` build completed, but no VI-enabled emulator trial was started.
+The lane/branch and previous work remain intact; no source reset or data deletion.
+
+The distinction is important: neither `4ce56e3c...` nor `c8e99533...` is a Vita3K
+crash. Their actual `phases/guest/evidence/process.json` says **timeout / exit -15
+(owned SIGTERM)**, at **60.006 s** and **20.001 s** respectively. They were killed
+by their explicit phase ceilings, not an `inactive` observer result. The old
+watchdog nevertheless had the CPU-only false-hang risk described by the
+coordinator: real I/O progress must keep a low-CPU process alive.
+
+Activity now means **CPU at least 5% OR positive size growth of an owned output**.
+The 30-second idle window resets on either. The launcher samples the real phase
+process log, Vita3K cache log, guest journal/partial/report/dispatch marker and,
+while installing, the actual payload files. It does not read their contents or
+walk broad trees. Symlinks, unowned/nonregular/multilink files and metadata errors
+are refused; missing not-yet-created files are normal. A replaced regular log can
+report new output; same-size overwrites are not growth.
+
+Delegated choice: "any evidence" means the **process-written outputs above**, not
+our observer's `run-watch.jsonl` or plan/result bookkeeping. Otherwise a monitor
+would keep its own hung guest alive forever. The native monitor and CPU-tree
+accounting remain active; true silence plus low CPU still TERM/KILL/reaps early.
+The independent phase ceiling remains explicit and is not called inactivity.
+The next baseline trial uses the longer authorized ceiling, not 20/60 seconds.
+
+Linux AArch64: **540 host tests and 81 FP tests pass**
+(`logs/ww16-output-watchdog-green.log`, `logs/ww16-output-watchdog-fp.log`). Real
+subprocess regressions prove low-CPU stdout/native-journal writers exit normally
+past the idle window; the original false-inactivity tests fail before the change
+(`logs/ww16-output-watchdog-red.log`). Deterministic checks cover the 2%-CPU growth
+case, silence after growth, each watched output, rotation, same-size writes,
+symlink refusal and exclusion of our own watch journal. Explicit ceilings still
+return timeout, not inactive. Audit, attribution and whitespace checks pass.
+No guest code, ABI, graphics, timer, source pin or composite digest changes in
+this unit. The baseline uses a preserved receipt/package, not a rebuild with a
+different guest SHA; launcher and guest provenance will be recorded separately.

@@ -83,6 +83,8 @@ def make_plan(root, args, source, package, run):
                 '/run/ww03/data/Vita3K/Vita3K/ux0/data/bluewake/GZLE01.iso']
     return {'ticket': 'VITA-WW-05', 'method': 'startup-gx-v1', 'title': 'BWWG00005',
             'continue_gx': limit, 'idle_timeout_seconds': idle_timeout, 'cpu_threshold': 0.05,
+            'activity_policy': 'CPU >= 5% OR growing process/cache log, guest journal/report/dispatch, or installed payload; '
+                               'exclude observer-written monitoring evidence; only silence AND low CPU can be inactive',
             'continuation_policy': 'opt-in; journal first N commands; no guest execution cap; '
                                    'preserve first frontier; stop on unsupported behavior or owned phase deadline',
             'run': run, 'source': source, 'vpk_sha256': package,

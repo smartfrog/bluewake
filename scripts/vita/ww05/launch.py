@@ -112,12 +112,21 @@ def fresh_request(root, source, package, continue_gx=0):
     return token
 
 
+def activity_observer(root, plan, phase, extra_outputs=()):
+    outputs = (phase / 'evidence/process.log', root / 'cache/Vita3K/vita3k.log',
+               *(root / REPORT_DIRECTORY / ('ww05' + suffix)
+                 for suffix in ('.log', '.partial', '.report', '.dispatch')),
+               *extra_outputs)
+    return ProcessIdleObserver(plan.get('idle_timeout_seconds', 30), plan.get('cpu_threshold', 0.05), outputs)
+
+
 def installer_observer(root, plan):
-    idle = ProcessIdleObserver(plan.get('idle_timeout_seconds', 30), plan.get('cpu_threshold', 0.05))
     with zipfile.ZipFile(root / 'runtime/ww05.vpk') as archive:
         expected = {name: archive.getinfo(name).file_size
                     for name in ('eboot.bin', 'main.dol', 'sce_sys/param.sfo')}
     title = root / 'data/Vita3K/Vita3K/ux0/app/BWWG00005'
+    idle = activity_observer(root, plan, Path(plan['phases']['install']['evidence_root']),
+                             tuple(title / name for name in expected))
 
     def observe(pid):
         try:
@@ -176,8 +185,7 @@ def execute_run(root, plan):
             stream.write('\n')
         print(f"RUN phase=guest evidence={phase}/evidence", flush=True)
         status = run_owned(guest['command'], root, guest['timeout_seconds'], evidence_root=phase,
-                           phase_observer=ProcessIdleObserver(plan.get('idle_timeout_seconds', 30),
-                                                              plan.get('cpu_threshold', 0.05)))
+                            phase_observer=activity_observer(root, plan, phase))
         process = json.loads((phase / 'evidence/process.json').read_text())
         print(f"STOP phase=guest reason={process['stop_reason']} seconds={process['duration_seconds']:.2f}", flush=True)
         record.update(process_status=status, process=process)
@@ -214,7 +222,8 @@ def execute_run(root, plan):
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--timeout', type=float, default=60)
-    parser.add_argument('--idle-timeout', type=float, default=30, help='abort after this many seconds below 5%% CPU')
+    parser.add_argument('--idle-timeout', type=float, default=30,
+                        help='abort only after this many seconds below 5%% CPU and without guest-output growth')
     parser.add_argument('--wayland-socket', type=Path, required=True)
     parser.add_argument('--continue-gx', type=int, default=0, help='journal first N real commands, then keep executing (1..256)')
     parser.add_argument('--disc', type=Path, help='read-only bind of the already verified private image at the WW13 install path')
