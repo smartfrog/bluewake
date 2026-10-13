@@ -1,4 +1,5 @@
 #include "fixture.h"
+#include "diagnostic_io.h"
 #include <stdio.h>
 #ifdef __vita__
 #include <psp2/kernel/sysmem.h>
@@ -106,7 +107,5 @@ int fixture_log_close(void) {
 }
 
 int fixture_publish_report(FILE* report, const char* partial, const char* complete) {
-    int error = flush_checked(report);
-    int closed = fclose(report);
-    return error || closed != 0 || rename(partial, complete) != 0;
+    return diagnostic_publish(report, partial, complete);
 }

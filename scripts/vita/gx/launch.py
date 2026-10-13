@@ -18,7 +18,6 @@ import hashlib
 import json
 import math
 import os
-import re
 from pathlib import Path
 import shutil
 import stat
@@ -26,6 +25,7 @@ import subprocess
 import sys
 import time
 import uuid
+from capture_profile import surface_sync_config
 
 ROOT = Path(__file__).resolve().parents[3]
 DEFAULT_BUILD = Path("/home/fred/projects/zeldaWWHDRecomp/build-f2/ww02")
@@ -50,13 +50,6 @@ def sha256(path):
         for block in iter(lambda: stream.read(1 << 20), b""):
             digest.update(block)
     return digest.hexdigest()
-
-
-def surface_sync_config(text):
-    setting = 'disable-surface-sync: false'
-    if re.search(r'^disable-surface-sync:.*$', text, re.MULTILINE):
-        return re.sub(r'^disable-surface-sync:.*$', setting, text, flags=re.MULTILINE)
-    return text.rstrip('\n') + '\n' + setting + '\n'
 
 
 def validate_timeout(timeout):

@@ -1168,3 +1168,1803 @@ extension (`logs/ww16-full-journal-red.log`). Actual ARM host links
 (`logs/ww16-full-journal-arm-link.log`); audit, attribution and whitespace pass.
 Commit, rebuild with VI, then launch the combined async-finish/full-prefix units
 in a new continuously watched Info profile with **2,048** requested commands.
+
+## Unit 34: four authentic presentations and a draw-containing journal
+
+Committed VI build **`1c5e252`** succeeds. Watched attempt
+**`5a4fb3b0ba4c46efa69ab545e225c8dd`**, with **2,048** requested journal entries,
+passes both synchronous and asynchronous draw-done completion through the actual
+backend and guest PE path. New result: **four plans/draws/programs and four display
+copies/presentations**, one distinct program, **zero skips/refusals/gaps**. The
+closed report reaches **48,608,267 cycles / 4,249 decoded commands / 28,385 renderer
+bytes / 8,194 events**. All **2,048 journal commands**, including draw records
+**990 and 1962**, certify with their pinned layout witnesses (four vertices,
+16-byte stride, 67-byte quad packet).
+
+The new honest STOP is **`pinned GX trace reached capacity; renderer drain not
+implemented`**, FIFO `CC008000`, writer `80326554`, stopped guest PC `802D9174`.
+The backend's streaming frontend already drains; this limit belongs to the
+host's separate C-parser diagnostic mirror. Install 1.18 s / guest 18.86 s;
+the retained post-report shutdown crash is still **exit 133**, not a hang kill.
+The continuously recorded CPU/output observations and certified closed reports
+remain private. This historical log has no `[frame-present]` wall stamps, so
+**FPS is unmeasured**, not calculated from boot/teardown duration.
+
+Reused WW18's delivered extractor after taking the repaired local integration
+tree **`b2e06d7`** by fast-forward (no pin or history rewrite). The new private
+fixture is under that attempt's **`evidence/gx-draw-prefix/`**: **14,464 exact
+bytes / 2,048 commands / two captured draws**, FIFO SHA-256
+`4f9b7592e088442ab9156410b9e5b1517e5a22e18f10d6623d2e67d6a1e13149`.
+`capture.json` distinguishes the logged prefix from the 4,249 decoded commands
+and five pending bytes. The extractor conservatively flags **requires_mem1=true**;
+there is no matching historical memory snapshot. No memory is invented, no
+zero-filled replay is attempted and no game data is committed or uploaded.
+The verified summary is `evidence/four-presentations-analysis.json`.
+
+## Unit 35: reuse consumed diagnostic trace/FIFO storage, preserving GX state
+
+The pinned frontend already provides the source pattern:
+`retail_gx_frontend.cpp:1479-1507` clears the **FIFO size and trace count** after
+emitted packets are consumed, without resetting persistent CP/BP/XF/resolver
+state. The C-parser mirror has no retained external consumer: its command bytes
+are already journaled and handed unchanged to WW17, whose own stateful parser
+and backend own rendering. Reuse that consumed-buffer lifecycle here instead of
+enlarging either fixed capacity or resetting all GX state.
+
+After a **complete command** is accepted by renderer write and the corresponding
+present/no-present call succeeds, the host mirror now reuses only its FIFO/trace
+cursors. First-frontier provenance, bounded history, journal, decoded counters,
+resolver, CP arrays/VCD/VAT/layouts, BP registers and XF transforms stay intact.
+Renderer failures keep the pending native bytes/events as evidence; partial
+commands are neither cleared nor submitted. A host without a renderer retains
+the original diagnostic buffers. A single command that reaches the pinned trace
+capacity still stops before backend acceptance; no dropped trace event is
+silently declared consumed. Bounds and memory allocations are unchanged.
+
+Linux AArch64: **602 host tests pass** (`logs/ww16-gx-drain-green.log`), including
+six real-interface recording-backend scenarios: persistent-state byte equality,
+more than **300,000 FIFO bytes / 8,192 cumulative events** consumed without
+changing the bounds, subsequent draw using retained layout, draw/present failure,
+partial command and no-renderer preservation. Red before the lifecycle change:
+`logs/ww16-gx-drain-red.log`; focused: `logs/ww16-gx-drain-focused.log`.
+All four integrated renderer executables pass
+(`logs/ww16-gx-drain-renderer-regressions.log`), and the actual ARM host links
+(`logs/ww16-gx-drain-arm-link.log`). Audit, attribution and whitespace pass.
+These recording tests are not GPU/pixel measurements. Commit this seam, then
+add the sourced WW12 wall markers before the next rebuilt, watched authentic run.
+
+## Unit 36: stamp actual presentations and due retraces with real wall time
+
+Implemented the **existing WW12 contract**, without moving or manufacturing a
+frame boundary: **`[frame-present] frame=N us=T`** appears only when WW17 reports
+that its actual backend presentation succeeded for a GX display copy; N comes
+from the renderer's actual presentation counter. **`[frame-timing] retrace=N us=T`**
+is a separate secondary series, emitted only after the existing VI clock pops a
+real due retrace. A draw, an unready/failed presentation or a disabled clock does
+not become a frame marker. These marks remain in the private guest journal.
+
+Vita timestamps use **sceKernelGetSystemTimeWide**, linked through the standard
+SDK **SceKernelThreadMgr** stub. The locally sourced Vita3K implementation
+(`SceThreadmgr.cpp:35-38,1210-1212`) returns host high-resolution wall time in
+microseconds, not guest executed cycles or an emulator presentation counter.
+Host contract tests use **CLOCK_MONOTONIC**. Each series requires consecutive
+actual indices and strictly advancing, valid u64 microseconds; clock failure,
+overflow, tied/backward time or failed marker output stops explicitly. There is
+no fabricated timestamp increment, fallback to guest cycles or FPS extrapolation.
+Guest registers, RAM, cycle credit/deadlines and interrupt delivery are unchanged.
+
+Linux AArch64: **611 host tests pass** (`logs/ww16-frame-markers-green.log`),
+including nine native-interface marker scenarios parsed by the **unchanged WW12
+frame-event reader**: two confirmed display copies with exact deterministic
+test stamps, absence for failed/unready presentation, clock/write failure,
+invalid/overflowing/tied/backward time, and due/off VI series separation.
+These injected test clocks and recording backends do not claim real GPU FPS.
+The two-presentation test is red before the instrumentation
+(`logs/ww16-frame-markers-red.log`); focused tests pass
+(`logs/ww16-frame-markers-focused.log`). Actual ARM host links with the sourced
+system-clock import (`logs/ww16-frame-markers-arm-link.log`).
+
+The performance suite revealed its historical assertion that **every real run
+must forever report rendered=0**. The new authentic one/four-presentation reports
+properly invalidate that assumption. Its integration test now preserves each
+real END counter, with a synthetic nonzero-counter test proving that a count
+alone never creates an FPS field. **27 WW12 tests and 83 FP launcher tests pass**
+(`logs/ww16-frame-markers-perf-green.log`, `logs/ww16-frame-markers-fp-tests.log`);
+the original failed assertion is retained in `logs/ww16-frame-markers-perf-tests.log`.
+Audit, attribution and whitespace pass. No renderer coverage, pin or player
+default changes. Commit/rebuild and run the drain+marker units without a memory
+dump first, to measure actual presentation growth without snapshot-write cost.
+
+The coordinator's memory-proof request is accepted next: raw **24 MiB MEM1
+starting at physical zero**, matching WW18's `--mem1` input, with a bounded private
+manifest naming capture command/time and addresses/sizes. Preserve time-matched
+evidence rather than relabel an old boot dump; keep that capture profile separate
+from the no-dump FPS baseline. No memory or resources are invented or uploaded.
+
+## Unit 37: eight authentic presentations and the first wall-stamped rate
+
+Committed **VI / module O1** build **`07189db`** succeeds. Fresh continuously
+watched **no-dump** run **`a4906dc5413141f5b4c1afc249f1382d`** passes the old
+trace-capacity frontier: **8,963 decoded commands / 60,512 renderer bytes /
+17,252 events**, with **nine plans/draws/programs and eight actual display
+copies/presentations**, one distinct program, **zero skips/refusals/gaps**.
+The first frontier, all **2,048 journal entries** and closed report certify.
+
+All **eight `[frame-present]` stamps** match END/RENDER exactly, and ten actual
+VI retrace stamps are a separate strictly advancing series. First/second/last:
+
+```text
+[frame-present] frame=1 us=1791848059554619
+[frame-present] frame=2 us=1791848059827685
+[frame-present] frame=8 us=1791848074637261
+```
+
+The unchanged WW12 harness now measures a **15.082642 s** presentation span:
+**0.464110 mean FPS**, **0.60 FPS in the one complete 10 s window**, median frame
+time **2,585.844 ms**, p95 **3,155.1604 ms**. Secondary: **0.509063 retraces/s**
+over **17.679557 s**, 0.70 in its complete 10 s window. The incomplete tail is
+excluded by the established harness. This is **one exploratory boot/clear-path
+measurement under Vita3K/OpenGL llvmpipe**, not the three-run fixed-title
+benchmark, verified visible pixels, sustained gameplay or physical-Vita FPS.
+The 30 FPS floor is clearly missed. The long final high-CPU/no-new-frame segment
+is outside the completed marker window; do not describe 0.60 as a sustained rate
+throughout the whole guest lifetime.
+
+New closed STOP: **AI volume register `CC006C04`**, writer/read PC **`80316E00`**,
+stopped guest PC **`80316B9C`**, at **85,311,500 executed cycles**. Pinned Dolphin
+`AudioInterface.cpp:59,280` names the register and direct u32 read; the AI sample
+counter is instead at **+08**. Install 1.25 s / guest **88.93 s**, then the known
+post-report shutdown **exit 133**. The watcher keeps a high-CPU process active
+even during long silence, as required; it does not mislabel that segment as a
+low-CPU hang or treat the teardown as gameplay success.
+
+Private evidence in this attempt: **`evidence/frame-markers.json`** and
+**`evidence/fps-no-dump-10s-verified/{baseline.json,summary.txt}`**. The initial
+baseline's numeric metrics are identical; its preliminary mistaken sample-counter
+register-name note is preserved and superseded by the sourced volume diagnosis.
+Reused WW18 extraction yields **`evidence/gx-draw-prefix/stream.fifo`**: **14,464
+bytes / two real draws / the exact 2,048-command prefix**, with the same FIFO hash
+as the earlier run. Nine reported draws are not nine captured draws. Matching
+MEM1 is still required; the requested bounded memory capture follows, separate
+from this no-dump baseline. No opcode, timestamp, resource or presentation is
+invented, and no private artifact is committed or uploaded.
+
+## Unit 38: bounded, opt-in MEM1 evidence before the journal's actual draws
+
+Added **`--mem1-snapshots 1|2`** to the isolated WW05 launcher, off by default
+and valid only with the opt-in GX journal. Its identity-bound request is checked
+before guest execution. The first one/two complete, logged primitive commands
+capture the **actual raw 24 MiB physical MEM1 backing**, unchanged and without
+endian conversion, **before the renderer consumes that draw**. No snapshots are
+taken on an ordinary no-dump FPS profile, at shutdown, after the bound is met or
+for unlogged later commands. Guest RAM/registers/cycles/interrupts are unchanged.
+This is diagnostic I/O, not an optimization: its cost invalidates comparison with
+the no-dump baseline, and the snapshot profile is explicitly separate.
+
+Each guest capture writes **`ww05.mem1-N.bin`** and **`ww05.mem1-N.json`** in the
+private run's fixture directory, recording token/source/package, physical base
+**00000000**, cached guest base **80000000**, exact **25,165,824-byte** extent,
+command/opcode/PC/completion PC, executed cycles, real wall microseconds and
+preceding actual presentation count. Two captures can preserve changing resource
+versions; neither is claimed to cover every earlier or later resource version.
+External owned aliases and MEM2 are explicitly outside this raw-MEM1 capture.
+No reconstruction, zero filling, missing resource or GPU completion is invented.
+
+Binary and metadata are published from exclusive **`.partial`** files through
+the reused diagnostic flush/error/close/rename checks. Existing outputs block
+capture without replacement; a failed open/write/flush/close/publish is a STOP,
+with incomplete evidence retained rather than promoted. The launch watchdog
+includes binary/metadata/partial growth as activity alongside CPU and log growth.
+The host requires genuine 24 MiB backing and a valid, logged complete draw.
+
+Post-run verification ties the snapshot identity and writer PCs to the exact
+unchanged journal, checks the full extent and advancing time, and computes hashes.
+**`evidence/mem1-capture.json`** lists verified snapshots. Next to each binary,
+**`ww05.mem1-N.snapshot.json`** uses lane 18's current
+**`gx-mem1-snapshot-v1`** contract: adjacent binary filename, binary SHA-256,
+SHA-256 of concatenated logged command bytes, and the single physical region
+`{address:0, offset:0, size:25165824}`. Temporal producer annotations are retained.
+Use lane 18's explicit **`--snapshot PATH`**, not an automatic whole-run snapshot
+claim. The FIFO digest binds bytes, not resource-version correctness.
+
+Linux AArch64: **629 host tests**, **27 WW12**, **83 FP launcher**, **21 GX parser**
+tests and the four existing renderer executables pass. Request rejection was red
+before implementation (`logs/ww16-mem1-request-red.log`); lane 18 manifest fields
+were red before alignment (`logs/ww16-mem1-snapshot-contract-red.log`). Green:
+`logs/ww16-mem1-snapshot-contract-green.log`, `logs/ww16-mem1-{perf,gx,fp}-final.log`,
+`logs/ww16-mem1-renderer-regressions.log`. Actual ARM host links
+(`logs/ww16-mem1-arm-link.log`; only existing unrelated DSP/generated warnings).
+Audit, attribution and whitespace pass. Direct contract check with lane 18's
+current **read-only trunk `memory_snapshot.py`** accepts both synthetic snapshots
+and preserves every byte and the complete physical range
+(`logs/ww16-mem1-format-contract/contract.json`). Those injected tests do not prove
+authentic game resources; a fresh committed rebuild and watched capture trial
+follows. No network, push, private data upload or pin modification.
+
+## Unit 39: two authentic, time-matched MEM1 snapshots delivered for lane 18
+
+Fresh committed VI/O1 build **`6d691a3`**, watched private capture run
+**`33aa66c91b9d49a1b78cbabdeb1f86c3`**: **two actual 24 MiB MEM1 captures verify**,
+before journal draws **990** and **1962**, at **14,491,219 / 24,342,927 executed
+cycles**, respectively. Writer **80323190**, completion **802CD824**, opcode **80**.
+First snapshot precedes any presentation; second follows the first. Bounded
+capture stops there; the actual guest continues to **nine draws / eight
+presentations**, **8,963 decoded / 2,048 journal commands**, zero skips/refusals/gaps.
+All eight presentation and ten retrace wall stamps still parse and match the
+report; the capture profile is **not an FPS baseline**. The no-dump Unit 37
+baseline is preserved, not replaced or compared against dump-writing timings.
+
+Closed STOP is unchanged: unsupported **AI volume read CC006C04**, PC **80316E00**,
+with **85,311,500 cycles / 1,033,628 edges**, exactly as in the no-dump trial.
+Install **1.23 s**, guest **91.23 s**, then the known closed-report shutdown
+**exit 133**. The watch records **91 guest samples**, including 67 silent but
+high-CPU samples; snapshot-file growth is activity too. No watchdog false hang.
+
+**Private hand-off root**:
+
+```text
+/home/fred/projects/zeldaWWHDRecomp/build-f5/ww05/vita3k-run-33aa66c91b9d49a1b78cbabdeb1f86c3
+```
+
+- **`evidence/mem1-capture.json`**: verified identities, commands, times, mappings,
+  binary/metadata hashes and explicit replay-manifest paths.
+- **`data/Vita3K/Vita3K/ux0/data/bluewake-ww-fixture/`**: original `ww05.log`,
+  `ww05.report`, **`ww05.mem1-{1,2}.bin`**, guest provenance
+  **`ww05.mem1-{1,2}.json`**, lane 18 contract
+  **`ww05.mem1-{1,2}.snapshot.json`**. Supply the latter with **`--snapshot`**.
+- **`evidence/gx-draw-prefix-snapshot{1,2}/`**: lane 18's read-only extractor
+  accepts each manifest and stages **14,464 FIFO bytes / two captured draws**,
+  original memory/manifest and coverage transport. Its available
+  `build-f6/ww18-verify/gx-host/gx_bridge` is **stale and lacks guarded snapshot
+  acknowledgement**, so both guarded replays explicitly reject; those refusals
+  remain in `replay.txt`, console logs and `evidence/mem1-replay-attempts.json`.
+  Tool/source/binary hashes are retained, not silently attributed to a new build.
+- **`evidence/gx-draw-prefix-raw-mem1-{1,2}/`**: the existing WW16 bridge can use
+  each **actual full, contiguous** MEM1 capture through the documented legacy
+  **`--mem1`** contract (no sparse holes/zero-filled reconstruction). Both produce
+  **2 plans / 2 accepted programmes / one distinct programme**, **4,045 events**,
+  no skipped plan/refused programme. **Global replay still fails coverage**:
+  its one display-copy is refused with **`display copy has no texture destination`**.
+  Thus report **`verdict=ran-with-coverage-gaps`**, not a clean independent replay.
+  Evidence: `evidence/mem1-full-image-replays.json` and the retained replay text.
+- **`evidence/capture-run-checks.json`**, `evidence/result.json` and
+  `evidence/run-watch.jsonl`: capture markers, actual frame/retrace counts,
+  certified frontier/command/memory evidence and continuous activity checks.
+
+MEM1 hashes, in capture order:
+
+```text
+72f9140a1fecd4f4e4022480457ce175252ffd37f8fcee6b5e82da407bc9a32f
+8cc8414e03e8f8775ef493ac5db0bb7bc95fd7f84351e4f5f966e17773ee884b
+```
+
+FIFO hash remains **4f9b7592e088442ab9156410b9e5b1517e5a22e18f10d6623d2e67d6a1e13149**.
+The snapshots differ, as expected for changing guest RAM. Each is time-matched
+to its own draw, not proof of every resource version throughout the prefix.
+Lane 18 now has real memory to investigate its guarded bridge/display-copy
+coverage independently. No pixels, physical-Vita behavior, gameplay or FPS gain
+is claimed, and no binary, disc data or captured memory is committed/uploaded.
+Next host seam is the sourced stopped-AI volume register; audio execution and
+unobserved interrupts remain explicit STOPs.
+
+## Unit 40: reuse the pinned stopped-AI volume register, without an audio backend
+
+The new frontier's **CC006C04 word read at 80316E00** is Dolphin's **AI volume**,
+not its sample counter. Pinned `AudioInterface.cpp:59,198,280-287` defines zero
+reset, direct u32 read, retained full u32 write and mixer volume application;
+`AudioInterface.h:86-96` assigns the low-byte left/next-byte right fields while
+the full register word is retained. The actual translated boot next clears each
+channel with word read-modify-writes (`80316E10` / `80316E20`).
+
+Host word reads/writes now reuse **dol_audio_dma_ai_mmio_read/write** and its
+existing big-endian **ai_regs+4** storage (`GXRuntime/src/audio_dma.c:258-281`),
+initialized to zero by the pinned audio state. No duplicated register, mask,
+sample-counter algorithm or synthesized callback is introduced. Writes require
+both AIS playback and audio DMA to be stopped; an active engine explicitly
+refuses **`active AI volume change requires an audio backend`** before mutation.
+Stream start/rate change, sample/timing registers and PCM execution are still
+unsupported. Read widths other than the sourced word remain STOPs too.
+
+Linux AArch64: **637 host tests and 27 WW12 tests pass**. Eight added scenarios
+extend the existing retained-register probe: zero reset, exact whole-word
+retention (including reserved bits), independent audio storage, only actual
+executed-cycle credit, bad read/write widths, active AIS and active AID refusal.
+Each compares the full audio state against only the permitted register delta;
+FIFO/trace/frontier/interrupts and cycle budget cannot be invented by volume I/O.
+The reset test was red before implementation (`logs/ww16-ai-volume-red.log`),
+then green (`logs/ww16-ai-volume-green.log`). Actual ARM host links without new
+warnings (`logs/ww16-ai-volume-arm-link.log`); WW12 regression evidence in
+`logs/ww16-ai-volume-perf-tests.log`. Final full host suite remains green after
+matching the volume probe's refusal context to **80316E00**
+(`logs/ww16-ai-volume-final.log`). Audit/attribution/whitespace pass.
+No shared runtime, pin, desktop default or rendering behavior changes. Fresh
+committed VI/O1 rebuild and watched **no-dump** continuation follow to identify
+the next actual STOP; host tests alone do not prove game audio or gameplay.
+
+## Unit 41: authentic volume initialization passes; live capture integration is next
+
+Committed VI/O1 build **478bef1**, fresh no-dump run
+**ef922f40287146b1aaf213278762df48**: the real volume read and two channel-clear
+word stores pass. New closed STOP is the next actual instruction:
+**AI interrupt-timing CC006C0C = 0**, word store at **80316E24**. Still **nine
+draws / eight presentations**, **8,963 decoded / 2,048 journal commands**, no
+skips/refusals/gaps. All eight presentation and ten retrace stamps parse and
+match the report. Executed cycles/edges remain **85,311,500 / 1,033,628**;
+install **1.23 s**, guest **70.10 s**, known post-report exit **133**. No hang is
+inferred from high-CPU silence.
+
+Unchanged WW12 measurement, one exploratory no-dump boot run:
+**16.439083 s** presentation span, **0.425815 mean FPS**, **0.50 FPS in the one
+complete 10 s window**, median frame **2,312.227 ms**, p95 **2,774.8683 ms**.
+Secondary retrace mean **0.475379/s**, complete-window **0.60/s**. Evidence:
+`evidence/fps-no-dump-10s/{baseline.json,summary.txt}` and
+`evidence/frame-markers.json` in this private attempt. Same caveats as Unit 37:
+not sustained gameplay, physical-Vita timing or a three-run benchmark. No
+renderer/FPS improvement is attributed to the stopped-volume register seam.
+
+The coordinator independently verifies lane 18's new image pipeline: replay of
+our authentic snapshot 2 produces uniform opaque black, consistent with the
+two journaled initialization clears, not a visible game scene. Next, integrate
+its committed default-off **ww_renderer_set_frame_capture** hook into the live
+host's MEM1-capture profile. The boundary is after successful swap and before
+next-frame drawing, never a post-run fabricated preview. Retain raw RGBA and
+the declared display-alpha PNG in the run's private evidence. No-dump FPS
+profiles must remain unchanged. The coordinator owns the trunk integration;
+its staged/conflicted work is not edited or overwritten from this lane.
+
+## Unit 42: enable actual live PNG capture for every MEM1 evidence profile
+
+Reused lane 18's committed snapshot loader **c25ed79 → 082a4cf** and live-image
+hook/encoder **161ebfd → b7447cd**, preserving their human authorship. Only those
+delivery dependencies are imported; unrelated indirect/emboss/LOD parent-context
+work is not pulled into this host unit. Conflict resolution retains all existing
+WW16 GPU-finish methods/tests and draw coverage alongside the additive readback
+method and five renderer capture contracts. Four renderer suites pass
+(`logs/ww16-live-hook-import-renderer.log`); snapshot/image Python tests pass.
+No edits are made to the coordinator's trunk worktree or its staged merge.
+
+**Every `--mem1-snapshots 1|2` run now enables the delivered
+ww_renderer_set_frame_capture hook**. No-dump runs leave it off. A real backend
+swap must succeed first; the hook reads the actual shown front buffer before
+held next-frame commands resume. The host reuses **gx_capture::write_png** and
+the existing WW02 encoder: **`frame-N-rgba.png`** preserves actual readback RGBA,
+flipped only to top-first rows; **`frame-N.png`** is the declared display view
+with alpha 255 and every RGB byte unchanged. No fallback, CPU rasterization,
+preview swap, fake command or inferred pixel is added.
+
+The isolated guest maps only the new private **`evidence/frames`** directory
+writable at its fixture frame path. Thus the renderer callback writes PNGs
+**directly into the run's evidence while the guest lives**, not via post-run
+replay. The installer does not receive that writable mount. Existing frame
+evidence blocks a fresh request; the renderer accepts only a new/empty real
+directory and never overwrites an existing PNG or metadata file. Each frame
+keeps its own raw/display PNG pair and **`frame-N.json`**, binding actual
+presentation/draw/command counts, token/source/package, real wall microseconds,
+executed cycles and preceding MEM1 captures to the exact capture boundary.
+Partial files remain evidence on failed PNG/metadata publication.
+
+Capture profiles also enable **disable-surface-sync: false**, sourced by lane
+18 from Vita3K's surface-writeback path. The existing approved-profile and
+installer restoration checks now accept only that explicitly requested single
+setting change; the neutral/no-dump schema and its original hash are unchanged.
+An installer user-id rewrite cannot silently turn writeback off. The replay and
+live paths share that setting helper, PNG parser, image statistics and declared
+RGB-preserving display-alpha validation; no second encoder or image dependency.
+
+The profile is diagnostic and bounded: **128 real presentations maximum**, each
+at most the **960×544 pixel extent**; exhausting the capture bound is an explicit
+STOP, not a silent missing-image success. This does not cap ordinary no-dump
+continuations. The watchdog counts these process-written PNG/partial/metadata
+files as output activity, never its own monitoring files. After the process is
+reaped, the harness verifies identity/counts/times, PNG CRC/data/dimensions,
+raw/display RGB equality and opaque display alpha, and writes hashes/pixel
+statistics to **`evidence/live-images.json`** without rewriting the PNGs. A uniform
+image is reported uniform, never assumed to show a logo or gameplay. Capture
+profiles explicitly cannot replace the no-dump FPS baseline.
+
+Linux AArch64: **647 host tests**, **83 FP launcher**, **51 GX snapshot/image**
+and **27 WW12** tests pass. Ten live-host scenarios cover actual two-frame PNG
+output/orientation/alpha, off-by-default, backend/readback/invalid-data failure,
+preserved preexisting files, unpublished PNG write failure, direct mounted
+evidence and collector integrity, the single profile change and installer
+restoration. Red tests precede implementation
+(`logs/ww16-live-frames-red.log`, `logs/ww16-live-profile-red.log`); final host
+green in `logs/ww16-live-frames-final-host.log`, profile/GX/WW12 evidence in
+`logs/ww16-live-profile-fp-tests.log`, `logs/ww16-live-frames-final-gx.log` and
+`logs/ww16-live-frames-perf-tests.log`. Actual ARM host links without new warnings
+(`logs/ww16-live-frames-final-arm.log`). Audit, attribution and whitespace pass.
+No physical Vita, Windows CI or authentic live game PNG is claimed yet: fresh
+committed rebuild and continuously watched two-MEM1/live-PNG trial follow.
+The sourced next gameplay frontier remains stopped-AI timing **CC006C0C**.
+
+## Unit 43: eight authentic live PNGs, with clean guarded draw-prefix replay
+
+Fresh committed VI/O1 build **75c6f99**, watched MEM1/live-PNG run
+**c96a4be9176f4a7694854a114db960ed**: **eight actual presentations produce eight
+verified live PNG pairs and metadata records directly in evidence/frames**.
+No replay or preview creates these images. Their command boundaries are
+**1227, 2199, 3171, 4143, 5115, 6087, 7059, 8031**, with consecutive real frame
+indices. The ninth draw is unpresented at the STOP and is not made into a ninth
+PNG or measurement stamp. Report: **nine draws / eight presentations**,
+**8,963 decoded / 2,048 journal commands**, zero skips/refusals/gaps. All eight
+presentation and ten retrace wall stamps still parse and match the report.
+
+**All eight display PNGs are numerically uniform opaque black**, **960×544 /
+522,240 pixels each**, and the last was opened and visually inspected. No logo
+or scene is visible. Every display RGB byte equals its preserved raw readback;
+only the declared display-alpha conversion changes alpha. The raw images retain
+**440,384 alpha-zero black pixels / 81,856 alpha-255 black pixels**, not invented
+opaque RGBA. The identical display hash also matches lane 18's independently
+verified initialization-clear replay; this is consistency, not pixel parity or
+gameplay certification.
+
+```text
+display PNG SHA-256:
+c871acff3fc84ccec64ed29b05f2b1549e05b5067e2e5adf193b60d5490fdae5
+raw PNG SHA-256:
+16afe13865182669ab43333868305b16c554029989ba9d68e7c57a5816739940
+```
+
+**Private evidence root**:
+
+```text
+/home/fred/projects/zeldaWWHDRecomp/build-f5/ww05/vita3k-run-c96a4be9176f4a7694854a114db960ed
+```
+
+- **`evidence/frames/frame-{1..8}.png`**, matching `-rgba.png` and `.json`:
+  actual live front-buffer output. Open **`evidence/frames/frame-8.png`** for the
+  latest presentation, not an extrapolated preview.
+- **`evidence/live-images.json`**, **`evidence/live-capture-checks.json`**:
+  exact PNG/metadata hashes, complete pixel statistics, frame/command/cycle/time
+  provenance, raw/display equality, inspection and explicit no-gameplay/no-FPS
+  verdict. The guest-only frame mount and surface-writeback configuration verify;
+  final config SHA **a3d18d0c8536e633323b395d3cc56bdd300ac6f72482b8829867555d13d7b1d3**.
+- **`evidence/mem1-capture.json`** and original numbered MEM1 files/manifests in
+  the fixture directory: **two actual 24 MiB captures at draws 990 / 1962**.
+  Both RAM hashes match Unit 39 exactly; the new capture hooks do not change
+  those guest bytes or the final executed cycles/edges.
+- **`evidence/gx-draw-prefix-snapshot{1,2}/`**: after importing the delivered
+  guard/display-copy fix, **both independent guarded replays now pass**:
+  **14,464 FIFO bytes / 4,045 events / 2 plans and programmes**, no skip/refusal
+  or nonzero gap, **`verdict=ran`**, explicit **GX_MEM1_RANGES_V1** acknowledgement
+  for the complete 24 MiB range. Original refusals from Unit 39 are preserved,
+  not overwritten. Provenance in **`evidence/guarded-mem1-replays.json`**. Prefix
+  translation is not whole-run replay, resource-version or GPU pixel parity.
+- **`evidence/result.json`**, **`evidence/run-watch.jsonl`**, original guest log
+  and report: certified commands/frontier, two memories and eight images;
+  continuous CPU/log/snapshot/PNG-growth monitoring while the process lived.
+
+Closed STOP remains **CC006C0C = 0**, word store **80316E24**, final
+**85,311,500 cycles / 1,033,628 edges**. Install **1.24 s**, guest **99.97 s**,
+known post-report shutdown **exit 133**. High-CPU silence is activity, not a
+watchdog hang. This snapshot/readback/PNG-write profile is **not an FPS baseline**;
+Unit 41's no-dump numbers are retained separately. No physical-Vita performance,
+visible gameplay or FPS gain is claimed. Next: the sourced stopped-AI zero
+interrupt-timing initialization, with active audio/timing still explicit STOPs.
+
+## Unit 44: sourced stopped-AI zero interrupt-timing initialization
+
+The actual **80316E24 word store of zero to CC006C0C** initializes Dolphin's
+AI interrupt-timing register. Pinned `AudioInterface.cpp:61,199-200,306-315`
+defines zero reset and retained word access. Its scheduled update and sample
+increment explicitly do nothing while **PSTAT is clear** (`110-111,140-143`);
+accepting this stopped initialization does not require invented samples, elapsed
+audio time, completion or an interrupt. The host reuses the pinned AI register
+file at **+0C**, sharing the existing stopped-engine gate with volume writes.
+
+Only the observed **zero word store** is accepted, with AIS playback and audio
+DMA both stopped. Nonzero timing, active audio or invalid width fails before
+register mutation. Word reads return actual retained state. Playback, sample
+clock/counter access and other unsupported audio behavior remain STOPs; no timer
+callback, PCM output or PI source is synthesized. GPU/capture behavior, pins and
+player defaults are unchanged.
+
+Linux AArch64: **654 host tests pass**, including seven timing scenarios reusing
+the retained-register probe: zero initialization, only executed-cycle credit,
+nonzero refusal, read/write width refusal, active AIS and active AID refusal.
+The full audio state, FIFO/frontier/trace, interrupts and budget remain checked
+against their permitted deltas. The actual zero-store contract was red before
+implementation (`logs/ww16-ai-timing-red.log`); green in
+`logs/ww16-ai-timing-green.log`. Actual ARM host links without new warnings
+(`logs/ww16-ai-timing-arm-link.log`); audit/attribution/whitespace pass. A clean
+committed VI/O1 rebuild and watched **MEM1 + live-PNG** trial follows, retaining
+actual images/counts and the next real STOP separately from no-dump FPS evidence.
+
+## Unit 45: zero AI timing passes; the next frontier is idle DSP audio-DMA setup
+
+Committed VI/O1 build **d4ca48e**, watched MEM1/live-PNG run
+**24356e49e61d44c8b088bc9634afb278**: the real stopped-AI zero timing store passes.
+New STOP is a **halfword read of CC005030 at 80316950**, sourced as DSP
+**AUDIO_DMA_START_HI** (`DSP.cpp:63,314-321`), not the separate ARAM DMA block.
+Final state **85,311,730 cycles / 1,033,646 edges**, advancing 230 cycles / 18 edges
+beyond Unit 43. Still **nine draws / eight actual presentations**, **8,963 decoded
+/ 2,048 journal commands**, zero skips/refusals/gaps.
+
+**Eight live PNGs, two actual MEM1 captures and all wall markers verify**; the
+last PNG was opened and remains uniform opaque black. Display hash unchanged:
+**c871acff3fc84ccec64ed29b05f2b1549e05b5067e2e5adf193b60d5490fdae5**.
+Both memory hashes still match Unit 39. Both independently guarded prefix
+replays pass with the actual captured memories: **14,464 bytes / two plans and
+programmes**, no gaps/refusals, explicit complete MEM1 coverage acknowledgement.
+This is still an initialization-clear image, not a visible logo/game scene,
+whole-run replay, physical-Vita parity or an FPS baseline.
+
+Private hand-off root:
+
+```text
+/home/fred/projects/zeldaWWHDRecomp/build-f5/ww05/vita3k-run-24356e49e61d44c8b088bc9634afb278
+```
+
+Latest image **`evidence/frames/frame-8.png`**; pixel/provenance manifests
+**`evidence/live-images.json`**, **`evidence/live-capture-checks.json`**; memory
+manifest **`evidence/mem1-capture.json`**; draw fixtures
+**`evidence/gx-draw-prefix-snapshot{1,2}/`** and
+**`evidence/guarded-mem1-replays.json`**. Installer **1.29 s**, guest **92.97 s**,
+known post-report shutdown **133**, no inactive/timeout termination. Next source
+work is stopped audio-DMA register configuration only; DMA enable, PCM transfer
+or audio completion cannot be invented to cross that frontier.
+
+## Unit 46: retain sourced audio-DMA setup while both audio engines are stopped
+
+The observed **80316950 halfword read of CC005030** begins the actual SDK source
+address setup: high read/write at **5030**, low read/write at **5032**, then
+length/control at **5036**. Pinned Dolphin `DSP.cpp:63-66,141,200-203,314-347`
+defines zero reset, GameCube source-high **03FF** / aligned source-low **FFE0**
+masks and the separate enable bit. The host now reuses the pinned
+**dol_audio_dma_dsp_mmio_read/write** register file and source-address latching
+for these three halfword configuration registers; there is no duplicate DMA
+engine or new sample-data representation.
+
+Writes require AIS and audio DMA both stopped. Source halves retain the sourced
+masks; disabled control retains only its **7FFF** length bits. **Any DMA enable,
+active-engine change or unobserved access width is an explicit STOP before
+mutation**, because the enable path would require actual PCM transfer and AID
+interrupt handling. No source memory is read, transfer consumed, time advanced,
+completion published or interrupt asserted by this register-only setup. ARAM
+DMA remains its separate existing implementation. Other unsupported registers
+and audio execution remain refusals.
+
+Linux AArch64: **662 host tests pass**, including eight added parameterized
+register-family scenarios: zero reset, exact masks, coupled source halves,
+disabled length, enable refusal, active-engine refusal, wrong-width refusal and
+only executed-cycle credit. The reused probe checks the full audio state against
+the permitted pinned register/latch delta, and preserves FIFO/frontier/trace,
+interrupts and budget. Reset reads were red before implementation
+(`logs/ww16-idle-aid-red.log`); green in `logs/ww16-idle-aid-green.log`. Actual
+ARM host links without new warnings (`logs/ww16-idle-aid-arm-link.log`);
+audit/attribution/whitespace pass. No runtime pin, desktop default or rendering
+change. Fresh committed VI/O1 rebuild and watched MEM1/live-PNG trial follows;
+configuring an idle source does not prove playing audio or game progress.
+
+## Unit 47: idle DMA setup passes; the guest reaches the JAudio DSP-task boundary
+
+Committed VI/O1 build **c6497b4**, watched MEM1/live-PNG run
+**678e40d69c8e4e198c5f88abb3f89f6d**: the actual source-high/source-low/disabled
+length setup passes. The guest advances **68,275 cycles / 1,813 edges** beyond
+Unit 45 to **85,380,005 cycles / 1,035,459 edges**, then stops at **803193AC**:
+**`desktop interception unsupported; guest not skipped`**. Shared
+`edge_intercepts.c:47` and desktop `main.c:8497-8504` identify this as
+**__DSP_boot_task**, the JAudio task's second DSP boot handshake. The desktop
+arms its own reply bookkeeping there; that is not permission to inject mailbox
+replies or skip real task instructions on this host.
+
+Still **nine draws / eight presentations**, zero renderer skips/refusals/gaps,
+**8,963 decoded / 2,048 journal commands**. Two actual MEM1 captures and **eight
+live PNG pairs verify**; the last was opened and remains uniform opaque black,
+with the same **c871acff...** display hash as Unit 43. All eight actual presentation
+and ten retrace stamps match the report. Both guarded two-draw prefix replays
+remain clean, using the same real memory hashes, not default zero RAM.
+
+Private hand-off root:
+
+```text
+/home/fred/projects/zeldaWWHDRecomp/build-f5/ww05/vita3k-run-678e40d69c8e4e198c5f88abb3f89f6d
+```
+
+Latest image **`evidence/frames/frame-8.png`**; image/check/memory manifests
+**`evidence/live-images.json`**, **`evidence/live-capture-checks.json`** and
+**`evidence/mem1-capture.json`**; guarded fixtures
+**`evidence/gx-draw-prefix-snapshot{1,2}/`** and their replay manifest. Install
+**1.20 s**, guest **116.38 s**, closed report followed by known **exit 133**.
+No inactivity/timeout termination, fabricated frame, logo/gameplay claim or FPS
+comparison is made. The next seam is guarded observation of the actual DSP-task
+entry and guest mailbox access, preserving the real body and explicitly
+refusing unsupported task-peer behavior rather than adopting desktop replies.
+
+## Unit 48: observe the actual DSP task and keep missing mailbox behavior explicit
+
+The **803193AC __DSP_boot_task** boundary now reuses the existing SDK observation
+path rather than the desktop reply-arming shortcut. Admission requires the
+registered DOL entry, **32 original loaded text bytes** verified through the
+existing code guard, an unaliased real-MEM1 task range and the actual prologue's
+stack range (**SP-24 through SP+8**). It records entry/LR/SP/task address, **64
+opaque actual task bytes**, DSP control/mailbox/ROM/init state and executed
+cycles once, then lets the **real guest body run normally**. The task bytes are
+bounded evidence, not a reconstructed descriptor, DSP program or scripted reply.
+No guest register, RAM, DSP state, return, ready bit, callback or wakeup is changed
+by observation. Every repeated entry is revalidated; logging failure is fatal.
+
+At the ensuing real **CC005004** halfword mailbox poll, a missing busy reply
+without supported **running** ROM/init work explicitly stops with
+**`DSP task boot mailbox requires a DSP task backend; no reply injected`**.
+This prevents an unsupported peer from becoming either a fabricated message or
+an indefinite busy-wait. Existing busy mail, the verified running ROM source and
+verified pending init work retain their existing behavior. A halted pending flag
+is not a due event. No desktop task-mail flags or new response constants are
+copied into the actual host path. The real loaded task still needs a sourced
+DSP backend; this unit is guarded execution/diagnosis, not that implementation.
+
+Linux AArch64: **672 host tests pass**, ten added observation/peer scenarios
+extending the existing scheduler probe: original entry, changed/unregistered code,
+invalid task/stack mapping, bounded repeat, logging failure, empty/stale mailbox,
+actual busy mail, verified ROM/init work, and halted pending work. Full RAM and
+general registers stay unchanged; DSP changes are limited to the already sourced
+ROM read behavior. The admitted-entry test was red before the seam
+(`logs/ww16-dsp-task-observation-red.log`); all tests green in
+`logs/ww16-dsp-task-observation-final.log`. Actual ARM host links
+(`logs/ww16-dsp-task-observation-final-arm.log`; only the existing DSP signedness
+warning). Audit/attribution/whitespace pass. No pin, renderer or desktop behavior
+change; no physical-Vita or authentic task execution is claimed from these tests.
+
+The existing shared **dsp_adapter_c / dsp_hle_backend** is a source candidate for
+the next real peer, but its current optional build consumes donor objects and
+Mac frameworks (`runtime/host/CMakeLists.txt:702-755`), not an ARM/Vita backend.
+It is not linked or silently substituted here. Commit/rebuild and a watched
+MEM1/live-PNG diagnostic trial follow. The last healthy capture run needed
+**116.38 s**, so the next explicit phase ceiling is **180 s**, still with the
+same 30-second low-CPU **AND** silence abort and continuous live monitoring.
+
+## Unit 49: authentic guarded DSP task body reaches the ROM upload command
+
+Committed VI/O1 build **90fc919**, watched MEM1/live-PNG run
+**1ff459b86c894d90938921c617ce2d26**: original registered task entry, descriptor
+and stack checks pass. The actual guest body consumes the existing reset-selected
+ROM ready mail and reaches **80F3A001**, the sourced ROM source-address command.
+STOP is **`running ROM mail protocol not implemented`**, halfword store
+**A001 to CC005002 at 803190B0**. No desktop reply arming or guest-body skip.
+
+One actual task observation is retained privately: descriptor **803EAF60**,
+LR **8028EC7C**, SP **803EA4D8**, control **0950**, reset-selected ROM pending,
+loaded init already finished. Final **85,380,253 cycles / 1,035,459 edges**;
+248 guest cycles beyond Unit 47. No extra presentation: still **nine draws /
+eight presentations**, **8,963 decoded / 2,048 journal commands**, zero renderer
+skips/refusals/gaps. **Eight live PNG pairs, two real MEM1 images, eight actual
+presentation stamps and ten retrace stamps verify**. All shown PNGs remain
+uniform opaque black; the last was opened. Both guarded two-draw-prefix replays
+pass with the actual contemporaneous snapshots. No FPS baseline, logo/gameplay
+or physical-Vita result is claimed.
+
+Private evidence root:
+
+```text
+/home/fred/projects/zeldaWWHDRecomp/build-f5/ww05/vita3k-run-1ff459b86c894d90938921c617ce2d26
+```
+
+Latest image **`evidence/frames/frame-8.png`**; image/check/memory manifests
+**`evidence/live-images.json`**, **`evidence/live-capture-checks.json`**,
+**`evidence/mem1-capture.json`**; fixtures
+**`evidence/gx-draw-prefix-snapshot{1,2}/`** and guarded replay provenance
+**`evidence/guarded-mem1-replays.json`**. Install **1.34 s**, guest **105.12 s**;
+closed report followed by known shutdown **133**, not timeout or inactivity.
+
+Next source seam: pinned **DSPHLE/UCodes/ROM.cpp:40-113** and free ROM
+**docs/DSP/free_dsp_rom/dsp_rom.ds:13-59** agree on the five command/parameter
+pairs. **DSPHLE.cpp:179-186** consumes a low-word mail through HandleMail before
+clearing the CPU busy flag. Receiving these actual parameters can be implemented
+without an outgoing reply or simulated DSP instruction time. The final task
+launch requires an executable peer and must remain an explicit STOP until one
+exists; no Zelda init/interrupt mail is permitted merely because the guest asks.
+
+## Unit 50: receive sourced ROM upload parameters, with task execution still refused
+
+The actual **80F3A001** request now reaches a bounded source-backed ROM receiver
+in **vita/host/dsp_rom_mail.c**, not a desktop interception or reply script.
+Pinned **ROM.cpp:40-113**, corroborated by **free_dsp_rom/dsp_rom.ds:13-59**, defines
+the source-address, instruction-length, data-length, instruction-destination
+and start-PC command pairs. The receiver retains the actual source word and
+only the documented low 16 bits of scalar parameters. A small owned record is
+cleared only by a successful verified reset/init transition. It does not read
+source memory, transfer code or allocate IRAM.
+
+Explicit assumption: parameter intake uses the pinned **DSPHLE.cpp:167-186**
+ABI, retaining the written high word in the running selected-ROM path and
+consuming the completed low-word mail through the native receiver before
+clearing the CPU busy flag. This is **HLE-style ROM input handling**, not proof
+of DSP instruction execution or instruction-accurate time. The existing halted
+LLE mailbox behavior remains unchanged. No outgoing reply, DSP/AI interrupt,
+elapsed time, sample counter or callback is manufactured by receiving a word.
+
+Only running reset-selected ROM with its prior outgoing mail already consumed
+is admitted. Unselected execution, unknown commands, unexpected receiver state
+and failed trace writes stop without consuming the failed low word or changing
+the prior parameter record. Trace output names every accepted actual mail and
+its retained fields. The final **D001 start-PC parameter** records the real task
+request and explicitly refuses with **`DSP ROM task launch requires a DSP task
+backend; transfer and execution not implemented`**. It never emits Zelda init
+mail or pretends a task was downloaded. Nonzero data length is retained input,
+not a silently completed transfer. All unsupported audio/DMA execution remains
+an explicit refusal.
+
+Linux AArch64: **681 host tests pass**, nine ROM scenarios reusing the existing
+DSP init probe: actual command/parameter retention and masks, unsupported task
+launch, reset clearing, unconsumed ready-mail refusal, non-ROM refusal, unknown
+command refusal, command/parameter trace failures, and preservation across a
+refused init transfer. RAM, complete DSP state outside the permitted input
+record/latch/error, audio state, cycles/timebase, interrupts and GX frontier stay
+unchanged. Test-first intake failure in **logs/ww16-dsp-rom-red.log**; an additional
+red regression caught early metadata clearing on a refused init transfer
+(**logs/ww16-dsp-rom-refused-init-red.log**), fixed before commit. Final suite
+**logs/ww16-dsp-rom-verified-host.log**. ARM host links
+(**logs/ww16-dsp-rom-verified-arm.log**, only the existing DSP signedness warning).
+Audit, attribution and whitespace pass. No runtime pin or desktop behavior is
+changed. Windows CI and physical Vita are not tested here. Clean committed VI/O1
+rebuild and watched **MEM1 + live-PNG** trial follow; host tests alone do not
+certify authentic protocol progress, task execution or visible gameplay.
+
+## Unit 51: the authentic ROM sequence reaches the real task launch request
+
+Committed VI/O1 build **8824a11**, watched MEM1/live-PNG run
+**5befd4ad675848c2bf257377f60116c8**: **nine actual accepted ROM mails** reach the
+final start-PC parameter. The complete four received parameter fields are
+**source 00399420 / 7,456 bytes / data length zero / IRAM destination 0000**;
+requested task entry **0000**, field-presence mask **0F**. Source, destination,
+length and entry are producer observations, not inferred from a known CRC.
+The last parameter is refused at **CC005002 / 803190B0**, word-low value
+**0000**, with **`DSP ROM task launch requires a DSP task backend; transfer and
+execution not implemented`**. Nothing reports a code transfer, task execution,
+Zelda handshake, DSP interrupt or fabricated completion.
+
+Still **nine draws / eight presentations**, **8,963 decoded / 2,048 journal
+commands**, zero skips/refusals/gaps. Two actual MEM1 captures, eight actual live
+PNG pairs, eight presentation stamps and ten retrace stamps verify. All display
+PNGs are uniform opaque black; the last was opened. Both contemporaneous guarded
+two-draw-prefix replays remain clean. The final precharged guest cycle/edge
+totals remain **85,380,253 / 1,035,459**; no added-time or FPS claim is inferred
+from the newly accepted input sequence. Owned host state grows by the actual
+**16-byte** ROM parameter record; memory/GPU residency remains explicitly unknown.
+
+Private hand-off root:
+
+```text
+/home/fred/projects/zeldaWWHDRecomp/build-f5/ww05/vita3k-run-5befd4ad675848c2bf257377f60116c8
+```
+
+Latest actual image **`evidence/frames/frame-8.png`**; image/check/memory manifests
+**`evidence/live-images.json`**, **`evidence/live-capture-checks.json`**,
+**`evidence/mem1-capture.json`**; extracted fixtures
+**`evidence/gx-draw-prefix-snapshot{1,2}/`** and exact bridge provenance in
+**`evidence/guarded-mem1-replays.json`**. Original ROM request/parameters remain
+in the private guest log. Install **1.25 s**, guest **92.20 s**, closed report
+followed by known exit **133**, not timeout/inactivity. This is not a no-dump FPS
+baseline, visible gameplay, physical-Vita measurement or whole-run GPU replay.
+
+The next dependency is an executable sourced DSP task backend. The existing
+shared adapter and pinned interpreter/HLE are being checked for ARM source
+reuse; their desktop build does not establish Vita support. The launch STOP
+stays intact until a real transfer/execution path is proved.
+
+## Unit 52: coordinator-approved audio deferral keeps the video trial explicit
+
+The coordinator now authorizes a **declared no-op DSP task backend** to prioritize
+visible pixels, then video FPS. This changes the prior no-synthetic-DSP-mail rule
+**only in an explicit audio-deferred profile**; it does not authorize fabricated
+GPU completions, guest instructions, callbacks, RAM, frames, timestamps or FPS.
+The real DSP port is paused. Its five source candidates passed syntax and actual
+ELF32 ARM object compilation with VitaSDK GCC **15.2.0**; none was linked or run.
+Private compiler/source/object hashes and unresolved symbols remain under Unit
+51's **evidence/dsp-arm-source-probe/**, including **arm-objects/objects.json**.
+Read-only local fmt headers were used for that probe; no pin, dependency or other
+repository was modified, and no network was used.
+
+### What this game's boot actually checks
+
+The actual translated guest body, rather than the older notes' approximate
+token spelling, establishes the required bootstrap:
+
+- **8028ECA0 interrupt handler** acknowledges **DSPINT 0080** through the DSP
+  control register, then polls and consumes a busy mailbox word. This is a DSP
+  task interrupt, **not AID 0008 PCM-DMA completion or ARAM 0020 completion**.
+- The **DCD10000** branch at **8028ED78-8028EDA4** writes task state **1** and
+  calls its **+28 / 40-byte init callback**, the actual **8028E860 DspHandShake**.
+  The host must not perform either guest write or callback for it.
+- **8028E870-8028E880** polls **DSPCheckMailFromDSP** until the busy bit is set,
+  reads and discards a second mailbox word, then calls **8028F080**, which writes
+  the JAudio running flag. **It does not compare that second word's content or
+  verify any PCM output at this step.**
+- Pinned **Zelda.cpp:45-55** and **UCodes.h:58** source the startup pair
+  **DCD10000 / F3551111**, first mail interrupting. **DSP.h:27-31,50-60** sources
+  DSPINT **0080**, mask **0100**, separately from AID and ARAM. The existing
+  interrupt source/guest vector path and normal guest control-register W1C
+  acknowledgement are retained, following **MailHandler.cpp:21-68**.
+
+### Explicit stub and report contract
+
+**scripts/vita/ww05/launch.py --defer-audio** is off by default and requires the
+real continuation journal. It creates an exclusive **ww05.audio** request bound
+to the new run's token/source/package. The host accepts only value **1** and marks
+the report header **audio=deferred**, even on early failure. Strict reports and
+their prior behavior remain unchanged; a profile/header mismatch fails validation.
+Execution/request/result, live-frame and MEM1 provenance also retain the declared
+audio mode, and collectors refuse relabelling strict evidence as deferred. WW12
+accepts the declared header and retains audio modes in a deferred run series;
+presentation/retrace stamps and FPS arithmetic are unchanged.
+
+**vita/host/dsp_deferred.c** accepts one complete, bounded, even-length IRAM-shaped
+bootstrap request with zero data transfer. Its task body is **no-op**: **no code
+copy, DSP instructions, PCM, sample progress or audio-DMA completion**. It supplies
+only the two **explicitly synthetic** startup words and a **synthetic DSPINT**,
+masked and acknowledged normally. Reading the first low word exposes the second;
+reading the second clears its busy bit without reissuing either word or an IRQ.
+The actual guest handler, state write, init callback and running-flag write still
+execute as guest instructions. Traces declare the synthetic origin and log real
+guest mailbox PC/LR, allowing the next trial to prove which callers consumed them.
+Failed trace publication produces no stub bootstrap state. Reset clears the stub
+task state while preserving the profile's declared audio policy.
+
+Post-bootstrap task commands and further empty-mail waits remain explicit,
+audio-labelled frontiers; this small stub is **not a Zelda mixer or an audio
+engine**. They will be classified from actual guest behavior, not automatically
+called proof that real audio is required. If a real DSP-processing wait blocks
+video, preserve/report that dependency for the coordinator's proposed DSP lane.
+
+Linux AArch64: **693 host tests**, **29 WW12**, **83 FP launcher**, **51 GX** pass;
+ARM host links. Evidence **logs/ww16-audio-deferred-certified-{host,arm}.log**,
+**logs/ww16-audio-deferred-perf-green.log**, **logs/ww16-audio-deferred-{fp,gx}.log**.
+The authenticated strict launch refusal in Unit 51 is the pre-change baseline.
+The initial new IO report test used an incomplete synthetic fixture and timed
+out; that preserved log is **not counted as a meaningful red feature test**.
+The corrected consumer fixture, request/mode integrity, strict-default refusal,
+bounded stub inputs, masked/W1C interrupt, two-word queue, early acknowledgement,
+trace failure and unsupported later commands all verify. RAM/audio buffers and
+guest cycles/timebase remain unchanged in the synthetic stub tests. Audit,
+attribution and whitespace pass. No Windows CI, physical Vita, sound or new game
+pixels are claimed. Committed rebuild and a fresh watched **MEM1 + PNG live +
+audio=deferred** trial follow immediately.
+
+## Unit 53: real guest handler and handshake run; a nonwaiting probe is misclassified
+
+Committed VI/O1 build **5c4483a**, watched live-PNG/MEM1/audio-deferred run
+**5f2be0ca0d2d475daaed1a6419ff62f7**: the declared no-op bootstrap accepts the
+task request, and the **actual guest DSP interrupt handler consumes DCD10000**
+(`CC005006 / 80319098 / LR 8028ED10`). The **actual 8028E860 init callback
+consumes F3551111** (`CC005006 / 80319098 / LR 8028E880`). No callback body,
+guest state write or guest instruction was skipped. The two mail values and
+bootstrap DSPINT are explicitly synthetic, **audio=deferred**, no PCM claim.
+
+The next STOP is **CC005004 / 80319080**, with actual exception caller LR and
+parent PC **8028E884**. Source at **8028E880** performs one more **DSPCheckMail**
+after consuming the handshake, then **unconditionally calls 8028F080** to set the
+running flag. There is no compare/branch waiting on that third query. Thus the
+host's generic empty-mail refusal is **too broad**: this run is **not evidence
+that real audio/DSP processing blocks video**. The genuine busy-wait is the
+earlier **8028E870 → 8028E874 compare/branch**, not this probe. Next fix will admit
+only the guarded original nonwaiting query, returning the actual retained
+busy-clear mailbox state, **without another synthetic reply or IRQ**.
+
+Final **85,380,652 cycles / 1,035,494 edges**, +399 / +35 beyond Unit 51. Still
+**nine draws / eight presentations**, **8,963 decoded / 2,048 journal commands**,
+zero renderer skips/refusals/gaps. **Eight actual live PNG pairs**, two actual
+MEM1 images, eight presentation and ten retrace stamps verify. All image/memory
+provenance and run/report headers retain **audio=deferred**. Display PNGs remain
+uniform opaque black, the last opened and inspected; no logo, gameplay or FPS
+baseline claim. Both captured, guarded two-draw-prefix replays remain clean.
+
+Private hand-off root:
+
+```text
+/home/fred/projects/zeldaWWHDRecomp/build-f5/ww05/vita3k-run-5f2be0ca0d2d475daaed1a6419ff62f7
+```
+
+Latest image **`evidence/frames/frame-8.png`**; image/check/memory manifests
+**`evidence/live-images.json`**, **`evidence/live-capture-checks.json`**,
+**`evidence/mem1-capture.json`**; fixtures
+**`evidence/gx-draw-prefix-snapshot{1,2}/`** and guarded replay provenance. Original
+mail-read PC/LR and exception registers remain in the private guest log. Install
+**1.25 s**, guest **128.29 s**, closed report followed by known shutdown **133**;
+no inactive/timeout termination. The real-DSP source port remains paused under
+the coordinator's video-first decision; this probe correction needs no new DSP
+response, task execution, sample clock or audio-DMA completion.
+
+## Unit 54: admit only the original nonwaiting post-handshake mailbox query
+
+The authentic Unit 53 exception proves **PC/LR 8028E884**, after the real callback
+consumed its handshake. The fix recognizes only a deferred, already bootstrapped
+host reading **DSPCheckMail at 80319080 with LR 8028E884**, whose caller block
+**8028E880** is both registered in the actual module and matches **16 original
+loaded DOL bytes** through the existing code guard. That is the source's
+nonwaiting post-consumption query before **8028F080**, not the earlier polling
+loop. Changed/unregistered caller text or the real waiter LR **8028E874** is still
+refused. Strict-mode behavior is unchanged.
+
+The permitted query goes through the ordinary device read, returning the actual
+retained **7355 high half** with its busy bit clear; the guest's own helper
+extracts zero. **No new mailbox word, interrupt, callback, running-flag write,
+guest PC jump, memory, time or DSP execution is synthesized.** It merely removes
+an erroneous STOP so the next actual guest instruction can execute. Later task
+processing remains explicitly deferred and must not be mistaken for a completed
+audio operation.
+
+Linux AArch64: **696 host tests pass**, three added contract scenarios (one
+parameterized): registered original query, changed/unregistered code, genuine
+waiter. The existing synthetic DSP probe checks complete DSP state, RAM/audio
+buffers, clocks/timebase, interrupts and frontier remain unchanged by the query.
+The original-query test was genuinely red before the guard correction
+(**logs/ww16-deferred-empty-probe-red.log**) and green with the whole suite
+(**logs/ww16-deferred-empty-probe-green.log**). Actual ARM host links without new
+warnings (**logs/ww16-deferred-empty-probe-arm.log**); audit/attribution/whitespace
+pass. No hardware, new visible pixels or FPS gain is claimed from these tests.
+Commit/rebuild and a fresh watched **MEM1 + PNG live + audio=deferred** trial
+follow, keeping video progress separate from any audio-processing dependency.
+
+## Unit 55: nonwaiting query passes; the next guard stops command-list intake
+
+Committed VI/O1 build **553ea1b**, watched live-PNG/MEM1/audio-deferred run
+**3e4f864272234ed9b3f69683480bc143**: the actual post-handshake query succeeds,
+returning the retained busy-clear mailbox at **80319080 / LR 8028E884**. The guest
+returns from its handler/callback path and reaches the ordinary command-list
+sender. New STOP: **00000005 to CC005002 at 803190B0**, caller **8028E9B8**,
+**`deferred DSP post-bootstrap task command not modeled; audio=deferred`**.
+
+Source **8028E9B0-8028EA20** sends the payload count, asserts the DSP's input
+attention bit, waits for the **CPU→DSP mailbox busy bit to clear**, and sends
+that many payload words. This first guard failure is at **input intake**, not
+an observed wait for PCM, mixing or an audio-DMA completion. Pinned
+**Zelda.cpp:163-167,194-202,376-411** sources a five-word setup packet (command
+01 plus four pointer words). Its real implementation initializes mixing tables;
+a declared no-op can accept/discard that bounded input without reading tables,
+mixing or claiming execution. First payload type still needs authentic
+confirmation. Unknown commands remain refusals; no processing ACK is assumed
+from this producer-count observation alone.
+
+Final **85,389,645 cycles / 1,035,977 edges**, +8,993 / +483 beyond Unit 53.
+Still **nine draws / eight presentations**, **8,963 decoded / 2,048 journal
+commands**, zero renderer skips/refusals/gaps. Eight actual PNG pairs, two actual
+MEM1 captures, eight presentation and ten retrace stamps verify, all labelled
+**audio=deferred**. All shown images remain uniform opaque black; the last was
+opened. Both guarded two-draw-prefix replays pass with these actual captures.
+
+Private evidence root:
+
+```text
+/home/fred/projects/zeldaWWHDRecomp/build-f5/ww05/vita3k-run-3e4f864272234ed9b3f69683480bc143
+```
+
+Latest image **`evidence/frames/frame-8.png`**; image/check/memory manifests
+**`evidence/live-images.json`**, **`evidence/live-capture-checks.json`**,
+**`evidence/mem1-capture.json`**; extracted fixtures
+**`evidence/gx-draw-prefix-snapshot{1,2}/`** and guarded replay provenance.
+Install **1.25 s**, guest **86.10 s**, closed report followed by known shutdown
+**133**, no inactive/timeout termination. No logo, gameplay, real audio,
+physical-Vita behavior or FPS improvement is claimed. Continue the declared
+no-op input protocol rather than the paused full DSP port; a real processing
+dependency will be reported only when the guest actually waits for one.
+
+## Unit 56: bounded setup input is discarded by the declared no-op, not executed
+
+The deferred task now accepts the observed **count word 5**, followed by **five
+payload words only if the first word is command 01 (81xxxxxx)**, matching pinned
+**Zelda.cpp:163-167,194-202,376-411**. The incoming high word is retained in this
+declared HLE-style input path so command **81** is not lost when its CPU busy bit
+is cleared after actual stub intake (**DSPHLE.cpp:167-186**). Existing halted and
+strict-mode mailbox semantics remain unchanged. Only one setup list is accepted
+per reset; incomplete/unexpected packet types and later command lists remain
+explicit refusals. The first actual payload still needs confirmation in a run.
+
+The **803190B8/803190C0-803190E4** input assertion following the count sets
+**DSPAssertInt bit 0002** (`DSP.h:50`). For an explicitly deferred, bootstrapped
+task this is a logged **assert-to-no-op / ignored** operation: its transient input
+bit is not retained and **no CPU IRQ or task response is raised**. The sender's
+mailbox wait can then observe consumption normally; no guest branch is skipped.
+
+Every payload is logged **discarded / configuration=not-executed / reply=none /
+pcm_output=none**. No pointer is dereferenced, coefficient table copied, voice
+configured, audio buffer written, task executed or processing ACK generated.
+The small remaining-word counter denotes **input intake only**, not a completed
+audio operation. Failed trace writes preserve the partial input state; successful
+reset/init transitions clear the intake record. Audio mode remains visibly
+**audio=deferred** in all trial/report/image/memory provenance.
+
+Linux AArch64: **701 host tests pass**, five added setup scenarios including
+parameterized trace failures: complete packet with high-bit-preserving command
+type, ignored input assertion, wrong processing packet type, count/payload
+trace failure, and rejected repeated setup. The reused probe checks full DSP
+state outside the allowed intake/latch/error delta, RAM/audio buffers, clocks,
+interrupts and GX frontier. Setup intake was red before implementation
+(**logs/ww16-deferred-setup-red.log**); final full green in
+**logs/ww16-deferred-setup-verified-host.log**. ARM host links
+(**logs/ww16-deferred-setup-verified-arm.log**); the new stub's unsigned bound
+comparison warning was corrected, leaving the separate preexisting DSP-init
+warning unchanged. Audit/attribution/whitespace pass. No sound, new game pixels,
+hardware behavior or FPS gain is claimed. Commit/rebuild and watched **MEM1 +
+PNG live + audio=deferred** trial follow; source-backed minimal deferral continues
+instead of the paused real-DSP port.
+
+## Unit 57: actual setup packet confirms a metadata-ACK wait, not PCM verification
+
+Committed VI/O1 build **6c5b6e0**, watched live-PNG/MEM1/audio-deferred run
+**4e6a06f79bda45d6811006ef4218d657** accepts/discards the actual setup packet:
+**81000040**, followed by **806B19E0 / 80398F20 / 80398EE0 / 806B79E0**. Its
+input attention pulse is actual **0952 at 803190E0**, logged ignored. These are
+private producer pointer observations, not copied tables or initialized voices.
+
+The guest now **really busy-waits at 8028E708**, reading **R13-27528**, comparing
+against zero and branching back while nonzero. **8028E700** set this setup-pending
+flag to 1 before sending the packet; the actual completion callback **8028E6A0**
+clears it at **8028E6A4**. This is a meaningful video-blocking dependency, not
+the prior nonwaiting probe or a low-CPU host hang.
+
+Source identifies the missing minimal protocol state: **Zelda.cpp:411,501-527**
+sends a standard setup ACK consisting of **DSP_SYNC DCD10004** (interrupting),
+then **F3550000 | sync_value**, where `sync_value = cmd_mail >> 16` gives **8100**
+for this actual packet. The guest handler's +34 / 52-byte request callback is
+**80289130**. It checks the second word's F355 prefix and sends its low 16 bits
+through **8028EB00**, whose tag comparison and indirect callback at **8028EB44**
+dispatch the registered **8028E6A0** completion. **No PCM or coefficient-table
+output is inspected by that setup wait.** A declared synthetic acceptance ACK
+can satisfy this metadata handshake without real DSP table setup; it must not
+be described as actual configuration/mixing completion. The coordinator is
+informed of the real wait; the full DSP port remains paused. Further actual
+rendering/sample-processing waits will be reported separately.
+
+The process remained high-CPU **and** output-active until the explicit ceiling:
+guest **180.01 s**, timeout **124**, TERM/reaped. This attempt stays **INCOMPLETE**;
+**no closed guest report exists**, and the original partial file remains
+preserved. Last **observed**, not final, progress: **6,169,996,090 cycles /
+24,759,442 edges**, PC **8028E708**. Final cycle/edge/decoded/draw totals and
+certified frontier verdict are **UNKNOWN/UNAVAILABLE**, not borrowed from a
+previous run. No fake closing report, PASS or FPS is manufactured.
+
+Independently closed artifacts remain verifiable: **eight actual presentation
+markers and PNG pairs**, **761 real retrace markers**, **two actual MEM1 images**;
+all declare **audio=deferred**. The shown images are numerically uniform opaque
+black. Existing collectors verify them post-timeout without rewriting PNGs or
+changing the original result; both guarded, captured two-draw-prefix replays pass.
+These artifact checks do **not** turn the trial into a completed game run.
+
+Private root:
+
+```text
+/home/fred/projects/zeldaWWHDRecomp/build-f5/ww05/vita3k-run-4e6a06f79bda45d6811006ef4218d657
+```
+
+Images **`evidence/frames/frame-{1..8}.png`**; explicitly incomplete verification
+**`evidence/live-images-post-timeout.json`**, **`evidence/mem1-post-timeout.json`**,
+**`evidence/timeout-evidence-checks.json`**; draw fixtures
+**`evidence/gx-draw-prefix-snapshot{1,2}/`**. Preserve the original timeout result,
+log and monitor. Next: only the declared no-op setup-intake ACK, with normal
+guest interrupt/callback execution and no direct write to the waiting flag.
+
+## Unit 58: declared setup-intake ACK reuses the bounded two-word mailbox
+
+The actual Unit 57 wait is an ACK dependency. In the explicit **audio=deferred**
+no-op profile only, the fifth successfully discarded setup word now publishes
+**synthetic DCD10004 / F3550000 | received command's upper half**, plus a synthetic
+**DSPINT 0080**. Pinned **Zelda.cpp:333,411,501-527** and **UCodes.h:73** source
+the protocol; the observed **81000040** command therefore receives **F3558100**,
+not a fixed guessed callback token. The actual handler's **8028EEE8** branch
+calls the task's **+0x34 / 52-byte request callback**, **80289130**; that callback
+validates the F355 prefix and dispatches the tag through **8028EB00**. Its real
+registered completion callback, **8028E6A0**, must clear the guest pending flag.
+The host does not write that flag, jump the guest PC, call the callback natively,
+or manufacture instruction execution.
+
+The bootstrap's hard-coded second-word boolean becomes one owned, bounded
+**deferred_reply_mail** slot shared by bootstrap and setup. Reading the first
+low word advances to the second; reading the second clears busy. Only the first
+word raises the declared task interrupt. Guest masking/W1C acknowledgement is
+unchanged, including acknowledgement before mailbox consumption. No outstanding
+word, follow-up or IRQ may be overwritten; reset clears queued reply and sync
+tag. The setup tag is latched only after a successfully logged command word.
+Failed final-word/ACK publication preserves the partial input and emits no reply.
+
+This ACK means **accepted/discarded by the no-op**, not initialized coefficients,
+configured voices, completed mixing, DSP execution, PCM, sample progress or
+audio-DMA completion. The trace spells out **origin=no-op-intake**,
+**configuration=not-executed**, synthetic mail/IRQ and no PCM. Startup/task/mail
+diagnostics now declare **bootstrap-and-setup** and **synthetic-no-op-mailbox**,
+not bootstrap-only. Every run/report/image/memory remains **audio=deferred**.
+Strict behavior, the source-backed ROM receiver and all later unsupported task
+commands remain unchanged explicit refusals. The full DSP port stays paused.
+
+Linux AArch64: **707 host tests**, **29 WW12**, **83 FP**, **51 GX** pass; ARM
+host links. Setup ACK test was genuinely red on the missing IRQ before the
+implementation (**logs/ww16-deferred-setup-ack-red.log**); whole-suite green
+**logs/ww16-deferred-setup-ack-reviewed-host.log**. Six added tests cover derived
+tag, early interrupt ACK, masking, failed ACK trace, busy-mail refusal and reset
+of a queued setup reply. Existing partial intake/unknown command/strict refusal
+tests stay green. Complete MEM1, audio state, DSP state outside the declared
+mail/intake/IRQ delta, clocks/timebase and GX frontier stay unchanged in the
+synthetic probe. ARM logs **logs/ww16-deferred-setup-ack-{final,reviewed}-arm.log**;
+only the prior DSP-init signedness warning remains. Audit, attribution and
+whitespace pass. No Windows CI, physical Vita, real sound, visible scene or FPS
+gain is claimed. Commit/rebuild, then a fresh continuously watched **MEM1 + PNG
+live + audio=deferred** trial must prove the actual callback releases the wait.
+
+## Unit 59: real setup callback consumes the ACK and releases the pending wait
+
+Committed VI/O1 build **4f5c074**, watched live-PNG/MEM1/audio-deferred run
+**1351063a0837427b87d242d99ace55ec**: the actual handler consumes synthetic
+**DCD10004** at **80319098 / LR 8028ED10**. The actual **80289130** request
+callback consumes synthetic **F3558100** at **80319098 / LR 8028914C**. Guest
+execution then advances to the next command-list sender, proving that the
+original setup-pending wait was released. The **8028E6A0** flag-clear path is
+inferred from the unchanged original code and progress, not a separately traced
+callback entry. No host write to the pending flag or skipped guest instruction.
+
+New STOP: **count 00000002 to CC005002 at 803190B0**, caller **8028E9B8**,
+**`deferred DSP post-bootstrap task command not modeled; audio=deferred`**.
+Original **8028E800-8028E838** constructs **8D00xxxx + one parameter**, registers
+**8028E7E0** as completion, and sends count **2**. The pinned command-0D handler
+**Zelda.cpp:469-480** either NOPs or reads/logs the one parameter, then sends
+the same standard ACK; it does not mix PCM. Only the count has been observed
+authentically so far: do not claim the actual packet is 0D until its next payload
+word is witnessed. A bounded no-op can accept count 2 after setup, require a real
+**8Dxxxxxx** first word, discard the parameter and declare an intake ACK. Other
+packet types remain refusals; no audio-rendering completion is assumed.
+
+Final **85,390,497 cycles / 1,036,079 edges**, +852 / +102 beyond Unit 55's
+closed report. **Nine draws / eight presentations**, **8,963 decoded / 2,048
+journal commands**, zero renderer skips/refusals/gaps. Eight live PNG pairs,
+two actual MEM1 images, eight presentation and ten retrace markers verify, all
+**audio=deferred**. All display images remain numerically uniform opaque black;
+last image opened. Both guarded captured two-draw-prefix replays pass. No game
+scene, real sound, physical-Vita test or FPS baseline is claimed.
+
+Private root:
+
+```text
+/home/fred/projects/zeldaWWHDRecomp/build-f5/ww05/vita3k-run-1351063a0837427b87d242d99ace55ec
+```
+
+Image **`evidence/frames/frame-8.png`**; **`evidence/live-images.json`**,
+**`evidence/live-capture-checks.json`**, **`evidence/mem1-capture.json`**; draw
+fixtures **`evidence/gx-draw-prefix-snapshot{1,2}/`** and guarded replay provenance.
+Install **1.26 s**, guest **95.97 s**, closed certified frontier report followed
+by known shutdown **133**; no inactivity/timeout termination. Preserve Unit 57's
+incomplete run as the genuine pre-ACK wait evidence. The real-DSP port stays
+paused; continue only the sourced, declared no-op command-0D intake/ACK seam.
+
+## Unit 60: one bounded post-setup command-0D packet reuses the no-op intake
+
+Only in **audio=deferred**, after a complete setup and fully consumed/acknowledged
+reply, the no-op now accepts count **2**, requires first word **8Dxxxxxx**, and
+discards exactly one following parameter. Source **8028E800-8028E838** constructs
+that packet and registers **8028E7E0**, which clears **R13-27524**; the caller's
+remaining wait is for this completion flag, not PCM. Pinned
+**Zelda.cpp:469-480** reads/logs this parameter and sends the standard ACK without
+mixing audio. The actual next payload is still unconfirmed until the next run.
+
+The setup-only names become **deferred_words_left / deferred_word_count /
+deferred_command_sync**. The same bounded input/trace/tag/ACK code handles setup
+and control; no duplicate packet engine. At most one setup and one command-0D
+packet may be accepted per reset. A command-02 rendering opcode, out-of-order
+control count, repeated setup/control, other counts or later commands are
+explicit STOPs. No queue collision or partial/failed trace can publish an ACK.
+Reset clears both intake records and reply/tag state while preserving the
+declared policy.
+
+Control acceptance emits the same **explicitly synthetic DCD10004 / F355xxxx**
+pair, tagged from the received command upper half, with **synthetic DSPINT 0080**.
+Every word/ACK trace distinguishes **setup** from **control**, and declares
+**no-op-intake / configuration=not-executed / pcm_output=none**. No parameter is
+dereferenced, DSP body run, RAM/audio buffer changed, completion callback skipped
+or guest flag written by the host. This remains a metadata-intake stub, **not a
+PCM-processing or audio-DMA-completion backend**. Initial/task policy diagnostics
+now include **bootstrap-setup-control**; reports and capture provenance stay
+**audio=deferred**, strict default behavior unchanged.
+
+Linux AArch64: **715 host tests pass**, eight new control tests: completed
+packet, received tag, control-before-setup refusal, rendering-opcode refusal,
+parameterized count/parameter/ACK trace failures, repeated control refusal,
+preserved pending setup ACK, and reset of completed control state. Command-0D
+input was genuinely red before implementation
+(**logs/ww16-deferred-control-red.log**); reviewed full green
+**logs/ww16-deferred-control-reviewed-host.log**. The existing complete DSP/RAM/
+audio/clocks/GX invariant checks and all setup, strict-mode and guarded-mail
+tests remain green. ARM host links (**logs/ww16-deferred-control-arm.log**),
+only the preexisting DSP-init warning; audit/attribution/whitespace pass. No
+Windows CI, physical Vita, sound, new scene or FPS gain is claimed. Commit,
+rebuild and fresh watched **MEM1 + PNG live + audio=deferred** trial follow to
+confirm the actual packet and its real guest callback path.
+
+## Unit 61: actual command-0D ACK passes; next frontier is PCM-DMA activation
+
+Committed VI/O1 build **fe73d51**, watched live-PNG/MEM1/audio-deferred run
+**162cb9a0a41f461b84e4a1fe1ed61914** witnesses the actual control packet
+**8D00000A / 803EA5E0**, deliberately discarded without reading its parameter
+target. The actual request callback consumes synthetic **F3558D00** at
+**80319098 / LR 8028914C**, after the actual handler consumes **DCD10004**.
+Execution leaves the original **8028E838** pending wait and advances to the
+audio thread's DMA start. The **8028E7E0** flag-clear path is inferred from the
+unchanged original code and forward progress, not a separately logged entry.
+
+New STOP: **8046 to CC005036 at 803169C4**, caller **8028903C**:
+**`audio DMA configuration requires stopped engines; enable/transfer needs a PCM backend`**.
+Original **803169B4-803169C8 AIStartDMA** reads the length, ORs enable **8000**,
+writes it, then returns **without any completion/PCM-result check**. The audio
+thread next enters **OSReceiveMessage** at **80289048**, blocking on its own
+message queue; this does not by itself prove the other threads/video require
+real audio. Length **0046** is **70 32-byte blocks**, not an observed transfer.
+
+The reusable real device's **audio_dma.c:127-145** would latch an active source,
+remaining blocks and an AID interrupt when enabled. Do **not** invoke that enable
+path in the declared no-op: it would imply transfers/completions the stub never
+performs. Next seam suppresses only the requested enable bit in the explicit
+deferred profile, retaining the sourced stopped length/source configuration,
+**DMA disabled / AID IRQ none / PCM none**, and logs the suppression. If the
+guest checks the enable bit it must read disabled, not a fake running state.
+No initial DMA completion, sample clock, silence samples or audio callback is
+invented. Actual subsequent guest scheduling/video progress must be observed.
+
+Final **85,553,773 cycles / 1,051,944 edges**, +163,276 / +15,865 beyond Unit 59.
+**Nine draws / eight presentations**, **8,963 decoded / 2,048 journal commands**,
+zero renderer skips/refusals/gaps. Eight live PNG pairs, two actual MEM1 images,
+eight presentation and ten retrace markers verify, all **audio=deferred**.
+Display PNGs remain numerically opaque black; last opened. Both guarded captured
+two-draw-prefix replays pass. No scene, sound, physical Vita or FPS baseline claim.
+
+Private root:
+
+```text
+/home/fred/projects/zeldaWWHDRecomp/build-f5/ww05/vita3k-run-162cb9a0a41f461b84e4a1fe1ed61914
+```
+
+Image **`evidence/frames/frame-8.png`**; **`evidence/live-images.json`**,
+**`evidence/live-capture-checks.json`**, **`evidence/mem1-capture.json`**; fixtures
+**`evidence/gx-draw-prefix-snapshot{1,2}/`**. Install **1.27 s**, guest **16.08 s**,
+closed report followed by known shutdown **133**; no inactive/timeout termination.
+This shorter wall duration is **not** an isolated performance measurement or an
+FPS improvement claim. The full DSP/PCM port stays paused under video-first
+coordination; investigate only honest DMA suppression and actual guest progress.
+
+## Unit 62: PCM-DMA enable is explicitly suppressed, never falsely activated
+
+The original **AIStartDMA 803169B4-803169C8** merely sets enable **8000** and
+returns. In **audio=deferred** only, a request matching the existing stopped,
+nonzero length is now a logged **audio-dma-enable-suppressed** no-op. This is
+admitted only after the declared bootstrap, setup and control packets have
+completed intake and their replies/interrupts are consumed/acknowledged. Active
+AI/DMA engines, pending replies, zero/changed length, outstanding blocks/work or
+an audio interrupt are still explicit refusals. Strict mode keeps its previous
+PCM-backend STOP unchanged.
+
+For the actual request **8046**, the existing audio device remains **0046**,
+source/configuration untouched, **enable clear**. Reads therefore report the
+real disabled state, not a fabricated running DMA. The real device enable
+routine (**audio_dma.c:127-145**) is never called; no source is read, remaining
+block or sample progress created, PCM buffer written, audio sink invoked or
+AID interrupt raised. There is **no synthetic DMA-completion callback**. Normal
+guest instruction/cycle accounting and other interrupt sources are retained.
+Repeated start requests remain individually logged no-ops while quiescent.
+Failed suppression trace is a contextual MMIO STOP with no audio mutation.
+
+This permits the next original **AIStartDMA** return and normal guest
+**OSReceiveMessage**/scheduler path to execute, rather than assuming the audio
+thread's queue must be artificially fed. Whether other threads/video advance
+without AID callbacks remains an authentic-run question. A real video-blocking
+sample-processing wait must be recorded for coordination; the full PCM/DSP port
+is still paused. Every report and capture remains **audio=deferred**; no sound,
+silence samples, sample clock or completion is claimed.
+
+Linux AArch64: **720 host tests pass**, five new DMA scenarios: suppressed
+observed enable/readback, failed trace, incomplete bootstrap refusal,
+parameterized zero/changed length refusals, repeated no-op. The reused probe
+checks the **entire audio structure byte-for-byte unchanged**, complete RAM,
+DSP state outside declared prior intake, interrupts, clocks/timebase and GX
+frontier. Genuine red before implementation
+**logs/ww16-deferred-dma-red.log**; full green
+**logs/ww16-deferred-dma-green-host.log**. ARM host links without new warnings
+(**logs/ww16-deferred-dma-arm.log**); audit/attribution/whitespace pass. No
+Windows CI, physical Vita, new visible pixels, sound or FPS gain is claimed.
+Commit/rebuild and fresh watched **MEM1 + PNG live + audio=deferred** trial follow.
+
+## Unit 63: silent trial was killed by the phase ceiling, not a proved module crash
+
+Committed VI/O1 build **6ec634d**, watched MEM1/live-PNG/audio-deferred run
+**d5f68d96c8e94c0daa165efd11cd9ee0** has no closed guest report. Its actual
+**`phases/guest/evidence/process.json`** records **stop_reason=timeout**, **exit=-15
+(SIGTERM)**, **waited=true**, **181.61 s**. The owned runner's phase ceiling sent
+TERM and reaped it. The final **process.log** records successful publication of
+frame 8, not a trap/abort/module-crash diagnostic. Normal missing-destination
+messages around exclusive PNG renames are not crash evidence. The shell harness
+subsequently reports SIGTERM too; its sender/cause is **not established**. There
+is no root **result.json**: do not manufacture a guest report or completed result.
+
+The audio-DMA request really passes as logged **8046 → retained 0046 / disabled**.
+Other guest work advances beyond the prior audio-thread frontier: DVD callbacks,
+resource construction, **16 retrace markers** and last observed
+**134,504,761 cycles / 3,314,813 edges / 528,663 turns**, PC **80328B30**,
+exception **0**. This is **not the final PC/counter snapshot**. That PC belongs
+to the original array-construction callback loop; silence alone cannot tell
+whether the later stall is guest code, native JIT/render work or host pressure.
+Last watched aggregate CPU is about **593%** with silent logs: the run never
+met the low-CPU **AND** silence idle rule. No AID completion/PCM is synthesized.
+
+The independently closed artifacts verify after termination: eight actual
+presentation markers and PNG pairs, two actual MEM1 images, **audio=deferred**,
+all display PNGs numerically opaque black. Original log/partial/process evidence
+stays intact. Post-timeout verification is explicitly incomplete and **does not
+certify the guest frontier**; final counters and final decoded/draw totals stay
+UNKNOWN. An owned-profile process scan finds **no surviving Vita3K process**,
+including no Vita3K zombie. Other lanes/builds are not touched.
+
+Private root:
+
+```text
+/home/fred/projects/zeldaWWHDRecomp/build-f5/ww05/vita3k-run-d5f68d96c8e94c0daa165efd11cd9ee0
+```
+
+**`evidence/run-diagnosis.json`**, **`evidence/live-images-post-timeout.json`**,
+**`evidence/mem1-post-timeout.json`** retain the independent checks and exact
+process disposition; original **`evidence/run-watch.jsonl`** retains CPU/log
+samples. The DMA wall is crossed, but visible logo/gameplay remains unverified.
+Next correction publishes the measured guest disposition before expensive
+post-run identity validation, so later launcher interruption cannot erase that
+checkpoint. A fresh watched diagnostic trial must locate the CPU-active silent
+frontier before changing guest behavior. Under the user's memory-pressure
+constraint: **O1, -j2**, no O2 work started/resumed, no leftover owned emulator
+before launching. No module-crash, real-audio dependency or FPS claim is made.
+
+## Unit 64: persist guest disposition before post-validation; relaunch with native diagnostics
+
+The launcher now writes exclusive **`evidence/guest-disposition.json`** immediately
+after collecting the actual **process.json**, **before** post-run configuration,
+input/package hashes and guest-report parsing. It preserves measured status,
+exit/signal, reason, waited/duration, run/source/package/launcher identity and
+**audio** mode. It explicitly says **validation=PENDING / frontier=UNAVAILABLE /
+frontier_verified=false**: this is not a substitute guest report or certified
+result. Later errors still fail loudly; exclusive publication cannot overwrite
+a prior checkpoint. A later launcher interruption can no longer remove this
+already closed disposition file, although it can still prevent final validation.
+
+Linux AArch64: **722 host tests pass**. The timeout/post-validation interruption
+test was genuinely red because the checkpoint was absent
+(**logs/ww16-guest-disposition-red.log**), then green; the second test verifies
+the explicit deferred profile identity remains labelled even before report
+validation. Full green **logs/ww16-guest-disposition-host.log**, launcher subset
+**logs/ww16-guest-disposition-green-launch.log**. Existing timeout/missing-input,
+idle CPU-or-output, strict/deferred report checks and all 720 prior host scenarios
+remain green. Audit/attribution/whitespace pass. No guest DMA/audio/rendering or
+timing behavior was changed by this launcher correction.
+
+For the next private diagnostic trial, the external watched helper adds at most
+two **native AArch64 thread register/maps/instruction snapshots** after at least
+20 seconds of silence beyond 90M observed guest cycles. Target identity must
+match that trial's owned Vita3K executable. Selected native threads are briefly
+ptrace-stopped/read/detached, with no target memory/register writes. Capture
+errors are recorded, and a failed live-thread detach aborts only the verified
+owned emulator rather than leaving it traced/stopped. This is explicitly
+**diagnostic perturbation, not an FPS baseline**, and native PCs are not labelled
+as final guest PPC state. Original activity/ceiling policy remains unchanged.
+
+The private helper/sampler sources are preserved under **logs/**, including
+the prior helper content/hash and **ww16_native_snapshot.py**. Two synthetic
+owned-child checks verify actual registers/maps/instruction reads and detach;
+the reviewed check is **logs/ww16-native-sampler-reviewed-check.json**. No game
+diagnosis is claimed from that synthetic test. The next run preserves its actual
+**native-silent-snapshot-{1,2}.json** if the silent CPU-active frontier recurs.
+This observation is needed before guessing a guest loop/JIT/render cause or
+adding further audio behavior. Commit/rebuild and one fresh continuously watched
+**O1 -j2 / MEM1 + live PNG / audio=deferred** trial follow, with no owned Vita3K
+survivor before launch. Other lanes' O2 work remains untouched.
+
+## Unit 65: timeout record survives; CPU activity belongs to software raster workers
+
+Committed VI/O1 **fd552de**, **-j2**, fresh watched diagnostic run
+**eaaf26a456a341bea856c169a5ccefde**: both the early disposition and final
+launcher result survive. Actual status **124 / timeout / exit -15 / waited=true**,
+guest **180.00 s**. Still no closed guest report; the run remains **INCOMPLETE /
+frontier UNAVAILABLE**. The launcher evidence-publication correction is verified
+authentically, not a game-boot fix. No surviving Vita3K remains after termination.
+
+Actual native snapshot **1** takes **25 ms**, after **20.07 s** silence at the
+last observed **134,504,761 cycles / PC 80328B30**. Ten **llvmpipe-0..9** threads
+are running and account for the high aggregate CPU. Four sampled worker PCs
+execute the same anonymous executable mapping, with actual native LR addresses
+inside **`/usr/lib64/libgallium-26.2.3.so`**. Both native **ww-fixture** threads
+are sleeping in **futex_do_wait**. Thus aggregate CPU is **software rendering
+activity**, not evidence that the guest is spinning on DSP/PCM. Neither a stuck
+shader nor the exact guest blocking call is proved yet: the first sampler chose
+hot workers and did not capture ww-fixture registers/call chains.
+
+The DMA no-op is witnessed and guest resource work advances as in Unit 63.
+Last observed counts match that earlier trial, but are **not final state**. Eight
+actual PNG pairs/presentation markers, two actual MEM1 images and **16 retrace
+markers** verify post-timeout, all **audio=deferred**; display images remain
+numerically opaque black. No logo, gameplay, sound, physical-Vita result or FPS
+baseline is claimed. The input snapshots/log/frames remain available to lane 18.
+
+Private root:
+
+```text
+/home/fred/projects/zeldaWWHDRecomp/build-f5/ww05/vita3k-run-eaaf26a456a341bea856c169a5ccefde
+```
+
+**`evidence/guest-disposition.json`**, **`evidence/result.json`**,
+**`evidence/native-silent-snapshot-1.json`**, **`evidence/native-run-diagnosis.json`**,
+**`evidence/live-images-post-timeout.json`**, **`evidence/mem1-post-timeout.json`**;
+original native maps/register/instruction bytes and watch samples are retained.
+
+Next observation prioritizes the **actual ww-fixture native threads**, plus
+raster/renderer threads, and reads at most **12 native frame-pointer entries**
+within each thread's mapped stack. No guessed return address or guest PC is
+invented; unwind failure stays explicit. The private sampler's synthetic actual
+stack-read/detach check passes (**logs/ww16-native-frame-chain-check.json**).
+One fresh **O1 -j2 / MEM1 + live PNG / audio=deferred** diagnostic uses a **300 s
+phase ceiling**, within the existing bounded 600 s contract, because much of
+the 180 s attempt was spent on earlier CPU-active rendering and left only a
+short observation at the new frontier. CPU/output are still watched continuously,
+low CPU **AND** silence still aborts at 30 s, and extra time is **not** treated
+as a fix or proof of healthy progress. Do not add an audio wakeup or fake GPU
+finish to hide this software-render wait. Other O2 work remains untouched.
+
+## Unit 66: real GXM finish wait releases; ninth frame and CARDProbe frontier
+
+Committed VI/O1 **328ccaa**, **-j2**, watched 300 s-ceiling diagnostic run
+**14dbc3f44e0446cd9a130675b74e5528** finishes guest execution at **178.96 s**,
+before the ceiling. Both actual native snapshots capture the ww-fixture wait;
+symbolizing the recorded, mapped Vita3K return addresses against that trial's
+owned debug ELF identifies **renderer::finish → export_sceGxmFinish → bridge →
+ThreadState::run_loop**, not a DSP-processing loop. Sleeping guest threads wait
+while software raster workers execute. Signed/tagged unmapped return values
+remain uninterpreted raw evidence, not invented addresses.
+
+The actual GXM wait later releases with **no new DSP/GPU completion or guest
+instruction bypass**. A **ninth actual presentation / live PNG pair**, command
+**9003**, is published. Therefore the earlier silent trials were observing a
+long software-render wait interrupted by their ceilings, not a proved permanent
+module crash/deadlock or real-PCM dependency. The longer diagnostic ceiling is
+not a rendering fix and does not prove this wall duration on other runs/devices.
+
+New explicit STOP: **8031D400 CARDProbe**, **`desktop interception unsupported;
+guest not skipped`**. Existing **runtime/host/src/card_runtime.c:123-126** maps
+this desktop entry to CARDProbe; original **8031D400-8031D438** is a 56-byte guest
+wrapper that checks retail byte **800030E3** and otherwise calls original
+**EXIProbe 8030A448**. Next step admits this registered, guarded original guest
+body rather than a desktop memory-card shim. No real HOME, save/card image,
+native success/no-card return, callback or device completion will be supplied.
+Unsupported later card/device work must remain an explicit STOP.
+
+Closed report: **134,612,247 cycles / 3,322,635 edges**, **9,933 decoded / 2,048
+journal commands**, **ten draws / nine presentations**, zero renderer
+skips/refusals/gaps. **Nine actual live PNG pairs**, **two actual MEM1 images**,
+**nine presentation / 16 retrace markers** verify, **audio=deferred**. The tenth
+draw is not presented and is not a tenth image/timing marker. Every displayed
+PNG is still numerically opaque black; **frame-9.png** opened. Both guarded
+captured two-draw-prefix replays pass, not whole-run resource-version/GPU parity
+certification. No logo, gameplay, sound, physical Vita or FPS baseline claim.
+
+Private root for lane 18:
+
+```text
+/home/fred/projects/zeldaWWHDRecomp/build-f5/ww05/vita3k-run-14dbc3f44e0446cd9a130675b74e5528
+```
+
+**`evidence/frames/frame-9.png`**, **`evidence/live-images.json`**,
+**`evidence/live-capture-checks.json`**, **`evidence/mem1-capture.json`**,
+**`evidence/native-silent-snapshot-{1,2}.json`**,
+**`evidence/native-guest-wait-symbols.txt`**, private sampler/helper source bytes;
+fixtures **`evidence/gx-draw-prefix-snapshot{1,2}/`**. Install **1.26 s**, closed
+certified frontier report, then known shutdown **133**; no timeout/inactive
+termination. No surviving Vita3K. Continue the boot/render path at CARDProbe,
+with **O1 -j2**, fresh isolated profile, real guest execution and live images.
+
+## Unit 67: CARDProbe is a guarded original guest wrapper, not a desktop card shim
+
+The observed **8031D400 CARDProbe** entry is admitted only when its entry and
+last instruction are registered and all **56 original loaded DOL bytes** match
+the existing code guard. Text/stack/retail-flag ranges must be owned real MEM1
+and not overlap linked aliases. The original **8-byte prologue** needs the
+16-byte extent from **SP-8 through SP+7**, covering its saved LR store. Retail
+byte **800030E3** remains actual RAM, only observed, never replaced.
+
+The observer emits one bounded **card-probe / mode=guest-body /
+result_injection=none / storage=none** trace after validation, then the existing
+dispatcher executes the original wrapper. It does **not** set r3, advance PC,
+call EXIProbe natively, create/read a memory card or save image, open real HOME,
+or inject an attach/detach/callback/completion. Original **EXIProbe 8030A448**
+and its device/MMIO behavior remain on the normal guest path. All other desktop
+card interceptions stay refused until observed and sourced. Repeated calls still
+validate original code/ownership but do not repeat the initial trace; failed
+publication stops before admission and does not mark the observation complete.
+
+The reused scheduler/DSP observation probe covers **five added tests**: original
+entry admission, parameterized changed entry/tail text and missing/truncated
+registration, parameterized low/high stack range refusal, trace failure, and
+bounded repeated observation. It checks unchanged guest registers, PC, RAM,
+DSP state, cycles/timebase and no fabricated callback/result. The first valid
+entry was genuinely red on the desktop refusal before implementation
+(**logs/ww16-card-probe-red.log**). During implementation a last-byte registration
+check was corrected to the existing API's aligned last instruction; the inherited
+DSP low-stack fixture also needed CARDProbe's actual smaller 8-byte prologue
+bound. Both failed attempts remain preserved, not counted as separate feature
+red tests.
+
+Linux AArch64: **727 host tests pass**
+(**logs/ww16-card-probe-certified-host.log**), all 722 previous scenarios green;
+ARM host links (**logs/ww16-card-probe-reviewed-arm.log**) with **-j2** and no new
+warnings. Audit/attribution/whitespace pass. Synthetic admission is not a game
+run or proof of card presence/absence. No Windows CI, physical Vita, sound,
+logo/gameplay or FPS gain is claimed. Commit/rebuild, then one fresh watched
+**O1 -j2 / 300 s ceiling / MEM1 + PNG live / audio=deferred** trial follows to
+observe what the original probe and later boot code actually do. No stale
+emulator or player's data is reused; real-DSP/PCM work remains paused.
+
+## Unit 68: original CARDProbe passes; 45 black presentations, no semantic STOP
+
+Committed VI/O1 **feff0a6**, **-j2**, watched run
+**ed8c366cf38e42c99ebc2c07f9f73207** records the guarded original CARDProbe
+entry at **134,612,247 cycles**, channel **0**, LR **80018F30**, SP **8040CF40**,
+actual retail flag **00**. Guest execution subsequently advances and presents
+more frames without another card interception STOP. Its return value was not
+directly sampled; do not infer a native card result or card presence/absence.
+
+The actual process is stopped by the **300.00 s ceiling**, **exit -15 / waited**,
+launcher status **124**, with early disposition and final result retained.
+There is no closed guest report or final semantic STOP. Last observed progress
+is **434,289,673 cycles / 5,135,976 edges / 1,696,736 turns**, PC **80307EF4**,
+exception **0**, not final counters. Actual live captures verify **45 PNG pairs /
+45 presentation markers / 53 retrace markers / two MEM1 images**, all
+**audio=deferred**. All display images remain numerically opaque black, hash
+**c871acff3fc84ccec64ed29b05f2b1549e05b5067e2e5adf193b60d5490fdae5**;
+frames **27 / 45** opened. Both guarded captured draw-prefix replays pass.
+Later frames have no later contemporaneous MEM1 snapshot and must not be
+replayed with either earlier snapshot. This run remains **INCOMPLETE**; neither
+final decoded/draw totals nor a certified whole-run renderer result is available.
+
+No surviving Vita3K is found. Real GXM waits again release and actual rendering
+continues. Repeated scheduler-idle PCs while frames advance do not establish a
+new deadlock. Only **53 genuine retraces** have occurred under the retained
+clock contract; startup/fade timing remains a possible explanation, not a
+diagnosis. The existing single scheduler snapshot predates CARDProbe, so it
+cannot explain the later guest queues. Next observation reuses that read-only
+snapshot once after **32 actual presentations** and the guarded CARDProbe
+entry, in explicitly deferred continuation only. It will name actual wait
+queues and saved stacks without waking a thread or changing guest time/RAM.
+No new audio behavior, fabricated GPU finish or forced logo draw is justified.
+
+Private root for lane 18:
+
+```text
+/home/fred/projects/zeldaWWHDRecomp/build-f5/ww05/vita3k-run-ed8c366cf38e42c99ebc2c07f9f73207
+```
+
+Actual journal: **`data/Vita3K/Vita3K/ux0/data/bluewake-ww-fixture/ww05.log`**;
+images **`evidence/frames/`**, independent checks
+**`evidence/live-images-post-timeout.json`**, **`evidence/mem1-post-timeout.json`**,
+**`evidence/card-run-diagnosis.json`**, guarded fixtures
+**`evidence/gx-draw-prefix-snapshot{1,2}/`**. Original disposition/result/native
+snapshots/watch log remain intact. No logo, gameplay, sound, physical Vita or
+FPS baseline is claimed. Continue test-first observation, commit and certified
+**O1 -j2** rebuild before another isolated, continuously watched capture trial.
+
+## Unit 69: bounded post-card queue observation, no guest wakeup or time change
+
+The existing scheduler-idle observer now has one additional observation in
+**explicit audio-deferred continuation**, after the original guarded CARDProbe
+entry and at least **32 actual presentation markers**. It still requires the
+linked REL and the observed **80307EF4** idle boundary. The original single
+post-link observation is preserved for strict/default runs. Later iterations
+cannot produce unbounded queue/stack dumps; only successful publication sets
+the additional observation flag.
+
+Both snapshots identify **stage / audio / actual present-marker count** alongside
+the existing run bits, current context, real wait queues, saved PPC stacks,
+pending DVD work and renderer/VI counters. The same validated real-MEM1 reads
+are reused. No guest PC/register, RAM, audio/device state, timebase/cycle budget,
+callback or thread wakeup is supplied. This is diagnostic observation, not a
+fix for the black image or a claim that a blocked queue exists.
+
+Test-first: the focused test genuinely failed **one snapshot instead of two**
+(**logs/ww16-post-card-idle-red.log**). Five new tests verify the observed queue
+contents at the milestone, bounded repetition, parameterized strict/no-
+continuation/no-card/31-presentations exclusions, unlinked exclusion, and loud
+trace failure without marking the late observation complete. The reused probe
+checks unchanged RAM, registers, PC, DSP state, cycles and timebase.
+**732 host tests pass** on Linux AArch64
+(**logs/ww16-post-card-idle-host.log**); ARM host links with **-j2**
+(**logs/ww16-post-card-idle-arm.log**). Audit/attribution/whitespace pass. No
+Windows CI or physical Vita run is available, and no logo/gameplay, sound or FPS
+result is claimed. Commit and certified **VI/O1 -j2** rebuild, then one fresh
+continuously watched **300 s ceiling / journal 2048 / MEM1=2 + PNG live /
+audio=deferred** trial. Keep actual images and incomplete provenance even if
+the run reaches its phase ceiling; do not infer a DSP dependency from silence
+or an idle PC alone.
+
+## Unit 70: post-card snapshot shows a ready main thread, not a main-thread DSP wait
+
+Committed VI/O1 **d7fc157**, **-j2**, continuously watched run
+**97cc3eafb3924536ac41f576938faf89** retains two actual scheduler snapshots.
+The added one occurs at **320,934,640 cycles / 32 presentations / 39 retraces**:
+run bits **00008000**, main **803A2960 state=1 / suspend=0**, queue **803F0338**.
+Pinned **GXRuntime/graphics/aurora/include/dolphin/os/OSThread.h:59-63** defines
+**1=READY**, **4=WAITING**. Main's actual saved stack returns via **80322C38**
+and **802563EC**: original **GXDrawDone** sleep/test wrapper and its guest
+caller, not a DSP setup/control or PCM wait. Immediately preceding genuine
+**gx-gpu-finish decoded=33588** records a confirmed finish, followed by original
+external-vector execution. This snapshot is a runnable scheduling transition,
+not proof of a permanent sleep; frames subsequently continue.
+
+There is **one pending DVD completion**. Waiting thread **80425680** has queue
+**806AD6D8**, return **802BCC50**; original **802BCC24-802BCC78** locks its
+object, calls **OSReceiveMessage 803059D0**, then unlocks. The preceding actual
+DVD request uses file pointer **806AD66C**, **0x6C** below the observed queue.
+The audio thread remains waiting separately. No main-thread dependency on real
+PCM processing is established, and no synthetic AID callback/wakeup is added.
+
+Actual artifacts independently verify **46 PNG pairs / presentation markers**,
+**54 retrace markers**, **two MEM1 captures**, all **audio=deferred**, all display
+pixels opaque black. **frame-46.png** opened. Its contemporaneous metadata says
+**74 draws / 434,302,035 cycles** at capture, not final totals. Both guarded
+early draw-prefix replays pass; neither early snapshot can replay later frames.
+Last observed guest progress is **442,379,700 cycles / 5,184,100 edges /
+1,728,231 turns**, PC **80307EF4**, exception **0**, not final state.
+
+Actual termination: **300.00 s timeout / exit -15 / waited=true**, launcher
+**124**, early disposition and final result saved, no closed guest report,
+**INCOMPLETE / frontier UNAVAILABLE**. No owned Vita3K survivor remains. No logo,
+gameplay, physical Vita, sound or FPS baseline is claimed. The new observation
+is authentically verified; it does not fix the black image.
+
+Private root for lane 18:
+
+```text
+/home/fred/projects/zeldaWWHDRecomp/build-f5/ww05/vita3k-run-97cc3eafb3924536ac41f576938faf89
+```
+
+Actual draw journal **`data/Vita3K/Vita3K/ux0/data/bluewake-ww-fixture/ww05.log`**;
+**`evidence/frames/`**, **`evidence/live-images-post-timeout.json`**,
+**`evidence/mem1-post-timeout.json`**, **`evidence/post-card-idle-run-diagnosis.json`**,
+**`evidence/gx-draw-prefix-snapshot{1,2}/`** retain checks, original identities
+and incomplete provenance. Native snapshots and monitor evidence remain intact.
+
+Next is one unchanged-code exploratory capture with the existing **600 s
+maximum phase ceiling**, after a committed **VI/O1 -j2** rebuild. Earlier
+ceilings interrupt genuine rendering with only **54 retraces**: observe further
+startup/resource progress before inventing a new seam. A longer ceiling is
+**not** a video fix, a timing change, a promise of logo appearance or proof that
+all CPU-active intervals are healthy. The same CPU **OR** process-written
+output rule, 30 s low-CPU **AND** silence abort, **128-presentation / 960×544**
+capture bounds, journal **2048**, fresh isolated profile, **MEM1=2 + live PNG**,
+**audio=deferred** remain mandatory. Do not resume the full DSP/PCM port, alter
+guest cycles/retraces or force a wakeup; keep other builds and O2 work untouched.
+
+## Unit 71: 121 genuine black captures; longer observation is not a video fix
+
+Committed VI/O1 **b9dd934**, **-j2**, continuously watched exploratory run
+**ec41283c31c74ab1a84f0ed8f772723e** reaches its existing **600.00 s maximum
+ceiling**, **exit -15 / waited**, launcher **124**, no closed guest report.
+Early disposition and final result survive: **INCOMPLETE / frontier UNAVAILABLE**,
+no proved module crash, no final state/counter claim. No Vita3K survivor remains.
+
+Independent checks verify **121 real presentation markers / live PNG pairs**,
+**128 real retrace markers**, **two real MEM1 captures**, **audio=deferred**.
+Every display image remains numerically opaque black, same RGB/hash as prior
+black frames; **frame-121.png** opened. Its actual metadata records **192
+submitted draws / 1,041,885,143 cycles** at capture, not final totals. Last
+progress sampled earlier is **1,041,880,030 cycles / 8,514,392 edges / 4,060,483
+turns**, PC **80307EF4**, exception **0**. Both guarded early draw-prefix replays
+pass. Later frames remain unreplayable with these early MEM1 images.
+
+The extended run advances resource work and genuine DVD callbacks. The last
+logged request, **56D96078 / 5792 bytes / file 806AD6DC**, has an actual callback
+delivery/return at **896,259,929 cycles**. Read-only FST inventory against the
+unchanged, identity-verified private disc maps it to **Audiores/Banks/objSE_0.aw**;
+other logged bank reads include SystemSE, n_zelda, w_zelda, voice, LinkMotion,
+Footnote, Atmos and CharVoice. These are actual resource reads and original
+callbacks, **not DSP execution or PCM processing**. Repeated/rounded reads are
+not claimed as unique bytes or whole-resource completion certification.
+Seven cross-file rounded requests are retained explicitly in the inventory;
+the first stricter full-extent check correctly refused COPYDATE's 32-byte read
+across its packed 19-byte file, before the inventory was narrowed to request-
+start ownership. No disc bytes or game assets are published or changed.
+
+Further wall time did **not** produce a visible logo. It is no longer sufficient
+to describe the whole observed black interval as fewer than 60 retraces.
+No main-thread real-audio processing dependency is proved. The original bounded
+journal covers early draws only, and live image metadata lacks later renderer
+**skips / shader refusals / copy refusals / gaps**. Without a closed report,
+those counts are UNKNOWN: never borrow the earlier ten-draw report's zeros.
+Next diagnostic retains the renderer's actual counters contemporaneously with
+each already-authorized live image, including refusal/skip/gap observations.
+This is read-only evidence, not a renderer fallback or an audio wakeup.
+
+Private root for lane 18:
+
+```text
+/home/fred/projects/zeldaWWHDRecomp/build-f5/ww05/vita3k-run-ec41283c31c74ab1a84f0ed8f772723e
+```
+
+Actual journal **`data/Vita3K/Vita3K/ux0/data/bluewake-ww-fixture/ww05.log`**;
+**`evidence/frames/`**, **`evidence/live-images-post-timeout.json`**,
+**`evidence/mem1-post-timeout.json`**, **`evidence/extended-run-diagnosis.json`**,
+**`evidence/dvd-resource-inventory.json`**, guarded fixtures
+**`evidence/gx-draw-prefix-snapshot{1,2}/`**. All incomplete provenance/native
+snapshots/monitor samples stay intact. No logo, gameplay, physical Vita, sound,
+FPS baseline or 30+ FPS claim. Do not raise the phase ceiling or capture bounds
+to hide the unresolved black picture; preserve **O1 -j2** and pause full DSP/PCM.
+
+## Unit 72: retain actual renderer health at the live image boundary
+
+Each already-authorized live PNG metadata record now retains its actual
+**renderer fifo bytes / events / plans / skipped plans / submitted programs /
+distinct program keys / shader refusals / copies / refused copies / display
+copies / gap count**, sampled by the same existing stats call **after actual
+presentation and before next-frame parsing**. Draw count, identity, explicit
+**audio**, original capture clock/cycles and raw/display image policy stay
+unchanged. Actual bounded skip/shader/copy reasons and named nonzero gaps are
+also emitted with the frame index and audio mode; trace failure remains fatal.
+No shader, draw, device completion or pixel is replaced.
+
+The existing private collector validates the optional complete numeric schema
+and bounded gap count. Earlier metadata without these counters stays accepted
+as **unknown**, never augmented with invented zeros. The counters belong to
+that capture instant only and do not turn a later timeout into a certified
+final report or provide missing contemporaneous late MEM1 for replay. No-dump
+profiles still do no readback and emit no frame metadata; renderer code and
+guest instruction/timing/audio behavior are unchanged.
+
+Test-first: actual two-presentation synthetic metadata was genuinely red with
+missing **renderer** fields (**logs/ww16-frame-renderer-red.log**). Six added
+tests verify contemporaneous counters, real fixture-driven shader refusal with
+no extra submitted draw, loud refusal-trace failure preserving already
+published images, parameterized malformed integers, partial schema rejection,
+and absent legacy counters staying absent. The synthetic triangle's existing
+**unresolved_tex_matrix** gap was initially mistaken for zero by the new test;
+inspection proved actual values **1 / 2** in the two frames. The test now
+asserts that evidence rather than hiding the gap or altering the renderer.
+Failed check **logs/ww16-frame-renderer-green-live.log** and exact synthetic
+files **logs/ww16-frame-renderer-synthetic-inspection/** remain preserved.
+That synthetic gap is **not** a diagnosis of the game's black image.
+
+Linux AArch64: **738 host tests pass**
+(**logs/ww16-frame-renderer-host.log**), all 732 prior scenarios green; ARM host
+links with **-j2** (**logs/ww16-frame-renderer-arm.log**), no new warnings.
+Audit/attribution/whitespace pass. No physical Vita, Windows CI, sound, logo,
+gameplay or FPS claim. Commit and certified **VI/O1 -j2** rebuild, then a fresh
+continuously watched **300 s ceiling / journal 2048 / MEM1=2 + live PNG /
+audio=deferred** trial to expose the actual later renderer counters without
+another blind extension of the ceiling. Full DSP/PCM remains paused and all
+prior captures/incomplete evidence remain untouched.
+
+## Integration checkpoint: full union with the October 13 trunk
+
+Resolved the pending merge of **508f611** into **vita-integration**, whose
+pre-merge head is **0a576a6**. All **12 conflicted files** were reviewed against
+both indexed parents, with original versions/diffs retained privately under
+**/tmp/opencode/ww16-trunk-merge-508f611/**. No side was accepted wholesale and
+no branch, pin, capture or player's data was discarded.
+
+The union keeps lane 18's TexGen sink, color-channel ordering/post-normalization,
+indirect/emboss and original-LOD checks; read-only staging deduplication and
+deadline validation; selected command-prefix/snapshot binding and honest
+coverage verdicts; live frame/readback callbacks, genuine GPU finish tests,
+WW05 timing/MEM1/explicit deferred-audio seams, and the trunk's residency,
+profile and hot-measurement protocol. Duplicate equivalent PNG/surface-sync
+helpers now reuse the shared implementations. Function/test inventories from
+both parents were checked after conflict resolution.
+
+The newer trunk supports the original indirect fixture, so old capture-refusal
+tests now use the existing **destination-alpha dual-source** refusal fixture
+instead. Positive indirect checks remain, along with the explicit refusal
+reason and fail-loud capture-publication checks. Cg smoke output also retains
+actual unsupported-state reasons. Real-evidence parsing checks the recorded
+frontier bytes/complete flag rather than assuming every historical report is
+empty. These are compatibility updates to tests, not renderer fallbacks or
+invented frames. Initial failures and reviewed/final logs remain preserved.
+
+Linux AArch64, **CC=gcc**, builds **-j2** maximum, isolated test output trees:
+
+- Requested **`python3 -m pytest vita/host/test_launch.py -q`**: **33 passed**.
+- Complete **vita/host** suite including DVD tests: **767 passed**.
+- **scripts/vita/gx** Python suite: **111 passed**.
+- Rebuilt native renderer/bridge/Cg fixtures, **vita/feasibility/gx** wrappers:
+  **75 passed** (the preliminary progress message's 76 was a counting error).
+- **vita/feasibility/perf**: **29 passed**.
+- **vita/feasibility/armv7/test_fp_*.py**: **83 passed**.
+- Repository audit, attribution and whitespace checks pass.
+
+No emulator/game trial was launched during the merge intervention. No Windows
+CI or physical Vita test was available; local contract-test success is not a
+gameplay or FPS claim. No network/push. The ww16 checkout and its pending
+synthetic pixel-control work remain preserved for resumption after this merge.

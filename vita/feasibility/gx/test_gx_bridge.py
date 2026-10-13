@@ -90,9 +90,12 @@ class CoreChecksTest(unittest.TestCase):
     def test_fixture_stream_decodes_and_generates(self):
         self.assertIn("bridge textured_triangle ok", self.output)
 
-    def test_indirect_refusal_keeps_its_reason(self):
-        self.assertIn("bridge indirect refused: indirect TEV lookups not supported",
+    def test_shader_refusal_keeps_its_reason(self):
+        self.assertIn("bridge destination alpha refused: destination alpha requires dual-source blending",
                       self.output)
+
+    def test_indirect_fixture_reaches_one_cg_program(self):
+        self.assertIn("bridge indirect single-texmap generated", self.output)
 
 
 class FixtureCliTest(unittest.TestCase):
@@ -115,11 +118,17 @@ class FixtureCliTest(unittest.TestCase):
         self.assertIn("plans=1 plans_ok=1 plans_skipped=0", result.stdout)
         self.assertIn("programs=1 programs_refused=0", result.stdout)
 
-    def test_indirect_triangle_is_refused_with_a_reason(self):
-        result = self.run_cli("--fixture", "indirect_triangle")
+    def test_destination_alpha_triangle_is_refused_with_a_reason(self):
+        result = self.run_cli("--fixture", "dstalpha_triangle")
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertIn("programs_refused=1", result.stdout)
-        self.assertIn("refused reason=indirect TEV lookups not supported", result.stdout)
+        self.assertIn("refused reason=destination alpha requires dual-source blending", result.stdout)
+
+    def test_indirect_triangle_reaches_one_cg_program(self):
+        result = self.run_cli("--fixture", "indirect_triangle")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("plans=1 plans_ok=1 plans_skipped=0", result.stdout)
+        self.assertIn("programs=1 programs_refused=0", result.stdout)
 
     def test_unknown_fixture_is_a_usage_error(self):
         result = self.run_cli("--fixture", "no_such_scenario")

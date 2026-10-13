@@ -27,6 +27,18 @@ END frontier=PASS live=0 rendered=0
     def test_closed_frontier_is_not_a_rendered_scene(self):
         self.assertEqual(self.validate(self.content, TOKEN, SOURCE, PACKAGE), 'PASS')
 
+    def test_deferred_audio_report_requires_matching_explicit_profile_authorization(self):
+        for declared, requested in ((True, True), (True, False), (False, True)):
+            with self.subTest(declared=declared, requested=requested):
+                content = self.continuation_report()
+                if declared:
+                    content = content.replace('platform=VITA\n', 'platform=VITA audio=deferred\n')
+                if declared == requested:
+                    self.assertEqual(self.validate(content, TOKEN, SOURCE, PACKAGE, continue_gx=64, defer_audio=requested), 'PASS')
+                else:
+                    with self.assertRaises(ValueError):
+                        self.validate(content, TOKEN, SOURCE, PACKAGE, continue_gx=64, defer_audio=requested)
+
     def test_real_present_count_is_accepted_in_a_continuation(self):
         content = self.continuation_report().replace('display_copies=0 presented=0', 'display_copies=2 presented=2')
         content = content.replace('rendered=0', 'rendered=2')

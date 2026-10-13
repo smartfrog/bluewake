@@ -1,0 +1,112 @@
+import subprocess
+import unittest
+
+import test_host
+
+
+class AiVolumeTest(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        test_host.StartupHostTest.setUpClass()
+
+    def probe(self, scenario, address='0xCC006C04'):
+        result = subprocess.run([str(test_host.OUT / 'retained_register_probe'), scenario, address],
+                                capture_output=True, text=True)
+        self.assertEqual(result.returncode, 0, result.stderr)
+
+    def test_stopped_volume_reset_is_the_sourced_zero_without_time_or_audio_progress(self):
+        self.probe('reset')
+
+    def test_stopped_volume_retains_the_exact_written_word_including_reserved_bits(self):
+        for value in (0, 0xFF, 0xFF00, 0xA55AFF34, 0xFFFFFFFF):
+            with self.subTest(value=value):
+                self.probe(f'value-{value}')
+
+    def test_volume_storage_is_independent_of_audio_control_rate_counter_and_interrupt_state(self):
+        self.probe('independent')
+
+    def test_volume_access_credits_only_actual_executed_cycles_without_new_budget(self):
+        self.probe('credit')
+
+    def test_volume_read_rejects_widths_other_than_the_observed_word(self):
+        for width in (1, 2, 3, 8):
+            with self.subTest(width=width):
+                self.probe(f'read-width-{width}')
+
+    def test_volume_write_rejects_widths_other_than_the_observed_word_without_mutation(self):
+        for width in (1, 2, 3, 8):
+            with self.subTest(width=width):
+                self.probe(f'write-width-{width}')
+
+    def test_active_stream_volume_change_requires_a_real_audio_backend(self):
+        self.probe('audio-running')
+
+    def test_active_audio_dma_volume_change_is_not_silently_accepted_without_a_backend(self):
+        self.probe('audio-dma-running')
+
+    def test_observed_stopped_zero_timing_store_is_retained_without_audio_clock_or_interrupt_activity(self):
+        self.probe('value-0', '0xCC006C0C')
+
+    def test_stopped_timing_store_credits_only_executed_guest_cycles(self):
+        self.probe('credit', '0xCC006C0C')
+
+    def test_nonzero_timing_requires_an_audio_clock_backend_before_register_mutation(self):
+        for value in (1, 48000, 0xFFFFFFFF):
+            with self.subTest(value=value):
+                self.probe(f'value-{value}', '0xCC006C0C')
+
+    def test_timing_read_rejects_widths_other_than_the_sourced_word(self):
+        for width in (1, 2, 3, 8):
+            with self.subTest(width=width):
+                self.probe(f'read-width-{width}', '0xCC006C0C')
+
+    def test_timing_write_rejects_widths_other_than_the_observed_word(self):
+        for width in (1, 2, 3, 8):
+            with self.subTest(width=width):
+                self.probe(f'write-width-{width}', '0xCC006C0C')
+
+    def test_active_stream_timing_reset_is_not_accepted_without_its_audio_clock(self):
+        self.probe('audio-running', '0xCC006C0C')
+
+    def test_active_audio_dma_timing_reset_is_not_silently_accepted_without_a_backend(self):
+        self.probe('audio-dma-running', '0xCC006C0C')
+
+    def test_idle_audio_dma_configuration_registers_read_the_sourced_zero_reset(self):
+        for address in ('0xCC005030', '0xCC005032', '0xCC005036'):
+            with self.subTest(address=address):
+                self.probe('reset', address)
+
+    def test_idle_audio_dma_source_halves_retain_only_the_sourced_GameCube_masks(self):
+        for address in ('0xCC005030', '0xCC005032'):
+            for value in (0, 0x1234, 0xFFFF):
+                with self.subTest(address=address, value=value):
+                    self.probe(f'value-{value}', address)
+
+    def test_idle_audio_dma_source_halves_latch_one_address_without_transferring_or_completing(self):
+        self.probe('independent', '0xCC005030')
+
+    def test_disabled_audio_dma_length_is_retained_without_starting_a_transfer(self):
+        for value in (0, 1, 16, 0x7FFF):
+            with self.subTest(value=value):
+                self.probe(f'value-{value}', '0xCC005036')
+
+    def test_audio_dma_enable_requires_an_actual_PCM_backend_before_mutation_or_interrupt(self):
+        for value in (0x8000, 0x8001, 0xFFFF):
+            with self.subTest(value=value):
+                self.probe(f'value-{value}', '0xCC005036')
+
+    def test_audio_dma_configuration_changes_are_refused_while_an_audio_engine_is_active(self):
+        for address in ('0xCC005030', '0xCC005032', '0xCC005036'):
+            for scenario in ('audio-running', 'audio-dma-running'):
+                with self.subTest(address=address, scenario=scenario):
+                    self.probe(scenario, address)
+
+    def test_audio_dma_configuration_requires_the_observed_halfword_width(self):
+        for address in ('0xCC005030', '0xCC005032', '0xCC005036'):
+            for operation in ('read', 'write'):
+                for width in (1, 3, 4, 8):
+                    with self.subTest(address=address, operation=operation, width=width):
+                        self.probe(f'{operation}-width-{width}', address)
+
+    def test_idle_audio_dma_configuration_credits_only_executed_cycles_without_clock_or_budget_invention(self):
+        self.probe('credit', '0xCC005030')

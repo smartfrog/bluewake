@@ -89,6 +89,8 @@ extent. `extract.py --through-command N` can select a shorter whole-command
 prefix without changing the log, **only with a manifest bound to that prefix**.
 The real manifests above are bound to all 2,048 logged commands, so no selector
 was used for that run and their hashes were not rewritten.
+Before the real replay above, no real image was claimed from those synthetic
+dumps. Their producer command/timing data is never a final-run memory dump.
 
 ## Capture boundary and the live-run seam
 
@@ -106,8 +108,10 @@ that a failed writer prevents next-frame drawing.
 
 This is the available integration seam for lane 16's live host. The host must
 opt in and link `gx_frame_capture.cpp` plus the existing `png_capture.c`. No
-`vita/host/**` or WW05 harness source was changed here, so **live game-run PNG
-capture is not yet enabled or verified**. Post-swap reading after the renderer
+`vita/host/**` or WW05 harness source was changed by the original renderer lane.
+The merged lane 16 integration now opts in to live game-run PNG capture;
+its verified capture evidence and limitations are in `docs/vita/VITA-WW-16.md`.
+Post-swap reading after the renderer
 has already resumed the next frame would be the wrong integration point.
 
 Replay captures each GX-presented frame, retaining the last captured image.

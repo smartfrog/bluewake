@@ -206,7 +206,8 @@ truncating long draw records and must retain matching texture/array/DL bytes.
 
 ## Checked on Linux
 
-- 81 Python tests pass, including snapshot format/hash/bounds validation,
+- The original 44-test snapshot baseline and the later 81-test Python check pass,
+  including snapshot format/hash/bounds validation,
   sparse coverage, fixture tampering and stale-bridge refusal, plus frame validation after a memory-dependent
   command, sequence gaps, metadata, pending tails, memory refusal, silent draw
   loss and nonzero feature gaps.

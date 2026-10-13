@@ -14,6 +14,16 @@ sys.path.insert(0, str(ROOT / 'scripts/vita/armv7'))
 
 
 class PrivateLaunchTest(unittest.TestCase):
+    def test_deferred_audio_request_is_bound_to_the_new_run_identity_and_never_reuses_stale_mode_files(self):
+        from launch import fresh_request
+        from fp_launch import REPORT_DIRECTORY
+        token = fresh_request(self.root, 'a' * 40, 'b' * 64, continue_gx=2048, defer_audio=True)
+        request = self.root / REPORT_DIRECTORY / 'ww05.audio'
+        self.assertEqual(request.read_text(), f'{token} {"a" * 40} {"b" * 64} 1\n')
+        with self.assertRaises(ValueError):
+            fresh_request(self.root, 'a' * 40, 'b' * 64, continue_gx=2048, defer_audio=True)
+        self.assertEqual(request.read_text(), f'{token} {"a" * 40} {"b" * 64} 1\n')
+
     def setUp(self):
         from fp_launch import create_run, sandbox_command
         from fp_profile import CONFIG_PATH, CONFIG_TEMPLATE, config_identity
@@ -122,6 +132,33 @@ class PrivateLaunchTest(unittest.TestCase):
         self.assertEqual(status, 2)
         result = json.loads((self.root / 'evidence/result.json').read_text())
         self.assertIn('main.dol', result['error'])
+
+    def test_measured_guest_disposition_survives_interruption_during_post_run_validation(self):
+        import launch
+        self.successful_fake('time.sleep(10)')
+        self.plan['phases']['guest']['timeout_seconds'] = 0.2
+        with patch.object(launch, 'verify_inputs', side_effect=[None, None, KeyboardInterrupt]):
+            with self.assertRaises(KeyboardInterrupt):
+                launch.execute_run(self.root, self.plan)
+        disposition = json.loads((self.root / 'evidence/guest-disposition.json').read_text())
+        self.assertEqual(disposition['process']['stop_reason'], 'timeout')
+        self.assertEqual(disposition['process']['exit'], -15)
+        self.assertTrue(disposition['process']['waited'])
+        self.assertEqual(disposition['process_status'], 124)
+        self.assertEqual(disposition['validation'], 'PENDING')
+        self.assertEqual(disposition['audio'], 'strict')
+        self.assertFalse(disposition['frontier_verified'])
+        self.assertFalse((self.root / 'evidence/result.json').exists())
+
+    def test_pre_validation_guest_disposition_retains_the_explicit_deferred_audio_identity(self):
+        self.successful_fake()
+        self.plan.update(continue_gx=64, defer_audio=True)
+        self.run_fake()
+        disposition = json.loads((self.root / 'evidence/guest-disposition.json').read_text())
+        self.assertEqual(disposition['audio'], 'deferred')
+        self.assertEqual(disposition['source'], self.plan['source'])
+        self.assertEqual(disposition['vpk_sha256'], self.plan['vpk_sha256'])
+        self.assertEqual(disposition['reported_frontier'], 'UNAVAILABLE')
 
     def test_busy_sandbox_descendant_is_not_mistaken_for_an_idle_bwrap_parent(self):
         self.successful_fake('end=time.monotonic()+1\nwhile time.monotonic()<end: pass')
@@ -255,6 +292,28 @@ class PrivateLaunchTest(unittest.TestCase):
         from fp_launch import REPORT_DIRECTORY
         launch.fresh_request(self.root, 'a' * 40, 'b' * 64)
         self.assertFalse((self.root / REPORT_DIRECTORY / 'ww05.continue').exists())
+        self.assertFalse((self.root / REPORT_DIRECTORY / 'ww05.mem1').exists())
+
+    def test_memory_capture_request_is_bound_to_the_same_fresh_guest_identity(self):
+        import launch
+        from fp_launch import REPORT_DIRECTORY
+        token = launch.fresh_request(self.root, 'a' * 40, 'b' * 64, 2048, 2)
+        directory = self.root / REPORT_DIRECTORY
+        self.assertEqual((directory / 'ww05.mem1').read_text(), f'{token} {"a" * 40} {"b" * 64} 2\n')
+        self.assertTrue((self.root / 'evidence/frames').is_dir())
+        self.assertTrue((directory / 'frames').is_dir())
+
+    def test_preexisting_memory_capture_is_preserved_before_creating_any_new_request(self):
+        import launch
+        from fp_launch import REPORT_DIRECTORY
+        directory = self.root / REPORT_DIRECTORY
+        directory.mkdir(parents=True)
+        snapshot = directory / 'ww05.mem1-1.bin'
+        snapshot.write_bytes(b'preserve private evidence')
+        with self.assertRaisesRegex(ValueError, 'preexisting WW05'):
+            launch.fresh_request(self.root, 'a' * 40, 'b' * 64, 2048, 2)
+        self.assertEqual(snapshot.read_bytes(), b'preserve private evidence')
+        self.assertFalse((directory / 'ww05.request').exists())
 
     def test_optional_disc_is_read_only_inside_the_guest_sandbox_and_never_modified(self):
         from stage_plan import make_plan, sha256

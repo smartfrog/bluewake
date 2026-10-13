@@ -8,11 +8,9 @@
 #include <stdlib.h>
 
 #ifdef __vita__
-#define WW05_DIRECTORY "ux0:data/bluewake-ww-fixture/"
 #define WW05_PLATFORM "VITA"
 #define WW05_DOL_PATH "app0:main.dol"
 #elif defined(WW05_IO_TEST)
-#define WW05_DIRECTORY ""
 #define WW05_PLATFORM "HOST"
 #define WW05_DOL_PATH "synthetic.dol"
 WwRendererBackend* ww05_io_renderer_backend(void);
@@ -43,8 +41,8 @@ static int dispatch_marker(char marker) {
     return error;
 }
 
-static int continuation_limit(const char* token, const char* source, const char* package, u32* limit) {
-    const char* path = WW05_DIRECTORY "ww05.continue";
+static int requested_limit(const char* path, u32 maximum, const char* token, const char* source,
+                           const char* package, u32* limit) {
     *limit = 0u;
     if (diagnostic_absent(path))
         return 0;
@@ -60,7 +58,7 @@ static int continuation_limit(const char* token, const char* source, const char*
     error |= fclose(stream) != 0;
     unsigned count = 0u;
     if (error || strlen(content) != size || sscanf(content, "%*32s %*40s %*64s %u", &count) != 1 ||
-        count == 0u || count > WW_GX_MAX_JOURNAL_COMMANDS)
+        count == 0u || count > maximum)
         return 1;
     if (snprintf(expected, sizeof(expected), "%s %s %s %u\n", token, source, package, count) < 0 ||
         strcmp(content, expected) != 0)
@@ -73,10 +71,18 @@ int fixture_run(int argc, char** argv) {
     (void)argv;
     char token[33], source[41], package[65];
     u32 command_log_limit;
+    u32 memory_capture_limit;
+    u32 deferred_audio;
     const char* partial = WW05_DIRECTORY "ww05.partial";
     const char* complete = WW05_DIRECTORY "ww05.report";
     if (argc > 1 || diagnostic_request(WW05_DIRECTORY "ww05.request", WW05_SOURCE, token, source, package) ||
-        continuation_limit(token, source, package, &command_log_limit) ||
+        requested_limit(WW05_DIRECTORY "ww05.continue", WW_GX_MAX_JOURNAL_COMMANDS,
+                        token, source, package, &command_log_limit) ||
+        requested_limit(WW05_DIRECTORY "ww05.mem1", WW_MEM1_MAX_CAPTURES,
+                         token, source, package, &memory_capture_limit) ||
+        requested_limit(WW05_DIRECTORY "ww05.audio", 1u, token, source, package, &deferred_audio) ||
+        (deferred_audio != 0u && command_log_limit == 0u) ||
+        (memory_capture_limit != 0u && command_log_limit == 0u) ||
         !diagnostic_absent(partial) || !diagnostic_absent(complete) ||
         !diagnostic_absent(WW05_DIRECTORY "ww05.log") ||
         !diagnostic_absent(WW05_DIRECTORY "ww05.dispatch"))
@@ -88,8 +94,8 @@ int fixture_run(int argc, char** argv) {
     FILE* report = fopen(partial, "wx");
     if (report == NULL)
         return 1;
-    int error = fprintf(report, "WW05 %s %s %s method=startup-gx-v1 phase=guest platform=%s\n",
-                         token, source, package, WW05_PLATFORM) < 0;
+    int error = fprintf(report, "WW05 %s %s %s method=startup-gx-v1 phase=guest platform=%s%s\n",
+                          token, source, package, WW05_PLATFORM, deferred_audio ? " audio=deferred" : "") < 0;
     error |= fflush(report) != 0 || ferror(report) != 0;
     if (error) {
         const int closed = fclose(report);
@@ -112,8 +118,13 @@ int fixture_run(int argc, char** argv) {
     const BlueWakeRelData* data = staticrecomp_get_rel_data(&count);
     error |= fprintf(stderr, "[host] stage=initialize\n") < 0;
     bool initialized = !error && ww_host_init(host);
+    host->dsp.audio_deferred = deferred_audio != 0u;
+    error |= fprintf(stderr, "[audio-policy] audio=%s pcm_output=none deferred_task_body=no-op synthetic_mail=%s\n",
+                     deferred_audio ? "deferred" : "strict", deferred_audio ? "explicit-opt-in-bootstrap-setup-control" : "disabled") < 0;
     host->stream.enabled = command_log_limit != 0u;
     host->stream.log_limit = command_log_limit;
+    host->mem1_capture = (WwMem1Capture){.limit = memory_capture_limit, .token = token,
+                                       .source = source, .package = package};
     if (initialized)
         error |= fprintf(stderr, "[vi-clock] enabled=%u period_cycles=%llu refresh_hz=%u\n",
                          host->vi_clock_enabled,
@@ -129,6 +140,8 @@ int fixture_run(int argc, char** argv) {
         backend = ww05_io_renderer_backend();
 #endif
         const char* renderer_error = ww_renderer_create(&host->renderer, &renderer_config, backend);
+        if (renderer_error == NULL)
+            renderer_error = ww_host_enable_frame_capture(host);
         if (renderer_error != NULL) {
             error |= fprintf(stderr, "[renderer] init failed: %s\n", renderer_error) < 0;
             ww_host_fail(host, renderer_error, 0u, host->cpu.pc);

@@ -22,7 +22,10 @@ set(WW17_RENDERER_SOURCES
     "${WW17_RENDERER_DIR}/ww_renderer.cpp"
     "${WW17_RENDERER_DIR}/gx_bridge.cpp"
     "${WW17_RENDERER_DIR}/gx_vita.cpp"
-    "${WW17_RENDERER_DIR}/gx_cg.cpp")
+    "${WW17_RENDERER_DIR}/gx_cg.cpp"
+    "${WW17_RENDERER_DIR}/gx_frame_capture.cpp"
+    "${BLUEWAKE_ROOT}/vita/feasibility/gx/png_capture.c")
+set_source_files_properties("${BLUEWAKE_ROOT}/vita/feasibility/gx/png_capture.c" PROPERTIES LANGUAGE CXX)
 if(VITA)
     list(APPEND WW17_RENDERER_SOURCES "${WW17_RENDERER_DIR}/vita_gl_backend.cpp")
 endif()
@@ -37,7 +40,8 @@ target_compile_options(gxruntime PRIVATE -ffp-contract=off -fno-fast-math -fstac
 
 add_library(ww05_services STATIC boot_host.c gx_checkpoint.c gx_stream.c fifo_gather.c fifo_consumer.c
     code_guard.c dsp_interface.c bat_contract.c disc_service.c rel_provider.c rel_service.c rel_link.c
-    scheduler_observation.c vi_clock.c gx_draw_observation.c gpu_finish.c
+    scheduler_observation.c vi_clock.c gx_draw_observation.c gpu_finish.c frame_timing.c mem1_capture.c frame_capture.cpp
+    dsp_rom_mail.c dsp_deferred.c
     $<TARGET_OBJECTS:ww13_dvd_pin>
     "${BLUEWAKE_ROOT}/runtime/host/src/cycle_domain.c"
     "${BLUEWAKE_ROOT}/runtime/host/src/aram_dma.c"
@@ -50,10 +54,11 @@ add_library(ww05_services STATIC boot_host.c gx_checkpoint.c gx_stream.c fifo_ga
 target_include_directories(ww05_services PUBLIC "${CMAKE_CURRENT_SOURCE_DIR}"
     "${BLUEWAKE_ROOT}/runtime/host/src" "${BLUEWAKE_ROOT}/cmake/composite" "${ABI_DIR}"
     "${BLUEWAKE_ROOT}/apple/ios/src")
+target_include_directories(ww05_services PRIVATE "${BLUEWAKE_ROOT}/vita/feasibility/armv7")
 target_link_libraries(ww05_services PUBLIC ww13_dvd_io GXRuntime::runtime ww_renderer)
 target_compile_definitions(ww05_services PRIVATE WW05_ENABLE_VI_CLOCK=$<BOOL:${WW05_ENABLE_VI_CLOCK}>)
 target_compile_options(ww05_services PRIVATE -O2 -ffp-contract=off -fno-fast-math -fstack-usage
-    -Wall -Wextra -Werror=implicit-function-declaration)
+    -Wall -Wextra $<$<COMPILE_LANGUAGE:C>:-Werror=implicit-function-declaration>)
 
 if(WW05_TESTS_ONLY)
     enable_testing()
@@ -77,6 +82,7 @@ if(WW05_TESTS_ONLY)
     add_executable(dsp_init_probe dsp_init_probe.c)
     target_compile_options(dsp_init_probe PRIVATE -UNDEBUG)
     target_link_libraries(dsp_init_probe PRIVATE ww05_services)
+    target_link_options(dsp_init_probe PRIVATE -Wl,--wrap=fprintf)
     add_executable(bat_probe bat_probe.c)
     target_compile_options(bat_probe PRIVATE -UNDEBUG)
     target_link_libraries(bat_probe PRIVATE ww05_services)
@@ -136,6 +142,11 @@ if(WW05_TESTS_ONLY)
     target_compile_options(gx_draw_probe PRIVATE -UNDEBUG)
     target_link_libraries(gx_draw_probe PRIVATE ww05_services)
     target_link_options(gx_draw_probe PRIVATE -Wl,--wrap=fprintf)
+    add_executable(gx_drain_probe gx_drain_probe.cpp)
+    target_compile_options(gx_drain_probe PRIVATE -UNDEBUG)
+    target_link_libraries(gx_drain_probe PRIVATE ww05_services)
+    target_link_options(gx_drain_probe PRIVATE -Wl,--wrap=clock_gettime -Wl,--wrap=fprintf
+        -Wl,--wrap=fwrite -Wl,--wrap=fflush -Wl,--wrap=fclose -Wl,--wrap=rename)
     add_executable(gpu_finish_probe gpu_finish_probe.cpp)
     target_compile_options(gpu_finish_probe PRIVATE -UNDEBUG)
     target_link_libraries(gpu_finish_probe PRIVATE ww05_services)
@@ -191,7 +202,7 @@ else()
         target_link_directories(ww05_host PRIVATE "${WW05_RENDERER_SDK}/lib")
     endif()
     target_link_libraries(ww05_host PRIVATE gGZLE01_recomp ww05_services
-        SceLibKernel_stub SceIofilemgr_stub SceProcessmgr_stub SceSysmem_stub)
+        SceLibKernel_stub SceKernelThreadMgr_stub SceIofilemgr_stub SceProcessmgr_stub SceSysmem_stub)
     target_link_libraries(ww_renderer PUBLIC
         "${WW05_VITAGL_LIBRARY}" vitashark SceShaccCgExt SceShaccCg_stub_weak SceGxm_stub_weak
         SceDisplay_stub_weak SceSysmodule_stub_weak SceCommonDialog_stub_weak SceAppMgr_stub_weak

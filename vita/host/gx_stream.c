@@ -6,8 +6,8 @@ const char* ww_gx_stream_write(WwHost* host, u8 byte, const WwFifoOrigin* origin
         return "invalid GX command journal limit";
     if (stream->decoded == UINT64_MAX)
         return "GX decoded command counter exhausted";
-    if (host->gx.trace_count == DOL_GX_RECOMP_MAX_TRACE_EVENTS)
-        return "pinned GX trace is full; renderer drain not implemented";
+    if (host->gx.trace_count >= DOL_GX_RECOMP_MAX_TRACE_EVENTS)
+        return "pinned GX trace is full before command consumption";
     WwGxCheckpoint* command = &stream->command;
     if (!ww_gx_write(command, &host->gx, byte, 1u, origin->pc, origin->sp))
         return command->error;
@@ -18,8 +18,8 @@ const char* ww_gx_stream_write(WwHost* host, u8 byte, const WwFifoOrigin* origin
     }
     if (!command->complete)
         return NULL;
-    if (host->gx.trace_count == DOL_GX_RECOMP_MAX_TRACE_EVENTS)
-        return "pinned GX trace reached capacity; renderer drain not implemented";
+    if (host->gx.trace_count >= DOL_GX_RECOMP_MAX_TRACE_EVENTS)
+        return "pinned GX command trace reached capacity before renderer acceptance";
     const u64 index = stream->decoded + 1u;
     if (stream->logged < stream->log_limit) {
         if (command->bytes[0] >= 0x80u &&
@@ -46,6 +46,11 @@ const char* ww_gx_stream_write(WwHost* host, u8 byte, const WwFifoOrigin* origin
     }
     stream->decoded = index;
     ww_gx_remember_command(stream, command);
+    if (command->bytes[0] >= 0x80u && index <= stream->log_limit) {
+        const char* capture_error = ww_host_capture_mem1(host);
+        if (capture_error != NULL)
+            return capture_error;
+    }
     // VITA-WW-17: the same captured bytes the pinned trace observes go to the
     // renderer, in stream order. The present call shows a frame the game
     // finished (a display copy) and does nothing otherwise; when the march's
@@ -56,11 +61,23 @@ const char* ww_gx_stream_write(WwHost* host, u8 byte, const WwFifoOrigin* origin
         if (renderer_error == NULL) {
             bool presented = false;
             renderer_error = ww_renderer_present(host->renderer, &presented);
+            if (presented) {
+                if (renderer_error != NULL &&
+                    fprintf(stderr, "[renderer-after-present] error=%s\n", renderer_error) < 0)
+                    return renderer_error;
+                WwRendererStats stats;
+                ww_renderer_stats(host->renderer, &stats);
+                const char* marker_error = ww_host_frame_present(host, stats.presented);
+                if (marker_error != NULL)
+                    return marker_error;
+            }
         }
         if (renderer_error != NULL) {
             *command = (WwGxCheckpoint){0};
             return renderer_error;
         }
+        host->gx.fifo.size = 0u;
+        host->gx.trace_count = 0u;
     }
     *command = (WwGxCheckpoint){0};
     return NULL;

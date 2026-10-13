@@ -212,7 +212,7 @@ class ClassifyCaptureTest(unittest.TestCase):
 
 
 class RealEvidenceTest(unittest.TestCase):
-    """The real reports in build-f5: empty hex= must parse honestly."""
+    """The real reports in build-f5 retain their recorded frontier bytes."""
 
     def setUp(self):
         self.capture = load_module()
@@ -221,11 +221,16 @@ class RealEvidenceTest(unittest.TestCase):
         if not self.reports:
             raise unittest.SkipTest(f"no real ww05.report evidence under {evidence}")
 
-    def test_every_real_report_parses_and_stays_empty(self):
+    def test_every_real_report_parses_its_recorded_frontier(self):
         for path in self.reports[:8]:
-            parsed = self.capture.parse_report(path.read_text(), source=path.name)
-            self.assertFalse(parsed.complete, path)
-            self.assertEqual(parsed.data, b"", path)
+            with self.subTest(report=path):
+                text = path.read_text()
+                parsed = self.capture.parse_report(text, source=path.name)
+                frontier = next(line for line in text.splitlines() if line.startswith('GX_FRONTIER '))
+                fields = dict(item.split('=', 1) for item in frontier.split()[1:])
+                self.assertEqual(parsed.complete, fields['complete'] == '1')
+                self.assertEqual(parsed.data, bytes.fromhex(fields['hex']))
+                self.assertEqual(parsed.size, len(parsed.data))
 
 
 if __name__ == "__main__":

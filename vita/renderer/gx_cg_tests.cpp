@@ -228,6 +228,7 @@ int unsupported_pixel_state_coverage() {
     const auto cg = gx_vita::generate_cg(key);
     CHECK(!cg.ok);
     CHECK(cg.unsupported_reason != nullptr);
+    std::printf("unsupported ok: %s\n", cg.unsupported_reason);
   }
   return 0;
 }

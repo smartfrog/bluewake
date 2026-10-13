@@ -444,6 +444,34 @@ static bool fifo_has_input(const WwHost* host) {
     return host->frontier.size != 0u || host->gather.size != 0u || host->gather.transfers != 0u;
 }
 
+static bool audio_dma_config_register(u32 address, u8 size) {
+    return size == 2u && (address == 0xCC005030u || address == 0xCC005032u || address == 0xCC005036u);
+}
+
+static const char* suppress_deferred_audio_dma(const WwHost* host, u16 requested) {
+    const WwDspInterface* dsp = &host->dsp;
+    if (!dsp->audio_deferred || !dsp->deferred_task_started || !dsp->deferred_setup_discarded ||
+        !dsp->deferred_control_discarded || dsp->deferred_reply_mail != 0u ||
+        (dsp->dsp_mailbox & 0x80000000u) != 0u || dsp->deferred_task_interrupt)
+        return "audio DMA suppression requires the completed declared no-op bootstrap";
+    const DolAudioDma* audio = &host->audio;
+    const u16 retained = requested & DOL_AUDIO_DMA_BLOCK_MASK;
+    if (retained == 0u || retained != audio->control || audio->remaining_blocks != 0u ||
+        audio->work_counter != 0u || audio->interrupt_pending)
+        return "audio DMA suppression requires unchanged nonzero stopped configuration";
+    if (fprintf(stderr, "[audio-deferred] event=audio-dma-enable-suppressed requested=%04X retained=%04X source=%08X blocks=%u pc=%08X dma_enabled=0 aid_irq=none sample_progress=none pcm_output=none action=no-op\n",
+                requested, retained, audio->source_address, retained, host->cpu.pc) < 0)
+        return "deferred audio DMA suppression trace write failed";
+    return NULL;
+}
+
+static bool deferred_mail_status_query(const WwHost* host, const CPUState* cpu) {
+    return host->dsp.audio_deferred && host->dsp.deferred_task_started &&
+           cpu->pc == 0x80319080u && cpu->lr == 0x8028E884u &&
+           ww_host_module_contains_address(host->module, 0x8028E880u) &&
+           ww_code_guard_copied_text_matches(&host->code_guard, cpu, 0x8028E880u, 0x8028E880u, 16u);
+}
+
 static u16* pe_config_register(WwHost* host, u32 address, u8 size) {
     if (size != 2u || address < 0xCC001000u || address > 0xCC001008u || (address & 1u) != 0u)
         return NULL;
@@ -462,6 +490,24 @@ static u64 mmio_read(CPUState* cpu, u32 address, u8 size) {
         dol_guest_memory_read(&host->memory, address, size, &value))
         return value;
     observe(cpu);
+    if (host->dsp_task_boot_observed && address == 0xCC005004u && size == 2u) {
+        const bool supported_work = (host->dsp.control & WW_DSP_HALT_BIT) == 0u &&
+            (host->dsp.rom_mail_pending || (!host->dsp.rom_selected && host->dsp.init_cycles_remaining != 0u));
+        if ((host->dsp.dsp_mailbox & 0x80000000u) == 0u && !supported_work &&
+            !deferred_mail_status_query(host, cpu)) {
+            ww_host_fail(host, host->dsp.audio_deferred ?
+                         "deferred DSP replies exhausted; guest requires an unmodeled task response" :
+                         "DSP task boot mailbox requires a DSP task backend; no reply injected", address, cpu->pc);
+            return 0u;
+        }
+    }
+    if (host->dsp.audio_deferred && host->dsp.deferred_task_started && size == 2u &&
+        (address == 0xCC005004u || address == 0xCC005006u) &&
+        fprintf(stderr, "[audio-deferred] event=guest-mail-read address=%08X pc=%08X lr=%08X latched_mail=%08X origin=synthetic-no-op-mailbox\n",
+                address, cpu->pc, cpu->lr, host->dsp.dsp_mailbox) < 0) {
+        ww_host_fail(host, "deferred DSP guest-mail trace write failed", address, cpu->pc);
+        return 0u;
+    }
     if (ww_dsp_interface_read(&host->dsp, address, size, &value)) {
         refresh(host);
         return value;
@@ -492,8 +538,10 @@ static u64 mmio_read(CPUState* cpu, u32 address, u8 size) {
         value = host->mi_protection;
     else if (address == 0xCC003024u && size == 4u)
         value = 0u; // Cold boot only; reset writes still require a drive-reset backend.
-    else if (address == 0xCC006C00u && size == 4u)
-        dol_audio_dma_ai_mmio_read(&host->audio, DOL_AUDIO_DMA_AI_CONTROL_OFF, size, &value);
+    else if ((address == 0xCC006C00u || address == 0xCC006C04u || address == 0xCC006C0Cu) && size == 4u)
+        dol_audio_dma_ai_mmio_read(&host->audio, address - 0xCC006C00u, size, &value);
+    else if (audio_dma_config_register(address, size))
+        dol_audio_dma_dsp_mmio_read(&host->audio, address - 0xCC005000u, size, &value);
     else if (interrupt_register(address, size, false))
         value = dol_interrupts_mmio_read(&host->interrupts, address, size);
     else if (size == 4u && (address & 3u) == 0u && in_range(address, size, DOL_DI_BASE, DOL_DI_REGISTER_BYTES))
@@ -637,6 +685,36 @@ static void mmio_write(CPUState* cpu, u32 address, u64 value, u8 size) {
             return;
         }
         dol_audio_dma_ai_mmio_write(&host->audio, DOL_AUDIO_DMA_AI_CONTROL_OFF, size, value & ~8ull);
+    } else if ((address == 0xCC006C04u || address == 0xCC006C0Cu) && size == 4u) {
+        if (address == 0xCC006C0Cu && value != 0u) {
+            fail_mmio_write(host, "AI interrupt timing requires stopped zero initialization; audio clock backend not implemented", address, value, size);
+            return;
+        }
+        if ((read_be32(host->audio.ai_regs) & DOL_AUDIO_DMA_AI_PSTAT_BIT) != 0u ||
+            (dol_audio_dma_read_control(&host->audio) & DOL_AUDIO_DMA_ENABLE) != 0u) {
+            fail_mmio_write(host, address == 0xCC006C04u ? "active AI volume change requires an audio backend" :
+                            "active AI interrupt timing change requires an audio clock backend", address, value, size);
+            return;
+        }
+        dol_audio_dma_ai_mmio_write(&host->audio, address - 0xCC006C00u, size, value);
+    } else if (audio_dma_config_register(address, size)) {
+        const bool enable = address == 0xCC005036u && (value & DOL_AUDIO_DMA_ENABLE) != 0u;
+        if ((read_be32(host->audio.ai_regs) & DOL_AUDIO_DMA_AI_PSTAT_BIT) != 0u ||
+            (dol_audio_dma_read_control(&host->audio) & DOL_AUDIO_DMA_ENABLE) != 0u ||
+            (enable && !host->dsp.audio_deferred)) {
+            fail_mmio_write(host, "audio DMA configuration requires stopped engines; enable/transfer needs a PCM backend", address, value, size);
+            return;
+        }
+        if (enable) {
+            const char* error = suppress_deferred_audio_dma(host, (u16)value);
+            if (error != NULL) {
+                fail_mmio_write(host, error, address, value, size);
+                return;
+            }
+        } else {
+            const u16 mask = address == 0xCC005030u ? 0x03FFu : address == 0xCC005032u ? 0xFFE0u : 0x7FFFu;
+            dol_audio_dma_dsp_mmio_write(&host->audio, address - 0xCC005000u, size, value & mask);
+        }
     } else if (interrupt_register(address, size, true))
         dol_interrupts_mmio_write(&host->interrupts, address, size, value);
     else if (size == 4u && (address & 3u) == 0u && in_range(address, size, DOL_DI_BASE, DOL_DI_REGISTER_BYTES))
@@ -743,18 +821,42 @@ bool ww_host_edge(void* user, CPUState* cpu, u32 address) {
             return true;
         }
     }
-    const bool compiled_cpu_boundary = (address == 0x80328F84u || address == 0x80303A50u ||
+    const bool observed_dsp_task = address == 0x803193ACu;
+    if (observed_dsp_task) {
+        const char* error = ww_host_observe_dsp_task_boot(host);
+        if (error != NULL) {
+            ww_host_fail(host, error, address, address);
+            host->edge_stopped = true;
+            return true;
+        }
+    }
+    const bool observed_card_probe = address == 0x8031D400u;
+    if (observed_card_probe) {
+        const char* error = ww_host_observe_card_probe(host);
+        if (error != NULL) {
+            ww_host_fail(host, error, address, address);
+            host->edge_stopped = true;
+            return true;
+        }
+    }
+    const bool compiled_cpu_boundary = (address == 0x80328F84u || address == 0x80303A50u || observed_dsp_task || observed_card_probe ||
                                        observed_retrace_sleep || observed_draw_done_sleep || observed_async_draw_done) &&
                                          ww_host_module_contains_address(host->module, address);
     const bool desktop_edge = bluewake_edge_maybe_intercept(address);
-    if (address == 0x80307EF4u && host->rel_image.linked && !host->scheduler_idle_observed) {
+    if (address == 0x80307EF4u && host->rel_image.linked &&
+        (!host->scheduler_idle_observed ||
+         (host->dsp.audio_deferred && host->stream.enabled && host->card_probe_observed &&
+          host->frame_timing.present.index >= 32u && !host->post_card_idle_observed))) {
         const char* error = ww_host_observe_scheduler_idle(host);
         if (error != NULL) {
             ww_host_fail(host, error, address, address);
             host->edge_stopped = true;
             return true;
         }
-        host->scheduler_idle_observed = true;
+        if (host->scheduler_idle_observed)
+            host->post_card_idle_observed = true;
+        else
+            host->scheduler_idle_observed = true;
     }
     if (desktop_edge && ww_host_module_contains_address(host->module, address) && ww_host_dvd_edge(host, address)) {
         host->edge_stopped = host->error != NULL;

@@ -12,7 +12,7 @@ one is refused with its reason.
 
 Usage: bridge.py <capture-file> [--mem1 <dump> | --snapshot <manifest>]
 Exit:  0 replay without gaps (including no-bytes-yet and partial captures),
-       1 refusal or coverage gaps, 2 usage or missing tooling.
+        1 refusal or coverage gaps, 2 usage or missing tooling.
 
 Environment:
   WW02_BUILD  build directory (default <main checkout>/build-f2/ww02)

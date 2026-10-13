@@ -5,7 +5,7 @@
 #include <stdio.h>
 #include <string.h>
 
-#define DSP_HALT 0x0004u
+#define DSP_HALT WW_DSP_HALT_BIT
 #define DSP_INIT 0x0800u
 #define DSP_INIT_CODE 0x0400u
 #define DSP_INTERRUPT_MASKS 0x0150u
@@ -43,7 +43,9 @@ static bool loaded_init_matches(const WwDspInterface* dsp) {
 }
 
 static bool control_write(WwDspInterface* dsp, const CPUState* cpu, u16 value) {
-    if (value & ~(DSP_INIT | DSP_INIT_CODE | DSP_HALT | 1u | DSP_INTERRUPT_MASKS | DSP_INTERRUPT_ACKS | DSP_DMA_BUSY))
+    const bool deferred_task = dsp->audio_deferred && dsp->deferred_task_started;
+    if (value & ~(DSP_INIT | DSP_INIT_CODE | DSP_HALT | 1u | DSP_INTERRUPT_MASKS | DSP_INTERRUPT_ACKS |
+                  DSP_DMA_BUSY | (deferred_task ? 2u : 0u)))
         return reject(dsp, "unsupported DSP control operation");
     const bool load_init = (dsp->control & DSP_INIT) != 0u && (value & DSP_INIT) == 0u;
     const bool reset = (value & 1u) != 0u;
@@ -61,13 +63,24 @@ static bool control_write(WwDspInterface* dsp, const CPUState* cpu, u16 value) {
     const bool verified = load_init || (dsp->init_loaded ? loaded_init_matches(dsp) : init_matches(dsp, cpu));
     if ((reset || running) && !verified)
         return reject(dsp, "DSP reset/release requires byte-identical documented init ucode");
-    if (running && !reset && !load_init && !dsp->rom_selected && !dsp->init_loaded)
+    if (running && !reset && !load_init && !deferred_task && !dsp->rom_selected && !dsp->init_loaded)
         return reject(dsp, "DSP release requires verified reset-selected ROM");
-    if (running && !reset && !load_init && !dsp->rom_selected && dsp->init_cycles_remaining == 0u)
+    if (running && !reset && !load_init && !deferred_task && !dsp->rom_selected && dsp->init_cycles_remaining == 0u)
         return reject(dsp, "completed DSP init requires reset before release");
     if (running && (dsp->cpu_mailbox & DSP_MAIL_BUSY))
         return reject(dsp, "queued ROM mail protocol not implemented");
+    if (deferred_task && (value & 2u) != 0u &&
+        fprintf(stderr, "[audio-deferred] event=assert-to-no-op control=%04X pc=%08X action=ignored reply=none cpu_irq=none pcm_output=none\n",
+                value, cpu != NULL ? cpu->pc : 0u) < 0)
+        return reject(dsp, "deferred DSP input assertion trace write failed");
     if (load_init) {
+        memset(&dsp->rom_boot, 0, sizeof(dsp->rom_boot));
+        dsp->deferred_words_left = 0u;
+        dsp->deferred_word_count = 0u;
+        dsp->deferred_setup_discarded = false;
+        dsp->deferred_control_discarded = false;
+        dsp->deferred_command_sync = 0u;
+        dsp->deferred_reply_mail = 0u;
         memcpy(dsp->init_image, cpu->ram + WW_DSP_INIT_LOAD_ADDRESS, WW_DSP_INIT_TRANSFER_BYTES);
         dsp->init_loaded = true;
         dsp->init_cycles_remaining = DSP_INIT_CORE_CYCLES;
@@ -76,10 +89,21 @@ static bool control_write(WwDspInterface* dsp, const CPUState* cpu, u16 value) {
         dsp->rom_mail_pending = false;
     }
     if (reset) {
+        memset(&dsp->rom_boot, 0, sizeof(dsp->rom_boot));
         dsp->init_cycles_remaining = 0u;
         dsp->rom_selected = true;
         dsp->rom_mail_pending = true;
+        dsp->deferred_task_started = false;
+        dsp->deferred_task_interrupt = false;
+        dsp->deferred_reply_mail = 0u;
+        dsp->deferred_command_sync = 0u;
+        dsp->deferred_words_left = 0u;
+        dsp->deferred_word_count = 0u;
+        dsp->deferred_setup_discarded = false;
+        dsp->deferred_control_discarded = false;
     }
+    if (value & 0x0080u)
+        dsp->deferred_task_interrupt = false;
     if ((value & DSP_ARAM_INTERRUPT) && dsp->aram_cycles_remaining == 0u)
         bluewake_aram_dma_acknowledge(&dsp->aram);
     dsp->control = value & (DSP_INIT | DSP_HALT | DSP_INTERRUPT_MASKS);
@@ -156,7 +180,7 @@ bool ww_dsp_interface_advance(WwDspInterface* dsp, u64 cycles, u64 ticks) {
         return false;
     dsp->aram_cycles_remaining = cycles < dsp->aram_cycles_remaining ? dsp->aram_cycles_remaining - cycles : 0u;
     dsp->init_ticks_remaining = ticks < dsp->init_ticks_remaining ? dsp->init_ticks_remaining - (u16)ticks : 0u;
-    if ((dsp->control & DSP_HALT) || dsp->rom_selected || dsp->init_cycles_remaining == 0u)
+    if ((dsp->control & DSP_HALT) || dsp->rom_selected || dsp->deferred_task_started || dsp->init_cycles_remaining == 0u)
         return true;
     if (!loaded_init_matches(dsp))
         return reject(dsp, "DSP init execution requires byte-identical loaded documented ucode");
@@ -185,8 +209,9 @@ u64 ww_dsp_interface_deadline(const WwDspInterface* dsp) {
 }
 
 bool ww_dsp_interface_interrupt_pending(const WwDspInterface* dsp) {
-    return dsp->aram_cycles_remaining == 0u && (dsp->control & (DSP_ARAM_INTERRUPT << 1u)) &&
-           bluewake_aram_dma_interrupt_pending(&dsp->aram);
+    return (dsp->audio_deferred && dsp->deferred_task_interrupt && (dsp->control & 0x0100u)) ||
+           (dsp->aram_cycles_remaining == 0u && (dsp->control & (DSP_ARAM_INTERRUPT << 1u)) &&
+            bluewake_aram_dma_interrupt_pending(&dsp->aram));
 }
 
 bool ww_dsp_interface_read(WwDspInterface* dsp, u32 address, u8 size, u64* value) {
@@ -213,12 +238,18 @@ bool ww_dsp_interface_read(WwDspInterface* dsp, u32 address, u8 size, u64* value
             dsp->rom_mail_pending = false;
         }
         *value = dsp->dsp_mailbox & 0xFFFFu;
-        dsp->dsp_mailbox &= ~DSP_MAIL_BUSY;
+        if (dsp->audio_deferred && dsp->deferred_task_started && dsp->deferred_reply_mail != 0u) {
+            dsp->dsp_mailbox = dsp->deferred_reply_mail;
+            dsp->deferred_reply_mail = 0u;
+        } else {
+            dsp->dsp_mailbox &= ~DSP_MAIL_BUSY;
+        }
         return true;
     case WW_DSP_CONTROL:
         *value = dsp->control | (dsp->init_ticks_remaining != 0u ? DSP_INIT_CODE : 0u) |
                  (dsp->aram_cycles_remaining != 0u ? DSP_DMA_BUSY :
-                 bluewake_aram_dma_interrupt_pending(&dsp->aram) ? DSP_ARAM_INTERRUPT : 0u);
+                 bluewake_aram_dma_interrupt_pending(&dsp->aram) ? DSP_ARAM_INTERRUPT : 0u) |
+                 (dsp->audio_deferred && dsp->deferred_task_interrupt ? 0x0080u : 0u);
         return true;
     case WW_DSP_AR_INFO: *value = dsp->ar_info; return true;
     case WW_DSP_AR_MODE: *value = 1u; return true;
@@ -234,13 +265,25 @@ bool ww_dsp_interface_write(WwDspInterface* dsp, CPUState* cpu, u32 address, u8 
         return false;
     switch (address) {
     case 0xCC005000u:
-        dsp->cpu_mailbox = ((dsp->cpu_mailbox & 0xFFFFu) | ((u32)(u16)value << 16u)) & ~DSP_MAIL_BUSY;
+        dsp->cpu_mailbox = (dsp->cpu_mailbox & 0xFFFFu) | ((u32)(u16)value << 16u);
+        if ((!dsp->rom_selected && !(dsp->audio_deferred && dsp->deferred_task_started)) ||
+            (dsp->control & DSP_HALT) != 0u)
+            dsp->cpu_mailbox &= ~DSP_MAIL_BUSY;
         return true;
-    case 0xCC005002u:
-        if (!(dsp->control & DSP_HALT))
-            return reject(dsp, "running ROM mail protocol not implemented");
+    case 0xCC005002u: {
+        if (!(dsp->control & DSP_HALT)) {
+            const u32 mail = (dsp->cpu_mailbox & 0xFFFF0000u) | (u16)value;
+            const char* error = dsp->audio_deferred && dsp->deferred_task_started ?
+                ww_dsp_deferred_mail(dsp, mail, cpu != NULL ? cpu->pc : 0u) :
+                ww_dsp_rom_receive(dsp, mail, cpu != NULL ? cpu->pc : 0u);
+            if (error != NULL)
+                return reject(dsp, error);
+            dsp->cpu_mailbox = mail & ~DSP_MAIL_BUSY;
+            return true;
+        }
         dsp->cpu_mailbox = (dsp->cpu_mailbox & 0xFFFF0000u) | (u16)value | DSP_MAIL_BUSY;
         return true;
+    }
     case WW_DSP_CONTROL: return control_write(dsp, cpu, (u16)value);
     case WW_DSP_AR_INFO: dsp->ar_info = (u16)value & 0x007Fu; return true;
     case WW_DSP_AR_REFRESH: dsp->ar_refresh = (u16)value & 0x07FFu; return true;

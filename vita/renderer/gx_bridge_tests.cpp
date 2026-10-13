@@ -473,6 +473,15 @@ int main(int argc, char** argv) {
   }
 
   {
+    gx_bridge::Result result;
+    CHECK(run_stream(gx_fixture::build_dstalpha_triangle(), result));
+    CHECK(result.counts.plans == 1u && result.counts.programs_refused == 1u);
+    CHECK(result.counts.programs == 0u && result.program_refusals.size() == 1u);
+    CHECK(result.program_refusals[0] == "destination alpha requires dual-source blending");
+    std::printf("bridge destination alpha refused: %s\n", result.program_refusals[0].c_str());
+  }
+
+  {
     // The EFB copy path: one resolved copy, translated, and its draw's program.
     gx_bridge::Result result;
     CHECK(run_stream(gx_fixture::build_copy_triangle(), result));
