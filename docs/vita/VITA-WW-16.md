@@ -2770,3 +2770,61 @@ continuously watched **300 s ceiling / journal 2048 / MEM1=2 + PNG live /
 audio=deferred** trial. Keep actual images and incomplete provenance even if
 the run reaches its phase ceiling; do not infer a DSP dependency from silence
 or an idle PC alone.
+
+## Unit 70: post-card snapshot shows a ready main thread, not a main-thread DSP wait
+
+Committed VI/O1 **d7fc157**, **-j2**, continuously watched run
+**97cc3eafb3924536ac41f576938faf89** retains two actual scheduler snapshots.
+The added one occurs at **320,934,640 cycles / 32 presentations / 39 retraces**:
+run bits **00008000**, main **803A2960 state=1 / suspend=0**, queue **803F0338**.
+Pinned **GXRuntime/graphics/aurora/include/dolphin/os/OSThread.h:59-63** defines
+**1=READY**, **4=WAITING**. Main's actual saved stack returns via **80322C38**
+and **802563EC**: original **GXDrawDone** sleep/test wrapper and its guest
+caller, not a DSP setup/control or PCM wait. Immediately preceding genuine
+**gx-gpu-finish decoded=33588** records a confirmed finish, followed by original
+external-vector execution. This snapshot is a runnable scheduling transition,
+not proof of a permanent sleep; frames subsequently continue.
+
+There is **one pending DVD completion**. Waiting thread **80425680** has queue
+**806AD6D8**, return **802BCC50**; original **802BCC24-802BCC78** locks its
+object, calls **OSReceiveMessage 803059D0**, then unlocks. The preceding actual
+DVD request uses file pointer **806AD66C**, **0x6C** below the observed queue.
+The audio thread remains waiting separately. No main-thread dependency on real
+PCM processing is established, and no synthetic AID callback/wakeup is added.
+
+Actual artifacts independently verify **46 PNG pairs / presentation markers**,
+**54 retrace markers**, **two MEM1 captures**, all **audio=deferred**, all display
+pixels opaque black. **frame-46.png** opened. Its contemporaneous metadata says
+**74 draws / 434,302,035 cycles** at capture, not final totals. Both guarded
+early draw-prefix replays pass; neither early snapshot can replay later frames.
+Last observed guest progress is **442,379,700 cycles / 5,184,100 edges /
+1,728,231 turns**, PC **80307EF4**, exception **0**, not final state.
+
+Actual termination: **300.00 s timeout / exit -15 / waited=true**, launcher
+**124**, early disposition and final result saved, no closed guest report,
+**INCOMPLETE / frontier UNAVAILABLE**. No owned Vita3K survivor remains. No logo,
+gameplay, physical Vita, sound or FPS baseline is claimed. The new observation
+is authentically verified; it does not fix the black image.
+
+Private root for lane 18:
+
+```text
+/home/fred/projects/zeldaWWHDRecomp/build-f5/ww05/vita3k-run-97cc3eafb3924536ac41f576938faf89
+```
+
+Actual draw journal **`data/Vita3K/Vita3K/ux0/data/bluewake-ww-fixture/ww05.log`**;
+**`evidence/frames/`**, **`evidence/live-images-post-timeout.json`**,
+**`evidence/mem1-post-timeout.json`**, **`evidence/post-card-idle-run-diagnosis.json`**,
+**`evidence/gx-draw-prefix-snapshot{1,2}/`** retain checks, original identities
+and incomplete provenance. Native snapshots and monitor evidence remain intact.
+
+Next is one unchanged-code exploratory capture with the existing **600 s
+maximum phase ceiling**, after a committed **VI/O1 -j2** rebuild. Earlier
+ceilings interrupt genuine rendering with only **54 retraces**: observe further
+startup/resource progress before inventing a new seam. A longer ceiling is
+**not** a video fix, a timing change, a promise of logo appearance or proof that
+all CPU-active intervals are healthy. The same CPU **OR** process-written
+output rule, 30 s low-CPU **AND** silence abort, **128-presentation / 960×544**
+capture bounds, journal **2048**, fresh isolated profile, **MEM1=2 + live PNG**,
+**audio=deferred** remain mandatory. Do not resume the full DSP/PCM port, alter
+guest cycles/retraces or force a wakeup; keep other builds and O2 work untouched.
