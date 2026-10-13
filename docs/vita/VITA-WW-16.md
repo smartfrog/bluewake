@@ -3073,3 +3073,72 @@ counters. Capture timing is not an FPS baseline; keep the FPS watch's hot-run
 protocol separate. If it remains black or hits a refusal, source that actual
 wall before changing a seam. No fabricated GPU/audio completion, real DSP/PCM,
 guest-time alteration, logo/gameplay, physical Vita or 30+ FPS claim.
+
+## Unit 75: bounded black prefix on the synced renderer and a mixed pixel control
+
+Certified **b8e2048 / VI / O1 / -j2** authentic run
+**a3eb11fc6882448c93a4688ca5bc46a9** retains **128 actual live PNG pairs**, all
+**960x544 / 522,240 opaque black display pixels**, SHA
+**c871acff3fc84ccec64ed29b05f2b1549e05b5067e2e5adf193b60d5490fdae5**.
+Raw/display RGB is checked for every pair. **129 actual presentations / 136
+real `[frame-timing]` retrace markers / two MEM1 snapshots** are observed.
+Presentation 129 has **no PNG**: the unchanged 128-image bound stopped the host.
+The closed report says **133,260 decoded commands / 2048 logged / 216 submitted
+draws / three distinct programs / zero plans skipped, shader or copy refusals**.
+Its final stopped state is **1,106,693,761 cycles / 8,796,068 edges**, PC
+**80301504**, exception **00000001**; the STOP reason is the capture bound,
+not a newly admitted gameplay/audio dependency.
+
+The launcher timed out at **600.001 s**, **SIGTERM / exit=-15 / waited=true**.
+It validated the closed guest report and journal but then rejected **129** as
+outside the image collector's bound. Original **result.json status=2 /
+INCOMPLETE / frontier UNAVAILABLE** and the **PENDING** disposition remain
+untouched. Separate **evidence/renderer-postrun-check.json** checks report
+identity/framing (**frontier-only PASS**, not gameplay); **verified-live-prefix-
+128.json** independently validates exactly the existing 128 images, explicitly
+leaving presentation 129's pixels unavailable. **actual-retrace-marker-check.json**
+uses the real `[frame-timing] retrace=` prefix, not the nonexistent
+`[frame-retrace]` prefix initially searched in the post-run check. No capture
+bound, report, PNG, guest RAM or timestamp is rewritten to promote the failed
+launcher result. No owned Vita3K remains after the run.
+
+There is a real change in submitted work at **frame 101 / command 102936 /
+879,863,624 cycles**: the third program appears and **tlut_texture=2** begins.
+Frame 128 records **213 submitted draws / three programs / tlut_texture=56**.
+The read-only pin's **GXRuntime/graphics/gxcore/src/gxcore.cpp:1044-1047** increments
+that counter for **every valid CI-format texture**, independent of palette
+resolution. It is **not evidence that palette decoding failed**; the Vita
+translator already uses the pinned CI/TLUT decoder. No full DSP/PCM work is
+warranted by that counter. **1,498 actual DVD callback deliveries and returns**
+occur in this run. The two early MEM1 images still cannot certify later scene
+textures or geometry.
+
+The prepared private WW02 control is now built from clean committed
+**b8e2048**, **50 effective-O1 translation units / -j2**, unchanged pins and
+vitaGL archive. Build identity is **logs/ww16-readback-control-b8e2048-build.json**;
+VPK SHA **226c03f3ab93ae56b70d0cdec1214241c84bb2a25c1ce078f4389118be57f789**.
+An absent output-parent error happened **before any emulator started**; its
+record remains under **build-f5/ww16-readback-control-runs-b8e2048/**.
+Fresh watched synthetic run **2415b6df25574a0f9a7009b6f67a0c8d** uses surface
+sync and stops at the actual closed **demo done 2** report after **3.106 s**;
+the owned process is terminated/reaped rather than waiting for the 90 s ceiling.
+
+This control is **mixed, not green**: red front **255,0,0,255** is correct;
+back and the complete/error-free FBO read **0,0,0,0**; the first triangle and
+its clear both read black and fail two pixel assertions. The later synthetic
+HUD produces **29 distinct RGBA values** in the actual PNG, SHA
+**1fca81c349a1a2ff272f35b252827dc86e48ddeb312c3ccecc15c2d1f5c8e78f**,
+opened and numerically checked (**evidence/pixel-check.json**). The demo's
+sampled distinct-color count is 11, not the whole-PNG count of 29. This is raw
+synthetic PNG evidence with its original alpha, not an opaque game-frame pair.
+It proves some current GPU/readback paths yield nonblack RGB, not that the
+FBO, triangle, real host's surface or GX transforms are correct.
+
+Re-plan: source the real backend's surface/matrix seam with an authored
+synthetic control through **WwRenderer**, which unlike the demo does not
+override the captured projection. Keep this separate from authentic frames;
+do not guess a TLUT/DSP fix or extend the frame/deadline bounds to hide black.
+Existing **767 host/DVD / 111 GX Python** checks for b8e2048 remain the baseline;
+this evidence-only unit is verified by the real artifact checks above.
+Linux AArch64/Vita3K only; no Windows CI, physical Vita, visible logo/gameplay,
+pixel parity, sound or 30+ FPS claim. No network or push.
