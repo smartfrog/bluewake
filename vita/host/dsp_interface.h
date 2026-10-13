@@ -46,9 +46,11 @@ typedef struct WwDspInterface {
     bool deferred_task_started;
     bool deferred_task_interrupt;
     u32 deferred_reply_mail;
-    u16 deferred_setup_sync;
-    u8 deferred_setup_words_left;
+    u16 deferred_command_sync;
+    u8 deferred_word_count;
+    u8 deferred_words_left;
     bool deferred_setup_discarded;
+    bool deferred_control_discarded;
 } WwDspInterface;
 
 void ww_dsp_interface_init(WwDspInterface* dsp, const u8* init_reference);

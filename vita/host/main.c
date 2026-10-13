@@ -120,7 +120,7 @@ int fixture_run(int argc, char** argv) {
     bool initialized = !error && ww_host_init(host);
     host->dsp.audio_deferred = deferred_audio != 0u;
     error |= fprintf(stderr, "[audio-policy] audio=%s pcm_output=none deferred_task_body=no-op synthetic_mail=%s\n",
-                     deferred_audio ? "deferred" : "strict", deferred_audio ? "explicit-opt-in-bootstrap-and-setup" : "disabled") < 0;
+                     deferred_audio ? "deferred" : "strict", deferred_audio ? "explicit-opt-in-bootstrap-setup-control" : "disabled") < 0;
     host->stream.enabled = command_log_limit != 0u;
     host->stream.log_limit = command_log_limit;
     host->mem1_capture = (WwMem1Capture){.limit = memory_capture_limit, .token = token,

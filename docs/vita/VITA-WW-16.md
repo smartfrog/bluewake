@@ -2323,3 +2323,46 @@ Install **1.26 s**, guest **95.97 s**, closed certified frontier report followed
 by known shutdown **133**; no inactivity/timeout termination. Preserve Unit 57's
 incomplete run as the genuine pre-ACK wait evidence. The real-DSP port stays
 paused; continue only the sourced, declared no-op command-0D intake/ACK seam.
+
+## Unit 60: one bounded post-setup command-0D packet reuses the no-op intake
+
+Only in **audio=deferred**, after a complete setup and fully consumed/acknowledged
+reply, the no-op now accepts count **2**, requires first word **8Dxxxxxx**, and
+discards exactly one following parameter. Source **8028E800-8028E838** constructs
+that packet and registers **8028E7E0**, which clears **R13-27524**; the caller's
+remaining wait is for this completion flag, not PCM. Pinned
+**Zelda.cpp:469-480** reads/logs this parameter and sends the standard ACK without
+mixing audio. The actual next payload is still unconfirmed until the next run.
+
+The setup-only names become **deferred_words_left / deferred_word_count /
+deferred_command_sync**. The same bounded input/trace/tag/ACK code handles setup
+and control; no duplicate packet engine. At most one setup and one command-0D
+packet may be accepted per reset. A command-02 rendering opcode, out-of-order
+control count, repeated setup/control, other counts or later commands are
+explicit STOPs. No queue collision or partial/failed trace can publish an ACK.
+Reset clears both intake records and reply/tag state while preserving the
+declared policy.
+
+Control acceptance emits the same **explicitly synthetic DCD10004 / F355xxxx**
+pair, tagged from the received command upper half, with **synthetic DSPINT 0080**.
+Every word/ACK trace distinguishes **setup** from **control**, and declares
+**no-op-intake / configuration=not-executed / pcm_output=none**. No parameter is
+dereferenced, DSP body run, RAM/audio buffer changed, completion callback skipped
+or guest flag written by the host. This remains a metadata-intake stub, **not a
+PCM-processing or audio-DMA-completion backend**. Initial/task policy diagnostics
+now include **bootstrap-setup-control**; reports and capture provenance stay
+**audio=deferred**, strict default behavior unchanged.
+
+Linux AArch64: **715 host tests pass**, eight new control tests: completed
+packet, received tag, control-before-setup refusal, rendering-opcode refusal,
+parameterized count/parameter/ACK trace failures, repeated control refusal,
+preserved pending setup ACK, and reset of completed control state. Command-0D
+input was genuinely red before implementation
+(**logs/ww16-deferred-control-red.log**); reviewed full green
+**logs/ww16-deferred-control-reviewed-host.log**. The existing complete DSP/RAM/
+audio/clocks/GX invariant checks and all setup, strict-mode and guarded-mail
+tests remain green. ARM host links (**logs/ww16-deferred-control-arm.log**),
+only the preexisting DSP-init warning; audit/attribution/whitespace pass. No
+Windows CI, physical Vita, sound, new scene or FPS gain is claimed. Commit,
+rebuild and fresh watched **MEM1 + PNG live + audio=deferred** trial follow to
+confirm the actual packet and its real guest callback path.

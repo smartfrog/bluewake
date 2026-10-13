@@ -75,9 +75,11 @@ static bool control_write(WwDspInterface* dsp, const CPUState* cpu, u16 value) {
         return reject(dsp, "deferred DSP input assertion trace write failed");
     if (load_init) {
         memset(&dsp->rom_boot, 0, sizeof(dsp->rom_boot));
-        dsp->deferred_setup_words_left = 0u;
+        dsp->deferred_words_left = 0u;
+        dsp->deferred_word_count = 0u;
         dsp->deferred_setup_discarded = false;
-        dsp->deferred_setup_sync = 0u;
+        dsp->deferred_control_discarded = false;
+        dsp->deferred_command_sync = 0u;
         dsp->deferred_reply_mail = 0u;
         memcpy(dsp->init_image, cpu->ram + WW_DSP_INIT_LOAD_ADDRESS, WW_DSP_INIT_TRANSFER_BYTES);
         dsp->init_loaded = true;
@@ -94,9 +96,11 @@ static bool control_write(WwDspInterface* dsp, const CPUState* cpu, u16 value) {
         dsp->deferred_task_started = false;
         dsp->deferred_task_interrupt = false;
         dsp->deferred_reply_mail = 0u;
-        dsp->deferred_setup_sync = 0u;
-        dsp->deferred_setup_words_left = 0u;
+        dsp->deferred_command_sync = 0u;
+        dsp->deferred_words_left = 0u;
+        dsp->deferred_word_count = 0u;
         dsp->deferred_setup_discarded = false;
+        dsp->deferred_control_discarded = false;
     }
     if (value & 0x0080u)
         dsp->deferred_task_interrupt = false;

@@ -37,35 +37,44 @@ const char* ww_dsp_deferred_launch(WwDspInterface* dsp, u16 start, u32 pc) {
 const char* ww_dsp_deferred_mail(WwDspInterface* dsp, u32 mail, u32 pc) {
     if (dsp == NULL || !dsp->audio_deferred || !dsp->deferred_task_started)
         return "deferred DSP input requires the declared no-op task";
-    const u8 left = dsp->deferred_setup_words_left;
+    const bool control = dsp->deferred_setup_discarded;
+    const char* kind = control ? "control" : "setup";
+    const u8 count = control ? 2u : 5u;
+    const u32 command = control ? 0x8D000000u : 0x81000000u;
+    const u8 left = dsp->deferred_words_left;
     if (left == 0u) {
-        if (dsp->deferred_setup_discarded || mail != 5u)
+        if (dsp->deferred_control_discarded || mail != count)
             return "deferred DSP post-bootstrap task command not modeled; audio=deferred";
         if (reply_pending(dsp))
-            return "deferred DSP setup intake requires consumed and acknowledged bootstrap mails";
-        if (fprintf(stderr, "[audio-deferred] event=setup-count mail=%08X payload_words=5 pc=%08X action=accepted-for-no-op reply=none pcm_output=none\n",
-                    mail, pc) < 0)
-            return "deferred DSP setup count trace write failed";
-        dsp->deferred_setup_words_left = 5u;
+            return "deferred DSP input requires consumed and acknowledged prior replies";
+        if (fprintf(stderr, "[audio-deferred] event=%s-count mail=%08X payload_words=%u pc=%08X action=accepted-for-no-op reply=none pcm_output=none\n",
+                    kind, mail, count, pc) < 0)
+            return "deferred DSP command count trace write failed";
+        dsp->deferred_words_left = count;
+        dsp->deferred_word_count = count;
         return NULL;
     }
-    if (left > 5u || (left == 5u && (mail & 0xFF000000u) != 0x81000000u))
-        return "deferred DSP expects bounded command 01 setup; audio processing not modeled";
+    if (dsp->deferred_word_count != count || left > count ||
+        (left == count && (mail & 0xFF000000u) != command))
+        return "deferred DSP requires command 01 setup or post-setup command 0D; audio processing not modeled";
     if (left == 1u && reply_pending(dsp))
-        return "deferred DSP setup acceptance ACK would overwrite an unconsumed reply";
-    if (fprintf(stderr, "[audio-deferred] event=setup-word mail=%08X words_left_after=%u pc=%08X action=discarded configuration=not-executed reply=none pcm_output=none\n",
-                mail, left - 1u, pc) < 0)
-        return "deferred DSP setup word trace write failed";
+        return "deferred DSP command acceptance ACK would overwrite an unconsumed reply";
+    if (fprintf(stderr, "[audio-deferred] event=%s-word mail=%08X words_left_after=%u pc=%08X action=discarded configuration=not-executed reply=none pcm_output=none\n",
+                kind, mail, left - 1u, pc) < 0)
+        return "deferred DSP command word trace write failed";
     if (left == 1u &&
-        fprintf(stderr, "[audio-deferred] event=setup-acceptance-ack sync=%04X pc=%08X synthetic_mail=DCD10004,%08X synthetic_irq=0080 origin=no-op-intake configuration=not-executed pcm_output=none guest_callbacks=not-skipped\n",
-                dsp->deferred_setup_sync, pc, 0xF3550000u | dsp->deferred_setup_sync) < 0)
-        return "deferred DSP setup acceptance ACK trace write failed";
-    if (left == 5u)
-        dsp->deferred_setup_sync = (u16)(mail >> 16u);
-    dsp->deferred_setup_words_left = left - 1u;
+        fprintf(stderr, "[audio-deferred] event=%s-acceptance-ack command=%02X sync=%04X pc=%08X synthetic_mail=DCD10004,%08X synthetic_irq=0080 origin=no-op-intake configuration=not-executed pcm_output=none guest_callbacks=not-skipped\n",
+                kind, (command >> 24u) & 0x7Fu, dsp->deferred_command_sync, pc, 0xF3550000u | dsp->deferred_command_sync) < 0)
+        return "deferred DSP command acceptance ACK trace write failed";
+    if (left == count)
+        dsp->deferred_command_sync = (u16)(mail >> 16u);
+    dsp->deferred_words_left = left - 1u;
     if (left == 1u) {
-        dsp->deferred_setup_discarded = true;
-        publish_reply(dsp, 0xDCD10004u, 0xF3550000u | dsp->deferred_setup_sync);
+        if (control)
+            dsp->deferred_control_discarded = true;
+        else
+            dsp->deferred_setup_discarded = true;
+        publish_reply(dsp, 0xDCD10004u, 0xF3550000u | dsp->deferred_command_sync);
     }
     return NULL;
 }

@@ -101,7 +101,7 @@ const char* ww_host_observe_dsp_task_boot(WwHost* host) {
                 entry, cpu->lr, stack, task, dsp->control, dsp->cpu_mailbox, dsp->dsp_mailbox,
                 dsp->rom_selected, dsp->rom_mail_pending, dsp->init_loaded,
                 (unsigned long long)dsp->init_cycles_remaining, (unsigned long long)host->cycles.absolute_cycles,
-                dsp->audio_deferred ? "deferred" : "strict", dsp->audio_deferred ? "deferred-bootstrap-and-setup" : "none") < 0)
+                dsp->audio_deferred ? "deferred" : "strict", dsp->audio_deferred ? "deferred-bootstrap-setup-control" : "none") < 0)
         return "DSP task observation trace write failed";
     const u8* bytes = cpu->ram + (task - GC_RAM_BASE);
     for (u32 index = 0u; index < 64u; ++index) {

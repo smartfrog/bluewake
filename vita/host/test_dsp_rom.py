@@ -108,3 +108,30 @@ class DspRomTest(unittest.TestCase):
 
     def test_a_second_setup_list_is_not_implicitly_accepted_by_the_one_bootstrap_no_op(self):
         self.probe('rom-deferred-setup-repeat')
+
+    def test_one_post_setup_command_0D_packet_is_discarded_and_acknowledged_without_processing_audio(self):
+        self.assertIn('synthetic_mail=DCD10004,F3558D00', self.probe('rom-deferred-setup-control'))
+
+    def test_command_0D_ack_uses_the_received_tag_instead_of_a_fixed_handshake(self):
+        self.assertIn('synthetic_mail=DCD10004,F3558D3A', self.probe('rom-deferred-setup-control-tag'))
+
+    def test_command_0D_cannot_be_accepted_before_the_initial_setup_packet(self):
+        self.probe('rom-deferred-control-before-setup')
+
+    def test_a_two_word_audio_rendering_packet_is_not_acknowledged_as_a_control_no_op(self):
+        self.probe('rom-deferred-setup-control-wrong-kind')
+
+    def test_command_0D_trace_failures_preserve_partial_input_without_publishing_a_synthetic_ack(self):
+        for scenario in ('rom-deferred-setup-control-count-trace', 'rom-deferred-setup-control-parameter-trace',
+                         'rom-deferred-setup-control-ack-trace'):
+            with self.subTest(scenario=scenario):
+                self.probe(scenario)
+
+    def test_a_second_command_0D_packet_is_not_implicitly_acknowledged_by_the_bounded_bootstrap_stub(self):
+        self.probe('rom-deferred-setup-control-repeat')
+
+    def test_pending_setup_reply_is_preserved_when_control_intake_is_attempted_too_early(self):
+        self.probe('rom-deferred-setup-control-pending-ack')
+
+    def test_reset_clears_control_intake_and_ack_tags_without_changing_the_explicit_audio_policy(self):
+        self.probe('rom-deferred-setup-control-reset')
