@@ -2504,3 +2504,46 @@ checkpoint. A fresh watched diagnostic trial must locate the CPU-active silent
 frontier before changing guest behavior. Under the user's memory-pressure
 constraint: **O1, -j2**, no O2 work started/resumed, no leftover owned emulator
 before launching. No module-crash, real-audio dependency or FPS claim is made.
+
+## Unit 64: persist guest disposition before post-validation; relaunch with native diagnostics
+
+The launcher now writes exclusive **`evidence/guest-disposition.json`** immediately
+after collecting the actual **process.json**, **before** post-run configuration,
+input/package hashes and guest-report parsing. It preserves measured status,
+exit/signal, reason, waited/duration, run/source/package/launcher identity and
+**audio** mode. It explicitly says **validation=PENDING / frontier=UNAVAILABLE /
+frontier_verified=false**: this is not a substitute guest report or certified
+result. Later errors still fail loudly; exclusive publication cannot overwrite
+a prior checkpoint. A later launcher interruption can no longer remove this
+already closed disposition file, although it can still prevent final validation.
+
+Linux AArch64: **722 host tests pass**. The timeout/post-validation interruption
+test was genuinely red because the checkpoint was absent
+(**logs/ww16-guest-disposition-red.log**), then green; the second test verifies
+the explicit deferred profile identity remains labelled even before report
+validation. Full green **logs/ww16-guest-disposition-host.log**, launcher subset
+**logs/ww16-guest-disposition-green-launch.log**. Existing timeout/missing-input,
+idle CPU-or-output, strict/deferred report checks and all 720 prior host scenarios
+remain green. Audit/attribution/whitespace pass. No guest DMA/audio/rendering or
+timing behavior was changed by this launcher correction.
+
+For the next private diagnostic trial, the external watched helper adds at most
+two **native AArch64 thread register/maps/instruction snapshots** after at least
+20 seconds of silence beyond 90M observed guest cycles. Target identity must
+match that trial's owned Vita3K executable. Selected native threads are briefly
+ptrace-stopped/read/detached, with no target memory/register writes. Capture
+errors are recorded, and a failed live-thread detach aborts only the verified
+owned emulator rather than leaving it traced/stopped. This is explicitly
+**diagnostic perturbation, not an FPS baseline**, and native PCs are not labelled
+as final guest PPC state. Original activity/ceiling policy remains unchanged.
+
+The private helper/sampler sources are preserved under **logs/**, including
+the prior helper content/hash and **ww16_native_snapshot.py**. Two synthetic
+owned-child checks verify actual registers/maps/instruction reads and detach;
+the reviewed check is **logs/ww16-native-sampler-reviewed-check.json**. No game
+diagnosis is claimed from that synthetic test. The next run preserves its actual
+**native-silent-snapshot-{1,2}.json** if the silent CPU-active frontier recurs.
+This observation is needed before guessing a guest loop/JIT/render cause or
+adding further audio behavior. Commit/rebuild and one fresh continuously watched
+**O1 -j2 / MEM1 + live PNG / audio=deferred** trial follow, with no owned Vita3K
+survivor before launch. Other lanes' O2 work remains untouched.

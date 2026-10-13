@@ -223,8 +223,15 @@ def execute_run(root, plan):
         status = run_owned(guest['command'], root, guest['timeout_seconds'], evidence_root=phase,
                             phase_observer=activity_observer(root, plan, phase))
         process = json.loads((phase / 'evidence/process.json').read_text())
-        print(f"STOP phase=guest reason={process['stop_reason']} seconds={process['duration_seconds']:.2f}", flush=True)
         record.update(process_status=status, process=process)
+        with evidence_file(root, 'guest-disposition.json') as stream:
+            json.dump({'kind': 'ww05-guest-disposition-v1', 'run': plan['run'], 'source': plan['source'],
+                       'launcher_source': record['launcher_source'], 'vpk_sha256': plan['vpk_sha256'],
+                       'audio': record['audio'], 'process_status': status, 'process': process,
+                       'validation': 'PENDING', 'reported_frontier': 'UNAVAILABLE', 'frontier_verified': False},
+                      stream, indent=2)
+            stream.write('\n')
+        print(f"STOP phase=guest reason={process['stop_reason']} seconds={process['duration_seconds']:.2f}", flush=True)
         verify_stopped(process)
         canonical = emitted_config(root, phase, surface_sync=surface_sync)
         verify_phase_logs(root, phase, PHASE_LOG_LIMIT)

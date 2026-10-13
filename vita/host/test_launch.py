@@ -133,6 +133,33 @@ class PrivateLaunchTest(unittest.TestCase):
         result = json.loads((self.root / 'evidence/result.json').read_text())
         self.assertIn('main.dol', result['error'])
 
+    def test_measured_guest_disposition_survives_interruption_during_post_run_validation(self):
+        import launch
+        self.successful_fake('time.sleep(10)')
+        self.plan['phases']['guest']['timeout_seconds'] = 0.2
+        with patch.object(launch, 'verify_inputs', side_effect=[None, None, KeyboardInterrupt]):
+            with self.assertRaises(KeyboardInterrupt):
+                launch.execute_run(self.root, self.plan)
+        disposition = json.loads((self.root / 'evidence/guest-disposition.json').read_text())
+        self.assertEqual(disposition['process']['stop_reason'], 'timeout')
+        self.assertEqual(disposition['process']['exit'], -15)
+        self.assertTrue(disposition['process']['waited'])
+        self.assertEqual(disposition['process_status'], 124)
+        self.assertEqual(disposition['validation'], 'PENDING')
+        self.assertEqual(disposition['audio'], 'strict')
+        self.assertFalse(disposition['frontier_verified'])
+        self.assertFalse((self.root / 'evidence/result.json').exists())
+
+    def test_pre_validation_guest_disposition_retains_the_explicit_deferred_audio_identity(self):
+        self.successful_fake()
+        self.plan.update(continue_gx=64, defer_audio=True)
+        self.run_fake()
+        disposition = json.loads((self.root / 'evidence/guest-disposition.json').read_text())
+        self.assertEqual(disposition['audio'], 'deferred')
+        self.assertEqual(disposition['source'], self.plan['source'])
+        self.assertEqual(disposition['vpk_sha256'], self.plan['vpk_sha256'])
+        self.assertEqual(disposition['reported_frontier'], 'UNAVAILABLE')
+
     def test_busy_sandbox_descendant_is_not_mistaken_for_an_idle_bwrap_parent(self):
         self.successful_fake('end=time.monotonic()+1\nwhile time.monotonic()<end: pass')
         self.plan['idle_timeout_seconds'] = 0.3
