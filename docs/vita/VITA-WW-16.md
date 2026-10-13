@@ -1480,3 +1480,34 @@ matching the volume probe's refusal context to **80316E00**
 No shared runtime, pin, desktop default or rendering behavior changes. Fresh
 committed VI/O1 rebuild and watched **no-dump** continuation follow to identify
 the next actual STOP; host tests alone do not prove game audio or gameplay.
+
+## Unit 41: authentic volume initialization passes; live capture integration is next
+
+Committed VI/O1 build **478bef1**, fresh no-dump run
+**ef922f40287146b1aaf213278762df48**: the real volume read and two channel-clear
+word stores pass. New closed STOP is the next actual instruction:
+**AI interrupt-timing CC006C0C = 0**, word store at **80316E24**. Still **nine
+draws / eight presentations**, **8,963 decoded / 2,048 journal commands**, no
+skips/refusals/gaps. All eight presentation and ten retrace stamps parse and
+match the report. Executed cycles/edges remain **85,311,500 / 1,033,628**;
+install **1.23 s**, guest **70.10 s**, known post-report exit **133**. No hang is
+inferred from high-CPU silence.
+
+Unchanged WW12 measurement, one exploratory no-dump boot run:
+**16.439083 s** presentation span, **0.425815 mean FPS**, **0.50 FPS in the one
+complete 10 s window**, median frame **2,312.227 ms**, p95 **2,774.8683 ms**.
+Secondary retrace mean **0.475379/s**, complete-window **0.60/s**. Evidence:
+`evidence/fps-no-dump-10s/{baseline.json,summary.txt}` and
+`evidence/frame-markers.json` in this private attempt. Same caveats as Unit 37:
+not sustained gameplay, physical-Vita timing or a three-run benchmark. No
+renderer/FPS improvement is attributed to the stopped-volume register seam.
+
+The coordinator independently verifies lane 18's new image pipeline: replay of
+our authentic snapshot 2 produces uniform opaque black, consistent with the
+two journaled initialization clears, not a visible game scene. Next, integrate
+its committed default-off **ww_renderer_set_frame_capture** hook into the live
+host's MEM1-capture profile. The boundary is after successful swap and before
+next-frame drawing, never a post-run fabricated preview. Retain raw RGBA and
+the declared display-alpha PNG in the run's private evidence. No-dump FPS
+profiles must remain unchanged. The coordinator owns the trunk integration;
+its staged/conflicted work is not edited or overwritten from this lane.
