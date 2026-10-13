@@ -1446,3 +1446,37 @@ coverage independently. No pixels, physical-Vita behavior, gameplay or FPS gain
 is claimed, and no binary, disc data or captured memory is committed/uploaded.
 Next host seam is the sourced stopped-AI volume register; audio execution and
 unobserved interrupts remain explicit STOPs.
+
+## Unit 40: reuse the pinned stopped-AI volume register, without an audio backend
+
+The new frontier's **CC006C04 word read at 80316E00** is Dolphin's **AI volume**,
+not its sample counter. Pinned `AudioInterface.cpp:59,198,280-287` defines zero
+reset, direct u32 read, retained full u32 write and mixer volume application;
+`AudioInterface.h:86-96` assigns the low-byte left/next-byte right fields while
+the full register word is retained. The actual translated boot next clears each
+channel with word read-modify-writes (`80316E10` / `80316E20`).
+
+Host word reads/writes now reuse **dol_audio_dma_ai_mmio_read/write** and its
+existing big-endian **ai_regs+4** storage (`GXRuntime/src/audio_dma.c:258-281`),
+initialized to zero by the pinned audio state. No duplicated register, mask,
+sample-counter algorithm or synthesized callback is introduced. Writes require
+both AIS playback and audio DMA to be stopped; an active engine explicitly
+refuses **`active AI volume change requires an audio backend`** before mutation.
+Stream start/rate change, sample/timing registers and PCM execution are still
+unsupported. Read widths other than the sourced word remain STOPs too.
+
+Linux AArch64: **637 host tests and 27 WW12 tests pass**. Eight added scenarios
+extend the existing retained-register probe: zero reset, exact whole-word
+retention (including reserved bits), independent audio storage, only actual
+executed-cycle credit, bad read/write widths, active AIS and active AID refusal.
+Each compares the full audio state against only the permitted register delta;
+FIFO/trace/frontier/interrupts and cycle budget cannot be invented by volume I/O.
+The reset test was red before implementation (`logs/ww16-ai-volume-red.log`),
+then green (`logs/ww16-ai-volume-green.log`). Actual ARM host links without new
+warnings (`logs/ww16-ai-volume-arm-link.log`); WW12 regression evidence in
+`logs/ww16-ai-volume-perf-tests.log`. Final full host suite remains green after
+matching the volume probe's refusal context to **80316E00**
+(`logs/ww16-ai-volume-final.log`). Audit/attribution/whitespace pass.
+No shared runtime, pin, desktop default or rendering behavior changes. Fresh
+committed VI/O1 rebuild and watched **no-dump** continuation follow to identify
+the next actual STOP; host tests alone do not prove game audio or gameplay.
