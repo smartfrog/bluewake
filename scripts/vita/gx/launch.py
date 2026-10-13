@@ -16,6 +16,7 @@ import argparse
 import errno
 import hashlib
 import json
+import math
 import os
 import re
 from pathlib import Path
@@ -56,6 +57,11 @@ def surface_sync_config(text):
     if re.search(r'^disable-surface-sync:.*$', text, re.MULTILINE):
         return re.sub(r'^disable-surface-sync:.*$', setting, text, flags=re.MULTILINE)
     return text.rstrip('\n') + '\n' + setting + '\n'
+
+
+def validate_timeout(timeout):
+    if not math.isfinite(timeout) or not 0 < timeout <= 600:
+        raise ValueError('each phase deadline must be finite, positive and at most 600 seconds')
 
 
 def copy_readonly(source, destination, cache):
@@ -146,6 +152,7 @@ def sandbox_command(root, stack, arguments, wayland_socket):
 
 
 def run_phase(root, stack, name, arguments, timeout, wayland_socket):
+    validate_timeout(timeout)
     log = root / "phases" / f"{name}.log"
     started = time.monotonic()
     with open(log, "wb") as stream:
@@ -196,6 +203,10 @@ def main():
     parser.add_argument("--wayland-socket", type=Path,
                         default=Path(f"/run/user/{os.getuid()}/wayland-0"))
     args = parser.parse_args()
+    try:
+        validate_timeout(args.timeout)
+    except ValueError as error:
+        parser.error(str(error))
     phase_runner = run_phase
     if args.watched:
         import watch

@@ -138,3 +138,18 @@ stopped on completed evidence at 0.525 and 5.142 seconds on Linux/Vita3K, not a
 physical Vita. The four staging scenarios failed on the missing helper first,
 then passed; the full Python suite now has **105 passing tests**. All indexed
 PNG hashes were checked unchanged after the quota recovery.
+
+## Bounded phase deadlines
+
+`launch.py --timeout` and both direct phase-runner entry points now require a
+finite, positive deadline no greater than 600 seconds, matching WW05's phase
+bound. NaN and either infinity are refused before building, staging, opening
+phase evidence or starting a process; zero, negative and over-ceiling values
+are also refused. The watched runner uses the same validator rather than relying
+on comparisons that are always false for NaN. Defaults and the gallery's
+120-second healthy-run ceiling remain unchanged.
+
+The timeout regression tests failed first for the CLI and both runners, then
+passed with no build/process/evidence side effects. The full GX Python suite has
+**111 passing tests** after the three night-review corrections. These deadline
+tests mock execution and do not start an emulator or alter a running watcher.
