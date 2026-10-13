@@ -1,5 +1,10 @@
 # VITA-WW-18: black live-frame input audit
 
+Follow-up: the first late logo window is now delivered and GPU-replayed with
+the verified matrix correction. See [gx_logo_replay.md](gx_logo_replay.md).
+The findings below remain the historical audit of the older `b8e2048` run,
+not a claim that the new logo inputs are still missing.
+
 ## Outcome: scene replay is blocked by the capture extent
 
 Run `a3eb11fc6882448c93a4688ca5bc46a9`, source
