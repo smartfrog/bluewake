@@ -90,6 +90,8 @@ void observe_plan(const gxc::DrawPlan& plan, void* user) {
 
 void observe_copy(const gxc::EfbCopyCommand& cmd, void* user) {
   auto* result = static_cast<Result*>(user);
+  if (cmd.format == 0xFu)
+    return;
   ++result->counts.copies;
   const gx_vita::TranslatedCopy translated = gx_vita::translate_copy(cmd);
   if (translated.ok) {

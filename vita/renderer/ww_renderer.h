@@ -48,6 +48,17 @@ typedef struct WwRendererConfig {
     CPUState* cpu;
 } WwRendererConfig;
 
+typedef struct WwRendererFrame {
+    uint32_t width;
+    uint32_t height;
+    const uint8_t* rgba;
+    size_t size;
+} WwRendererFrame;
+
+// RGBA8, tightly packed, bottom row first. Bytes live only during the callback.
+// Return NULL on success or an error to stop the renderer.
+typedef const char* (*WwRendererFrameCapture)(const WwRendererFrame*, void* user);
+
 enum {
     // Bounded reports: the first N gaps and refusal reasons are kept, so a
     // pathological stream cannot grow the renderer without bound. The counters
@@ -90,7 +101,22 @@ typedef struct WwRendererStats {
 // a backend whose init failed).
 const char* ww_renderer_create(WwRenderer** out,
                                const WwRendererConfig* config,
-                               WwRendererBackend* backend);
+                                WwRendererBackend* backend);
+
+// Replay entry point for a validated full/sparse captured-memory resolver.
+// Resolver-owned bytes and its callback context must outlive the renderer.
+const char* ww_renderer_create_with_resolver(WwRenderer** out,
+                                             const DolGuestAddressResolver* resolver,
+                                             WwRendererBackend* backend);
+
+// Off by default. Capture after each successful swap, before next-frame bytes
+// resume. NULL callback disables it. Readback/writer failures are fatal.
+const char* ww_renderer_set_frame_capture(WwRenderer* renderer,
+                                          WwRendererFrameCapture capture, void* user);
+
+// Explicitly capture the most recently shown front buffer (no swap implied).
+const char* ww_renderer_capture_frame(WwRenderer* renderer,
+                                      WwRendererFrameCapture capture, void* user);
 
 // Tear down a renderer (NULL is a no-op). The backend is shut down but not
 // freed: it belongs to the caller.

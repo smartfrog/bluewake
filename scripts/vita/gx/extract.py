@@ -4,6 +4,7 @@
 import argparse
 import hashlib
 import json
+import os
 from pathlib import Path
 import re
 
@@ -120,7 +121,7 @@ def latest_draw_capture(root, minimum_draws=1):
     return None
 
 
-def replay_fixture(directory, metadata):
+def replay_fixture(directory, metadata, *, binary=None):
     if metadata['requires_mem1'] and metadata['mem1_sha256'] is None:
         return 'verdict=memory-required\n', 2
     memory = directory / 'mem1.bin' if metadata['mem1_sha256'] is not None else None
@@ -132,10 +133,10 @@ def replay_fixture(directory, metadata):
             raise ValueError('fixture snapshot coverage SHA-256 mismatch')
         if memory_snapshot.sha256(memory.read_bytes()) != metadata['mem1_sha256']:
             raise ValueError('fixture snapshot backing SHA-256 mismatch')
-        output, refusal = bridge.run_stream(bridge.find_binary(), (directory / 'stream.fifo').read_bytes(),
+        output, refusal = bridge.run_stream(binary or bridge.find_binary(), (directory / 'stream.fifo').read_bytes(),
                                             memory, ranges_path=ranges)
     else:
-        output, refusal = bridge.run_stream(bridge.find_binary(), (directory / 'stream.fifo').read_bytes(), memory)
+        output, refusal = bridge.run_stream(binary or bridge.find_binary(), (directory / 'stream.fifo').read_bytes(), memory)
     if refusal is not None:
         return f'bridge ok=0 reason={refusal}\nverdict=rejected\n', 1
     summary = re.search(r'^bridge .*$', output, re.MULTILINE)
@@ -159,6 +160,7 @@ def main():
     memory_args.add_argument('--mem1', type=Path, help='legacy raw MEM1 starting at physical zero')
     memory_args.add_argument('--snapshot', type=Path, help='versioned MEM1 binary/region manifest')
     parser.add_argument('--replay', action='store_true')
+    parser.add_argument('--image-output', type=Path, help='render through vitaGL into a new private PNG directory')
     args = parser.parse_args()
     if (args.journal is None) == (args.latest is None) or args.min_draws < 1:
         parser.error('provide one journal or --latest; --min-draws must be positive')
@@ -178,6 +180,10 @@ def main():
             snapshot = adjacent
         result = extract_fixture(journal, args.output, mem1=args.mem1, report=report, snapshot=snapshot)
         print(json.dumps(result, sort_keys=True))
+        if args.image_output is not None:
+            import image
+            return image.render_fixture(args.output, result, args.image_output,
+                                        Path(os.environ.get('WW02_BUILD', image.DEFAULT_BUILD)))
         if not args.replay:
             return 0
         output, status = replay_fixture(args.output, result)
