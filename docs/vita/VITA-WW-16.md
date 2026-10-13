@@ -7,7 +7,8 @@ explicit STOP; no guest instruction, FIFO data, GPU completion or frame is inven
 October 13 checkpoint: **the authentic Nintendo boot logo is visible**, first
 at frame 11 (Unit 78). Gameplay and 30+ FPS are still unverified. The current
 capture handoff targets complete later-draw FIFO state and synchronized MEM1
-for lane 18 (Unit 79), not another guessed renderer/audio fix.
+for lane 18 (Units 79-80), not another guessed renderer/audio fix. The first
+extra-draw interval is now captured and passes the guarded native loader.
 
 ## Unit 1: CP performance selector
 
@@ -3344,3 +3345,75 @@ Validate the real artifacts before the separate CI-window trial through
 binary/manifest and actual live PNG/report identities; no public game resources
 or push. Nintendo visibility is established; scene replay and 30+ FPS still
 need their own evidence.
+
+## Unit 80: first extra-draw window delivered with actual late RAM
+
+Certified **39ee655 / VI / O1 / -j2**, fresh watched run
+**b403a0647ca6495cbe8edcd415c0b76f**, reaches the requested **9976-11004**
+interval and writes a real closed report at its explicit window-end STOP.
+**11,004 / 11,004 decoded/logged commands**, **74,190 exact FIFO bytes**,
+**12 cumulative submitted draws / two programs / 11 presentations / 18 retraces**;
+zero recorded skipped plans, shader/copy refusals or gaps. **11 live raw/display
+PNG pairs** validate, and the opened last image is the actual Nintendo logo,
+with the same first-visible SHA as Unit 78. It is not a substituted replay.
+
+The **two actual 24 MiB MEM1 snapshots** are before the two draws in this
+window, not the initial draws 990/1962. Both precede presentation 11:
+
+| Snapshot | Draw command | Actual cycles | MEM1 SHA-256 | Exact bound FIFO prefix SHA-256 |
+| --- | ---: | ---: | --- | --- |
+| 1 | 10716 | 142689111 | `4a0503bfa9fd53ac9b868522df742ef95ac5d38b0d992b5ec79c3dc92aea355a` | `f8869c428817908fe3a6773fd351f8f070ac0ee5f48a6065f39fb8a76d3274e6` |
+| 2 | 10767 | 142693052 | `beb257c9dfa5ffa39022c4cdd3f1e161640d7d4dc80f259dcbf17f680da661ea` | `9c7b233a00bbd8dc49a8fbac367f9f4b4ada68fcab1e97dc8230654207e7bb9e` |
+
+Lane 18's existing strict **memory_snapshot.load** accepts each original
+manifest only with its matching selected draw prefix: **72,094 bytes / 11
+draws** and **72,806 bytes / 12 draws**. Asking either snapshot to certify the
+later full-window FIFO is explicitly rejected, rather than rebinding its
+digest. Each binary supplies exactly the complete physical MEM1 region;
+the reconstructed loader image is byte-identical, with no holes or zero padding.
+The differing RAM hashes are kept as separate resource versions.
+
+The same-source GX native bridge (renderer code unchanged from the already
+tested matrix fix) replays both guarded inputs: **verdict=ran**, all **11 / 12
+plans/programs** accepted, zero recorded skips/refusals/gaps. This checks the
+loader, state prefix and translation chain, **not GPU pixel parity** or earlier
+resource versions. External aliases/MEM2 remain uncaptured and explicitly
+uncertified. No new emulator/GPU replay is started for this handoff.
+
+Private root (read-only original inputs for lane 18):
+
+```text
+/home/fred/projects/zeldaWWHDRecomp/build-f5/ww05/vita3k-run-b403a0647ca6495cbe8edcd415c0b76f/
+```
+
+- **evidence/lane18-scene-window-handoff.json**: exact source/package/report/log
+  identities, snapshot timing, selector commands and guarded replay results.
+- **data/Vita3K/Vita3K/ux0/data/bluewake-ww-fixture/**: unchanged **ww05.log /
+  ww05.report / ww05.mem1-{1,2}.bin / .json / .snapshot.json**.
+- **evidence/late-draw-prefix-snapshot{1,2}/**: extracted FIFO, original snapshot
+  provenance, physical coverage and **guarded-native-replay.txt**.
+- **evidence/frames/frame-11{,-rgba}.png / frame-11.json**: actual visible frame,
+  original RGB and contemporaneous cumulative counters.
+
+For fresh extraction, use **--through-command 10716** with snapshot 1 or
+**--through-command 10767** with snapshot 2, never the full-window FIFO digest.
+The handoff JSON contains exact commands with a new private output placeholder.
+No source/journal/manifest from another run is borrowed, overwritten or published.
+
+Actual closed STOP is **scene MEM1 draw window capture complete**, final state
+**150,764,595 cycles / 3,416,100 edges / PC 80301504 / exception 00000001**.
+The copied watcher observes the identity-validated real END report and signals
+only the owned emulator. Measured process disposition is **exit=133 /
+waited=true / 224.440 s**; the launcher's validation says **COMPLETE / frontier-
+only PASS**, while its **status=133** remains visible. This is a closed capture
+diagnostic, **not a clean normal game exit**. No owned Vita3K survivor remains.
+Journal SHA **e87a504a01aba4f64658b45907022e38a2ffea5f4174faf5f3fcdc869bbfb75e**;
+report SHA **bd65e89317e0d51d3fba7cb901d47153e40a8863e5ed1ecfbc911879da2585ed**.
+
+Next: commit this evidence, certified **VI/O1 -j2** rebuild, then a separate
+fresh continuously watched **101854-102936** CI-window capture, capacity
+**133260 commands / at most eight draw-time MEM1 images**, unchanged 600 s
+maximum / 128 live images / actual CPU-or-output watch / **audio=deferred**.
+The first interval's delivery gate is met; a genuine CI input, later scene
+content, gameplay, physical Vita, Windows CI, sound, parity and 30+ FPS still
+need their own evidence. No pin change, network or push.
