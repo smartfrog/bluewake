@@ -7,12 +7,14 @@ import unittest
 
 from test_arm_report import ROOT
 from arm_report import validate
+sys.path.insert(0, str(ROOT / 'scripts/vita/ww05'))
+from publication import read_artifact
 
 
 class ArmIoTest(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
-        cls.output = ROOT / "build-ww08-io-tests"
+        cls.output = Path(os.environ.get('WW_ARM_IO_TEST_OUTPUT', ROOT / 'build-ww08-io-tests'))
         cc = os.environ.get("CC", "gcc")
         cmake = os.environ.get("CMAKE", "cmake")
         ninja = os.environ.get("NINJA", "ninja")
@@ -50,7 +52,8 @@ class ArmIoTest(unittest.TestCase):
     def test_host_uses_real_71_runtime_cases_and_never_claims_arm_control_pass(self):
         result = self.run_fixture()
         self.assertEqual(result.returncode, 0, result.stderr)
-        text = (self.directory / "arm.report").read_text()
+        text = read_artifact(self.directory / 'arm.report', 1024 * 1024, token='a' * 32,
+                              candidate=self.directory / 'arm.partial', publication=2).decode()
         self.assertEqual(validate(text, "a" * 32, self.source, "c" * 64, "HOST"), 0)
         self.assertEqual(text.count("RUNTIME "), 71)
         self.assertEqual(text.count(" SKIP\n"), 32)

@@ -51,13 +51,17 @@ def stream_counts(line, limit):
     return decoded, logged, pending, read
 
 
-def validate(content, token, source, package, continue_gx=0, defer_audio=False):
+def validate(content, token, source, package, continue_gx=0, defer_audio=False, publication=1):
     if len(content.encode()) > 65536 or not content.endswith('\n'):
         raise ValueError('WW05 report must be bounded and closed')
     lines = content.splitlines()
     header = f'WW05 {token} {source} {package} method=startup-gx-v1 phase=guest platform=VITA'
     if defer_audio:
         header += ' audio=deferred'
+    if publication == 2:
+        header += ' publication=2'
+    elif publication != 1:
+        raise ValueError('unknown report publication version')
     if not lines or lines[0] != header:
         raise ValueError('WW05 guest identity mismatch')
     if len(lines) == 3 and lines[1:] == ['STOP reason=host allocation failed', 'END frontier=FAIL live=0 rendered=0']:

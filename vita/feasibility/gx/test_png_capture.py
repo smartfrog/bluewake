@@ -40,7 +40,10 @@ def find_tests():
 
 
 def parse_png(path):
-    data = path.read_bytes()
+    return parse_png_bytes(path.read_bytes())
+
+
+def parse_png_bytes(data):
     if data[:8] != b"\x89PNG\r\n\x1a\n":
         raise ValueError("bad PNG signature")
     pos = 8

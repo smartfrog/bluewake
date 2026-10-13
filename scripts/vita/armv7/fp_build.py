@@ -9,11 +9,14 @@ from pathlib import Path
 import shutil
 import subprocess
 import uuid
+import sys
 
 from build import Campaign, PINS, ROOT, build_directory, checked_sources, verify_source
 from fp_report import validate
 from fp_vectors import cases, write_header
 from prepare import prepare
+sys.path.insert(0, str(ROOT / 'scripts/vita/ww05'))
+from publication import read_artifact
 
 
 def sha256(path):
@@ -54,7 +57,8 @@ def main(control=False):
     prepare(ROOT, sources["dolrecomp"], fixture / "corpus.c", fixture / "stack.c", fixture, fixture / "fp.c")
     write_header(fixture / "fp_vectors.h")
     (fixture / "fp_identity.h").write_text(f'#define WW_FP_SOURCE "{source}"\n')
-    evidence = {"source": source, "pins": PINS, "cases": cases(), "artifacts": {}, "vita3k": "NOT RUN"}
+    evidence = {"source": source, "pins": PINS, "publication_version": 2,
+                "cases": cases(), "artifacts": {}, "vita3k": "NOT RUN"}
     if control:
         write_control_header(fixture / "arm_vectors.h")
         (fixture / "arm_identity.h").write_text(f'#define WW_ARM_SOURCE "{source}"\n')
@@ -87,7 +91,8 @@ def main(control=False):
             (run / f"{diagnostic}.request").write_text(f"{token} {source} {package}\n")
             result = subprocess.run([build / "ww_fixture"], cwd=run, capture_output=True, text=True)
             (run / "process.log").write_text(result.stdout + result.stderr)
-            text = (run / f"{diagnostic}.report").read_text()
+            text = read_artifact(run / f'{diagnostic}.report', 1024 * 1024, token=token,
+                                  candidate=run / f'{diagnostic}.partial', publication=2).decode()
             status = validate_control(text, token, source, package, expected_platform="HOST") if control else validate(text, token, source, package, cases())
             if result.returncode != status:
                 raise RuntimeError(f"host report/process status disagreement: {run}")

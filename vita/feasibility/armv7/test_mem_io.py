@@ -8,6 +8,8 @@ import unittest
 from test_mem import ROOT, compile_probe
 sys.path.insert(0, str(ROOT / "scripts/vita/armv7"))
 from mem_report import validate
+sys.path.insert(0, str(ROOT / 'scripts/vita/ww05'))
+from publication import read_artifact
 
 
 class MemoryIoTest(unittest.TestCase):
@@ -18,8 +20,8 @@ class MemoryIoTest(unittest.TestCase):
         (output / "mem_identity.h").write_text('#define WW_MEM_SOURCE "' + "b" * 40 + '"\n')
         cls.binary = output / "mem_io_probe"
         compile_probe(cls.binary, ["mem_main.c", "mem_io_probe.c", "abi.c", "platform.c"],
-                      ["-I", str(output), "-fno-builtin", "-Wl,--wrap=fopen", "-Wl,--wrap=fprintf",
-                       "-Wl,--wrap=fflush", "-Wl,--wrap=fclose", "-Wl,--wrap=link"])
+                       ["-I", str(output), "-fno-builtin", "-Wl,--wrap=fprintf",
+                       "-Wl,--wrap=fflush", "-Wl,--wrap=fclose", "-Wl,--wrap=open", "-Wl,--wrap=fdopen"])
 
     def setUp(self):
         self.temporary = tempfile.TemporaryDirectory(dir=self.binary.parent)
@@ -34,8 +36,10 @@ class MemoryIoTest(unittest.TestCase):
     def test_successful_report_is_closed_and_validated(self):
         result = self.run_fixture()
         self.assertEqual(result.returncode, 0, result.stderr)
-        self.assertEqual(validate((self.directory / "mem.report").read_text(), "a" * 32, "b" * 40, "c" * 64), 0)
-        self.assertFalse((self.directory / "mem.partial").exists())
+        content = read_artifact(self.directory / 'mem.report', 65536, token='a' * 32,
+                                candidate=self.directory / 'mem.partial', publication=2)
+        self.assertEqual(validate(content.decode(), "a" * 32, "b" * 40, "c" * 64), 0)
+        self.assertTrue((self.directory / "mem.partial").exists())
 
     def test_each_report_io_failure_is_nonzero_and_not_published(self):
         for failure in ("open", "write", "flush", "close", "rename"):

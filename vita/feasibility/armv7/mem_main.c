@@ -27,7 +27,7 @@ int fixture_run(int argc, char** argv) {
     if (argc > 1 || diagnostic_request(MEM_DIRECTORY "mem.request", WW_MEM_SOURCE, token, source, package) ||
         !diagnostic_absent(partial) || !diagnostic_absent(complete))
         return 1;
-    FILE* report = fopen(partial, "wx");
+    FILE* report = diagnostic_open_candidate(partial);
     if (!report)
         return 1;
     int error = fprintf(report, "MEM %s %s %s method=bounded-v2 phase=guest platform=%s\n",
@@ -82,5 +82,5 @@ int fixture_run(int argc, char** argv) {
         int closed = fclose(report);
         return closed != 0 || error;
     }
-    return fixture_publish_report(report, partial, complete) || real_error || sdk_error;
+    return fixture_publish_report(report, partial, complete, token) || real_error || sdk_error;
 }

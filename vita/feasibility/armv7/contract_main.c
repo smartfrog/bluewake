@@ -199,7 +199,7 @@ static int sustained_stack(void) {
 }
 
 int fixture_run(int argc, char** argv) {
-    if (fixture_log_open("contract"))
+    if (fixture_log_open("contract", "00000000000000000000000000000000"))
         return 1;
     fixture_print_abi();
     const struct { const char* name; int (*run)(void); } tests[] = {

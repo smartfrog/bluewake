@@ -41,9 +41,9 @@ int fixture_run(int argc, char** argv) {
     if (argc > 1 || diagnostic_request(ARM_DIRECTORY "arm.request", WW_ARM_SOURCE, token, source, package) ||
         !diagnostic_absent(partial) || !diagnostic_absent(complete))
         goto cleanup;
-    if (fixture_log_open("arm"))
+    if (fixture_log_open("arm", token))
         goto cleanup;
-    report = fopen(partial, "wx");
+    report = diagnostic_open_candidate(partial);
     if (!report)
         goto cleanup;
     error = fprintf(report, "ARM08 %s %s %s method=scalar-vfp-v1 phase=guest platform=%s\n",
@@ -101,7 +101,7 @@ int fixture_run(int argc, char** argv) {
                         runtime_failures ? "FAIL" : "PASS", restore_ok ? "PASS" : "FAIL",
                         control_count, runtime_count, control_failures, runtime_failures) < 0;
     if (!error) {
-        error = fixture_publish_report(report, partial, complete);
+        error = fixture_publish_report(report, partial, complete, token);
         report = NULL;
     }
 cleanup:

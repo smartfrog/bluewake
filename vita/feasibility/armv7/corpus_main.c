@@ -7,7 +7,7 @@ int donor_main(void);
 int fixture_run(int argc, char** argv) {
     (void)argc;
     (void)argv;
-    if (fixture_log_open("corpus"))
+    if (fixture_log_open("corpus", "00000000000000000000000000000000"))
         return 1;
     fixture_print_abi();
     int result = donor_main();

@@ -31,13 +31,16 @@ static bool log_handler_boundary(const WwHost* host, const char* stage) {
                    (unsigned long long)host->syscall_resumes, host->cpu.srr0) < 0;
 }
 
+static FILE* dispatch_stream;
+
 static int dispatch_marker(char marker) {
-    FILE* stream = fopen(WW05_DIRECTORY "ww05.dispatch", marker == 'L' ? "wx" : "a");
+    if (marker == 'L')
+        dispatch_stream = diagnostic_open_candidate(WW05_DIRECTORY "ww05.dispatch");
+    FILE* stream = dispatch_stream;
     if (stream == NULL)
         return 1;
     int error = fprintf(stream, "%c", marker) < 0;
     error |= fflush(stream) != 0 || ferror(stream) != 0;
-    error |= fclose(stream) != 0;
     return error;
 }
 
@@ -96,14 +99,15 @@ int fixture_run(int argc, char** argv) {
         !diagnostic_absent(WW05_DIRECTORY "ww05.log") ||
         !diagnostic_absent(WW05_DIRECTORY "ww05.dispatch"))
         return 1;
-    if (fixture_log_open("ww05"))
+    dispatch_stream = NULL;
+    if (fixture_log_open("ww05", token))
         return 1;
     if (setvbuf(stderr, NULL, _IONBF, 0) != 0)
         return fixture_log_close() != 0 ? 2 : 1;
-    FILE* report = fopen(partial, "wx");
+    FILE* report = diagnostic_open_candidate(partial);
     if (report == NULL)
-        return 1;
-    int error = fprintf(report, "WW05 %s %s %s method=startup-gx-v1 phase=guest platform=%s%s\n",
+        return fixture_log_close() != 0 ? 2 : 1;
+    int error = fprintf(report, "WW05 %s %s %s method=startup-gx-v1 phase=guest platform=%s%s publication=2\n",
                           token, source, package, WW05_PLATFORM, deferred_audio ? " audio=deferred" : "") < 0;
     error |= fflush(report) != 0 || ferror(report) != 0;
     if (error) {
@@ -119,7 +123,7 @@ int fixture_run(int argc, char** argv) {
             const int closed = fclose(report);
             return closed != 0 || error;
         }
-        const int published = fixture_publish_report(report, partial, complete);
+        const int published = fixture_publish_report(report, partial, complete, token);
         return published != 0 ? published : 1;
     }
     const StaticRecompModuleDesc* module = staticrecomp_get_module();
@@ -276,6 +280,13 @@ int fixture_run(int argc, char** argv) {
         error |= log_handler_boundary(host, "checked");
     }
     bluewake_set_edge_service(NULL, NULL);
+    if (dispatch_stream != NULL) {
+        const int completed = error ? fclose(dispatch_stream) :
+            diagnostic_publish(dispatch_stream, WW05_DIRECTORY "ww05.dispatch",
+                               WW05_DIRECTORY "ww05.dispatch", token);
+        error |= completed != 0;
+        dispatch_stream = NULL;
+    }
     error |= fprintf(report, "STATE entry=%08X pc=%08X sp=%08X edges=%llu exception=%08X cycles=%llu\n",
                      module->entry_point, host->cpu.pc, host->cpu.gpr[1],
                      (unsigned long long)host->edges, host->cpu.exception,
@@ -328,5 +339,5 @@ int fixture_run(int argc, char** argv) {
         const int closed = fclose(report);
         return closed != 0 || error;
     }
-    return fixture_publish_report(report, partial, complete) || failed;
+    return fixture_publish_report(report, partial, complete, token) || failed;
 }

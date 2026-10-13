@@ -9,11 +9,37 @@ import test_host
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / 'feasibility/gx'))
 from test_png_capture import parse_png
+from publication_fixture import read_completed, replace_sealed_fixture
+from unittest.mock import patch
 sys.path.insert(0, str(Path(__file__).resolve().parents[2] / 'scripts/vita/armv7'))
 sys.path.insert(0, str(Path(__file__).resolve().parents[2] / 'scripts/vita/ww05'))
 
 
 class LiveFramesTest(unittest.TestCase):
+    def test_png_hash_and_pixels_bind_same_read_when_candidate_changes_after_read(self):
+        import hashlib
+        import publication
+        from publication_fixture import collect_v2
+        with tempfile.TemporaryDirectory(dir='/tmp/opencode') as directory:
+            root = Path(directory)
+            self.probe(root, 'image-two')
+            raw = root / 'frames/frame-1-rgba.png.partial'
+            original = raw.read_bytes()
+            read_file = publication.read_profile_file
+            def substitute_after_read(path, limit, owned=False):
+                content = read_file(path, limit, owned=owned)
+                if path == raw:
+                    path.write_bytes(b'different content after verified descriptor read')
+                return content
+            with patch.object(publication, 'read_profile_file', side_effect=substitute_after_read):
+                result = collect_v2(root / 'frames', root / 'evidence-frames', enabled=True,
+                                    presented=2, token='c' * 32, source='a' * 40, package='b' * 64)
+            image = result['frames'][0]['raw_image']
+            self.assertEqual(image['sha256'], hashlib.sha256(original).hexdigest())
+            self.assertEqual((root / 'evidence-frames' / image['path']).read_bytes(), original)
+            with self.assertRaisesRegex(ValueError, 'extent/hash'):
+                read_completed(root / 'frames/frame-1-rgba.png')
+
     @classmethod
     def setUpClass(cls):
         test_host.StartupHostTest.setUpClass()
@@ -29,11 +55,12 @@ class LiveFramesTest(unittest.TestCase):
             self.probe(root, 'image-two')
             for frame in (1, 2):
                 with self.subTest(frame=frame):
-                    metadata = json.loads((root / f'frames/frame-{frame}.json').read_text())
+                    metadata = json.loads(read_completed(root / f'frames/frame-{frame}.json'))
                     self.assertEqual(metadata['frame'], frame)
                     self.assertEqual(metadata['phase'], 'after-gx-present-before-next-frame')
-                    raw = parse_png(root / f'frames/frame-{frame}-rgba.png')[-1]
-                    visible = parse_png(root / f'frames/frame-{frame}.png')[-1]
+                    from test_png_capture import parse_png_bytes
+                    raw = parse_png_bytes(read_completed(root / f'frames/frame-{frame}-rgba.png'))[-1]
+                    visible = parse_png_bytes(read_completed(root / f'frames/frame-{frame}.png'))[-1]
                     self.assertEqual(raw, bytes([70, 80, 90, 255, 100, 110, 120, 0, 10, 20, 30, 0, 40, 50, 60, 128]))
                     for channel in range(3):
                         self.assertEqual(raw[channel::4], visible[channel::4])
@@ -83,17 +110,17 @@ class LiveFramesTest(unittest.TestCase):
             self.assertTrue((root / 'frames/frame-1-rgba.png.partial').exists())
             self.assertFalse((root / 'frames/frame-1.json').exists())
 
-    def test_blocked_publication_keeps_actual_png_partial_but_cannot_certify_a_frame(self):
-        from frame_capture import collect_frames
+    def test_stopped_before_seal_keeps_actual_png_candidate_but_cannot_certify_a_frame(self):
+        from publication_fixture import collect_v2 as collect_frames
         with tempfile.TemporaryDirectory(dir='/tmp/opencode', prefix='ww25-blocked-frame-') as directory:
             root = Path(directory)
-            log = self.probe(root, 'image-publication-blocked')
-            self.assertIn('stage=publication-unavailable', log)
+            log = self.probe(root, 'image-stop-before-seal')
+            self.assertIn('stage=seal-open', log)
             self.assertEqual(parse_png(root / 'frames/frame-1-rgba.png.partial')[-1],
                              bytes([70, 80, 90, 255, 100, 110, 120, 0, 10, 20, 30, 0, 40, 50, 60, 128]))
             self.assertFalse((root / 'frames/frame-1-rgba.png').exists())
             self.assertFalse((root / 'frames/frame-1.json').exists())
-            with self.assertRaisesRegex(ValueError, 'partial'):
+            with self.assertRaisesRegex(ValueError, 'seal'):
                 collect_frames(root / 'frames', root / 'frames', enabled=True, presented=1,
                                token='c' * 32, source='a' * 40, package='b' * 64)
 
@@ -122,10 +149,10 @@ class LiveFramesTest(unittest.TestCase):
                     log = self.probe(root, f'image-race-{artifact}-{kind}')
                     self.assertIn('[race-injected]', log)
                     self.assertEqual(target.read_bytes(), b'preserved target')
-                    final = root / 'frames' / name
+                    final, = (root / 'frames').glob(name + '.v2.*.seal')
                     self.assertEqual(final.is_symlink(), kind == 'symlink')
                     self.assertEqual(final.read_bytes(), b'preserved target' if kind == 'symlink' else b'concurrent evidence')
-                    partial = final.with_name(final.name + '.partial')
+                    partial = root / 'frames' / (name + '.partial')
                     if artifact == 'png':
                         self.assertEqual(parse_png(partial)[-1], bytes([70, 80, 90, 255, 100, 110, 120, 0, 10, 20, 30, 0, 40, 50, 60, 128]))
                     else:
@@ -133,7 +160,7 @@ class LiveFramesTest(unittest.TestCase):
                     self.assertNotIn('[frame-capture]', log)
 
     def test_live_collector_keeps_both_pngs_in_private_evidence_and_records_exact_pixel_statistics(self):
-        from frame_capture import collect_frames
+        from publication_fixture import collect_v2 as collect_frames
         with tempfile.TemporaryDirectory(dir='/tmp/opencode', prefix='ww16-live-') as directory:
             root = Path(directory)
             self.probe(root, 'image-two')
@@ -144,7 +171,7 @@ class LiveFramesTest(unittest.TestCase):
             self.assertEqual(result['frames'][0]['image']['alpha_nonzero'], 4)
             self.assertEqual(result['frames'][0]['raw_image']['alpha_nonzero'], 2)
             self.assertEqual(result['frames'][0]['image']['distinct_rgba'], 4)
-            for name in ('frame-1.png', 'frame-1-rgba.png', 'frame-1.json'):
+            for name in ('frame-1.png.partial', 'frame-1-rgba.png.partial', 'frame-1.json.partial'):
                 self.assertEqual((root / 'frames' / name).read_bytes(), (root / 'evidence-frames' / name).read_bytes())
 
     def test_installer_user_id_rewrite_does_not_disable_capture_surface_writeback(self):
@@ -164,7 +191,7 @@ class LiveFramesTest(unittest.TestCase):
             self.assertTrue(config_identity(root, surface_sync=True)['surface_sync'])
 
     def test_unrequested_or_partial_images_cannot_be_promoted_into_verified_evidence(self):
-        from frame_capture import collect_frames
+        from publication_fixture import collect_v2 as collect_frames
         with tempfile.TemporaryDirectory(dir='/tmp/opencode', prefix='ww16-live-') as directory:
             root = Path(directory)
             self.probe(root, 'image-two')
@@ -177,19 +204,19 @@ class LiveFramesTest(unittest.TestCase):
                                token='c' * 32, source='a' * 40, package='b' * 64)
 
     def test_empty_sandbox_mounted_evidence_directory_is_used_directly_without_replacing_any_image(self):
-        from frame_capture import collect_frames
+        from publication_fixture import collect_v2 as collect_frames
         with tempfile.TemporaryDirectory(dir='/tmp/opencode', prefix='ww16-live-') as directory:
             root = Path(directory)
             (root / 'frames').mkdir()
             self.probe(root, 'image-two')
-            before = (root / 'frames/frame-1.png').read_bytes()
+            before = (root / 'frames/frame-1.png.partial').read_bytes()
             result = collect_frames(root / 'frames', root / 'frames', enabled=True, presented=2,
                                     token='c' * 32, source='a' * 40, package='b' * 64)
             self.assertEqual(result['captures'], 2)
-            self.assertEqual((root / 'frames/frame-1.png').read_bytes(), before)
+            self.assertEqual((root / 'frames/frame-1.png.partial').read_bytes(), before)
 
     def test_strict_frame_images_cannot_be_relabelled_as_a_deferred_audio_run(self):
-        from frame_capture import collect_frames
+        from publication_fixture import collect_v2 as collect_frames
         with tempfile.TemporaryDirectory(dir='/tmp/opencode', prefix='ww16-live-') as directory:
             root = Path(directory)
             self.probe(root, 'image-two')
@@ -203,7 +230,7 @@ class LiveFramesTest(unittest.TestCase):
             log = self.probe(root, 'image-two')
             for frame in (1, 2):
                 with self.subTest(frame=frame):
-                    metadata = json.loads((root / f'frames/frame-{frame}.json').read_text())
+                    metadata = json.loads(read_completed(root / f'frames/frame-{frame}.json'))
                     renderer = metadata['renderer']
                     self.assertEqual(renderer['plans'], frame)
                     self.assertEqual(renderer['programs'], frame)
@@ -218,7 +245,7 @@ class LiveFramesTest(unittest.TestCase):
         with tempfile.TemporaryDirectory(dir='/tmp/opencode', prefix='ww16-live-') as directory:
             root = Path(directory)
             log = self.probe(root, 'image-refused')
-            metadata = json.loads((root / 'frames/frame-2.json').read_text())
+            metadata = json.loads(read_completed(root / 'frames/frame-2.json'))
             self.assertEqual(metadata['draws'], 1)
             self.assertEqual(metadata['renderer']['plans'], 2)
             self.assertEqual(metadata['renderer']['programs_refused'], 1)
@@ -229,47 +256,47 @@ class LiveFramesTest(unittest.TestCase):
             root = Path(directory)
             log = self.probe(root, 'image-refusal-trace-failure')
             self.assertIn('refusal trace write failed', log)
-            self.assertTrue((root / 'frames/frame-2.png').exists())
-            metadata = json.loads((root / 'frames/frame-2.json').read_text())
+            self.assertTrue((root / 'frames/frame-2.png.partial').exists())
+            metadata = json.loads(read_completed(root / 'frames/frame-2.json'))
             self.assertEqual(metadata['renderer']['programs_refused'], 1)
 
     def test_live_collector_rejects_malformed_present_renderer_counters(self):
-        from frame_capture import collect_frames
+        from publication_fixture import collect_v2 as collect_frames
         for value in (-1, True, 1.5, '0', 1 << 64):
             with self.subTest(value=value), tempfile.TemporaryDirectory(dir='/tmp/opencode', prefix='ww16-live-') as directory:
                 root = Path(directory)
                 self.probe(root, 'image-two')
                 path = root / 'frames/frame-2.json'
-                metadata = json.loads(path.read_text())
+                metadata = json.loads(read_completed(path))
                 metadata['renderer']['programs_refused'] = value
-                path.write_text(json.dumps(metadata))
+                replace_sealed_fixture(path, json.dumps(metadata).encode())
                 with self.assertRaisesRegex(ValueError, 'renderer'):
                     collect_frames(root / 'frames', root / 'frames', enabled=True, presented=2,
                                    token='c' * 32, source='a' * 40, package='b' * 64)
 
     def test_live_collector_rejects_partial_renderer_counter_schema(self):
-        from frame_capture import collect_frames
+        from publication_fixture import collect_v2 as collect_frames
         with tempfile.TemporaryDirectory(dir='/tmp/opencode', prefix='ww16-live-') as directory:
             root = Path(directory)
             self.probe(root, 'image-two')
             path = root / 'frames/frame-2.json'
-            metadata = json.loads(path.read_text())
+            metadata = json.loads(read_completed(path))
             del metadata['renderer']['programs_refused']
-            path.write_text(json.dumps(metadata))
+            replace_sealed_fixture(path, json.dumps(metadata).encode())
             with self.assertRaisesRegex(ValueError, 'renderer'):
                 collect_frames(root / 'frames', root / 'frames', enabled=True, presented=2,
                                token='c' * 32, source='a' * 40, package='b' * 64)
 
     def test_legacy_frame_metadata_without_renderer_counters_remains_unknown_not_zero(self):
-        from frame_capture import collect_frames
+        from publication_fixture import collect_v2 as collect_frames
         with tempfile.TemporaryDirectory(dir='/tmp/opencode', prefix='ww16-live-') as directory:
             root = Path(directory)
             self.probe(root, 'image-two')
             for frame in (1, 2):
                 path = root / f'frames/frame-{frame}.json'
-                metadata = json.loads(path.read_text())
+                metadata = json.loads(read_completed(path))
                 del metadata['renderer']
-                path.write_text(json.dumps(metadata))
+                replace_sealed_fixture(path, json.dumps(metadata).encode())
             result = collect_frames(root / 'frames', root / 'frames', enabled=True, presented=2,
                                     token='c' * 32, source='a' * 40, package='b' * 64)
             for frame in result['frames']:

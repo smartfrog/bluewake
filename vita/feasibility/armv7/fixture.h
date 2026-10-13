@@ -14,8 +14,8 @@ typedef struct FixtureAbi {
 
 extern const FixtureAbi fixture_abi;
 void fixture_print_abi(void);
-int fixture_log_open(const char* name);
+int fixture_log_open(const char* name, const char* token);
 int fixture_log_close(void);
-int fixture_publish_report(FILE* report, const char* partial, const char* complete);
+int fixture_publish_report(FILE* report, const char* partial, const char* complete, const char* token);
 
 #endif

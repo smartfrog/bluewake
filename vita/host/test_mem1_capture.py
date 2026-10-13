@@ -7,11 +7,17 @@ import unittest
 import sys
 
 import test_host
+from publication_fixture import read_completed, replace_sealed_fixture
 
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT / 'scripts/vita/ww05'))
 sys.path.insert(0, str(ROOT / 'scripts/vita/armv7'))
-from memory_capture import publish_replay_manifests, verify_snapshots
+from memory_capture import publish_replay_manifests, verify_snapshots as verify_at_version
+
+
+def verify_snapshots(*args, **kwargs):
+    kwargs.setdefault('publication', 2)
+    return verify_at_version(*args, **kwargs)
 
 
 class Mem1CaptureTest(unittest.TestCase):
@@ -28,7 +34,7 @@ class Mem1CaptureTest(unittest.TestCase):
         with tempfile.TemporaryDirectory(dir='/tmp/opencode', prefix='ww16-mem1-') as directory:
             root = Path(directory)
             log = self.probe(root, 'capture-two')
-            records = [json.loads((root / f'ww05.mem1-{index}.json').read_text()) for index in (1, 2)]
+            records = [json.loads(read_completed(root / f'ww05.mem1-{index}.json')) for index in (1, 2)]
             self.assertEqual([record['command'] for record in records], [14, 15])
             self.assertEqual([record['bytes'] for record in records], [25165824, 25165824])
             self.assertEqual([record['physical_base'] for record in records], ['00000000', '00000000'])
@@ -41,8 +47,8 @@ class Mem1CaptureTest(unittest.TestCase):
             self.assertEqual(snapshots[0][:0x1000], snapshots[1][:0x1000])
             self.assertEqual(snapshots[0][0x1001:], snapshots[1][0x1001:])
             self.assertEqual(log.count('[mem1-snapshot]'), 2)
-            self.assertEqual(len(list(root.iterdir())), 4)
-            manifest = verify_snapshots(root, token='c' * 32, source='a' * 40, package='b' * 64, count=2, journal=log)
+            self.assertEqual(len(list(root.iterdir())), 8)
+            manifest = verify_snapshots(root, token='c' * 32, source='a' * 40, package='b' * 64, count=2, journal=log, publication=2)
             self.assertEqual(manifest['captured'], 2)
             self.assertEqual([item['bytes'] for item in manifest['snapshots']], [25165824, 25165824])
             self.assertNotEqual(manifest['snapshots'][0]['sha256'], manifest['snapshots'][1]['sha256'])
@@ -55,7 +61,7 @@ class Mem1CaptureTest(unittest.TestCase):
             manifest = verify_snapshots(root, token='c' * 32, source='a' * 40, package='b' * 64, count=1, journal=log)
             replay = manifest['snapshots'][0]['replay_manifest']
             self.assertEqual(replay['format'], 'gx-mem1-snapshot-v1')
-            self.assertEqual(replay['binary'], 'ww05.mem1-1.bin')
+            self.assertEqual(replay['binary'], 'ww05.mem1-1.bin.partial')
             self.assertEqual(replay['binary_sha256'], hashlib.sha256((root / replay['binary']).read_bytes()).hexdigest())
             self.assertEqual(replay['fifo_sha256'], hashlib.sha256(b''.join(journal_commands(log))).hexdigest())
             self.assertEqual(replay['regions'], [{'address': 0, 'offset': 0, 'size': 25165824}])
@@ -80,7 +86,7 @@ class Mem1CaptureTest(unittest.TestCase):
             root = Path(directory)
             log = self.probe(root, 'capture-one')
             self.assertEqual(log.count('[mem1-snapshot]'), 1)
-            self.assertEqual(len(list(root.iterdir())), 2)
+            self.assertEqual(len(list(root.iterdir())), 4)
 
     def test_capture_is_off_by_default(self):
         with tempfile.TemporaryDirectory(dir='/tmp/opencode', prefix='ww16-mem1-') as directory:
@@ -88,16 +94,16 @@ class Mem1CaptureTest(unittest.TestCase):
             self.probe(root, 'state')
             self.assertEqual(list(root.iterdir()), [])
 
-    def test_blocked_publication_keeps_actual_mem1_partial_but_cannot_certify_a_snapshot(self):
+    def test_stopped_before_seal_keeps_actual_mem1_candidate_but_cannot_certify_a_snapshot(self):
         with tempfile.TemporaryDirectory(dir='/tmp/opencode', prefix='ww25-blocked-mem1-') as directory:
             root = Path(directory)
-            log = self.probe(root, 'capture-publication-blocked')
-            self.assertIn('stage=publication-unavailable', log)
+            log = self.probe(root, 'capture-stop-before-seal')
+            self.assertIn('stage=seal-open', log)
             self.assertEqual((root / 'ww05.mem1-1.bin.partial').stat().st_size, 25165824)
             self.assertFalse((root / 'ww05.mem1-1.bin').exists())
             self.assertFalse((root / 'ww05.mem1-1.json').exists())
             self.assertNotIn('[mem1-snapshot]', log)
-            with self.assertRaisesRegex(ValueError, 'partial'):
+            with self.assertRaisesRegex(ValueError, 'seal'):
                 verify_snapshots(root, token='c' * 32, source='a' * 40, package='b' * 64,
                                  count=1, journal=log)
 
@@ -121,7 +127,7 @@ class Mem1CaptureTest(unittest.TestCase):
             root = Path(directory)
             log = self.probe(root, 'capture-window-limit')
             self.assertIn('scene MEM1 draw window exhausted its snapshot budget', log)
-            self.assertEqual(len(list(root.glob('ww05.mem1-*.bin'))), 1)
+            self.assertEqual(len(list(root.glob('ww05.mem1-*.bin.partial'))), 1)
 
     def test_sixteen_disk_streamed_snapshots_preserve_each_actual_ram_version(self):
         with tempfile.TemporaryDirectory(dir='/tmp/opencode', prefix='ww16-sixteen-') as directory:
@@ -187,16 +193,16 @@ class Mem1CaptureTest(unittest.TestCase):
                     log = self.probe(root, f'capture-race-{artifact}-{kind}')
                     self.assertIn('[race-injected]', log)
                     self.assertEqual(target.read_bytes(), b'preserved target')
-                    final = root / name
+                    final, = root.glob(name + '.v2.*.seal')
                     self.assertEqual(final.is_symlink(), kind == 'symlink')
                     self.assertEqual(final.read_bytes(), b'preserved target' if kind == 'symlink' else b'concurrent evidence')
-                    partial = final.with_name(final.name + '.partial')
+                    partial = root / (name + '.partial')
                     if artifact == 'bin':
                         self.assertEqual(partial.stat().st_size, 25165824)
                         self.assertFalse((root / 'ww05.mem1-1.json').exists())
                     else:
                         self.assertEqual(json.loads(partial.read_text())['command'], 14)
-                        self.assertEqual((root / 'ww05.mem1-1.bin').stat().st_size, 25165824)
+                        self.assertEqual((root / 'ww05.mem1-1.bin.partial').stat().st_size, 25165824)
                     self.assertNotIn('[mem1-snapshot]', log)
 
     def test_metadata_write_or_publish_failure_cannot_claim_a_complete_snapshot(self):
@@ -204,7 +210,7 @@ class Mem1CaptureTest(unittest.TestCase):
             with self.subTest(stage=stage), tempfile.TemporaryDirectory(dir='/tmp/opencode', prefix='ww16-mem1-') as directory:
                 root = Path(directory)
                 log = self.probe(root, f'capture-json-{stage}-failure')
-                self.assertEqual((root / 'ww05.mem1-1.bin').stat().st_size, 25165824)
+                self.assertEqual((root / 'ww05.mem1-1.bin.partial').stat().st_size, 25165824)
                 self.assertTrue((root / 'ww05.mem1-1.json.partial').exists())
                 self.assertFalse((root / 'ww05.mem1-1.json').exists())
                 self.assertNotIn('[mem1-snapshot]', log)
@@ -214,7 +220,7 @@ class Mem1CaptureTest(unittest.TestCase):
             root = Path(directory)
             log = self.probe(root, 'capture-two')
             path = root / 'ww05.mem1-2.json'
-            original = json.loads(path.read_text())
+            original = json.loads(read_completed(path))
             for field, value in (('token', 'd' * 32), ('source', 'e' * 40), ('vpk_sha256', 'f' * 64),
                                  ('command', 16), ('bytes', 1), ('physical_base', '00001000'),
                                  ('us', 0), ('pc', 'not-a-PC'), ('pc', '12345678'), ('completion_pc', '87654321'),
@@ -222,16 +228,16 @@ class Mem1CaptureTest(unittest.TestCase):
                 with self.subTest(field=field):
                     changed = dict(original)
                     changed[field] = value
-                    path.write_text(json.dumps(changed) + '\n')
+                    replace_sealed_fixture(path, (json.dumps(changed) + '\n').encode())
                     with self.assertRaises(ValueError):
                         verify_snapshots(root, token='c' * 32, source='a' * 40, package='b' * 64, count=2, journal=log)
-            path.write_text(json.dumps(original) + '\n')
+            replace_sealed_fixture(path, (json.dumps(original) + '\n').encode())
 
     def test_manifest_refuses_truncated_ram_instead_of_zero_filling_it(self):
         with tempfile.TemporaryDirectory(dir='/tmp/opencode', prefix='ww16-mem1-') as directory:
             root = Path(directory)
             log = self.probe(root, 'capture-one')
-            with (root / 'ww05.mem1-1.bin').open('r+b') as stream:
+            with (root / 'ww05.mem1-1.bin.partial').open('r+b') as stream:
                 stream.truncate(4096)
             with self.assertRaises(ValueError):
                 verify_snapshots(root, token='c' * 32, source='a' * 40, package='b' * 64, count=1, journal=log)

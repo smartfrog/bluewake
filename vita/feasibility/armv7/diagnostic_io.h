@@ -1,5 +1,6 @@
 #ifndef WW_DIAGNOSTIC_IO_H
 #define WW_DIAGNOSTIC_IO_H
+#define WW_DIAGNOSTIC_PUBLICATION_V2 2
 #include <ctype.h>
 #include <errno.h>
 #include <stdbool.h>
@@ -47,19 +48,12 @@ static inline int diagnostic_publish_error(const char* stage, const char* partia
     return logged < 0 ? -1 : status;
 }
 
-static inline int diagnostic_publish(FILE* stream, const char* partial, const char* complete) {
-    const int flushed = fflush(stream);
-    const int flush_errno = errno;
-    const int failed = ferror(stream);
-    const int closed = fclose(stream);
-    if (flushed != 0 || failed || closed != 0) {
-        const int cause = flushed != 0 || failed ? flush_errno : errno;
-        return diagnostic_publish_error(flushed != 0 || failed ? "flush" : "close", partial, complete,
-                                        -1, cause != 0 ? cause : EIO);
-    }
-    // Path-based publication cannot bind the written inode or safely remove a mutable partial name.
-    // No proven identity-bound, no-replace publisher is available under the current output contract.
-    // Reports and PNG/MEM1 captures remain unpublished; their partials must not be certified.
-    return diagnostic_publish_error("publication-unavailable", partial, complete, -1, ENOSYS);
+#ifdef __cplusplus
+extern "C" {
+#endif
+FILE* diagnostic_open_candidate(const char* path);
+int diagnostic_publish(FILE* stream, const char* partial, const char* complete, const char* token);
+#ifdef __cplusplus
 }
+#endif
 #endif

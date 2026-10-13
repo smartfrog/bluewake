@@ -11,6 +11,7 @@ import uuid
 
 from build import Campaign, PINS, ROOT, build_directory, checked_sources, verify_source
 from fp_build import sha256
+from publication import read_artifact
 from mem_report import validate
 
 
@@ -36,7 +37,8 @@ def main():
     fixture = args.out / "mem-fixture"
     fixture.mkdir(exist_ok=True)
     (fixture / "mem_identity.h").write_text(f'#define WW_MEM_SOURCE "{source}"\n')
-    evidence = {"source": source, "pins": PINS, "method": "bounded-v2", "title": "BWWM00004",
+    evidence = {"source": source, "pins": PINS, "publication_version": 2,
+                "method": "bounded-v2", "title": "BWWM00004",
                 "artifacts": {}, "vita3k": "NOT RUN", "physical_vita": "NOT RUN"}
     semantic_status = 0
     for platform in (("host", "vita") if args.vita else ("host",)):
@@ -64,7 +66,9 @@ def main():
             (run / "mem.request").write_text(f"{token} {source} {package}\n")
             result = subprocess.run([build / "ww_fixture"], cwd=run, capture_output=True, text=True)
             (run / "process.log").write_text(result.stdout + result.stderr)
-            status = validate((run / "mem.report").read_text(), token, source, package, expected_platform="HOST")
+            text = read_artifact(run / 'mem.report', 1024 * 1024, token=token,
+                                  candidate=run / 'mem.partial', publication=2).decode()
+            status = validate(text, token, source, package, expected_platform="HOST")
             if result.returncode != status:
                 raise RuntimeError(f"host report/process disagreement: {run}")
             semantic_status = status

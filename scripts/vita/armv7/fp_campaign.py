@@ -264,7 +264,8 @@ def execute_campaign(root, plan):
     with evidence_file(guest_root, "request.json") as stream:
         stream.write(json.dumps({"token": token, "source": plan["source"], "vpk_sha256": plan["vpk_sha256"]}) + "\n")
     identity = (token, plan["source"], plan["vpk_sha256"])
-    status = run_owned(guest["command"], root, guest["timeout_seconds"], report_identity=identity, evidence_root=guest_root, **options)
+    status = run_owned(guest["command"], root, guest["timeout_seconds"], report_identity=identity,
+                       evidence_root=guest_root, publication=plan.get('publication_version', 1), **options)
     process = json.loads((guest_root / "evidence/process.json").read_text())
     error = None
     canonical = alt_config(checked_config(CONFIG_TEMPLATE)) if alt else None
@@ -285,4 +286,5 @@ def execute_campaign(root, plan):
                 restore_config(root, canonical, alt=alt)
             except (OSError, ValueError) as failure:
                 error = f"canonical restoration failed: {failure}; preceding error: {error}"
-    return collect_result(root, *identity, status, error, process, evidence_root=guest_root, **options)
+    return collect_result(root, *identity, status, error, process, evidence_root=guest_root,
+                          publication=plan.get('publication_version', 1), **options)

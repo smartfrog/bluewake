@@ -1,4 +1,5 @@
 #include "fp_runtime.h"
+#include "diagnostic_io.h"
 #include "fp_identity.h"
 #include <ctype.h>
 #include <errno.h>
@@ -50,9 +51,9 @@ int fixture_run(int argc, char** argv) {
     const char* complete = FP_DIRECTORY "fp.report";
     if (read_request(token, source, package) || !absent(partial) || !absent(complete))
         return 1;
-    if (fixture_log_open("fp"))
+    if (fixture_log_open("fp", token))
         return 1;
-    FILE* report = fopen(partial, "w");
+    FILE* report = diagnostic_open_candidate(partial);
     if (!report)
         return 1;
     int error = fprintf(report, "RUN %s %s %s\n", token, source, package) < 0;
@@ -82,6 +83,6 @@ int fixture_run(int argc, char** argv) {
             return 1;
         return 1;
     }
-    int publication_error = fixture_publish_report(report, partial, complete);
+    int publication_error = fixture_publish_report(report, partial, complete, token);
     return publication_error || failures != 0;
 }

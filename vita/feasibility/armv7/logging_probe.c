@@ -1,4 +1,5 @@
 #define _POSIX_C_SOURCE 200809L
+#include <psp2/io/stat.h>
 #include <errno.h>
 #include <stdio.h>
 #include <string.h>
@@ -26,6 +27,18 @@ static int observed_fflush(FILE* stream) {
 
 static int memory_query_result;
 
+int sceIoMkdir(const char* path, SceMode mode) {
+    return mkdir(path, mode);
+}
+
+int sceIoGetstat(const char* path, SceIoStat* status) {
+    struct stat info;
+    if (stat(path, &info) != 0)
+        return -1;
+    status->st_mode = S_ISDIR(info.st_mode) ? SCE_S_IFDIR : SCE_S_IFREG;
+    return 0;
+}
+
 int sceKernelGetFreeMemorySize(SceKernelFreeMemorySizeInfo* info) {
     info->size_user = info->size_cdram = info->size_phycont = 0;
     return memory_query_result;
@@ -40,15 +53,34 @@ static int check_close(FILE* proof, int expect_failure) {
 }
 
 int main(int argc, char** argv) {
+    if (argc == 2 && strncmp(argv[1], "log-", 4u) == 0) {
+        const char* path = "ux0:data/bluewake-ww-fixture/probe.log";
+        const bool refused = strcmp(argv[1], "log-collision") == 0;
+        const int opened = fixture_log_open("probe", "cccccccccccccccccccccccccccccccc");
+        if (refused)
+            return opened == 0;
+        if (opened != 0)
+            return 2;
+        if (strcmp(argv[1], "log-substitute") == 0) {
+            if (rename(path, "written.log") != 0)
+                return 2;
+            FILE* replacement = fopen(path, "wx");
+            if (replacement == NULL || fputs("replacement log", replacement) < 0 || fclose(replacement) != 0)
+                return 2;
+        }
+        if (fprintf(stdout, "producer stdout\n") < 0 || fprintf(stderr, "producer stderr\n") < 0)
+            return 2;
+        return fixture_log_close();
+    }
     if (argc == 4 && (strcmp(argv[1], "publish-close") == 0 ||
                       strcmp(argv[1], "publish-healthy") == 0)) {
-        FILE* report = fopen(argv[2], "a");
+        FILE* report = fopen(argv[2], "r+");
         if (!report)
             return 2;
         bool failure = strcmp(argv[1], "publish-close") == 0;
         if (failure && close(fileno(report)) != 0)
             return 2;
-        int status = fixture_publish_report(report, argv[2], argv[3]);
+        int status = fixture_publish_report(report, argv[2], argv[3], "cccccccccccccccccccccccccccccccc");
         fprintf(stderr, "PUBLISH %s status=%d\n", argv[1], status);
         return (status != 0) != failure;
     }
@@ -61,7 +93,7 @@ int main(int argc, char** argv) {
         int recovered = open("/dev/null", O_WRONLY);
         if (recovered < 0 || dup2(recovered, fileno(report)) < 0 || close(recovered) != 0)
             return 2;
-        int status = fixture_publish_report(report, argv[2], argv[3]);
+        int status = fixture_publish_report(report, argv[2], argv[3], "cccccccccccccccccccccccccccccccc");
         fprintf(stderr, "PUBLISH failed-write status=%d\n", status);
         return status == 0;
     }

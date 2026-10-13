@@ -10,6 +10,7 @@ import sys
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from gx.capture import journal_commands
 from report import MAX_JOURNAL_COMMANDS
+from publication import read_artifact, completed_names
 
 MAX_CAPTURES = 16
 MEM1_BYTES = 24 * 1024 * 1024
@@ -34,9 +35,7 @@ def snapshot_outputs(directory):
                  for kind in ('bin', 'json') for partial in ('', '.partial'))
 
 
-def verify_snapshots(directory, *, token, source, package, count, journal, audio='strict', command_window=None):
-    from fp_profile import read_profile_file
-
+def verify_snapshots(directory, *, token, source, package, count, journal, publication, audio='strict', command_window=None):
     commands = journal_commands(journal) if count else []
     validate_memory_captures(count, MAX_JOURNAL_COMMANDS if commands else 0, command_window)
     if audio not in ('strict', 'deferred'):
@@ -68,7 +67,8 @@ def verify_snapshots(directory, *, token, source, package, count, journal, audio
             window_witnesses.append(line)
             if len(window_witnesses) > MAX_CAPTURES:
                 raise ValueError('MEM1 command window witness count exceeds its bound')
-    expected = {f'ww05.mem1-{index}.{kind}' for index in range(1, len(draws) + 1) for kind in ('bin', 'json')}
+    logicals = [directory / f'ww05.mem1-{index}.{kind}' for index in range(1, len(draws) + 1) for kind in ('bin', 'json')]
+    expected = completed_names(logicals, token=token, publication=publication, limit=MEM1_BYTES)
     observed = {path.name for path in directory.glob('ww05.mem1-*')}
     if command_window is not None:
         observed -= {'ww05.mem1-start', 'ww05.mem1-end'}
@@ -80,7 +80,7 @@ def verify_snapshots(directory, *, token, source, package, count, journal, audio
     previous_us = -1
     for index, (command, opcode) in enumerate(draws, 1):
         metadata_path = directory / f'ww05.mem1-{index}.json'
-        content = read_profile_file(metadata_path, 4096, owned=True)
+        content = read_artifact(metadata_path, 4096, token=token, publication=publication)
         record = json.loads(content)
         expected_fields = {'kind', 'token', 'source', 'vpk_sha256', 'snapshot', 'limit', 'file',
                            'physical_base', 'guest_base', 'bytes', 'command', 'opcode', 'pc',
@@ -89,9 +89,10 @@ def verify_snapshots(directory, *, token, source, package, count, journal, audio
             raise ValueError('MEM1 snapshot metadata schema mismatch')
         if record.get('audio', 'strict') != audio:
             raise ValueError('MEM1 snapshot audio policy differs from the declared profile')
-        expected_values = {'kind': 'ww05-mem1-snapshot-v1', 'token': token, 'source': source,
+        suffix = '.partial' if publication == 2 else ''
+        expected_values = {'kind': f'ww05-mem1-snapshot-v{publication}', 'token': token, 'source': source,
                            'vpk_sha256': package, 'snapshot': index, 'limit': count,
-                           'file': f'ww05.mem1-{index}.bin', 'physical_base': '00000000',
+                            'file': f'ww05.mem1-{index}.bin{suffix}', 'physical_base': '00000000',
                            'guest_base': '80000000', 'bytes': MEM1_BYTES, 'command': command,
                            'opcode': f'{opcode:02X}', 'pc': provenance[command]['pc'],
                            'completion_pc': provenance[command]['completion_pc'], 'phase': 'before-renderer-write',
@@ -106,11 +107,11 @@ def verify_snapshots(directory, *, token, source, package, count, journal, audio
             raise ValueError('MEM1 snapshot time or writer provenance mismatch')
         previous_us = record['us']
         binary_path = directory / record['file']
-        data = read_profile_file(binary_path, MEM1_BYTES, owned=True)
+        data = read_artifact(directory / f'ww05.mem1-{index}.bin', MEM1_BYTES, token=token, publication=publication)
         if len(data) != MEM1_BYTES:
             raise ValueError('MEM1 snapshot is not the complete actual 24 MiB extent')
         record.update(sha256=hashlib.sha256(data).hexdigest(), metadata_sha256=hashlib.sha256(content).hexdigest(),
-                      path=str(binary_path), metadata_path=str(metadata_path))
+                      path=str(binary_path), metadata_path=str(metadata_path) + suffix)
         if command_window is not None:
             window_marker = (f'[mem1-window] snapshot={index} start_command={command_window[0]} '
                              f'end_command={command_window[1]} command={command}')
@@ -124,7 +125,8 @@ def verify_snapshots(directory, *, token, source, package, count, journal, audio
                                         regions=[dict(address=0, offset=0, size=MEM1_BYTES)],
                                         producer=dict(record))
         snapshots.append(record)
-    return {'kind': 'ww05-mem1-capture-manifest-v1', 'audio': audio, 'requested': count, 'captured': len(snapshots),
+    return {'kind': f'ww05-mem1-capture-manifest-v{publication}', 'publication_version': publication,
+            'audio': audio, 'requested': count, 'captured': len(snapshots),
             'command_window': command_window,
             'window_complete': command_window is None or len(commands) >= command_window[1],
             'snapshots': snapshots, 'policy': 'time-matched raw MEM1 only; no invented bytes, zero-filled replay, alias reconstruction or whole-run memory-version claim'}

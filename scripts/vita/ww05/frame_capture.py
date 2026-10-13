@@ -7,7 +7,8 @@ from pathlib import Path
 import sys
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
-from gx.image_metadata import png_metadata, verify_display_rgb
+from gx.image_metadata import png_metadata_bytes, verify_display_rgb_bytes
+from publication import read_artifact, completed_names
 
 MAX_FRAMES = 128
 MAX_PNG_BYTES = 4 * 1024 * 1024
@@ -20,16 +21,16 @@ def frame_outputs(directory):
                  for suffix in ('-rgba.png', '.png', '.json') for partial in ('', '.partial'))
 
 
-def collect_frames(directory, output, *, enabled, presented, token, source, package, audio='strict'):
+def collect_frames(directory, output, *, enabled, presented, token, source, package, publication, audio='strict'):
     from fp_libraries import directory_fd
-    from fp_profile import read_profile_file
 
     if type(presented) is not int or presented < 0 or (enabled and presented > MAX_FRAMES):
         raise ValueError('live capture presentation count exceeds its diagnostic bound')
     if audio not in ('strict', 'deferred'):
         raise ValueError('invalid declared audio policy')
-    expected = {f'frame-{frame}{suffix}' for frame in range(1, presented + 1)
-                for suffix in ('-rgba.png', '.png', '.json')} if enabled else set()
+    logicals = [directory / f'frame-{frame}{suffix}' for frame in range(1, presented + 1)
+                for suffix in ('-rgba.png', '.png', '.json')] if enabled else []
+    expected = completed_names(logicals, token=token, publication=publication, limit=MAX_PNG_BYTES)
     observed = set()
     if directory.exists():
         with directory_fd(directory) as parent:
@@ -42,12 +43,13 @@ def collect_frames(directory, output, *, enabled, presented, token, source, pack
     previous_us = -1
     for index in range(1, presented + 1) if enabled else ():
         metadata_path = directory / f'frame-{index}.json'
-        content = read_profile_file(metadata_path, 8192, owned=True)
+        content = read_artifact(metadata_path, 8192, token=token, publication=publication)
         record = json.loads(content)
         if not isinstance(record, dict):
             raise ValueError('live frame metadata must be an object')
-        for key, value in dict(kind='ww05-live-frame-v1', token=token, source=source, vpk_sha256=package,
-                               frame=index, raw=f'frame-{index}-rgba.png', display=f'frame-{index}.png',
+        suffix = '.partial' if publication == 2 else ''
+        for key, value in dict(kind=f'ww05-live-frame-v{publication}', token=token, source=source, vpk_sha256=package,
+                               frame=index, raw=f'frame-{index}-rgba.png{suffix}', display=f'frame-{index}.png{suffix}',
                                phase='after-gx-present-before-next-frame', row_order='top-first',
                                display_transform='alpha=255; RGB unchanged from raw front-buffer readback').items():
             if record.get(key) != value:
@@ -70,23 +72,36 @@ def collect_frames(directory, output, *, enabled, presented, token, source, pack
         if not 1 <= record['width'] <= 4096 or not 1 <= record['height'] <= 4096 or record['width'] * record['height'] > 960 * 544:
             raise ValueError('live frame dimensions exceed the actual Vita extent')
         previous_us = record['us']
-        for name in (record['raw'], record['display'], metadata_path.name):
-            data = read_profile_file(directory / name, MAX_PNG_BYTES, owned=True)
+        contents = {metadata_path.name + suffix: content}
+        for name in (record['raw'], record['display'], metadata_path.name + suffix):
+            if name not in contents:
+                logical = directory / (name[:-len(suffix)] if suffix else name)
+                contents[name] = read_artifact(logical, MAX_PNG_BYTES, token=token, publication=publication)
+            data = contents[name]
             if output != directory:
                 with directory_fd(output) as parent:
                     descriptor = os.open(name, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW | os.O_CLOEXEC,
                                          0o600, dir_fd=parent)
                 with os.fdopen(descriptor, 'wb') as stream:
-                    stream.write(data)
-        raw, display = output / record['raw'], output / record['display']
-        record.update(raw_image=png_metadata(raw), image=png_metadata(display),
+                    if stream.write(data) != len(data):
+                        raise OSError('live frame evidence copy was short')
+        record.update(raw_image=png_metadata_bytes(record['raw'], contents[record['raw']]),
+                      image=png_metadata_bytes(record['display'], contents[record['display']]),
                       metadata_sha256=hashlib.sha256(content).hexdigest())
         for image in (record['raw_image'], record['image']):
             if (image['width'], image['height']) != (record['width'], record['height']):
                 raise ValueError('live frame PNG dimensions differ from metadata')
-        verify_display_rgb(raw, display)
+        verify_display_rgb_bytes(contents[record['raw']], contents[record['display']])
         frames.append(record)
-    return dict(kind='ww05-live-images-v1', enabled=enabled, audio=audio, captures=len(frames), frames=frames,
+    if enabled and publication == 2 and output != directory:
+        with directory_fd(output) as parent:
+            for name in sorted(expected):
+                if name.endswith('.seal'):
+                    descriptor = os.open(name, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW | os.O_CLOEXEC,
+                                         0o600, dir_fd=parent)
+                    os.close(descriptor)
+    return dict(kind=f'ww05-live-images-v{publication}', publication_version=publication,
+                enabled=enabled, audio=audio, captures=len(frames), frames=frames,
                 parity_verified=False, gameplay_verified=False, fps_baseline=not enabled,
                 capture_point='after-gx-present-before-next-frame',
                 policy='actual front-buffer readback only; preserve raw alpha, display alpha=255 with identical RGB; uniform pixels are not a game scene')

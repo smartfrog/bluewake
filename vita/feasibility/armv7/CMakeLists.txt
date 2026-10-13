@@ -9,6 +9,7 @@ get_filename_component(BLUEWAKE_ROOT "${CMAKE_CURRENT_SOURCE_DIR}/../../.." ABSO
 set(WW_MODE "corpus" CACHE STRING "corpus, contract, fp, arm or mem")
 set(GXRUNTIME_DIR "${RECOMPCORE_DIR}/GXRuntime")
 set(ABI_DIR "${RECOMPCORE_DIR}/Source/Core/Core/PowerPC/StaticRecomp")
+add_subdirectory(diagnostic)
 set(required_inputs "${GXRUNTIME_DIR}/include/core/cpu.h")
 if(NOT WW_MODE STREQUAL "mem")
     list(APPEND required_inputs "${FIXTURE_DIR}/corpus.c" "${FIXTURE_DIR}/test_c_execute.c"
@@ -66,7 +67,7 @@ target_compile_definitions(ww_fixture PRIVATE DOLRECOMP_CPU_HEADER="core/cpu.h")
 target_compile_options(ww_fixture PRIVATE -O2 -ffp-contract=off -fno-fast-math -fstack-usage
     -Wall -Wextra -Werror=implicit-function-declaration -Werror=pointer-to-int-cast
     -Werror=int-to-pointer-cast)
-target_link_libraries(ww_fixture PRIVATE ww_cpu m)
+target_link_libraries(ww_fixture PRIVATE ww_cpu m ww_diagnostic_io)
 target_link_options(ww_fixture PRIVATE "-Wl,-Map=${CMAKE_CURRENT_BINARY_DIR}/fixture.map")
 
 if(WW_IO_PROBE)
@@ -76,8 +77,8 @@ if(WW_IO_PROBE)
     target_sources(ww_fixture PRIVATE mem_io_probe.c arm_io_probe.c)
     target_compile_definitions(ww_fixture PRIVATE DIAGNOSTIC_PREFIX="arm" DIAGNOSTIC_IO_ENV="ARM_IO_FAILURE")
     target_compile_options(ww_fixture PRIVATE -fno-builtin)
-    target_link_options(ww_fixture PRIVATE -Wl,--wrap=fopen -Wl,--wrap=fprintf -Wl,--wrap=fflush
-        -Wl,--wrap=fclose -Wl,--wrap=link -Wl,--wrap=arm_vfp_available -Wl,--wrap=arm_vfp_read
+    target_link_options(ww_fixture PRIVATE -Wl,--wrap=fprintf -Wl,--wrap=fflush
+        -Wl,--wrap=fclose -Wl,--wrap=open -Wl,--wrap=fdopen -Wl,--wrap=arm_vfp_available -Wl,--wrap=arm_vfp_read
         -Wl,--wrap=arm_vfp_write -Wl,--wrap=arm_vfp_operation)
 endif()
 

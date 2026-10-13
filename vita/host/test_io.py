@@ -6,6 +6,9 @@ import tempfile
 import unittest
 
 import test_host
+import sys
+sys.path.insert(0, str(Path(__file__).resolve().parents[2] / 'scripts/vita/ww05'))
+from publication import read_artifact
 
 OUT = test_host.OUT
 
@@ -81,7 +84,12 @@ class MainIoTest(unittest.TestCase):
             result = subprocess.run([str(OUT / 'io_probe')], cwd=root,
                                     env=environment, capture_output=True, timeout=10)
             self.assertGreaterEqual(result.returncode, 0, result.stderr.decode())
-            report = (root / 'ww05.report').read_text() if (root / 'ww05.report').exists() else None
+            seals = list(root.glob('ww05.report.v2.*.seal'))
+            report = read_artifact(root / 'ww05.report', 65536, candidate=root / 'ww05.partial',
+                                   token='c' * 32, publication=2).decode() if seals else None
+            if stale:
+                self.assertEqual((root / 'ww05.report').read_text(), 'preserve me')
+                report = (root / 'ww05.report').read_text()
             if progress:
                 self.assertIn('[progress] turns=1', result.stderr.decode())
             if cpu_boundary is not None:
@@ -118,6 +126,12 @@ class MainIoTest(unittest.TestCase):
             if dispatch_trace is not None:
                 path = root / 'ww05.dispatch'
                 self.assertEqual(path.read_text() if path.exists() else None, dispatch_trace)
+            if failure == 'dispatch-substitute':
+                self.assertEqual((root / 'ww05.dispatch').read_text(), 'replacement')
+                self.assertEqual((root / 'written.dispatch').read_text(), 'LER')
+                with self.assertRaises(ValueError):
+                    read_artifact(root / 'ww05.dispatch', 4096, candidate=root / 'ww05.dispatch',
+                                  token='c' * 32, publication=2)
             if syscall == 'yielding-handler' and not failure and not stale_dispatch:
                 self.assertIn('[edge] pc=803077DC', result.stderr.decode())
                 self.assertIn('[spr-fallback] stage=enter pc=803077D8 spr=1008', result.stderr.decode())
@@ -133,8 +147,13 @@ class MainIoTest(unittest.TestCase):
     def test_synthetic_host_fixture_publishes_closed_report(self):
         status, report = self.run_fixture()
         self.assertEqual(status, 0)
-        self.assertIn('platform=HOST', report)
+        self.assertIn('platform=HOST publication=2', report)
         self.assertTrue(report.endswith('END frontier=PASS live=0 rendered=0\n'))
+
+    def test_dispatch_keeps_its_original_descriptor_when_the_path_is_substituted(self):
+        status, report = self.run_fixture(failure='dispatch-substitute', syscall='yielding-handler')
+        self.assertEqual(status, 0)
+        self.assertIsNotNone(report)
 
     def test_continuation_hands_every_captured_command_to_the_renderer_without_fake_presentations(self):
         status, report = self.run_fixture(consumer=True, continue_gx=64)
@@ -217,7 +236,7 @@ class MainIoTest(unittest.TestCase):
     def test_explicit_audio_deferral_marks_the_guest_report_even_before_a_task_is_launched(self):
         status, report = self.run_fixture(consumer=True, continue_gx=2048, defer_audio=1)
         self.assertIsNotNone(report)
-        self.assertIn('platform=HOST audio=deferred\n', report)
+        self.assertIn('platform=HOST audio=deferred publication=2\n', report)
 
     def test_invalid_audio_deferral_request_cannot_start_an_unlabelled_trial(self):
         for value in (0, 2):
@@ -492,7 +511,7 @@ class MainIoTest(unittest.TestCase):
         self.assertIsNone(report)
 
     def test_dispatch_marker_close_failure_prevents_report_publication(self):
-        status, report = self.run_fixture(failure='dispatch-close', syscall='yielding-handler', dispatch_trace='L')
+        status, report = self.run_fixture(failure='dispatch-close', syscall='yielding-handler', dispatch_trace='LER')
         self.assertNotEqual(status, 0)
         self.assertIsNone(report)
 

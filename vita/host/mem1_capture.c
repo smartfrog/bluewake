@@ -46,7 +46,7 @@ const char* ww_host_capture_mem1(WwHost* host) {
     if (!diagnostic_absent(binary) || !diagnostic_absent(binary_partial) ||
         !diagnostic_absent(metadata) || !diagnostic_absent(metadata_partial))
         return "MEM1 capture refuses preexisting output";
-    FILE* stream = fopen(binary_partial, "wbx");
+    FILE* stream = diagnostic_open_candidate(binary_partial);
     if (stream == NULL)
         return "MEM1 capture binary open failed";
     for (u32 offset = 0u; offset < host->cpu.ram_size; offset += 65536u) {
@@ -55,14 +55,14 @@ const char* ww_host_capture_mem1(WwHost* host) {
             return closed != 0 ? "MEM1 capture binary write and close failed" : "MEM1 capture binary write failed";
         }
     }
-    if (diagnostic_publish(stream, binary_partial, binary) != 0)
+    if (diagnostic_publish(stream, binary_partial, binary, capture->token) != 0)
         return "MEM1 capture binary publish failed";
-    stream = fopen(metadata_partial, "wx");
+    stream = diagnostic_open_candidate(metadata_partial);
     if (stream == NULL)
         return "MEM1 capture metadata open failed";
     const int written = fprintf(stream,
-        "{\"kind\":\"ww05-mem1-snapshot-v1\",\"token\":\"%s\",\"source\":\"%s\",\"vpk_sha256\":\"%s\",\"audio\":\"%s\","
-        "\"snapshot\":%u,\"limit\":%u,\"file\":\"ww05.mem1-%u.bin\",\"physical_base\":\"00000000\","
+        "{\"kind\":\"ww05-mem1-snapshot-v2\",\"token\":\"%s\",\"source\":\"%s\",\"vpk_sha256\":\"%s\",\"audio\":\"%s\","
+        "\"snapshot\":%u,\"limit\":%u,\"file\":\"ww05.mem1-%u.bin.partial\",\"physical_base\":\"00000000\","
         "\"guest_base\":\"80000000\",\"bytes\":%u,\"command\":%llu,\"opcode\":\"%02X\","
         "\"pc\":\"%08X\",\"completion_pc\":\"%08X\",\"cycles\":%llu,\"us\":%llu,\"presented\":%llu,"
         "\"phase\":\"before-renderer-write\",\"scope\":\"raw physical MEM1 only; external aliases and MEM2 are not captured\"}\n",
@@ -78,11 +78,11 @@ const char* ww_host_capture_mem1(WwHost* host) {
         const int closed = fclose(stream);
         return closed != 0 ? "MEM1 capture metadata write and close failed" : "MEM1 capture metadata write failed";
     }
-    if (diagnostic_publish(stream, metadata_partial, metadata) != 0)
+    if (diagnostic_publish(stream, metadata_partial, metadata, capture->token) != 0)
         return "MEM1 capture metadata publish failed";
     capture->captured = number;
     capture->last_us = us;
-    if (fprintf(stderr, "[mem1-snapshot] snapshot=%u command=%llu bytes=%u physical=00000000 us=%llu file=ww05.mem1-%u.bin phase=before-renderer-write\n",
+    if (fprintf(stderr, "[mem1-snapshot] snapshot=%u command=%llu bytes=%u physical=00000000 us=%llu file=ww05.mem1-%u.bin.partial phase=before-renderer-write\n",
                 number, (unsigned long long)host->stream.decoded, host->cpu.ram_size,
                 (unsigned long long)us, number) < 0)
         return "MEM1 capture trace write failed";

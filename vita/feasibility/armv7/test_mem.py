@@ -6,6 +6,14 @@ import unittest
 ROOT = Path(__file__).resolve().parents[3]
 
 
+def diagnostic_compile_args():
+    tls = ROOT / 'ref/vita-ww-01/RecompCore/Externals/mbedtls'
+    fixture = ROOT / 'vita/feasibility/armv7'
+    return [str(fixture / 'diagnostic_io.c'), str(tls / 'library/sha256.c'),
+            str(tls / 'library/platform_util.c'), '-I', str(fixture),
+            '-I', str(tls / 'include'), '-DMBEDTLS_CONFIG_FILE="sha256_config.h"']
+
+
 def compile_probe(binary, sources, options=()):
     runtime = ROOT / "ref/vita-ww-01/RecompCore/GXRuntime"
     runtime_sources = ["core/cpu.c", "core/cpu_exception.c", "core/cpu_interpreter.c",
@@ -17,7 +25,7 @@ def compile_probe(binary, sources, options=()):
                *[str(fixture / name) for name in sources],
                str(fixture / "mem_scenarios.c"), str(fixture / "mem_platform.c"),
                *[str(runtime / "src" / name) for name in runtime_sources],
-               *options, "-lm", "-o", str(binary)]
+               *diagnostic_compile_args(), *options, "-lm", "-o", str(binary)]
     result = subprocess.run(command, capture_output=True, text=True)
     binary.with_suffix(".compile.log").write_text(result.stdout + result.stderr)
     if result.returncode:

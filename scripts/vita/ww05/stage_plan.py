@@ -16,6 +16,7 @@ import zipfile
 from game_build import OUTPUT, ROOT, STACK, PINS, COMPOSITE_DIGEST, checked_sources, sha256
 from report import MAX_JOURNAL_COMMANDS, MAX_JOURNAL_BYTES
 from memory_capture import MAX_CAPTURES, validate_memory_captures
+from publication import receipt_publication
 
 sys.path.insert(0, str(ROOT / 'scripts/vita/armv7'))
 from fp_launch import create_run, evidence_file, reject_symlinks, sandbox_command, stage_runtime
@@ -225,6 +226,9 @@ def stage(args):
         disc = stage_disc(root, args.disc, json.loads((OUTPUT / 'inputs.json').read_text())['disc_sha256'])
         args.disc = Path(disc['path'])
     plan = make_plan(root, args, source, package, run)
+    plan['publication_version'] = receipt_publication(evidence)
+    if plan['publication_version'] == 2:
+        plan['report'] = plan['report'].removesuffix('.report') + '.partial'
     plan.update(runtime_sha256=RUNTIME_SHA256, shader_compiler=shader_compiler,
                 runtime_source='observed-banner:bbd5c36;local-RPATH-relocation;mapping:UNVERIFIED',
                 runtime_assets=assets, runtime_input=str(STACK / 'vita3k/Vita3K'),

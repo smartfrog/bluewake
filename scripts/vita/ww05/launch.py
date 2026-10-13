@@ -16,6 +16,7 @@ import zipfile
 from game_build import OUTPUT, ROOT, checked_sources, sha256
 from stage_plan import stage, validate_continuation, verify_package, checked_build_receipt
 from report import MAX_JOURNAL_COMMANDS, matched, validate, validate_commands
+from publication import read_artifact, receipt_publication, UnsealedArtifact
 from fp_campaign import emitted_config, restore_config, runtime_inputs, verify_phase_logs, verify_stopped
 from fp_launch import REPORT_DIRECTORY, evidence_file, run_owned
 from fp_libraries import directory_fd, file_identity, library_identity
@@ -37,6 +38,8 @@ def verify_inputs(root, plan):
         raise ValueError('selected build receipt changed')
     if checked_build_receipt(receipt_path, source, plan.get('baseline_build', False)) != plan['build_evidence']:
         raise ValueError('selected guest build identity changed')
+    if plan.get('publication_version') != receipt_publication(plan['build_evidence']):
+        raise ValueError('plan publication capability differs from the selected build receipt')
     vpk, package = verify_package(plan['build_evidence'])
     if str(vpk) != plan['source_vpk'] or package != plan['vpk_sha256']:
         raise ValueError('source package identity changed')
@@ -107,7 +110,7 @@ def fresh_request(root, source, package, continue_gx=0, mem1_snapshots=0, defer_
             raise ValueError('report directory must be privately owned')
         existing = set(os.listdir(parent))
         if ('frames' in existing or existing & {'ww05' + suffix for suffix in ('.request', '.partial', '.report', '.log', '.dispatch', '.continue', '.mem1', '.mem1-start', '.mem1-end', '.audio')} or
-            any(name.startswith('ww05.mem1-') for name in existing)):
+            any(name.startswith(('ww05.mem1-', 'ww05.report.v', 'ww05.log.v', 'ww05.dispatch.v')) for name in existing)):
             raise ValueError('preexisting WW05 request/output; refusing to delete or reuse it')
         descriptor = os.open('ww05.request', os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW | os.O_CLOEXEC,
                              0o600, dir_fd=parent)
@@ -266,21 +269,28 @@ def execute_run(root, plan):
         verify_inputs(root, plan)
         verify_installed(root, plan)
         restore_config(root, canonical, surface_sync=surface_sync)
-        content = read_profile_file(root / REPORT_DIRECTORY / 'ww05.report', 65536, owned=True)
+        publication = plan['publication_version']
+        content = read_artifact(root / REPORT_DIRECTORY / 'ww05.report', 65536,
+                               candidate=root / REPORT_DIRECTORY / 'ww05.partial', token=token,
+                               publication=publication)
         text = content.decode('utf-8')
         verdict = validate(text, token, plan['source'], plan['vpk_sha256'], plan.get('continue_gx', 0),
-                           defer_audio=plan.get('defer_audio', False))
+                           defer_audio=plan.get('defer_audio', False), publication=publication)
+        dispatch = root / REPORT_DIRECTORY / 'ww05.dispatch'
+        if publication == 2 and (dispatch.exists() or list(dispatch.parent.glob(dispatch.name + '.v2.*'))):
+            if read_artifact(dispatch, 4096, candidate=dispatch, token=token, publication=2) != b'LER':
+                raise ValueError('v2 dispatch journal is not the completed LER sequence')
         _, presented = matched(r'END frontier=(PASS|FAIL) live=0 rendered=(\d+)', text.splitlines()[-1])
         record.update(presented=int(presented), rendered=int(presented) > 0)
         if plan.get('continue_gx'):
-            journal = read_profile_file(root / REPORT_DIRECTORY / 'ww05.log', 64 * 1024 * 1024, owned=True)
+            journal = read_artifact(root / REPORT_DIRECTORY / 'ww05.log', 64 * 1024 * 1024,
+                                   candidate=root / REPORT_DIRECTORY / 'ww05.log', token=token, publication=publication)
             logged = validate_commands(journal.decode('utf-8'), text, plan['continue_gx'])
             record.update(commands_verified=logged, log_sha256=hashlib.sha256(journal).hexdigest())
         manifest = verify_snapshots(root / REPORT_DIRECTORY, token=token, source=plan['source'],
                                     package=plan['vpk_sha256'], count=plan.get('mem1_snapshots', 0),
-                                     audio=record['audio'],
-                                     command_window=plan.get('mem1_command_window'),
-                                    journal=journal.decode('utf-8') if plan.get('continue_gx') else '')
+                                    audio=record['audio'], command_window=plan.get('mem1_command_window'),
+                                    journal=journal.decode('utf-8') if plan.get('continue_gx') else '', publication=publication)
         publish_replay_manifests(root / REPORT_DIRECTORY, manifest)
         with evidence_file(root, 'mem1-capture.json') as stream:
             json.dump(manifest, stream, indent=2)
@@ -288,18 +298,23 @@ def execute_run(root, plan):
         record.update(memory_captures_verified=manifest['captured'])
         images = collect_frames(root / 'evidence/frames', root / 'evidence/frames',
                                 enabled=surface_sync, presented=int(presented), token=token,
-                                source=plan['source'], package=plan['vpk_sha256'], audio=record['audio'])
+                                source=plan['source'], package=plan['vpk_sha256'], audio=record['audio'], publication=publication)
         with evidence_file(root, 'live-images.json') as stream:
             json.dump(images, stream, indent=2)
             stream.write('\n')
         record.update(frame_captures_verified=images['captures'])
         record.update(reported_frontier=verdict, frontier_verified=verdict == 'PASS',
-                      report_sha256=hashlib.sha256(content).hexdigest(), report_path=str(REPORT_DIRECTORY / 'ww05.report'),
+                       publication_version=publication, byte_binding_verified=publication == 2,
+                       process_success=process['stop_reason'] == 'exit' and status == 0,
+                       producer_success=None,
+                       report_sha256=hashlib.sha256(content).hexdigest(),
+                       report_path=str(REPORT_DIRECTORY / ('ww05.partial' if publication == 2 else 'ww05.report')),
                        completion='COMPLETE' if process['stop_reason'] == 'exit' else 'INCOMPLETE',
                        status=status or (0 if verdict == 'PASS' else 1))
     except Exception as error:
-        expected_report_missing = (isinstance(error, FileNotFoundError) and error.filename == 'ww05.report' and
-                                   record.get('process', {}).get('stop_reason') in ('inactive', 'timeout', 'memory-pressure'))
+        report_missing = ((isinstance(error, FileNotFoundError) and error.filename == 'ww05.report') or
+                          (isinstance(error, UnsealedArtifact) and error.logical == root / REPORT_DIRECTORY / 'ww05.report'))
+        expected_report_missing = report_missing and record.get('process', {}).get('stop_reason') in ('inactive', 'timeout', 'memory-pressure')
         record.update(error=str(error), traceback=traceback.format_exc(),
                       status=record['process_status'] if expected_report_missing else 2)
     with evidence_file(root, 'result.json') as stream:

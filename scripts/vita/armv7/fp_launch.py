@@ -19,6 +19,7 @@ import zipfile
 
 from build import ROOT, build_directory
 from fp_build import sha256
+from publication import read_artifact, receipt_publication, UnsealedArtifact
 from fp_libraries import directory_fd, library_identity
 from fp_profile import FIRMWARE_DIRECTORY, config_identity, stage_firmware, verify_config_log, verify_firmware
 from fp_report import validate
@@ -100,7 +101,7 @@ def sandbox_command(root, executable, arguments, libraries=None, wayland_socket=
 
 
 def run_owned(command, root, timeout, report_identity=None, evidence_root=None, memory=False, control=False,
-              phase_observer=None):
+              phase_observer=None, publication=1):
     if not math.isfinite(timeout) or timeout <= 0:
         raise ValueError("timeout must be finite and positive")
     if resource.getrlimit(resource.RLIMIT_FSIZE) != (resource.RLIM_INFINITY, resource.RLIM_INFINITY):
@@ -139,8 +140,9 @@ def run_owned(command, root, timeout, report_identity=None, evidence_root=None, 
                             time.sleep(min(.05, remaining_time()))
                             continue
                         try:
-                            content = read_report(root, control=True) if control else read_report(root, memory=True) if memory else read_report(root)
-                        except FileNotFoundError:
+                            content = read_report(root, memory=memory, control=control,
+                                                  publication=publication, token=report_identity[0])
+                        except (FileNotFoundError, UnsealedArtifact):
                             pass
                         except (OSError, ValueError) as error:
                             record.update(stop_reason="invalid_report", report_error=str(error))
@@ -221,7 +223,14 @@ def stage_runtime(root, executable, expected_hash):
             for path in sorted(destination.rglob("*")) if path.is_file()}
 
 
-def read_report(root, memory=False, control=False):
+def read_report(root, memory=False, control=False, publication=1, token=None):
+    if publication == 2:
+        name = 'arm' if control else 'mem' if memory else 'fp'
+        return read_artifact(root / REPORT_DIRECTORY / f'{name}.report', MAX_REPORT_BYTES,
+                             candidate=root / REPORT_DIRECTORY / f'{name}.partial',
+                             token=token, publication=2)
+    if publication != 1:
+        raise ValueError('unknown diagnostic publication version')
     with directory_fd(root / REPORT_DIRECTORY) as parent:
         descriptor = os.open("arm.report" if control else "mem.report" if memory else "fp.report", os.O_RDONLY | os.O_NONBLOCK | os.O_NOFOLLOW | os.O_CLOEXEC,
                              dir_fd=parent)
@@ -242,7 +251,7 @@ def read_report(root, memory=False, control=False):
         return content
 
 
-def collect_result(root, token, source, package, process_status, identity_error=None, process=None, evidence_root=None, memory=False, control=False):
+def collect_result(root, token, source, package, process_status, identity_error=None, process=None, evidence_root=None, memory=False, control=False, publication=1):
     record = {"process_exit": process["exit"] if process else process_status,
               "completion": "INCOMPLETE", "semantic": "UNAVAILABLE"}
     if process:
@@ -250,7 +259,7 @@ def collect_result(root, token, source, package, process_status, identity_error=
     if identity_error:
         record["identity_error"] = identity_error
     try:
-        content = read_report(root, control=True) if control else read_report(root, memory=True) if memory else read_report(root)
+        content = read_report(root, memory=memory, control=control, publication=publication, token=token)
         if control:
             from arm_report import analyze
             analysis = analyze(content.decode("utf-8"), token, source, package)
@@ -337,6 +346,7 @@ def main(memory=False, control=False, cpu_opt_off=False):
             raise ValueError("VITA-WW-09 campaign is already reserved; a second run must not be staged")
     parent = build_directory(reject_symlinks(args.out))
     evidence = json.loads(args.build_evidence.read_text())
+    publication = receipt_publication(evidence)
     source = evidence["source"]
     diagnostic = "arm" if control else "mem" if memory else "fp"
     if control and (evidence.get("method"), evidence.get("title")) != ("scalar-vfp-v1", "BWWA00008"):
@@ -398,6 +408,7 @@ def main(memory=False, control=False, cpu_opt_off=False):
         from fp_campaign import stage_campaign
         stage_campaign(root, plan, args, vpk)
     with evidence_file(root, "plan.json") as stream:
+        plan['publication_version'] = publication
         stream.write(json.dumps(plan, indent=2) + "\n")
     if cpu_opt_off:
         from fp_campaign import reserve_campaign
@@ -412,7 +423,8 @@ def main(memory=False, control=False, cpu_opt_off=False):
     verify_firmware(firmware)
     if private_config and config_identity(root, alt=cpu_opt_off) != private_config:
         raise ValueError("staged configuration changed before execution")
-    status = run_owned(command, root, args.timeout, report_identity=(token, source, package))
+    status = run_owned(command, root, args.timeout, report_identity=(token, source, package),
+                       memory=memory, control=control, publication=publication)
     process = json.loads((root / "evidence/process.json").read_text())
     identity_error = None
     try:
@@ -426,7 +438,8 @@ def main(memory=False, control=False, cpu_opt_off=False):
             verify_config_log(root)
     except (OSError, ValueError) as error:
         identity_error = f"cannot verify runtime inputs after execution: {error}"
-    return collect_result(root, token, source, package, status, identity_error, process)
+    return collect_result(root, token, source, package, status, identity_error, process,
+                          memory=memory, control=control, publication=publication)
 
 
 if __name__ == "__main__":

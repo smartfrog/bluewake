@@ -14,6 +14,31 @@ sys.path.insert(0, str(ROOT / "scripts/vita/armv7"))
 
 
 class LauncherTest(unittest.TestCase):
+    def test_v2_observer_waits_for_seal_instead_of_certifying_or_rejecting_a_candidate(self):
+        import hashlib
+        from fp_launch import REPORT_DIRECTORY, create_run, run_owned
+        from fp_vectors import cases
+        token, source, package = 'c' * 32, 'a' * 40, 'b' * 64
+        lines = [f'RUN {token} {source} {package}']
+        lines.extend(f"CASE {case['id']} mode={case['mode']} expected={case['expected']} "
+                     f"actual={case['expected']} path=1 PASS" for case in cases())
+        lines.append(f'END PASS cases={len(cases())} failures=0')
+        content = ('\n'.join(lines) + '\n').encode()
+        with tempfile.TemporaryDirectory(dir='/tmp/opencode') as directory:
+            root = Path(directory) / 'run'
+            create_run(root)
+            reports = root / REPORT_DIRECTORY
+            reports.mkdir(parents=True)
+            (reports / 'fp.partial').write_bytes(content)
+            seal = reports / f'fp.report.v2.{token}.{hashlib.sha256(content).hexdigest()}.{len(content)}.seal'
+            code = f'import time; from pathlib import Path; time.sleep(.2); Path({str(seal)!r}).touch(exist_ok=False)'
+            status = run_owned([sys.executable, '-B', '-c', code], root, 2,
+                               report_identity=(token, source, package), publication=2)
+            self.assertEqual(status, 0)
+            process = json.loads((root / 'evidence/process.json').read_text())
+            self.assertEqual(process['stop_reason'], 'exit')
+            self.assertTrue(seal.exists())
+
     def test_cli_stages_fake_runtime_without_execution(self):
         from fp_build import sha256
         from fp_launch import REPORT_DIRECTORY

@@ -65,7 +65,7 @@ static const char* capture_frame(const WwRendererFrame* frame, void* user) try {
         if (snprintf(partial, sizeof(partial), "%s.partial", path) < 0 ||
             !diagnostic_absent(path) || !diagnostic_absent(partial))
             return "live frame evidence refuses preexisting PNG output";
-        FILE* stream = fopen(partial, "wbx");
+        FILE* stream = diagnostic_open_candidate(partial);
         if (stream == nullptr)
             return "live frame evidence PNG exclusive open failed";
         error = gx_capture::write_png(*frame, stream, path == display);
@@ -73,22 +73,22 @@ static const char* capture_frame(const WwRendererFrame* frame, void* user) try {
             const int closed = fclose(stream);
             return closed != 0 ? "live frame PNG write and close failed" : error;
         }
-        if (diagnostic_publish(stream, partial, path) != 0)
+        if (diagnostic_publish(stream, partial, path, host->mem1_capture.token) != 0)
             return "live frame evidence PNG publish failed";
     }
     char partial[136];
     if (snprintf(partial, sizeof(partial), "%s.partial", metadata) < 0 ||
         !diagnostic_absent(metadata) || !diagnostic_absent(partial))
         return "live frame evidence refuses preexisting metadata";
-    FILE* stream = fopen(partial, "wx");
+    FILE* stream = diagnostic_open_candidate(partial);
     if (stream == nullptr)
         return "live frame evidence metadata open failed";
     const WwMem1Capture* identity = &host->mem1_capture;
     const int written = fprintf(stream,
-        "{\"kind\":\"ww05-live-frame-v1\",\"token\":\"%s\",\"source\":\"%s\",\"vpk_sha256\":\"%s\",\"audio\":\"%s\","
+        "{\"kind\":\"ww05-live-frame-v2\",\"token\":\"%s\",\"source\":\"%s\",\"vpk_sha256\":\"%s\",\"audio\":\"%s\","
         "\"frame\":%llu,\"command\":%llu,\"draws\":%llu,\"width\":%u,\"height\":%u,\"us\":%llu,\"cycles\":%llu,"
         "\"mem1_snapshots\":%u,\"phase\":\"after-gx-present-before-next-frame\",\"row_order\":\"top-first\","
-        "\"raw\":\"frame-%llu-rgba.png\",\"display\":\"frame-%llu.png\","
+        "\"raw\":\"frame-%llu-rgba.png.partial\",\"display\":\"frame-%llu.png.partial\","
         "\"display_transform\":\"alpha=255; RGB unchanged from raw front-buffer readback\","
         "\"renderer\":{\"fifo_bytes\":%llu,\"events\":%llu,\"plans\":%llu,\"plans_skipped\":%llu,"
         "\"programs\":%llu,\"programs_distinct\":%llu,\"programs_refused\":%llu,\"copies\":%llu,"
@@ -107,10 +107,10 @@ static const char* capture_frame(const WwRendererFrame* frame, void* user) try {
         const int closed = fclose(stream);
         return closed != 0 ? "live frame metadata write and close failed" : "live frame metadata write failed";
     }
-    if (diagnostic_publish(stream, partial, metadata) != 0)
+    if (diagnostic_publish(stream, partial, metadata, identity->token) != 0)
         return "live frame metadata publish failed";
     host->frame_capture = {stats.presented, us};
-    if (fprintf(stderr, "[frame-capture] frame=%llu command=%llu us=%llu width=%u height=%u raw=frames/frame-%llu-rgba.png display=frames/frame-%llu.png phase=after-gx-present-before-next-frame\n",
+    if (fprintf(stderr, "[frame-capture] frame=%llu command=%llu us=%llu width=%u height=%u raw=frames/frame-%llu-rgba.png.partial display=frames/frame-%llu.png.partial phase=after-gx-present-before-next-frame\n",
                 index, static_cast<unsigned long long>(host->stream.decoded), static_cast<unsigned long long>(us),
                 frame->width, frame->height, index, index) < 0)
         return "live frame evidence trace write failed";

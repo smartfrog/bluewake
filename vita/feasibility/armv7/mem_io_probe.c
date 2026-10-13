@@ -2,6 +2,8 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <fcntl.h>
+#include <errno.h>
 
 #ifndef DIAGNOSTIC_PREFIX
 #define DIAGNOSTIC_PREFIX "mem"
@@ -10,24 +12,14 @@
 #define DIAGNOSTIC_IO_ENV "MEM_IO_FAILURE"
 #endif
 
-FILE* __real_fopen(const char* path, const char* mode);
 int __real_fflush(FILE* stream);
 int __real_fclose(FILE* stream);
-int __real_link(const char* source, const char* destination);
 static FILE* report;
+static int report_fd = -1;
 
 static int fails(const char* operation) {
     const char* scenario = getenv(DIAGNOSTIC_IO_ENV);
     return scenario && strcmp(scenario, operation) == 0;
-}
-
-FILE* __wrap_fopen(const char* path, const char* mode) {
-    if (strcmp(path, DIAGNOSTIC_PREFIX ".partial") == 0 && fails("open"))
-        return NULL;
-    FILE* stream = __real_fopen(path, mode);
-    if (strcmp(path, DIAGNOSTIC_PREFIX ".partial") == 0)
-        report = stream;
-    return stream;
 }
 
 int __wrap_fprintf(FILE* stream, const char* format, ...) {
@@ -54,6 +46,27 @@ int __wrap_fclose(FILE* stream) {
     return failed ? -1 : result;
 }
 
-int __wrap_link(const char* source, const char* destination) {
-    return fails("rename") ? -1 : __real_link(source, destination);
+int __real_open(const char* path, int flags, ...);
+int __wrap_open(const char* path, int flags, ...) {
+    va_list arguments;
+    va_start(arguments, flags);
+    const int mode = flags & O_CREAT ? va_arg(arguments, int) : 0;
+    va_end(arguments);
+    if ((strcmp(path, DIAGNOSTIC_PREFIX ".partial") == 0 && fails("open")) ||
+        (strstr(path, ".v2.") != NULL && fails("rename"))) {
+        errno = EIO;
+        return -1;
+    }
+    const int descriptor = __real_open(path, flags, mode);
+    if (strcmp(path, DIAGNOSTIC_PREFIX ".partial") == 0)
+        report_fd = descriptor;
+    return descriptor;
+}
+
+FILE* __real_fdopen(int descriptor, const char* mode);
+FILE* __wrap_fdopen(int descriptor, const char* mode) {
+    FILE* stream = __real_fdopen(descriptor, mode);
+    if (descriptor == report_fd)
+        report = stream;
+    return stream;
 }

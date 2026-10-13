@@ -216,7 +216,7 @@ def main():
         for suffix in ('.c', '.bin'):
             vector_path = identity / f'ww05_{name}{suffix}'
             shutil.copyfile(vector_path, snapshot / vector_path.name)
-    receipt = json.dumps({'source': source, 'pins': PINS,
+    receipt = json.dumps({'source': source, 'pins': PINS, 'publication_version': 2,
         'renderer': {'vitagl': str(vitagl), 'vitagl_sha256': vitagl_sha256, 'sdk': str(renderer_sdk)},
         'dsp_init': {'bytes': len(init_code), 'sha256': INIT_UCODE_SHA256,
                       'private_header_sha256': sha256(init_header)},

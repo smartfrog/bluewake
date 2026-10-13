@@ -13,6 +13,7 @@ set(GXRUNTIME_ENABLE_AURORA OFF CACHE BOOL "" FORCE)
 set(GXRUNTIME_ENABLE_AURORA_RECOMP ON CACHE BOOL "" FORCE)
 set(BUILD_TESTING ${WW05_TESTS_ONLY} CACHE BOOL "" FORCE)
 add_subdirectory("${GXRUNTIME_DIR}" runtime)
+add_subdirectory("${BLUEWAKE_ROOT}/vita/feasibility/armv7/diagnostic" diagnostic)
 
 # VITA-WW-17: the host-facing renderer (vita/renderer). On the Vita it submits
 # through vitaGL; the tests-only host build links the same core with the NULL
@@ -55,7 +56,7 @@ target_include_directories(ww05_services PUBLIC "${CMAKE_CURRENT_SOURCE_DIR}"
     "${BLUEWAKE_ROOT}/runtime/host/src" "${BLUEWAKE_ROOT}/cmake/composite" "${ABI_DIR}"
     "${BLUEWAKE_ROOT}/apple/ios/src")
 target_include_directories(ww05_services PRIVATE "${BLUEWAKE_ROOT}/vita/feasibility/armv7")
-target_link_libraries(ww05_services PUBLIC ww13_dvd_io GXRuntime::runtime ww_renderer)
+target_link_libraries(ww05_services PUBLIC ww13_dvd_io GXRuntime::runtime ww_renderer ww_diagnostic_io)
 target_compile_definitions(ww05_services PRIVATE WW05_ENABLE_VI_CLOCK=$<BOOL:${WW05_ENABLE_VI_CLOCK}>)
 target_compile_options(ww05_services PRIVATE -O2 -ffp-contract=off -fno-fast-math -fstack-usage
     -Wall -Wextra $<$<COMPILE_LANGUAGE:C>:-Werror=implicit-function-declaration>)
@@ -147,7 +148,7 @@ if(WW05_TESTS_ONLY)
     target_link_libraries(gx_drain_probe PRIVATE ww05_services)
     target_link_options(gx_drain_probe PRIVATE -Wl,--wrap=clock_gettime -Wl,--wrap=fprintf
         -Wl,--wrap=fwrite -Wl,--wrap=fflush -Wl,--wrap=fclose
-        -Wl,--wrap=fopen -Wl,--wrap=link)
+        -Wl,--wrap=open -Wl,--wrap=fdopen -Wl,--wrap=close)
     add_executable(gpu_finish_probe gpu_finish_probe.cpp)
     target_compile_options(gpu_finish_probe PRIVATE -UNDEBUG)
     target_link_libraries(gpu_finish_probe PRIVATE ww05_services)
@@ -165,8 +166,9 @@ if(WW05_TESTS_ONLY)
     target_compile_definitions(io_probe PRIVATE WW05_IO_TEST=1)
     target_compile_options(io_probe PRIVATE -fno-builtin)
     target_link_libraries(io_probe PRIVATE ww05_services)
-    target_link_options(io_probe PRIVATE -Wl,--wrap=fopen -Wl,--wrap=fprintf -Wl,--wrap=fflush
-        -Wl,--wrap=fclose -Wl,--wrap=link -Wl,--wrap=fixture_log_close -Wl,--wrap=setvbuf)
+    target_link_options(io_probe PRIVATE -Wl,--wrap=fprintf -Wl,--wrap=fflush
+        -Wl,--wrap=fclose -Wl,--wrap=open -Wl,--wrap=fdopen -Wl,--wrap=close
+        -Wl,--wrap=fixture_log_close -Wl,--wrap=setvbuf)
 else()
     if(NOT VITA)
         message(FATAL_ERROR "The real game target is Vita-only; host execution is not authorized")

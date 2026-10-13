@@ -11,6 +11,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <fcntl.h>
 
 static BluewakeEdgeServiceFn edge;
 static void* edge_user;
@@ -366,6 +367,9 @@ void bluewake_set_edge_service(BluewakeEdgeServiceFn callback, void* user) {
 static FILE* report;
 static FILE* dispatch_trace;
 static bool dispatch_marked;
+static bool dispatch_replaced;
+static int report_fd = -1;
+static int dispatch_fd = -1;
 static bool failure(const char* name) {
     const char* selected = getenv("WW05_IO_FAILURE");
     return selected != NULL && strcmp(selected, name) == 0;
@@ -376,23 +380,51 @@ int __wrap_setvbuf(FILE* stream, char* buffer, int mode, size_t size) {
     return stream == stderr && failure("stderr-buffer") ? -1 : __real_setvbuf(stream, buffer, mode, size);
 }
 
-FILE* __real_fopen(const char* path, const char* mode);
-FILE* __wrap_fopen(const char* path, const char* mode) {
-    if (strcmp(path, "ww05.dispatch") == 0 && failure("dispatch-open")) {
+int __real_open(const char* path, int flags, ...);
+int __wrap_open(const char* path, int flags, ...) {
+    va_list arguments;
+    va_start(arguments, flags);
+    const int mode = flags & O_CREAT ? va_arg(arguments, int) : 0;
+    va_end(arguments);
+    if ((strcmp(path, "ww05.dispatch") == 0 && failure("dispatch-open")) ||
+        (strstr(path, ".v2.") != NULL && failure("rename"))) {
         errno = EIO;
-        return NULL;
+        return -1;
     }
-    FILE* stream = __real_fopen(path, mode);
+    const int descriptor = __real_open(path, flags, mode);
     if (strcmp(path, "ww05.partial") == 0)
-        report = stream;
+        report_fd = descriptor;
     if (strcmp(path, "ww05.dispatch") == 0)
+        dispatch_fd = descriptor;
+    return descriptor;
+}
+
+FILE* __real_fdopen(int descriptor, const char* mode);
+FILE* __wrap_fdopen(int descriptor, const char* mode) {
+    FILE* stream = __real_fdopen(descriptor, mode);
+    if (descriptor == report_fd)
+        report = stream;
+    if (descriptor == dispatch_fd) {
         dispatch_trace = stream;
-    if (strcmp(path, "ww05.dispatch") == 0 && stream != NULL)
-        dispatch_marked = true;
+        dispatch_marked = stream != NULL;
+    }
     return stream;
 }
 
+int __real_close(int descriptor);
+int __wrap_close(int descriptor) {
+    return __real_close(descriptor);
+}
+
 int __wrap_fprintf(FILE* stream, const char* format, ...) {
+    if (stream == stderr && dispatch_marked && !dispatch_replaced && failure("dispatch-substitute") &&
+        strncmp(format, "[dispatch] stage=enter", 22u) == 0) {
+        dispatch_replaced = true;
+        assert(rename("ww05.dispatch", "written.dispatch") == 0);
+        FILE* replacement = fopen("ww05.dispatch", "wx");
+        assert(replacement != NULL && fputs("replacement", replacement) >= 0);
+        assert(fclose(replacement) == 0);
+    }
     if (stream == stderr &&
         ((strncmp(format, "[exception]", 11u) == 0 && failure("external-state-log")) ||
          (strncmp(format, "[exception-vector]", 18u) == 0 && failure("external-vector-log")) ||
@@ -439,15 +471,6 @@ int __wrap_fclose(FILE* stream) {
         dispatch_trace = NULL;
     int result = __real_fclose(stream);
     return fail ? EOF : result;
-}
-
-int __real_link(const char* from, const char* to);
-int __wrap_link(const char* from, const char* to) {
-    if (failure("rename")) {
-        errno = EIO;
-        return -1;
-    }
-    return __real_link(from, to);
 }
 
 int __real_fixture_log_close(void);

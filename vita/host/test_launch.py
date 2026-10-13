@@ -66,6 +66,7 @@ class PrivateLaunchTest(unittest.TestCase):
                 archive.writestr(name, b'synthetic ' + name.encode())
         args = SimpleNamespace(timeout=2, libraries=None, wayland_socket=None)
         self.plan = make_plan(self.root, args, 'a' * 40, sha256(package), 'c' * 32)
+        self.plan['publication_version'] = 1
         self.plan['private_config'] = config_identity(self.root)
         for entry in self.plan['phases'].values():
             phase = Path(entry['evidence_root'])
@@ -247,19 +248,65 @@ class PrivateLaunchTest(unittest.TestCase):
         self.assertEqual(result['install_process']['stop_reason'], 'installed_payload')
         self.assertLess(result['install_process']['duration_seconds'], 3)
 
-    def successful_fake(self, ending=''):
+    def successful_fake(self, ending='', publication=1, sealed=True):
         from test_report import ReportTest
         oracle = ReportTest()
         oracle.setUp()
         body = oracle.content.split('\n', 1)[1]
+        self.plan['publication_version'] = publication
+        if publication == 2:
+            completion = (f"content=(header+{body!r}).encode()\n"
+                          "with (directory/'ww05.partial').open('xb') as stream: stream.write(content)\n")
+            if sealed:
+                completion += ("import hashlib\n"
+                               "seal=f'ww05.report.v2.{token}.{hashlib.sha256(content).hexdigest()}.{len(content)}.seal'\n"
+                               "with (directory/seal).open('xb'): pass\n")
+        else:
+            completion = f"(directory/'ww05.report').write_text(header+{body!r})\n"
+        capability = ' publication=2' if publication == 2 else ''
         self.fake("app=root/'data/Vita3K/Vita3K/ux0/app/BWWG00005'\napp.mkdir(parents=True)\n"
                   "assert not list(root.rglob('ww05.request'))\n"
                   "with zipfile.ZipFile('ww05.vpk') as archive: archive.extractall(app)\n",
                   "assert sys.argv[1:]==['--backend-renderer','OpenGL','--installed-path','BWWG00005']\n"
                   "directory=root/'data/Vita3K/Vita3K/ux0/data/bluewake-ww-fixture'\n"
                   "token,source,package=(directory/'ww05.request').read_text().split()\n"
-                  "header=f'WW05 {token} {source} {package} method=startup-gx-v1 phase=guest platform=VITA\\n'\n"
-                  f"(directory/'ww05.report').write_text(header+{body!r})\n" + ending)
+                   f"header=f'WW05 {{token}} {{source}} {{package}} method=startup-gx-v1 phase=guest platform=VITA{capability}\\n'\n"
+                   + completion + ending)
+
+    def test_v2_launcher_certifies_candidate_bytes_without_relabeling_history(self):
+        self.successful_fake(publication=2)
+        status, result = self.run_fake()
+        self.assertEqual(status, 0, result.get('error'))
+        self.assertTrue(result['byte_binding_verified'])
+        self.assertEqual(result['publication_version'], 2)
+        self.assertTrue(result['report_path'].endswith('/ww05.partial'))
+        self.assertTrue(result['process_success'])
+        self.assertIsNone(result['producer_success'])
+
+    def test_v2_launcher_never_falls_back_to_an_unsealed_v1_report(self):
+        self.successful_fake()
+        self.plan['publication_version'] = 2
+        status, result = self.run_fake()
+        self.assertEqual(status, 2)
+        self.assertIn('seal is absent', result['error'])
+        self.assertFalse(result['frontier_verified'])
+
+    def test_v2_stopped_before_completion_retains_uncertified_candidate(self):
+        from fp_launch import REPORT_DIRECTORY
+        self.successful_fake('time.sleep(10)', publication=2, sealed=False)
+        self.plan['phases']['guest']['timeout_seconds'] = 0.2
+        status, result = self.run_fake()
+        self.assertEqual(status, 124, result.get('error'))
+        self.assertEqual(result['completion'], 'INCOMPLETE')
+        self.assertFalse(result['frontier_verified'])
+        self.assertTrue((self.root / REPORT_DIRECTORY / 'ww05.partial').exists())
+
+    def test_v2_byte_completion_does_not_turn_nonzero_disposition_into_success(self):
+        self.successful_fake('sys.exit(1)', publication=2)
+        status, result = self.run_fake()
+        self.assertEqual(status, 1, result.get('error'))
+        self.assertTrue(result['byte_binding_verified'])
+        self.assertFalse(result['process_success'])
 
     def test_verified_installation_precedes_fresh_guest_request(self):
         self.successful_fake()
@@ -383,6 +430,30 @@ class PrivateLaunchTest(unittest.TestCase):
             launch.fresh_request(self.root, 'a' * 40, 'b' * 64, 2048, 2)
         self.assertEqual(snapshot.read_bytes(), b'preserve private evidence')
         self.assertFalse((directory / 'ww05.request').exists())
+
+    def test_preexisting_v2_seal_prevents_a_fresh_request_without_deleting_it(self):
+        from launch import fresh_request
+        from fp_launch import REPORT_DIRECTORY
+        directory = self.root / REPORT_DIRECTORY
+        directory.mkdir(parents=True)
+        seal = directory / f'ww05.report.v2.{"c" * 32}.{"d" * 64}.3.seal'
+        seal.write_bytes(b'')
+        with self.assertRaisesRegex(ValueError, 'preexisting WW05'):
+            fresh_request(self.root, 'a' * 40, 'b' * 64)
+        self.assertEqual(seal.read_bytes(), b'')
+        self.assertFalse((directory / 'ww05.request').exists())
+
+    def test_plan_cannot_override_the_selected_build_publication_capability(self):
+        import launch
+        receipt = {'publication_version': 2}
+        self.plan.update(build_evidence=receipt, build_evidence_sha256='d' * 64)
+        with patch('subprocess.check_output', side_effect=['a' * 40 + '\n', '']), \
+             patch.object(launch, 'checked_sources'), \
+             patch.object(launch, 'sha256', return_value='d' * 64), \
+             patch.object(launch, 'checked_build_receipt', return_value=receipt), \
+             patch.object(launch, 'verify_package', side_effect=AssertionError('capability must be checked first')):
+            with self.assertRaisesRegex(ValueError, 'publication capability'):
+                launch.verify_inputs(self.root, self.plan)
 
     def test_optional_disc_is_read_only_inside_the_guest_sandbox_and_never_modified(self):
         from stage_plan import make_plan, sha256
