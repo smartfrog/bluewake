@@ -190,6 +190,8 @@ def render_candidate(candidate, output, build, code_revision, known_logo=None):
                 entry['new_visual_content'] = entry['visual']['classification'] == 'new-content-candidate'
                 entry['event'] = ('gallery-new-content' if entry['new_visual_content'] else
                                   'gallery-known-logo' if entry['nonblack'] else 'gallery-added')
+        if manifest['verdict'] == 'image-readback-blocked':
+            entry['event'] = 'gallery-failed'
     except (OSError, ValueError, subprocess.CalledProcessError) as error:
         entry.update(event='gallery-failed', verdict='image-unavailable', image=None,
                      nonblack=False, new_visual_content=False, error=str(error))

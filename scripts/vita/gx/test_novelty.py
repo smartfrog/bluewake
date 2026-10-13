@@ -1,6 +1,21 @@
+from pathlib import Path
+import struct
+import tempfile
 import unittest
+import zlib
 
 import gallery
+
+
+def write_rgba_png(path, width, height, pixels):
+    def chunk(kind, data):
+        return (struct.pack('>I', len(data)) + kind + data +
+                struct.pack('>I', zlib.crc32(kind + data) & 0xFFFFFFFF))
+
+    rows = b''.join(b'\0' + pixels[y * width * 4:(y + 1) * width * 4] for y in range(height))
+    header = struct.pack('>IIBBBBB', width, height, 8, 6, 0, 0, 0)
+    path.write_bytes(b'\x89PNG\r\n\x1a\n' + chunk(b'IHDR', header) +
+                     chunk(b'IDAT', zlib.compress(rows)) + chunk(b'IEND', b''))
 
 
 class NoveltyTests(unittest.TestCase):
@@ -14,6 +29,16 @@ class NoveltyTests(unittest.TestCase):
                        3, 0, 0, 255, 0, 0, 0, 255])
         result = gallery.novelty.classify_pixels(2, 2, frame, self.reference())
         self.assertEqual(result['classification'], 'logo-compatible')
+
+    def test_real_png_logo_load_and_frame_classification(self):
+        with tempfile.TemporaryDirectory(dir='/tmp/opencode') as directory:
+            path = Path(directory) / 'logo.png'
+            write_rgba_png(path, 2, 1, bytes([0, 0, 0, 255, 220, 0, 0, 255]))
+            self.assertEqual(gallery.image.png_metadata(path)['distinct_rgba'], 2)
+            reference = gallery.novelty.load_logo(path)
+            result = gallery.novelty.classify_frame(path, reference['sha256'], reference)
+        self.assertEqual(result['classification'], 'logo-compatible')
+        self.assertEqual(result['reference_sha256'], reference['sha256'])
 
     def test_black_frame_is_not_new_content(self):
         result = gallery.novelty.classify_pixels(2, 2, bytes(16), self.reference())
