@@ -5,6 +5,10 @@ import os
 from pathlib import Path
 import shutil
 import stat
+import sys
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+from gx.capture_profile import surface_sync_config
 
 from fp_libraries import directory_fd, library_identity
 
@@ -77,20 +81,39 @@ def verify_config_log(root, limit=1024 * 1024):
         raise ValueError("runtime reported configuration parse failure; see evidence/process.log")
 
 
-def config_identity(root, alt=False):
-    content = checked_alt_config(root / CONFIG_PATH) if alt else checked_config(root / CONFIG_PATH)
+def profile_config(alt=False, surface_sync=False):
+    content = checked_config(CONFIG_TEMPLATE)
+    if alt:
+        content = alt_config(content)
+    return surface_sync_config(content.decode()).encode() if surface_sync else content
+
+
+def checked_surface_config(path, alt=False):
+    expected = profile_config(alt=alt, surface_sync=True)
+    content = read_profile_file(path, len(expected), owned=True)
+    if content != expected:
+        raise ValueError('configuration differs from the approved surface-writeback capture schema')
+    return content
+
+
+def config_identity(root, alt=False, surface_sync=False):
+    content = checked_surface_config(root / CONFIG_PATH, alt) if surface_sync else (
+        checked_alt_config(root / CONFIG_PATH) if alt else checked_config(root / CONFIG_PATH))
     identity = {"path": str(CONFIG_PATH), "bytes": len(content),
-                "sha256": CONFIG_ALT_SHA256 if alt else CONFIG_SHA256,
+                "sha256": hashlib.sha256(content).hexdigest(),
                 "template": CONFIG_TEMPLATE.name, "source_record": SOURCE_CONFIG_RECORD,
                 "source_sha256": SOURCE_CONFIG_SHA256, "sanitization": CONFIG_CHANGES}
     if alt:
         identity["cpu_opt_off"] = {"baseline_sha256": CONFIG_SHA256, "alternate_sha256": CONFIG_ALT_SHA256,
-                                   "change": "cpu-opt: true -> cpu-opt: false"}
+                                    "change": "cpu-opt: true -> cpu-opt: false"}
+    if surface_sync:
+        identity.update(surface_sync=True, capture_change='disable-surface-sync: true -> false',
+                        baseline_sha256=CONFIG_ALT_SHA256 if alt else CONFIG_SHA256)
     return identity
 
 
-def stage_firmware(root, source, alt=False):
-    config = alt_config(checked_config(CONFIG_TEMPLATE)) if alt else checked_config(CONFIG_TEMPLATE)
+def stage_firmware(root, source, alt=False, surface_sync=False):
+    config = profile_config(alt=alt, surface_sync=surface_sync)
     sources = {name: library_identity(source / name, allow_symlinks=False) for name in ("vs0", "sa0")}
     for name, identity in sources.items():
         if not any(entry["type"] == "file" for entry in identity["entries"].values()):

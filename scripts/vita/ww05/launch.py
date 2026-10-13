@@ -22,6 +22,7 @@ from fp_libraries import directory_fd, file_identity, library_identity
 from fp_profile import config_identity, read_profile_file, verify_firmware
 from activity import ProcessIdleObserver
 from memory_capture import MAX_CAPTURES, publish_replay_manifests, snapshot_outputs, validate_memory_captures, verify_snapshots
+from frame_capture import collect_frames, frame_outputs
 
 PHASE_LOG_LIMIT = 64 * 1024 * 1024
 
@@ -103,7 +104,7 @@ def fresh_request(root, source, package, continue_gx=0, mem1_snapshots=0):
         if os.fstat(parent).st_uid != os.getuid():
             raise ValueError('report directory must be privately owned')
         existing = set(os.listdir(parent))
-        if (existing & {'ww05' + suffix for suffix in ('.request', '.partial', '.report', '.log', '.dispatch', '.continue', '.mem1')} or
+        if ('frames' in existing or existing & {'ww05' + suffix for suffix in ('.request', '.partial', '.report', '.log', '.dispatch', '.continue', '.mem1')} or
             any(name.startswith('ww05.mem1-') for name in existing)):
             raise ValueError('preexisting WW05 request/output; refusing to delete or reuse it')
         descriptor = os.open('ww05.request', os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW | os.O_CLOEXEC,
@@ -117,6 +118,10 @@ def fresh_request(root, source, package, continue_gx=0, mem1_snapshots=0):
         with os.fdopen(descriptor, 'w') as stream:
             stream.write(f'{token} {source} {package} {continue_gx}\n')
     if mem1_snapshots:
+        with directory_fd(root / 'evidence') as parent:
+            os.mkdir('frames', mode=0o700, dir_fd=parent)
+        with directory_fd(directory) as parent:
+            os.mkdir('frames', mode=0o700, dir_fd=parent)
         with directory_fd(directory) as parent:
             descriptor = os.open('ww05.mem1', os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW | os.O_CLOEXEC,
                                  0o600, dir_fd=parent)
@@ -130,6 +135,7 @@ def activity_observer(root, plan, phase, extra_outputs=()):
                *(root / REPORT_DIRECTORY / ('ww05' + suffix)
                   for suffix in ('.log', '.partial', '.report', '.dispatch')),
                *snapshot_outputs(root / REPORT_DIRECTORY),
+               *frame_outputs(root / 'evidence/frames'),
                *extra_outputs)
     return ProcessIdleObserver(plan.get('idle_timeout_seconds', 30), plan.get('cpu_threshold', 0.05), outputs)
 
@@ -168,7 +174,8 @@ def execute_run(root, plan):
         stream.write('\n')
     try:
         verify_inputs(root, plan)
-        if config_identity(root) != plan['private_config']:
+        surface_sync = bool(plan.get('mem1_snapshots', 0))
+        if config_identity(root, surface_sync=surface_sync) != plan['private_config']:
             raise ValueError('private configuration changed before installation')
         install = plan['phases']['install']
         phase = Path(install['evidence_root'])
@@ -185,11 +192,11 @@ def execute_run(root, plan):
                 (status == 124 and process['stop_reason'] == 'timeout' and
                  process['exit'] in (0, -signal.SIGTERM, -signal.SIGKILL))):
             raise ValueError('unexpected installer disposition')
-        canonical = emitted_config(root, phase)
+        canonical = emitted_config(root, phase, surface_sync=surface_sync)
         verify_phase_logs(root, phase, PHASE_LOG_LIMIT)
         verify_inputs(root, plan)
         payload = verify_installed(root, plan)
-        restore_config(root, canonical)
+        restore_config(root, canonical, surface_sync=surface_sync)
         token = fresh_request(root, plan['source'], plan['vpk_sha256'], plan.get('continue_gx', 0),
                               plan.get('mem1_snapshots', 0))
         with evidence_file(phase, 'preparation.json') as stream:
@@ -208,11 +215,11 @@ def execute_run(root, plan):
         print(f"STOP phase=guest reason={process['stop_reason']} seconds={process['duration_seconds']:.2f}", flush=True)
         record.update(process_status=status, process=process)
         verify_stopped(process)
-        canonical = emitted_config(root, phase)
+        canonical = emitted_config(root, phase, surface_sync=surface_sync)
         verify_phase_logs(root, phase, PHASE_LOG_LIMIT)
         verify_inputs(root, plan)
         verify_installed(root, plan)
-        restore_config(root, canonical)
+        restore_config(root, canonical, surface_sync=surface_sync)
         content = read_profile_file(root / REPORT_DIRECTORY / 'ww05.report', 65536, owned=True)
         text = content.decode('utf-8')
         verdict = validate(text, token, plan['source'], plan['vpk_sha256'], plan.get('continue_gx', 0))
@@ -230,6 +237,13 @@ def execute_run(root, plan):
             json.dump(manifest, stream, indent=2)
             stream.write('\n')
         record.update(memory_captures_verified=manifest['captured'])
+        images = collect_frames(root / 'evidence/frames', root / 'evidence/frames',
+                                enabled=surface_sync, presented=int(presented), token=token,
+                                source=plan['source'], package=plan['vpk_sha256'])
+        with evidence_file(root, 'live-images.json') as stream:
+            json.dump(images, stream, indent=2)
+            stream.write('\n')
+        record.update(frame_captures_verified=images['captures'])
         record.update(reported_frontier=verdict, frontier_verified=verdict == 'PASS',
                       report_sha256=hashlib.sha256(content).hexdigest(), report_path=str(REPORT_DIRECTORY / 'ww05.report'),
                        completion='COMPLETE' if process['stop_reason'] == 'exit' else 'INCOMPLETE',

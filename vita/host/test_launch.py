@@ -263,6 +263,8 @@ class PrivateLaunchTest(unittest.TestCase):
         token = launch.fresh_request(self.root, 'a' * 40, 'b' * 64, 2048, 2)
         directory = self.root / REPORT_DIRECTORY
         self.assertEqual((directory / 'ww05.mem1').read_text(), f'{token} {"a" * 40} {"b" * 64} 2\n')
+        self.assertTrue((self.root / 'evidence/frames').is_dir())
+        self.assertTrue((directory / 'frames').is_dir())
 
     def test_preexisting_memory_capture_is_preserved_before_creating_any_new_request(self):
         import launch

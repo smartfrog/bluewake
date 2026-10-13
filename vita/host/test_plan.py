@@ -77,8 +77,12 @@ class PlanTest(unittest.TestCase):
         args = SimpleNamespace(libraries=None, wayland_socket=None, timeout=120, continue_gx=2048, mem1_snapshots=2)
         plan = stage_plan.make_plan(Path('/unused'), args, 'a' * 40, 'b' * 64, 'c' * 32)
         self.assertEqual(plan['mem1_snapshots'], 2)
+        self.assertTrue(plan['live_frame_capture'])
+        self.assertIn('/unused/evidence/frames', plan['phases']['guest']['command'])
+        self.assertNotIn('/unused/evidence/frames', plan['phases']['install']['command'])
         args.mem1_snapshots = 0
         self.assertEqual(stage_plan.make_plan(Path('/unused'), args, 'a' * 40, 'b' * 64, 'c' * 32)['mem1_snapshots'], 0)
+        self.assertNotIn('/unused/evidence/frames', stage_plan.make_plan(Path('/unused'), args, 'a' * 40, 'b' * 64, 'c' * 32)['phases']['guest']['command'])
 
     def test_optional_disc_is_bound_read_only_at_the_existing_ww13_install_path(self):
         import stage_plan

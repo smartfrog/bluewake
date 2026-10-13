@@ -102,6 +102,7 @@ typedef struct WwHost {
     bool gpu_finish_committed;
     u64 gpu_finish_index;
     WwFrameTiming frame_timing;
+    WwFrameStamp frame_capture;
     WwMem1Capture mem1_capture;
 } WwHost;
 
@@ -137,6 +138,7 @@ const char* ww_host_finish_gpu(WwHost* host);
 const char* ww_host_frame_present(WwHost* host, u64 presented);
 const char* ww_host_frame_retrace(WwHost* host);
 const char* ww_host_capture_mem1(WwHost* host);
+const char* ww_host_enable_frame_capture(WwHost* host);
 const char* ww_gx_stream_write(WwHost* host, u8 byte, const WwFifoOrigin* origin, u32 trailing);
 
 #endif

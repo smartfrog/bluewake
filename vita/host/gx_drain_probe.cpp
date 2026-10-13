@@ -21,7 +21,8 @@ extern "C" int __real_fclose(FILE* stream);
 extern "C" int __real_rename(const char* source, const char* destination);
 
 extern "C" size_t __wrap_fwrite(const void* data, size_t size, size_t count, FILE* stream) {
-    if (capture_scenario != nullptr && std::strcmp(capture_scenario, "capture-write-failure") == 0) {
+    if (capture_scenario != nullptr && (std::strcmp(capture_scenario, "capture-write-failure") == 0 ||
+                                       std::strcmp(capture_scenario, "image-png-write-failure") == 0)) {
         errno = ENOSPC;
         return 0u;
     }
@@ -111,11 +112,25 @@ public:
         ++presents;
         return nullptr;
     }
+    const char* readback(WwRendererFramePixels& frame) override {
+        ++readbacks;
+        if (fail_readback)
+            return "synthetic live readback failed";
+        frame.width = 2u;
+        frame.height = 2u;
+        frame.rgba = {10, 20, 30, 0, 40, 50, 60, 128, 70, 80, 90, 255, 100, 110, 120, 0};
+        if (invalid_readback)
+            frame.rgba.pop_back();
+        return nullptr;
+    }
     void shutdown() override {}
     u32 draws = 0u;
     u32 presents = 0u;
     bool fail_draw = false;
     bool fail_present = false;
+    bool fail_readback = false;
+    bool invalid_readback = false;
+    u32 readbacks = 0u;
 };
 
 static const char* feed(WwHost* host, const u8* bytes, u32 size) {
@@ -134,8 +149,9 @@ int main(int argc, char** argv) {
     const bool markers = std::strncmp(scenario, "marker-", 7u) == 0;
     marker_scenario = markers ? scenario : nullptr;
     const bool captures = std::strncmp(scenario, "capture-", 8u) == 0;
+    const bool images = std::strncmp(scenario, "image-", 6u) == 0;
     const bool capture_success = std::strcmp(scenario, "capture-one") == 0 || std::strcmp(scenario, "capture-two") == 0;
-    capture_scenario = captures ? scenario : nullptr;
+    capture_scenario = captures || images ? scenario : nullptr;
     WwHost* host = static_cast<WwHost*>(std::calloc(1u, sizeof(*host)));
     assert(host != nullptr && ww_host_init(host));
     gx_fixture::FixtureContext fixture;
@@ -144,7 +160,10 @@ int main(int argc, char** argv) {
     RecordingDrainBackend backend;
     backend.fail_draw = std::strcmp(scenario, "draw-failure") == 0;
     backend.fail_present = std::strcmp(scenario, "present-failure") == 0 ||
-                           std::strcmp(scenario, "marker-failed-present") == 0;
+                           std::strcmp(scenario, "marker-failed-present") == 0 ||
+                           std::strcmp(scenario, "image-failed-present") == 0;
+    backend.fail_readback = std::strcmp(scenario, "image-readback-failure") == 0;
+    backend.invalid_readback = std::strcmp(scenario, "image-invalid-readback") == 0;
     if (std::strcmp(scenario, "no-renderer") != 0) {
         const WwRendererConfig config = {.memory = &host->memory, .cpu = &host->cpu};
         assert(ww_renderer_create(&host->renderer, &config, &backend) == nullptr);
@@ -186,7 +205,43 @@ int main(int argc, char** argv) {
             assert(stats.fifo_bytes == fifo.size() + 300000u && stats.events > DOL_GX_RECOMP_MAX_TRACE_EVENTS);
             assert(host->stream.logged == 64u && host->gx.trace_count == 0u && host->gx.fifo.size == 0u);
         }
-        if (capture_success) {
+        if (images) {
+            if (std::strcmp(scenario, "image-off") != 0) {
+                host->mem1_capture = {.limit = 2u, .captured = 2u,
+                    .token = "cccccccccccccccccccccccccccccccc",
+                    .source = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+                    .package = "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"};
+            }
+            const char* enabled = ww_host_enable_frame_capture(host);
+            if (std::strcmp(scenario, "image-preexisting") == 0) {
+                assert(enabled != nullptr && backend.readbacks == 0u && backend.presents == 0u);
+                ww_host_shutdown(host);
+                std::free(state);
+                std::free(host);
+                return 0;
+            }
+            assert(enabled == nullptr);
+            assert(backend.readbacks == 0u);
+            for (u32 frame = 1u; frame <= 2u; ++frame) {
+                if (frame == 2u) {
+                    std::vector<u8> draw;
+                    gx_fixture::push_triangle(draw);
+                    assert(feed(host, draw.data(), draw.size()) == nullptr);
+                }
+                const u8 display_copy[] = {0x61u, 0x52u, 0u, 0x40u, 0u};
+                error = feed(host, display_copy, sizeof(display_copy));
+                if (backend.fail_present) {
+                    assert(error != nullptr && backend.presents == 0u && backend.readbacks == 0u);
+                    break;
+                }
+                if (backend.fail_readback || backend.invalid_readback || std::strcmp(scenario, "image-png-write-failure") == 0) {
+                    assert(error != nullptr && backend.presents == 1u && backend.readbacks == 1u);
+                    break;
+                }
+                assert(error == nullptr && backend.presents == frame);
+                assert(backend.readbacks == (std::strcmp(scenario, "image-off") == 0 ? 0u : frame));
+            }
+        } else if (capture_success) {
             assert(host->mem1_capture.captured == 1u && host->cpu.ram[gx_fixture::kTextureBase] != 0x55u);
             host->cpu.ram[gx_fixture::kTextureBase] = 0x55u;
             std::vector<u8> draw;
@@ -242,7 +297,7 @@ int main(int argc, char** argv) {
         assert(std::memcmp(&frontier, &host->frontier, sizeof(frontier)) == 0);
         std::free(state);
     }
-    assert(host->cycles.absolute_cycles == 0u && host->cpu.pc == 0u && (backend.presents == 0u || markers));
+    assert(host->cycles.absolute_cycles == 0u && host->cpu.pc == 0u && (backend.presents == 0u || markers || images));
     if (std::strcmp(scenario, "capture-bad-ram") == 0)
         ++host->cpu.ram_size;
     ww_host_shutdown(host);

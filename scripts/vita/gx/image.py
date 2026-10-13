@@ -2,7 +2,6 @@
 """Render a private captured GX fixture through vitaGL and retain a visible PNG."""
 
 import argparse
-from collections import Counter
 import html
 import json
 import os
@@ -15,11 +14,10 @@ import build as gx_build
 import extract
 import launch
 import memory_snapshot
+from image_metadata import png_metadata, verify_display_rgb
 
 ROOT = Path(__file__).resolve().parents[3]
 DEFAULT_BUILD = ROOT / 'build-f6/ww18'
-sys.path.insert(0, str(ROOT / 'vita/feasibility/gx'))
-from test_png_capture import parse_png
 
 
 def validate_fixture(directory, metadata):
@@ -66,18 +64,6 @@ def run_replay(fixture, build):
     return dict(ok=result.returncode == 0 and launched['ok'], report=report, capture=capture, raw_capture=raw_capture,
                 evidence=json.loads((evidence / 'result.json').read_text()), run_directory=str(root),
                 surface_sync_config_sha256=launch.sha256(root / 'config/Vita3K/config.yml'))
-
-
-def png_metadata(path):
-    width, height, depth, color, pixels = parse_png(path)
-    if (depth, color) != (8, 6) or len(pixels) != width * height * 4:
-        raise ValueError('capture is not complete RGBA8 PNG data')
-    colors = Counter(pixels[n:n + 4] for n in range(0, len(pixels), 4))
-    return dict(path=path.name, sha256=launch.sha256(path), width=width, height=height,
-                row_order='top-first', distinct_rgba=len(colors),
-                alpha_nonzero=sum(count for rgba, count in colors.items() if rgba[3]),
-                most_common=[dict(rgba=list(rgba), pixels=count) for rgba, count in colors.most_common(8)],
-                pixel_status='uniform-readback' if len(colors) == 1 else 'nonuniform-readback')
 
 
 def write_manifest(output, manifest):
@@ -127,11 +113,7 @@ def render_fixture(fixture, metadata, output, build):
             if result.get('raw_capture') is not None:
                 shutil.copyfile(result['raw_capture'], output / 'capture-rgba.png')
                 manifest['raw_image'] = png_metadata(output / 'capture-rgba.png')
-                raw_pixels = parse_png(output / 'capture-rgba.png')[-1]
-                display_pixels = parse_png(output / 'capture.png')[-1]
-                if len(raw_pixels) != len(display_pixels) or any(raw_pixels[channel::4] != display_pixels[channel::4]
-                                                               for channel in range(3)):
-                    raise ValueError('display PNG RGB differs from raw readback')
+                verify_display_rgb(output / 'capture-rgba.png', output / 'capture.png')
                 manifest['image']['pixel_transform'] = 'display alpha=255; every RGB byte equals raw readback'
             captures = [line for line in result['report'].splitlines() if line.startswith('capture written ')]
             manifest['capture_point'] = captures[-1] if captures else 'not-reported'

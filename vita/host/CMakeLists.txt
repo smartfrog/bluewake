@@ -22,7 +22,10 @@ set(WW17_RENDERER_SOURCES
     "${WW17_RENDERER_DIR}/ww_renderer.cpp"
     "${WW17_RENDERER_DIR}/gx_bridge.cpp"
     "${WW17_RENDERER_DIR}/gx_vita.cpp"
-    "${WW17_RENDERER_DIR}/gx_cg.cpp")
+    "${WW17_RENDERER_DIR}/gx_cg.cpp"
+    "${WW17_RENDERER_DIR}/gx_frame_capture.cpp"
+    "${BLUEWAKE_ROOT}/vita/feasibility/gx/png_capture.c")
+set_source_files_properties("${BLUEWAKE_ROOT}/vita/feasibility/gx/png_capture.c" PROPERTIES LANGUAGE CXX)
 if(VITA)
     list(APPEND WW17_RENDERER_SOURCES "${WW17_RENDERER_DIR}/vita_gl_backend.cpp")
 endif()
@@ -37,7 +40,7 @@ target_compile_options(gxruntime PRIVATE -ffp-contract=off -fno-fast-math -fstac
 
 add_library(ww05_services STATIC boot_host.c gx_checkpoint.c gx_stream.c fifo_gather.c fifo_consumer.c
     code_guard.c dsp_interface.c bat_contract.c disc_service.c rel_provider.c rel_service.c rel_link.c
-    scheduler_observation.c vi_clock.c gx_draw_observation.c gpu_finish.c frame_timing.c mem1_capture.c
+    scheduler_observation.c vi_clock.c gx_draw_observation.c gpu_finish.c frame_timing.c mem1_capture.c frame_capture.cpp
     $<TARGET_OBJECTS:ww13_dvd_pin>
     "${BLUEWAKE_ROOT}/runtime/host/src/cycle_domain.c"
     "${BLUEWAKE_ROOT}/runtime/host/src/aram_dma.c"
@@ -54,7 +57,7 @@ target_include_directories(ww05_services PRIVATE "${BLUEWAKE_ROOT}/vita/feasibil
 target_link_libraries(ww05_services PUBLIC ww13_dvd_io GXRuntime::runtime ww_renderer)
 target_compile_definitions(ww05_services PRIVATE WW05_ENABLE_VI_CLOCK=$<BOOL:${WW05_ENABLE_VI_CLOCK}>)
 target_compile_options(ww05_services PRIVATE -O2 -ffp-contract=off -fno-fast-math -fstack-usage
-    -Wall -Wextra -Werror=implicit-function-declaration)
+    -Wall -Wextra $<$<COMPILE_LANGUAGE:C>:-Werror=implicit-function-declaration>)
 
 if(WW05_TESTS_ONLY)
     enable_testing()

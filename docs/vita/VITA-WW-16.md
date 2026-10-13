@@ -1511,3 +1511,68 @@ next-frame drawing, never a post-run fabricated preview. Retain raw RGBA and
 the declared display-alpha PNG in the run's private evidence. No-dump FPS
 profiles must remain unchanged. The coordinator owns the trunk integration;
 its staged/conflicted work is not edited or overwritten from this lane.
+
+## Unit 42: enable actual live PNG capture for every MEM1 evidence profile
+
+Reused lane 18's committed snapshot loader **c25ed79 → 082a4cf** and live-image
+hook/encoder **161ebfd → b7447cd**, preserving their human authorship. Only those
+delivery dependencies are imported; unrelated indirect/emboss/LOD parent-context
+work is not pulled into this host unit. Conflict resolution retains all existing
+WW16 GPU-finish methods/tests and draw coverage alongside the additive readback
+method and five renderer capture contracts. Four renderer suites pass
+(`logs/ww16-live-hook-import-renderer.log`); snapshot/image Python tests pass.
+No edits are made to the coordinator's trunk worktree or its staged merge.
+
+**Every `--mem1-snapshots 1|2` run now enables the delivered
+ww_renderer_set_frame_capture hook**. No-dump runs leave it off. A real backend
+swap must succeed first; the hook reads the actual shown front buffer before
+held next-frame commands resume. The host reuses **gx_capture::write_png** and
+the existing WW02 encoder: **`frame-N-rgba.png`** preserves actual readback RGBA,
+flipped only to top-first rows; **`frame-N.png`** is the declared display view
+with alpha 255 and every RGB byte unchanged. No fallback, CPU rasterization,
+preview swap, fake command or inferred pixel is added.
+
+The isolated guest maps only the new private **`evidence/frames`** directory
+writable at its fixture frame path. Thus the renderer callback writes PNGs
+**directly into the run's evidence while the guest lives**, not via post-run
+replay. The installer does not receive that writable mount. Existing frame
+evidence blocks a fresh request; the renderer accepts only a new/empty real
+directory and never overwrites an existing PNG or metadata file. Each frame
+keeps its own raw/display PNG pair and **`frame-N.json`**, binding actual
+presentation/draw/command counts, token/source/package, real wall microseconds,
+executed cycles and preceding MEM1 captures to the exact capture boundary.
+Partial files remain evidence on failed PNG/metadata publication.
+
+Capture profiles also enable **disable-surface-sync: false**, sourced by lane
+18 from Vita3K's surface-writeback path. The existing approved-profile and
+installer restoration checks now accept only that explicitly requested single
+setting change; the neutral/no-dump schema and its original hash are unchanged.
+An installer user-id rewrite cannot silently turn writeback off. The replay and
+live paths share that setting helper, PNG parser, image statistics and declared
+RGB-preserving display-alpha validation; no second encoder or image dependency.
+
+The profile is diagnostic and bounded: **128 real presentations maximum**, each
+at most the **960×544 pixel extent**; exhausting the capture bound is an explicit
+STOP, not a silent missing-image success. This does not cap ordinary no-dump
+continuations. The watchdog counts these process-written PNG/partial/metadata
+files as output activity, never its own monitoring files. After the process is
+reaped, the harness verifies identity/counts/times, PNG CRC/data/dimensions,
+raw/display RGB equality and opaque display alpha, and writes hashes/pixel
+statistics to **`evidence/live-images.json`** without rewriting the PNGs. A uniform
+image is reported uniform, never assumed to show a logo or gameplay. Capture
+profiles explicitly cannot replace the no-dump FPS baseline.
+
+Linux AArch64: **647 host tests**, **83 FP launcher**, **51 GX snapshot/image**
+and **27 WW12** tests pass. Ten live-host scenarios cover actual two-frame PNG
+output/orientation/alpha, off-by-default, backend/readback/invalid-data failure,
+preserved preexisting files, unpublished PNG write failure, direct mounted
+evidence and collector integrity, the single profile change and installer
+restoration. Red tests precede implementation
+(`logs/ww16-live-frames-red.log`, `logs/ww16-live-profile-red.log`); final host
+green in `logs/ww16-live-frames-final-host.log`, profile/GX/WW12 evidence in
+`logs/ww16-live-profile-fp-tests.log`, `logs/ww16-live-frames-final-gx.log` and
+`logs/ww16-live-frames-perf-tests.log`. Actual ARM host links without new warnings
+(`logs/ww16-live-frames-final-arm.log`). Audit, attribution and whitespace pass.
+No physical Vita, Windows CI or authentic live game PNG is claimed yet: fresh
+committed rebuild and continuously watched two-MEM1/live-PNG trial follow.
+The sourced next gameplay frontier remains stopped-AI timing **CC006C0C**.

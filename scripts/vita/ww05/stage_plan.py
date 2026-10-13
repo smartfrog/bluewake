@@ -78,7 +78,12 @@ def make_plan(root, args, source, package, run):
     phases = {name: {'command': sandbox_command(root, 'Vita3K', command, args.libraries, args.wayland_socket),
                      'timeout_seconds': args.timeout,
                      'evidence_root': str(root / 'phases' / name)}
-              for name, command in commands.items()}
+               for name, command in commands.items()}
+    if memory_captures:
+        command = phases['guest']['command']
+        index = command.index('/stack/vita3k/Vita3K')
+        command[index:index] = ['--bind', str(root / 'evidence/frames'),
+                              '/run/ww03/data/Vita3K/Vita3K/ux0/data/bluewake-ww-fixture/frames']
     disc = getattr(args, 'disc', None)
     if disc is not None:
         for phase in phases.values():
@@ -87,6 +92,7 @@ def make_plan(root, args, source, package, run):
                 '/run/ww03/data/Vita3K/Vita3K/ux0/data/bluewake/GZLE01.iso']
     return {'ticket': 'VITA-WW-05', 'method': 'startup-gx-v1', 'title': 'BWWG00005',
             'continue_gx': limit, 'mem1_snapshots': memory_captures,
+            'live_frame_capture': bool(memory_captures), 'frame_capture_limit': 128,
             'idle_timeout_seconds': idle_timeout, 'cpu_threshold': 0.05,
             'activity_policy': 'CPU >= 5% OR growing process/cache log, guest journal/report/dispatch, or installed payload; '
                                'exclude observer-written monitoring evidence; only silence AND low CPU can be inactive',
@@ -193,7 +199,7 @@ def stage(args):
     shutil.copyfile(vpk, root / 'runtime/ww05.vpk')
     if sha256(root / 'runtime/ww05.vpk') != package:
         raise ValueError('staged private package changed')
-    firmware = stage_firmware(root, STACK / 'firmware')
+    firmware = stage_firmware(root, STACK / 'firmware', surface_sync=bool(getattr(args, 'mem1_snapshots', 0)))
     shader_compiler = stage_shader_compiler(root, SHADER_COMPILER)
     libraries = library_identity(args.libraries)
     disc = None
@@ -206,7 +212,7 @@ def stage(args):
                 runtime_assets=assets, runtime_input=str(STACK / 'vita3k/Vita3K'),
                 runtime_inputs=runtime_inputs(STACK / 'vita3k/Vita3K'),
                 staged_runtime=library_identity(root / 'runtime', allow_symlinks=False),
-                firmware=firmware, private_config=config_identity(root), runtime_libraries=libraries,
+                 firmware=firmware, private_config=config_identity(root, surface_sync=plan['live_frame_capture']), runtime_libraries=libraries,
                 wayland_socket=str(args.wayland_socket), build_evidence=evidence,
                 source_vpk=str(vpk), build_evidence_sha256=sha256(receipt_path),
                 build_evidence_path=str(receipt_path), baseline_build=baseline_path is not None,

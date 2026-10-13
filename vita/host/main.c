@@ -134,6 +134,8 @@ int fixture_run(int argc, char** argv) {
         backend = ww05_io_renderer_backend();
 #endif
         const char* renderer_error = ww_renderer_create(&host->renderer, &renderer_config, backend);
+        if (renderer_error == NULL)
+            renderer_error = ww_host_enable_frame_capture(host);
         if (renderer_error != NULL) {
             error |= fprintf(stderr, "[renderer] init failed: %s\n", renderer_error) < 0;
             ww_host_fail(host, renderer_error, 0u, host->cpu.pc);
