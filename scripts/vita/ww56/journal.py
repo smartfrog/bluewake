@@ -32,3 +32,7 @@ class IncrementalLog:
         parts = (self.pending + content).split(b'\n')
         self.pending = parts.pop()
         return [part.decode('utf-8', errors='replace') for part in parts], len(content)
+
+
+def count_marker_lines(text, marker):
+    return sum(1 for line in text.splitlines() if marker in line)

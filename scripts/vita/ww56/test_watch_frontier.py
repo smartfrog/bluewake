@@ -9,6 +9,7 @@ missed rather than lost.
 
 from pathlib import Path
 from types import SimpleNamespace
+import json
 import tempfile
 import unittest
 from unittest.mock import patch
@@ -81,18 +82,52 @@ class ExitRaceDrainTests(WatchFixture):
         self.assertIn('missed', self.state['snapshots'][0])
         drain = self.state['terminal_drain']
         self.assertEqual(drain['reason'], 'managed-native-exit')
-        self.assertEqual(drain['presentations'], 1)
+        self.assertEqual(drain['presentations_total'], 1)
         self.assertEqual(drain['last_present']['index'], 1)
         watch_log = (self.receipts / 'cpu-log-watch.jsonl').read_text()
         self.assertIn('managed-native-exit', watch_log)
 
-    def test_final_drain_is_idempotent(self):
+    def test_repeated_drains_do_not_double_count_and_merge_new_output(self):
         self.journal.write_text(PRESENT_ONE + '\n')
-        self.watch.final_drain('first')
-        self.watch.final_drain('second')
-        self.assertEqual(len(self.state['presentations']), 1)
-        self.assertEqual(len(self.state['snapshots']), 1)
-        self.assertEqual(self.state['terminal_drain']['reason'], 'first')
+        self.watch.final_drain('wrapper-exit')
+        self.assertEqual(self.state['presentations_at_stop'], 1)
+        self.journal.write_text(PRESENT_ONE + '\n' + PRESENT_TWO + '\n')
+        self.watch.final_drain('post-cleanup')
+        self.assertEqual(len(self.state['presentations']), 2)
+        self.assertEqual(self.state['presentations_at_stop'], 1)
+        self.assertEqual(self.state['terminal_drain']['reason'], 'post-cleanup')
+        self.assertEqual(self.state['terminal_drain']['presentations_total'], 2)
+        self.assertEqual(self.state['terminal_drain']['drain_count'], 2)
+        self.assertEqual(self.state['terminal_drain']['new_lines'], 1)
+
+    def test_a_cleanup_window_presentation_reaches_the_final_disposition(self):
+        journal = self.journal
+        journal.write_text(PRESENT_ONE + '\n')
+        args = self.args
+        args.run_id = 'drain'
+        args.cleanup_grace_seconds = 10.0
+        entry = {'evidence_root': str(self.phase_root), 'command': ['/usr/bin/true'],
+                 'environment': {}, 'cwd': str(self.root)}
+        plan = {'phases': {'guest': entry}}
+        record = {'phases': {}}
+        phase_root = self.phase_root
+
+        def fake_stop(unit, state):
+            journal.write_text(PRESENT_ONE + '\n' + PRESENT_TWO + '\n')
+            return {'LoadState': 'loaded', 'ActiveState': 'failed', 'ControlGroup': ''}
+
+        with patch.object(run, 'run_owned', return_value=0), \
+                patch.object(run, 'properties', return_value={'LoadState': 'not-found'}), \
+                patch.object(run, 'stop_owned_unit', side_effect=fake_stop):
+            run.run_phase('guest', args, self.runroot, self.receipts, plan, record,
+                          budget=4 * 1024 ** 3, headroom=4 * 1024 ** 3, deadline=180.0)
+        disposition = json.loads((self.receipts / 'guest-disposition.json').read_text())
+        self.assertEqual(disposition['presentations_at_stop'], 1)
+        self.assertEqual(disposition['presentations_total'], 2)
+        self.assertEqual(disposition['journal_present_lines'], 2)
+        self.assertEqual(disposition['presentations_undrained'], 0)
+        self.assertEqual(disposition['terminal_drain']['reason'], 'post-cleanup')
+        self.assertTrue((phase_root / 'evidence').is_dir())
 
     def test_native_exit_drains_the_logs_before_returning(self):
         self.journal.write_text(PRESENT_ONE + '\n')
