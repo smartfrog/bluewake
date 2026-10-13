@@ -82,6 +82,13 @@ class ProcessIdleObserver:
 
     def __call__(self, pid):
         now = time.monotonic()
+        if self.minimum_available_memory_bytes:
+            available = available_memory_bytes()
+            if available < self.minimum_available_memory_bytes:
+                return {'stop_reason': 'memory-pressure', 'available_memory_bytes': available,
+                        'minimum_available_memory_bytes': self.minimum_available_memory_bytes,
+                        'memory_source': '/proc/meminfo:MemAvailable in kB',
+                        'monitored_pids': sorted({pid} | {identity[0] for identity in self.counters})}
         if now < self.next_sample:
             return None
         self.next_sample = now + self.interval
@@ -101,13 +108,6 @@ class ProcessIdleObserver:
         self.output_sizes = current_sizes
         self.output_growth_bytes += growth
         inactive = self.window.sample(now, cpu_seconds, output_active=growth > 0)
-        if self.minimum_available_memory_bytes:
-            available = available_memory_bytes()
-            if available < self.minimum_available_memory_bytes:
-                return {'stop_reason': 'memory-pressure', 'available_memory_bytes': available,
-                        'minimum_available_memory_bytes': self.minimum_available_memory_bytes,
-                        'memory_source': '/proc/meminfo:MemAvailable in kB',
-                        'monitored_pids': sorted({identity[0] for identity in self.counters})}
         if not inactive:
             return None
         return {'stop_reason': 'inactive', 'idle_seconds': now - self.window.idle_since,

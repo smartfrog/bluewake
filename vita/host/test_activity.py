@@ -132,6 +132,17 @@ class ProcessOutputActivityTest(unittest.TestCase):
         self.assertEqual(result['available_memory_bytes'], minimum - 1024)
         self.assertEqual(result['minimum_available_memory_bytes'], minimum)
 
+    def test_ram_guard_does_not_wait_for_the_one_second_activity_sample(self):
+        from activity import ProcessIdleObserver
+        minimum = 5 * 1024 ** 3 // 2
+        observer = ProcessIdleObserver(minimum_available_memory_bytes=minimum)
+        with patch('activity.available_memory_bytes', side_effect=(minimum, minimum - 1024)):
+            self.assertIsNone(self.sample(observer, 0))
+            result = self.sample(observer, 0.1)
+        self.assertIsNotNone(result)
+        self.assertEqual(result['stop_reason'], 'memory-pressure')
+        self.assertEqual(result['available_memory_bytes'], minimum - 1024)
+
     def test_default_observer_does_not_read_optional_ram_pressure(self):
         with patch('activity.available_memory_bytes', side_effect=AssertionError('default must stay unchanged')):
             self.assertIsNone(self.sample(self.observer(()), 0))
