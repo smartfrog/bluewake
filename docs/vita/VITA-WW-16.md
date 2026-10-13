@@ -2828,3 +2828,58 @@ output rule, 30 s low-CPU **AND** silence abort, **128-presentation / 960×544**
 capture bounds, journal **2048**, fresh isolated profile, **MEM1=2 + live PNG**,
 **audio=deferred** remain mandatory. Do not resume the full DSP/PCM port, alter
 guest cycles/retraces or force a wakeup; keep other builds and O2 work untouched.
+
+## Unit 71: 121 genuine black captures; longer observation is not a video fix
+
+Committed VI/O1 **b9dd934**, **-j2**, continuously watched exploratory run
+**ec41283c31c74ab1a84f0ed8f772723e** reaches its existing **600.00 s maximum
+ceiling**, **exit -15 / waited**, launcher **124**, no closed guest report.
+Early disposition and final result survive: **INCOMPLETE / frontier UNAVAILABLE**,
+no proved module crash, no final state/counter claim. No Vita3K survivor remains.
+
+Independent checks verify **121 real presentation markers / live PNG pairs**,
+**128 real retrace markers**, **two real MEM1 captures**, **audio=deferred**.
+Every display image remains numerically opaque black, same RGB/hash as prior
+black frames; **frame-121.png** opened. Its actual metadata records **192
+submitted draws / 1,041,885,143 cycles** at capture, not final totals. Last
+progress sampled earlier is **1,041,880,030 cycles / 8,514,392 edges / 4,060,483
+turns**, PC **80307EF4**, exception **0**. Both guarded early draw-prefix replays
+pass. Later frames remain unreplayable with these early MEM1 images.
+
+The extended run advances resource work and genuine DVD callbacks. The last
+logged request, **56D96078 / 5792 bytes / file 806AD6DC**, has an actual callback
+delivery/return at **896,259,929 cycles**. Read-only FST inventory against the
+unchanged, identity-verified private disc maps it to **Audiores/Banks/objSE_0.aw**;
+other logged bank reads include SystemSE, n_zelda, w_zelda, voice, LinkMotion,
+Footnote, Atmos and CharVoice. These are actual resource reads and original
+callbacks, **not DSP execution or PCM processing**. Repeated/rounded reads are
+not claimed as unique bytes or whole-resource completion certification.
+Seven cross-file rounded requests are retained explicitly in the inventory;
+the first stricter full-extent check correctly refused COPYDATE's 32-byte read
+across its packed 19-byte file, before the inventory was narrowed to request-
+start ownership. No disc bytes or game assets are published or changed.
+
+Further wall time did **not** produce a visible logo. It is no longer sufficient
+to describe the whole observed black interval as fewer than 60 retraces.
+No main-thread real-audio processing dependency is proved. The original bounded
+journal covers early draws only, and live image metadata lacks later renderer
+**skips / shader refusals / copy refusals / gaps**. Without a closed report,
+those counts are UNKNOWN: never borrow the earlier ten-draw report's zeros.
+Next diagnostic retains the renderer's actual counters contemporaneously with
+each already-authorized live image, including refusal/skip/gap observations.
+This is read-only evidence, not a renderer fallback or an audio wakeup.
+
+Private root for lane 18:
+
+```text
+/home/fred/projects/zeldaWWHDRecomp/build-f5/ww05/vita3k-run-ec41283c31c74ab1a84f0ed8f772723e
+```
+
+Actual journal **`data/Vita3K/Vita3K/ux0/data/bluewake-ww-fixture/ww05.log`**;
+**`evidence/frames/`**, **`evidence/live-images-post-timeout.json`**,
+**`evidence/mem1-post-timeout.json`**, **`evidence/extended-run-diagnosis.json`**,
+**`evidence/dvd-resource-inventory.json`**, guarded fixtures
+**`evidence/gx-draw-prefix-snapshot{1,2}/`**. All incomplete provenance/native
+snapshots/monitor samples stay intact. No logo, gameplay, physical Vita, sound,
+FPS baseline or 30+ FPS claim. Do not raise the phase ceiling or capture bounds
+to hide the unresolved black picture; preserve **O1 -j2** and pause full DSP/PCM.
