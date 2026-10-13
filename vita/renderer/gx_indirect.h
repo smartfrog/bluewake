@@ -49,7 +49,7 @@ inline const char* key_reason(const gxc::ShaderKey& key) {
         s.ind_wrap_t > 7 || s.ind_add_prev > 1 || s.ind_use_original_lod > 1)
       return "invalid indirect TEV fields";
     if (s.ind_use_original_lod)
-      return "original indirect LOD not supported by Vita Cg";
+      return "original indirect LOD requires complete sampler state and captured mip levels";
     if (s.tevorders_enable && (!key.textured || !key.num_tex_gens))
       return "indirect direct lookup lacks texture coordinates/resources";
     if (samples(key, s) && (!key.textured || !key.num_tex_gens))
