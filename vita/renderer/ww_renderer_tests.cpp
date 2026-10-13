@@ -20,6 +20,7 @@
 #include "../feasibility/gx/gx_fixture.hpp"
 
 #include <cstdint>
+#include <array>
 #include <cmath>
 #include <cstdio>
 #include <cstring>
@@ -410,6 +411,50 @@ int indexed_vertex_coverage() {
   return 0;
 }
 
+int gx_clip_matrix_coverage() {
+  for (bool perspective : {false, true}) {
+    Fixture fixture;
+    RecordingBackend backend;
+    WwRenderer* renderer = nullptr;
+    const WwRendererConfig config = fixture.config();
+    CHECK(ww_renderer_create(&renderer, &config, &backend) == nullptr);
+    std::vector<std::uint8_t> fifo;
+    gx_fixture::push_common_state(fifo);
+    gx_fixture::push_xf_f32(fifo, 0, {1.f, 0.25f, 0.f, 0.5f,
+                                     -0.5f, 2.f, 0.25f, -0.25f,
+                                     0.f, 0.5f, 1.f, -0.5f});
+    gx_fixture::push_xf_f32(fifo, DOL_GX_XF_PROJECTION_BASE,
+                          {0.5f, 0.125f, 0.25f, -0.5f, perspective ? 0.125f : 0.25f,
+                           perspective ? -0.5f : 0.f});
+    gx_fixture::push_xf_block(fifo, DOL_GX_XF_PROJECTION_TYPE, {perspective ? 0u : 1u});
+    gx_fixture::push_draw(fifo, 0x90, 3, {0.25f, 0.5f, -2.f, 0.f, 0.f,
+                                        0.5f, 0.5f, -2.f, 1.f, 0.f,
+                                        0.25f, 0.75f, -2.f, 0.f, 1.f});
+    CHECK(ww_renderer_write(renderer, fifo.data(), fifo.size()) == nullptr);
+    CHECK(backend.draws.size() == 1);
+    const auto& draw = backend.draws[0];
+    const auto multiply = [](const std::array<float, 4>& vector, const float* matrix) {
+      std::array<float, 4> output{};
+      for (unsigned column = 0; column < 4; ++column)
+        for (unsigned row = 0; row < 4; ++row)
+          output[column] += vector[row] * matrix[4 * row + column];
+      return output;
+    };
+    const auto view = multiply({0.25f, 0.5f, -2.f, 1.f}, draw.position_matrix);
+    const std::array<float, 4> expected_view{0.875f, 0.125f, -2.25f, 1.f};
+    CHECK(view == expected_view);
+    auto clip = multiply(view, draw.projection);
+    clip[2] = 2.f * clip[2] + clip[3];
+    const std::array<float, 4> expected_clip = perspective
+        ? std::array<float, 4>{0.15625f, 1.15625f, 0.6875f, 2.25f}
+        : std::array<float, 4>{0.5625f, -0.46875f, -0.125f, 1.f};
+    CHECK(clip == expected_clip);
+    ww_renderer_destroy(renderer);
+  }
+  std::printf("renderer GX row-dot transforms reach Cg row-vector uniforms ok: orthographic/perspective\n");
+  return 0;
+}
+
 int indexed_xf_coverage() {
   for (std::uint8_t opcode : {0x20, 0x28, 0x30, 0x38}) {
     Fixture fixture;
@@ -432,9 +477,9 @@ int indexed_xf_coverage() {
     gx_fixture::push_triangle(fifo);
     CHECK(ww_renderer_write(renderer, fifo.data(), fifo.size()) == nullptr);
     CHECK(backend.draws.size() == 1);
-    CHECK(backend.draws[0].position_matrix[3] == 4.f);
-    CHECK(backend.draws[0].position_matrix[7] == 5.f);
-    CHECK(backend.draws[0].position_matrix[11] == 6.f);
+    CHECK(backend.draws[0].position_matrix[12] == 4.f);
+    CHECK(backend.draws[0].position_matrix[13] == 5.f);
+    CHECK(backend.draws[0].position_matrix[14] == 6.f);
     ww_renderer_destroy(renderer);
   }
   std::printf("renderer indexed XF supply ok: all four arrays\n");
@@ -844,6 +889,7 @@ int main() {
   CHECK(invalid_readback_never_calls_writer() == 0);
   CHECK(primitive_coverage() == 0);
   CHECK(indexed_vertex_coverage() == 0);
+  CHECK(gx_clip_matrix_coverage() == 0);
   CHECK(indexed_xf_coverage() == 0);
   CHECK(vertex_attribute_coverage() == 0);
   CHECK(display_list_coverage() == 0);
@@ -943,10 +989,10 @@ int main() {
           draw.position_matrix[13] == 0.0f &&
           draw.position_matrix[14] == 0.0f);
     // The fixture's perspective projection words {1, 1, 0.1, 1000, 0, 0}.
-    CHECK(draw.projection[0] == 1.0f && draw.projection[2] == 1.0f);
-    CHECK(draw.projection[5] == 0.1f && draw.projection[6] == 1000.0f);
-    CHECK(draw.projection[10] == 0.0f && draw.projection[11] == 0.0f);
-    CHECK(draw.projection[14] == -1.0f);
+    CHECK(draw.projection[0] == 1.0f && draw.projection[8] == 1.0f);
+    CHECK(draw.projection[5] == 0.1f && draw.projection[9] == 1000.0f);
+    CHECK(draw.projection[10] == 0.0f && draw.projection[14] == 0.0f);
+    CHECK(draw.projection[11] == -1.0f);
     WwRendererStats stats{};
     ww_renderer_stats(renderer, &stats);
     CHECK(stats.fifo_bytes == fifo.size());
