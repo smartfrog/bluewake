@@ -16,6 +16,7 @@
 #include "gx_fog_fixture.h"
 #include "gx_indirect_fixture.h"
 #include "gx_emboss_fixture.h"
+#include "gx_boot_alpha_fixture.h"
 
 #include "../feasibility/gx/gx_fixture.hpp"
 
@@ -54,6 +55,7 @@ struct DrawRecord {
   std::uint8_t blend_enable = 0;
   std::uint16_t blend_src = 0;
   std::uint16_t blend_dst = 0;
+  std::uint16_t blend_equation = 0;
   std::uint8_t cull_enable = 0;
   std::uint16_t cull_face = 0;
   std::uint8_t color_write = 0;
@@ -109,6 +111,7 @@ public:
     record.blend_enable = draw.pipeline.blend_enable;
     record.blend_src = draw.pipeline.blend_src;
     record.blend_dst = draw.pipeline.blend_dst;
+    record.blend_equation = draw.pipeline.blend_equation;
     record.cull_enable = draw.pipeline.cull_enable;
     record.cull_face = draw.pipeline.cull_face;
     record.color_write = draw.pipeline.color_write;
@@ -831,6 +834,77 @@ int emboss_is_submitted() {
 
 } // namespace
 
+int black_alpha_17_preserves_source_and_blend() {
+  Fixture fixture;
+  RecordingBackend backend;
+  WwRenderer* renderer = nullptr;
+  auto config = fixture.config();
+  CHECK(ww_renderer_create(&renderer, &config, &backend) == nullptr);
+  const auto fifo = gx_boot_alpha_fixture::black_overlay();
+  CHECK(ww_renderer_write(renderer, fifo.data(), fifo.size()) == nullptr);
+  CHECK(backend.draws.size() == 1);
+  const auto& draw = backend.draws[0];
+  CHECK(draw.blend_enable && draw.blend_src == gx_vita::kGlSrcAlpha);
+  CHECK(draw.blend_dst == gx_vita::kGlOneMinusSrcAlpha);
+  CHECK(draw.blend_equation == gx_vita::kGlFuncAdd);
+  CHECK(draw.color_write && draw.alpha_write && !draw.depth_test && !draw.cull_enable);
+  CHECK(!draw.has_texture);
+  CHECK(draw.geometry.vertex_count == 4);
+  for (unsigned vertex = 0; vertex < 4; ++vertex) {
+    float rgba[4];
+    std::memcpy(rgba, draw.geometry.vertices.data() + vertex * gx_fixture::gxc::kVertexStrideBytes +
+                      gx_fixture::gxc::kVertexColor0Offset, sizeof rgba);
+    CHECK(rgba[0] == 0.f && rgba[1] == 0.f && rgba[2] == 0.f);
+    CHECK(rgba[3] == 17.f / 255.f);
+  }
+  CHECK(draw.cg_fragment.find("tevin_d = float4(ras.rgb, ras.a)") != std::string::npos);
+  CHECK(draw.cg_fragment.find("ras = floor(color0.rgba * 255.0 + 0.5)") != std::string::npos);
+  CHECK(draw.cg_fragment.find("return prev / 255.0;") != std::string::npos);
+  WwRendererStats stats{};
+  ww_renderer_stats(renderer, &stats);
+  CHECK(stats.draws == 1 && stats.plans_skipped == 0 && stats.programs_refused == 0);
+  ww_renderer_destroy(renderer);
+  std::puts("renderer black alpha-17 source and SRC_ALPHA/ONE_MINUS_SRC_ALPHA preserved");
+  return 0;
+}
+
+int transparent_notice_preserves_CI_and_raster_alpha() {
+  Fixture fixture;
+  RecordingBackend backend;
+  WwRenderer* renderer = nullptr;
+  auto config = fixture.config();
+  CHECK(ww_renderer_create(&renderer, &config, &backend) == nullptr);
+  const auto fifo = gx_boot_alpha_fixture::transparent_notice();
+  CHECK(ww_renderer_write(renderer, fifo.data(), fifo.size()) == nullptr);
+  CHECK(backend.draws.size() == 1);
+  const auto& draw = backend.draws.back();
+  CHECK(draw.has_texture && draw.texture_width == 8 && draw.texture_height == 8);
+  CHECK(draw.blend_enable && draw.blend_src == gx_vita::kGlSrcAlpha);
+  CHECK(draw.blend_dst == gx_vita::kGlOneMinusSrcAlpha && draw.blend_equation == gx_vita::kGlFuncAdd);
+  CHECK(draw.color_write && draw.alpha_write && !draw.depth_test && !draw.cull_enable);
+  CHECK(draw.geometry.vertex_count == 4);
+  for (unsigned vertex = 0; vertex < 4; ++vertex) {
+    float rgba[4];
+    std::memcpy(rgba, draw.geometry.vertices.data() + vertex * gx_fixture::gxc::kVertexStrideBytes +
+                      gx_fixture::gxc::kVertexColor0Offset, sizeof rgba);
+    CHECK(rgba[0] == 1.f && rgba[1] == 1.f && rgba[2] == 1.f);
+    CHECK(rgba[3] == 0.f);
+  }
+  CHECK(draw.cg_fragment.find("tex = floor(tex2D(tex0, uv0.xy) * 255.0 + 0.5)") != std::string::npos);
+  CHECK(draw.cg_fragment.find("tevin_b = float4(prev.rgb, prev.a)") != std::string::npos);
+  CHECK(draw.cg_fragment.find("tevin_c = float4(ras.rgb, ras.a)") != std::string::npos);
+  CHECK(draw.cg_fragment.find("prev.a = clamp(") != std::string::npos);
+  CHECK(draw.cg_fragment.find("return prev / 255.0;") != std::string::npos);
+  WwRendererStats stats{};
+  ww_renderer_stats(renderer, &stats);
+  CHECK(stats.draws == 1 && stats.plans_skipped == 0 && stats.programs_refused == 0);
+  CHECK(stats.gap_count == 1 && std::string(stats.gaps[0].name) == "tlut_texture");
+  CHECK(stats.gaps[0].value == 1);
+  ww_renderer_destroy(renderer);
+  std::puts("renderer CI notice texture and zero raster alpha preserved through two-stage TEV");
+  return 0;
+}
+
 int color_channel_masks_precede_color_texgens() {
   for (std::uint8_t channels : {0, 1, 2}) {
     for (std::uint8_t channel : {0, 1}) {
@@ -880,6 +954,8 @@ int normalized_post_matrix_never_reaches_the_backend() {
 }
 
 int main() {
+  CHECK(black_alpha_17_preserves_source_and_blend() == 0);
+  CHECK(transparent_notice_preserves_CI_and_raster_alpha() == 0);
   CHECK(color_channel_masks_precede_color_texgens() == 0);
   CHECK(normalized_post_matrix_never_reaches_the_backend() == 0);
   CHECK(capture_presented_frame_before_next_draw() == 0);
