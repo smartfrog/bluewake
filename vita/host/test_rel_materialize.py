@@ -35,6 +35,7 @@ def actor_rel(module_id):
     struct.pack_into('>II', actor, 0x5C, 0, 16)
     struct.pack_into('>II', actor, 0x64, 0xB0, 16)
     actor[0x33] = 2
+    actor[0x30:0x33] = bytes(3)
     struct.pack_into('>II', actor, 0xA0, 0, 0xC0)
     struct.pack_into('>HBBI', actor, 0xC0, 0, 202, 3, 0)
     struct.pack_into('>HBBI', actor, 0xC8, 0, 1, 0, 0x80001000)
@@ -83,8 +84,49 @@ def rel_archive(scenario):
             struct.pack_into('>I', actor, 0xA0, 999)
         if scenario == 'second-reloc-unterminated':
             actor[0xD2] = 201
+        if scenario == 'second-reloc-export-mismatch':
+            struct.pack_into('>I', actor, 0xCC, 0x80002000)
+        if scenario == 'second-reloc-raw-export-mismatch':
+            actor[0xB4] = 1
+        if scenario == 'second-reloc-bss':
+            actor[0xC3] = 2
+        if scenario == 'second-bad-code-hash':
+            actor[0x90] ^= 1
+        if scenario.startswith('second-branch-'):
+            actor[0xC3] = 1
+            actor[0xCA] = 11 if scenario == 'second-branch-rel14-displacement' else 10
+            struct.pack_into('>I', actor, 0x80, 0x40000000 if actor[0xCA] == 11 else 0x48000000)
+            struct.pack_into('>I', actor, 0xA0, 139)
+            actor[0xCB] = 1
+            struct.pack_into('>I', actor, 0xCC, 4)
+            struct.pack_into('>I', actor, 0xB0, 0x80001000)
+            if scenario == 'second-branch-misaligned':
+                struct.pack_into('>I', actor, 0xCC, 2)
+            if scenario == 'second-branch-bss':
+                actor[0xCB] = 2
+                struct.pack_into('>I', actor, 0xCC, 0)
+            if scenario == 'second-branch-exclusive-end':
+                struct.pack_into('>I', actor, 0xA0, 0)
+                struct.pack_into('>I', actor, 0xCC, 0x81800000)
+            if scenario == 'second-branch-no-coverage':
+                struct.pack_into('>I', actor, 0xA0, 0)
+                struct.pack_into('>I', actor, 0xCC, 0x80004000)
+            if scenario in ('second-branch-displacement', 'second-branch-rel14-displacement'):
+                struct.pack_into('>I', actor, 0xA0, 0)
+                struct.pack_into('>I', actor, 0xCC, 0x80240744)
+        if scenario.startswith('second-dependency-'):
+            struct.pack_into('>I', actor, 0xA0, 168)
+            actor[0xCB] = 2
+            struct.pack_into('>I', actor, 0xCC, 0)
+        if scenario == 'second-lifecycle-prolog':
+            struct.pack_into('>I', actor, 0x34, 4)
+        if scenario == 'second-lifecycle-prolog-zero-offset':
+            actor[0x30] = 1
+        if scenario == 'second-lifecycle-epilog':
+            actor[0x31] = 1
+            struct.pack_into('>I', actor, 0x38, 4)
         members = [(b'f_pc_profile_lst.rel', member), (b'd_a_kamome.rel', actor)]
-        if scenario == 'second-independent':
+        if scenario == 'second-independent' or scenario.startswith('second-dependency-'):
             members.append((b'd_a_ship.rel', actor_rel(168)))
         archive = bytearray(0x100)
         archive[:4] = b'RARC'
@@ -197,6 +239,51 @@ class RelMaterializeTest(unittest.TestCase):
 
     def test_a_live_owner_cannot_change_its_module_name(self):
         self.run_probe('second-wrong-name')
+
+    def test_changed_raw_data_relocation_is_not_replaced_by_an_old_prelinked_value(self):
+        self.run_probe('second-reloc-export-mismatch')
+
+    def test_raw_data_bytes_outside_relocations_must_match_the_prelinked_export(self):
+        self.run_probe('second-reloc-raw-export-mismatch')
+
+    def test_bss_relocation_is_rejected_before_owner_publication(self):
+        self.run_probe('second-reloc-bss')
+
+    def test_branch_target_requires_aligned_executable_coverage_and_representable_displacement(self):
+        for scenario in ('second-branch-misaligned', 'second-branch-bss', 'second-branch-no-coverage',
+                         'second-branch-exclusive-end', 'second-branch-displacement',
+                         'second-branch-rel14-displacement'):
+            with self.subTest(scenario=scenario):
+                self.run_probe(scenario)
+
+    def test_translated_actor_import_requires_live_dependency_not_catalog_presence(self):
+        self.run_probe('second-dependency-unlinked')
+
+    def test_valid_executable_relocation_is_still_rejected_without_translation_certification(self):
+        self.run_probe('second-branch-valid-unverified')
+
+    def test_raw_executable_bytes_require_matching_compiled_chunk_hashes(self):
+        self.run_probe('second-bad-code-hash')
+
+    def test_live_importer_pins_dependency_until_explicit_unlink_and_collection(self):
+        self.run_probe('second-dependency-live')
+
+    def test_previously_unloaded_dependency_cannot_satisfy_a_new_import(self):
+        self.run_probe('second-dependency-unloaded')
+
+    def test_publication_field_clearing_is_not_completed_actor_unload(self):
+        self.run_probe('second-unload-incomplete')
+
+    def test_nontrivial_prolog_and_epilog_contracts_fail_closed(self):
+        for scenario in ('second-lifecycle-prolog', 'second-lifecycle-prolog-zero-offset', 'second-lifecycle-epilog'):
+            with self.subTest(scenario=scenario):
+                self.run_probe(scenario)
+
+    def test_raw_actor_entry_uses_the_real_host_dispatch_path(self):
+        self.run_probe('second-dispatch')
+
+    def test_native_unlink_without_an_epilog_and_destruction_contract_fails_closed(self):
+        self.run_probe('second-native-unlink')
 
     def test_repeated_profile_link_does_not_read_or_materialize_again(self):
         self.run_probe('link-repeat')

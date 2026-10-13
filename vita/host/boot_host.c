@@ -963,6 +963,10 @@ int ww_host_dispatch(WwHost* host, u32 address) {
         ww_host_fail(host, "dispatch requires a loaded module", address, cpu->pc);
         return 0;
     }
+    if ((address & ~0x40000000u) == 0x80240F54u && ww_host_rel_owned(host, cpu->gpr[3]) != NULL) {
+        ww_host_fail(host, "native REL unlink requires an unsupported epilog and destruction contract", address, cpu->pc);
+        return -1;
+    }
     const WwObservedVector* vector = observed_vector(address);
     if (vector != NULL &&
         !ww_host_module_contains_address(host->module, address) &&
@@ -988,6 +992,10 @@ int ww_host_dispatch(WwHost* host, u32 address) {
     const u32 linked = ww_host_rel_address(host, address);
     if (host->error != NULL)
         return -1;
+    if (!ww_host_rel_code_owned(host, linked)) {
+        ww_host_fail(host, "REL dispatch requires live linked ownership", linked, cpu->pc);
+        return -1;
+    }
     if (linked != address)
         cpu->pc = linked;
     return host->module->dispatch(&host->cpu, linked);

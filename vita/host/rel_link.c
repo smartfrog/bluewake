@@ -1,6 +1,7 @@
 #include "boot_host.h"
 #include "rel_archive.h"
 #include "rel_profile_list.h"
+#include <stdlib.h>
 
 static const StaticRecompRelSection* rel_section(const StaticRecompRelModule* rel, u32 index) {
     if (rel == NULL || rel->sections == NULL)
@@ -35,16 +36,53 @@ static bool translated_section(WwHost* host, u32 start, u32 size) {
     return cursor >= end;
 }
 
-static const char* validate_relocations(WwHost* host, const StaticRecompRelModule* rel, const u8* raw, u32 bytes) {
+static bool raw_code_matches(WwHost* host, const StaticRecompRelSection* section, const u8* raw, u32 offset) {
+    const StaticRecompModuleDesc* module = host->module;
+    if (module->chunk_ranges == NULL || module->chunk_hashes == NULL)
+        return false;
+    u64 cursor = section->linked_start;
+    const u64 end = cursor + section->size;
+    for (u32 at = 0u; at < module->num_chunk_ranges && cursor < end; ++at) {
+        const StaticRecompRange* chunk = &module->chunk_ranges[at];
+        if (chunk->start < cursor)
+            continue;
+        if (chunk->start != cursor || chunk->end <= chunk->start || chunk->end > end)
+            return false;
+        u64 hash = 14695981039346656037ull;
+        for (u32 byte = chunk->start; byte < chunk->end; ++byte) {
+            hash ^= raw[offset + byte - section->linked_start];
+            hash *= 1099511628211ull;
+        }
+        if (hash != module->chunk_hashes[at])
+            return false;
+        cursor = chunk->end;
+    }
+    return cursor == end;
+}
+
+static void write_be32(u8* bytes, u32 value) {
+    bytes[0] = (u8)(value >> 24u);
+    bytes[1] = (u8)(value >> 16u);
+    bytes[2] = (u8)(value >> 8u);
+    bytes[3] = (u8)value;
+}
+
+static const char* validate_relocations(WwHost* host, const StaticRecompRelModule* rel, const u8* raw,
+                                       u32 bytes, u8* relocated) {
     const u32 imports = bluewake_archive_be32(raw + 0x28u);
     const u32 import_bytes = bluewake_archive_be32(raw + 0x2Cu);
     if ((u64)imports + import_bytes > bytes || (import_bytes & 7u) != 0u)
         return "REL relocation import table is invalid";
+    if (rel->module_id != 1u && import_bytes / 8u > WW_REL_MAX_IMPORTS)
+        return "REL import count exceeds the bounded ownership contract";
     for (u32 at = imports; at < imports + import_bytes; at += 8u) {
         const u32 target_id = bluewake_archive_be32(raw + at);
         const StaticRecompRelModule* target = target_id == 0u ? NULL : ww_host_rel_descriptor(host, target_id);
         if (target_id != 0u && target == NULL)
             return "REL relocation imports an untranslated module";
+        if (rel->module_id != 1u && target_id != 0u && target_id != rel->module_id &&
+            ww_host_rel_live(host, target_id) == NULL)
+            return "REL actor import requires a live dependency owner";
         u32 cursor = bluewake_archive_be32(raw + at + 4u);
         const StaticRecompRelSection* patch = NULL;
         u64 offset = 0u;
@@ -74,13 +112,57 @@ static const char* validate_relocations(WwHost* host, const StaticRecompRelModul
             if (!(type == 1u || (type >= 3u && type <= 6u) || type == 10u || type == 11u) ||
                 offset + width > patch->size || (offset & (width - 1u)) != 0u)
                 return "REL relocation type, width or alignment is unsupported";
+            const u32 table = bluewake_archive_be32(raw + 0x10u);
+            if ((u64)table + (u64)patch->section_index * 8u + 8u > bytes)
+                return "REL relocation patch table is outside its raw image";
+            const u32 patch_flags = bluewake_archive_be32(raw + table + patch->section_index * 8u);
+            const u32 patch_start = patch_flags & ~1u;
+            if (patch_start == 0u)
+                return "REL relocations into BSS are unsupported";
+            if ((u64)patch_start + patch->size > bytes)
+                return "REL relocation patch storage exceeds its raw image";
+            u32 address = symbol;
+            const StaticRecompRelSection* destination = NULL;
             if (target != NULL) {
-                const StaticRecompRelSection* destination = rel_section(target, section);
-                if (destination == NULL || destination->linked_start == 0u || symbol > destination->size)
+                destination = rel_section(target, section);
+                if (destination == NULL || destination->linked_start == 0u || symbol >= destination->size ||
+                    (u64)destination->linked_start + symbol > UINT32_MAX)
                     return "REL relocation target exceeds its compiled section";
-            } else if (symbol < GC_RAM_BASE || (u64)symbol > (u64)GC_RAM_BASE + host->cpu.ram_size) {
+                address = destination->linked_start + symbol;
+            } else if (symbol < GC_RAM_BASE || (u64)symbol >= (u64)GC_RAM_BASE + host->cpu.ram_size) {
                 return "REL relocation DOL target is outside MEM1";
             }
+            u32 value = address;
+            if (type == 10u || type == 11u) {
+                const u32 raw_word = bluewake_archive_be32(raw + patch_start + (u32)offset);
+                if ((address & 3u) != 0u || !translated_section(host, address, 4u) ||
+                    (destination != NULL && (rel_data(host, target_id, section) != NULL ||
+                                             (u64)symbol + 4u > destination->size)))
+                    return "REL branch target requires aligned translated executable coverage";
+                const s64 displacement = (s64)address - ((s64)patch->linked_start + (s64)offset);
+                const s64 minimum = type == 10u ? -0x02000000ll : -0x8000ll;
+                const s64 maximum = type == 10u ? 0x01FFFFFCll : 0x7FFCLL;
+                if (displacement < minimum || displacement > maximum || (displacement & 3ll) != 0ll ||
+                    (raw_word >> 26u) != (type == 10u ? 18u : 16u) || (raw_word & 2u) != 0u)
+                    return "REL branch displacement or instruction is not representable";
+                const u32 mask = type == 10u ? 0x03FFFFFCu : 0x0000FFFCu;
+                value = (raw_word & ~mask) | ((u32)displacement & mask);
+            } else if (type == 5u) {
+                value >>= 16u;
+            } else if (type == 6u) {
+                value = (value + 0x8000u) >> 16u;
+            }
+            if (relocated != NULL && (patch_flags & 1u) == 0u) {
+                u8* write = relocated + patch_start + (u32)offset;
+                if (width == 2u) {
+                    write[0] = (u8)(value >> 8u);
+                    write[1] = (u8)value;
+                } else {
+                    write_be32(write, value);
+                }
+            }
+            if (rel->module_id != 1u && (patch_flags & 1u) != 0u)
+                return "REL executable relocation lacks a raw-to-translated certification contract";
         }
         if (!ended)
             return "REL relocation stream has no bounded end";
@@ -89,6 +171,12 @@ static const char* validate_relocations(WwHost* host, const StaticRecompRelModul
 }
 
 const char* ww_host_validate_rel_link(WwHost* host, const StaticRecompRelModule* rel, const u8* raw, u32 bytes) {
+    if (bytes < 0x4Cu || bytes > 0x100000u)
+        return "REL prelinked validation requires a bounded raw header";
+    if (rel->module_id != 1u && (raw[0x30u] != 0u || raw[0x31u] != 0u || raw[0x32u] != 0u ||
+        bluewake_archive_be32(raw + 0x34u) != 0u ||
+        bluewake_archive_be32(raw + 0x38u) != 0u || bluewake_archive_be32(raw + 0x3Cu) != 0u))
+        return "REL prolog, epilog or unresolved entry requires an unsupported lifecycle contract";
     if (host->rel_data_count != 0u && host->rel_data == NULL)
         return "REL link requires a compiled data export";
     if (rel->sections == NULL || rel->num_sections > rel->section_count || rel->section_count > 256u)
@@ -139,6 +227,8 @@ const char* ww_host_validate_rel_link(WwHost* host, const StaticRecompRelModule*
         if ((flags & 1u) != 0u) {
             if (offset == 0u || !translated_section(host, section->linked_start, size))
                 return "REL executable section has no complete translated code range";
+            if (!raw_code_matches(host, section, raw, offset))
+                return "REL raw executable bytes disagree with the compiled chunk hashes";
             continue;
         }
         const BlueWakeRelData* data = rel_data(host, rel->module_id, index);
@@ -151,7 +241,23 @@ const char* ww_host_validate_rel_link(WwHost* host, const StaticRecompRelModule*
     }
     if (bss != bluewake_archive_be32(raw + 0x20u))
         return "REL BSS size differs from its compiled exports";
-    return validate_relocations(host, rel, raw, bytes);
+    u8* relocated = malloc(bytes);
+    if (relocated == NULL)
+        return "REL prelinked verification allocation failed";
+    memcpy(relocated, raw, bytes);
+    const char* error = validate_relocations(host, rel, raw, bytes, relocated);
+    for (u32 index = 0u; error == NULL && index < count; ++index) {
+        const u32 flags = bluewake_archive_be32(raw + table + index * 8u);
+        const u32 size = bluewake_archive_be32(raw + table + index * 8u + 4u);
+        const u32 offset = flags & ~1u;
+        if (size == 0u || offset == 0u || (flags & 1u) != 0u)
+            continue;
+        const BlueWakeRelData* data = rel_data(host, rel->module_id, index);
+        if (memcmp(relocated + offset, data->bytes, size) != 0)
+            error = "REL relocated raw data disagrees with the compiled prelinked export";
+    }
+    free(relocated);
+    return error;
 }
 
 const char* ww_host_link_rel(WwHost* host, u32 object) {
@@ -171,6 +277,24 @@ const char* ww_host_link_rel(WwHost* host, u32 object) {
     if (rel == NULL || !ppc_guest_alias_get_storage(slot->guest, slot->capacity, &raw) ||
         bluewake_archive_be32(raw) != slot->module_id || slot->bytes != rel->file_size)
         return "REL link requires the matching owned raw image";
+    if (slot->unlinked)
+        return "REL relink requires destruction of its explicitly unlinked scratch first";
+    if (slot->linked) {
+        const u32 imports = bluewake_archive_be32(raw + 0x28u);
+        const u32 import_bytes = bluewake_archive_be32(raw + 0x2Cu);
+        if ((u64)imports + import_bytes > slot->bytes || (import_bytes & 7u) != 0u)
+            return "REL live dependency table changed";
+        u32 count = 0u;
+        for (u32 at = imports; at < imports + import_bytes; at += 8u) {
+            const u32 dependency = bluewake_archive_be32(raw + at);
+            if (dependency == 0u || dependency == 1u || dependency == slot->module_id)
+                continue;
+            if (count >= slot->dependency_count || dependency != slot->dependencies[count++])
+                return "REL live dependency ownership changed";
+        }
+        if (count != slot->dependency_count)
+            return "REL live dependency ownership changed";
+    }
     const char* error = ww_host_validate_rel_link(host, rel, raw, slot->bytes);
     if (error != NULL)
         return error;
@@ -193,6 +317,13 @@ const char* ww_host_link_rel(WwHost* host, u32 object) {
                 memcpy(storage, data->bytes, data->size);
         }
         mem_write32(cpu, object + 0x10u, slot->guest);
+        const u32 imports = bluewake_archive_be32(raw + 0x28u);
+        const u32 import_bytes = bluewake_archive_be32(raw + 0x2Cu);
+        for (u32 at = imports; at < imports + import_bytes; at += 8u) {
+            const u32 dependency = bluewake_archive_be32(raw + at);
+            if (dependency != 0u && dependency != 1u && dependency != slot->module_id)
+                slot->dependencies[slot->dependency_count++] = dependency;
+        }
         slot->linked = true;
     }
     cpu->gpr[3] = 1u;
@@ -268,7 +399,7 @@ const char* ww_host_link_profile_list(WwHost* host, u32 object) {
     const StaticRecompRelModule* descriptor = ww_host_rel_descriptor(host, slot->module_id);
     if (descriptor == NULL)
         return "REL profile-list descriptor is absent";
-    const char* relocation_error = validate_relocations(host, descriptor, raw, slot->bytes);
+    const char* relocation_error = validate_relocations(host, descriptor, raw, slot->bytes, NULL);
     if (relocation_error != NULL)
         return relocation_error;
     bool section_matches = false;

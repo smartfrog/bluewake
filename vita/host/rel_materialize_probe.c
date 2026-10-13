@@ -7,6 +7,32 @@
 static bool fail_trace;
 static bool fail_alias;
 static bool fail_link_trace;
+static u32 dispatched_address;
+
+static u64 actor_code_hash(const char* scenario) {
+    u8 bytes[32];
+    for (u32 at = 0u; at < sizeof(bytes); ++at)
+        bytes[at] = (u8)((at + 0x80u) * 7u + 3u);
+    if (strncmp(scenario, "second-branch-", 14u) == 0) {
+        bytes[0] = strcmp(scenario, "second-branch-rel14-displacement") == 0 ? 0x40u : 0x48u;
+        memset(bytes + 1u, 0, 3u);
+    }
+    u64 hash = 14695981039346656037ull;
+    for (u32 at = 0u; at < sizeof(bytes); ++at) {
+        hash ^= bytes[at];
+        hash *= 1099511628211ull;
+    }
+    return hash;
+}
+
+static int rel_dispatch(CPUState* cpu, u32 address) {
+    dispatched_address = address;
+    if (address != 0xC09900F4u)
+        return 0;
+    assert(cpu->pc == address);
+    cpu->pc = cpu->lr;
+    return 1;
+}
 
 void* __real_calloc(size_t count, size_t size);
 
@@ -41,14 +67,46 @@ static void request_rel(WwHost* host, u32 object, u32 text, const char* name) {
 static void second_module_case(WwHost* host, const char* scenario) {
     CPUState* cpu = &host->cpu;
     const bool rejected = strstr(scenario, "bad-") != NULL || strstr(scenario, "reloc-") != NULL ||
+                          strstr(scenario, "branch-") != NULL || strstr(scenario, "lifecycle-") != NULL ||
+                          strcmp(scenario, "second-dependency-unlinked") == 0 ||
+                          strcmp(scenario, "second-dependency-unloaded") == 0 ||
                           strcmp(scenario, "second-no-code") == 0 || strcmp(scenario, "second-missing-bss") == 0;
     const WwRelImage profile = host->rel_images[0];
+    const bool dependency_live = strcmp(scenario, "second-dependency-live") == 0;
+    if (dependency_live || strcmp(scenario, "second-dependency-unloaded") == 0) {
+        request_rel(host, 0x80002200u, 0x80003200u, "d_a_ship");
+        assert(host->error == NULL && mem_read32(cpu, 0x80002210u) != 0u);
+        if (!dependency_live) {
+            assert(ww_host_unlink_rel(host, 0x80002200u) == NULL);
+            assert(ww_host_collect_rels(host) == NULL && host->alias_count == 1u);
+        }
+    }
     request_rel(host, 0x80002100u, 0x80003100u, "d_a_kamome");
     assert(memcmp(&profile, &host->rel_images[0], sizeof(profile)) == 0);
     assert(mem_read32(cpu, 0x80002010u) == profile.guest);
     assert(mem_read32(cpu, 0x803F6A68u) == 0xC1F80178u);
     if (rejected) {
         assert(host->error != NULL && host->edge_stopped && cpu->pc == 0x80240744u);
+        if (strcmp(scenario, "second-reloc-export-mismatch") == 0 ||
+            strcmp(scenario, "second-reloc-raw-export-mismatch") == 0)
+            assert(strstr(host->error, "prelinked export") != NULL);
+        if (strcmp(scenario, "second-reloc-bss") == 0)
+            assert(strstr(host->error, "BSS") != NULL);
+        if (strcmp(scenario, "second-bad-code-hash") == 0)
+            assert(strstr(host->error, "chunk hashes") != NULL);
+        if (strcmp(scenario, "second-branch-misaligned") == 0 || strcmp(scenario, "second-branch-bss") == 0 ||
+            strcmp(scenario, "second-branch-no-coverage") == 0)
+            assert(strstr(host->error, "executable coverage") != NULL);
+        if (strcmp(scenario, "second-branch-exclusive-end") == 0)
+            assert(strstr(host->error, "outside MEM1") != NULL);
+        if (strcmp(scenario, "second-branch-displacement") == 0 || strcmp(scenario, "second-branch-rel14-displacement") == 0)
+            assert(strstr(host->error, "displacement") != NULL);
+        if (strcmp(scenario, "second-branch-valid-unverified") == 0)
+            assert(strstr(host->error, "certification") != NULL);
+        if (strstr(scenario, "lifecycle-") != NULL)
+            assert(strstr(host->error, "lifecycle") != NULL);
+        if (strcmp(scenario, "second-dependency-unlinked") == 0 || strcmp(scenario, "second-dependency-unloaded") == 0)
+            assert(strstr(host->error, "live dependency") != NULL);
         assert(mem_read32(cpu, 0x80002110u) == 0u && host->alias_count == 1u && host->alias_bytes == 256u);
         assert(ww_host_rel_owned(host, 0x80002100u) == NULL);
         assert(mem_read8(cpu, 0xC0997700u) == 0xAAu && mem_read8(cpu, 0xC0997710u) == 0xAAu);
@@ -56,10 +114,11 @@ static void second_module_case(WwHost* host, const char* scenario) {
     }
     assert(host->error == NULL && cpu->pc == cpu->lr && cpu->gpr[3] == 1u);
     const u32 actor = mem_read32(cpu, 0x80002110u);
-    assert(actor != 0u && actor != profile.guest && host->alias_count == 2u && host->alias_bytes == 512u);
+    assert(actor != 0u && actor != profile.guest && host->alias_count == (dependency_live ? 3u : 2u));
+    assert(host->alias_bytes == (dependency_live ? 768u : 512u));
     for (u32 offset = 0u; offset < 16u; ++offset)
         assert(mem_read8(cpu, 0xC0997700u + offset) == 0u);
-    assert(mem_read32(cpu, 0xC0997710u) == 0x80001000u);
+    assert(mem_read32(cpu, 0xC0997710u) == (dependency_live ? 0xC1B224D0u : 0x80001000u));
     assert(ww_host_rel_address(host, actor + 0x80u) == 0xC09900F4u);
     assert(ww_host_rel_address(host, (actor + 0x84u) | 0x40000000u) == 0xC09900F8u);
     mem_write8(cpu, 0xC0997700u, 0xBBu);
@@ -72,7 +131,7 @@ static void second_module_case(WwHost* host, const char* scenario) {
         assert(after.total_read_bytes == before.total_read_bytes && host->alias_count == 2u);
         assert(mem_read8(cpu, 0xC0997700u) == 0xBBu);
     } else if (strcmp(scenario, "second-unload") == 0) {
-        mem_write32(cpu, 0x80002110u, 0u);
+        assert(ww_host_unlink_rel(host, 0x80002100u) == NULL);
         assert(ww_host_rel_address(host, actor + 0x80u) == actor + 0x80u);
         assert(ww_host_collect_rels(host) == NULL);
         assert(host->alias_count == 1u && host->alias_bytes == 256u);
@@ -80,6 +139,44 @@ static void second_module_case(WwHost* host, const char* scenario) {
         request_rel(host, 0x80002100u, 0x80003100u, "d_a_kamome");
         assert(host->error == NULL && mem_read32(cpu, 0x80002110u) == actor);
         assert(mem_read8(cpu, 0xC0997700u) == 0u && host->alias_count == 2u);
+    } else if (strcmp(scenario, "second-unload-incomplete") == 0) {
+        mem_write32(cpu, 0x80002110u, 0u);
+        assert(ww_host_collect_rels(host) != NULL);
+        assert(host->alias_count == 2u && get_ram_ptr(cpu, actor, 256u, NULL) != NULL);
+        assert(ww_host_unlink_rel(host, 0x80002100u) != NULL);
+    } else if (dependency_live) {
+        const u32 dependency = mem_read32(cpu, 0x80002210u);
+        mem_write8(cpu, 0xC1B224D0u, 0xCCu);
+        assert(ww_host_unlink_rel(host, 0x80002200u) != NULL);
+        assert(mem_read32(cpu, 0x80002210u) == dependency && mem_read8(cpu, 0xC1B224D0u) == 0xCCu);
+        assert(ww_host_materialize_rel(host, 0x80002300u, "d_a_ship") != NULL);
+        assert(mem_read8(cpu, 0xC1B224D0u) == 0xCCu && host->alias_count == 3u);
+        assert(ww_host_unlink_rel(host, 0x80002100u) == NULL);
+        assert(ww_host_collect_rels(host) == NULL);
+        assert(ww_host_unlink_rel(host, 0x80002200u) == NULL);
+        assert(ww_host_collect_rels(host) == NULL && host->alias_count == 1u);
+        assert(get_ram_ptr(cpu, actor, 256u, NULL) == NULL && get_ram_ptr(cpu, dependency, 256u, NULL) == NULL);
+        request_rel(host, 0x80002200u, 0x80003200u, "d_a_ship");
+        assert(host->error == NULL && mem_read32(cpu, 0x80002210u) == dependency);
+        assert(mem_read8(cpu, 0xC1B224D0u) == 0u);
+        assert(mem_read32(cpu, 0x80002010u) == profile.guest && ww_host_rel_live(host, 1u) != NULL);
+    } else if (strcmp(scenario, "second-dispatch") == 0) {
+        cpu->pc = actor + 0x80u;
+        assert(ww_host_dispatch(host, cpu->pc) == 1);
+        assert(dispatched_address == 0xC09900F4u && cpu->pc == cpu->lr);
+        assert(ww_host_unlink_rel(host, 0x80002100u) == NULL);
+        cpu->pc = actor + 0x80u;
+        assert(ww_host_dispatch(host, cpu->pc) == 0);
+        assert(dispatched_address == actor + 0x80u);
+        cpu->pc = 0xC09900F4u;
+        assert(ww_host_dispatch(host, cpu->pc) == -1);
+        assert(host->error != NULL && dispatched_address == actor + 0x80u);
+    } else if (strcmp(scenario, "second-native-unlink") == 0) {
+        cpu->gpr[3] = 0x80002100u;
+        cpu->pc = 0x80240F54u;
+        assert(ww_host_dispatch(host, cpu->pc) == -1);
+        assert(host->error != NULL && dispatched_address == 0u);
+        assert(mem_read32(cpu, 0x80002110u) == actor && host->alias_count == 2u);
     } else if (strcmp(scenario, "second-independent") == 0) {
         request_rel(host, 0x80002200u, 0x80003200u, "d_a_ship");
         assert(host->error == NULL && cpu->pc == cpu->lr && cpu->gpr[3] == 1u);
@@ -106,6 +203,8 @@ int main(int argc, char** argv) {
     assert(host != NULL && ww_host_init(host));
     const StaticRecompRange ranges[] = {{0x80240744u, 0x80240748u}, {0xC09900F4u, 0xC0990114u},
                                       {0xC1B100F4u, 0xC1B10114u}};
+    const StaticRecompRange chunks[] = {{0xC09900F4u, 0xC0990114u}, {0xC1B100F4u, 0xC1B10114u}};
+    const u64 hashes[] = {actor_code_hash(scenario), actor_code_hash("")};
     const StaticRecompRelSection sections[] = {
         {.module_id = 1u, .section_index = 1u, .linked_start = WW_REL_SCRATCH_BASE,
          .size = strcmp(scenario, "full") == 0 ? WW_REL_SCRATCH_LIMIT - WW_REL_SCRATCH_BASE : 0x100u},
@@ -124,14 +223,19 @@ int main(int argc, char** argv) {
                                           .file_size = 256u, .sections = ship_sections, .num_sections = 3u}};
     const StaticRecompModuleDesc module = {.code_ranges = ranges,
                                           .num_code_ranges = second && strcmp(scenario, "second-no-code") != 0 ? 3u : 1u,
-                                          .rel_modules = rels, .num_rel_modules = second ? 3u : 1u};
+                                          .rel_modules = rels, .num_rel_modules = second ? 3u : 1u,
+                                          .chunk_ranges = chunks, .num_chunk_ranges = 2u, .chunk_hashes = hashes,
+                                          .dispatch = rel_dispatch};
     host->module = &module;
     const u8 profile_bytes[16] = {0x80u, 1u, 2u, 3u, 4u, 5u, 6u, 7u, 8u, 9u, 10u, 11u, 12u, 13u, 14u, 15u};
     const BlueWakeRelData profile = {1u, 4u, 0xC1F80178u, sizeof(profile_bytes), profile_bytes};
-    const u8 actor_data[16] = {0x80u, 0u, 0x10u, 0u};
+    const u8 dol_data[16] = {0x80u, 0u, 0x10u, 0u};
+    const bool dependency_case = strncmp(scenario, "second-dependency-", 18u) == 0;
+    const u8 actor_data[16] = {dependency_case ? 0xC1u : 0x80u, dependency_case ? 0xB2u : 0u,
+                              dependency_case ? 0x24u : 0x10u, dependency_case ? 0xD0u : 0u};
     const BlueWakeRelData both_data[] = {profile, {139u, 3u, 0xC0997710u, 16u, actor_data},
                                        {139u, 2u, 0xC0997700u, 16u, NULL},
-                                       {168u, 3u, 0xC1B224E0u, 16u, actor_data}, {168u, 2u, 0xC1B224D0u, 16u, NULL}};
+                                       {168u, 3u, 0xC1B224E0u, 16u, dol_data}, {168u, 2u, 0xC1B224D0u, 16u, NULL}};
     if (second) {
         host->rel_data = both_data;
         host->rel_data_count = strcmp(scenario, "second-missing-bss") == 0 ? 2u : 5u;

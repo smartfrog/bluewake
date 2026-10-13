@@ -27,14 +27,73 @@ bool ww_host_rel_linked(WwHost* host, u32 module_id) {
     return false;
 }
 
+WwRelImage* ww_host_rel_live(WwHost* host, u32 module_id) {
+    for (u32 index = 0u; index < host->rel_image_count; ++index) {
+        WwRelImage* slot = &host->rel_images[index];
+        if (slot->module_id == module_id && slot->linked &&
+            mem_read32(&host->cpu, slot->owner + 0x10u) == slot->guest)
+            return slot;
+    }
+    return NULL;
+}
+
+static bool rel_contains(const StaticRecompRelModule* rel, u32 address) {
+    for (u32 at = 0u; at < rel->num_sections; ++at) {
+        const StaticRecompRelSection* section = &rel->sections[at];
+        if (address >= section->linked_start && (u64)address < (u64)section->linked_start + section->size)
+            return true;
+    }
+    return false;
+}
+
+bool ww_host_rel_code_owned(WwHost* host, u32 address) {
+    if ((address & 0xC0000000u) != 0xC0000000u)
+        return true;
+    for (u32 at = 0u; at < host->rel_image_count; ++at) {
+        const WwRelImage* slot = &host->rel_images[at];
+        if (!slot->linked || ww_host_rel_live(host, slot->module_id) == NULL)
+            continue;
+        const StaticRecompRelModule* rel = ww_host_rel_descriptor(host, slot->module_id);
+        if (rel != NULL && rel_contains(rel, address))
+            return true;
+    }
+    for (u32 at = 0u; at < host->module->num_rel_modules; ++at)
+        if (rel_contains(&host->module->rel_modules[at], address))
+            return false;
+    return true;
+}
+
+const char* ww_host_unlink_rel(WwHost* host, u32 owner) {
+    WwRelImage* slot = ww_host_rel_owned(host, owner);
+    if (slot == NULL || !slot->linked || mem_read32(&host->cpu, owner + 0x10u) != slot->guest)
+        return "REL unlink requires unchanged live ownership";
+    if (slot->module_id == 1u)
+        return "REL profile-list resident contract does not support unload";
+    for (u32 at = 0u; at < host->rel_image_count; ++at) {
+        const WwRelImage* importer = &host->rel_images[at];
+        if (!importer->linked)
+            continue;
+        for (u32 dependency = 0u; dependency < importer->dependency_count; ++dependency)
+            if (importer->dependencies[dependency] == slot->module_id)
+                return "REL unlink would invalidate a live importing module";
+    }
+    slot->linked = false;
+    slot->unlinked = true;
+    mem_write32(&host->cpu, owner + 0x10u, 0u);
+    return NULL;
+}
+
 const char* ww_host_collect_rels(WwHost* host) {
     for (u32 index = 0u; index < WW_REL_MAX_IMAGES; ++index) {
         WwRelImage* slot = &host->rel_images[index];
-        if (slot->guest == 0u || !slot->linked)
+        if (slot->guest == 0u)
             continue;
         const u32 published = mem_read32(&host->cpu, slot->owner + 0x10u);
-        if (published == slot->guest)
+        if (!slot->unlinked) {
+            if (slot->linked && published != slot->guest)
+                return "REL publication changed without completed unlink";
             continue;
+        }
         if (published != 0u)
             return "REL owner changed to an unowned image";
         if (slot->module_id == 1u && mem_read32(&host->cpu, BLUEWAKE_PROFILE_LIST_GLOBAL) != 0u)
