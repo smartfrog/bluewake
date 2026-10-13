@@ -2178,3 +2178,58 @@ warning unchanged. Audit/attribution/whitespace pass. No sound, new game pixels,
 hardware behavior or FPS gain is claimed. Commit/rebuild and watched **MEM1 +
 PNG live + audio=deferred** trial follow; source-backed minimal deferral continues
 instead of the paused real-DSP port.
+
+## Unit 57: actual setup packet confirms a metadata-ACK wait, not PCM verification
+
+Committed VI/O1 build **6c5b6e0**, watched live-PNG/MEM1/audio-deferred run
+**4e6a06f79bda45d6811006ef4218d657** accepts/discards the actual setup packet:
+**81000040**, followed by **806B19E0 / 80398F20 / 80398EE0 / 806B79E0**. Its
+input attention pulse is actual **0952 at 803190E0**, logged ignored. These are
+private producer pointer observations, not copied tables or initialized voices.
+
+The guest now **really busy-waits at 8028E708**, reading **R13-27528**, comparing
+against zero and branching back while nonzero. **8028E700** set this setup-pending
+flag to 1 before sending the packet; the actual completion callback **8028E6A0**
+clears it at **8028E6A4**. This is a meaningful video-blocking dependency, not
+the prior nonwaiting probe or a low-CPU host hang.
+
+Source identifies the missing minimal protocol state: **Zelda.cpp:411,501-527**
+sends a standard setup ACK consisting of **DSP_SYNC DCD10004** (interrupting),
+then **F3550000 | sync_value**, where `sync_value = cmd_mail >> 16` gives **8100**
+for this actual packet. The guest handler's +34 / 52-byte request callback is
+**80289130**. It checks the second word's F355 prefix and sends its low 16 bits
+through **8028EB00**, whose tag comparison and indirect callback at **8028EB44**
+dispatch the registered **8028E6A0** completion. **No PCM or coefficient-table
+output is inspected by that setup wait.** A declared synthetic acceptance ACK
+can satisfy this metadata handshake without real DSP table setup; it must not
+be described as actual configuration/mixing completion. The coordinator is
+informed of the real wait; the full DSP port remains paused. Further actual
+rendering/sample-processing waits will be reported separately.
+
+The process remained high-CPU **and** output-active until the explicit ceiling:
+guest **180.01 s**, timeout **124**, TERM/reaped. This attempt stays **INCOMPLETE**;
+**no closed guest report exists**, and the original partial file remains
+preserved. Last **observed**, not final, progress: **6,169,996,090 cycles /
+24,759,442 edges**, PC **8028E708**. Final cycle/edge/decoded/draw totals and
+certified frontier verdict are **UNKNOWN/UNAVAILABLE**, not borrowed from a
+previous run. No fake closing report, PASS or FPS is manufactured.
+
+Independently closed artifacts remain verifiable: **eight actual presentation
+markers and PNG pairs**, **761 real retrace markers**, **two actual MEM1 images**;
+all declare **audio=deferred**. The shown images are numerically uniform opaque
+black. Existing collectors verify them post-timeout without rewriting PNGs or
+changing the original result; both guarded, captured two-draw-prefix replays pass.
+These artifact checks do **not** turn the trial into a completed game run.
+
+Private root:
+
+```text
+/home/fred/projects/zeldaWWHDRecomp/build-f5/ww05/vita3k-run-4e6a06f79bda45d6811006ef4218d657
+```
+
+Images **`evidence/frames/frame-{1..8}.png`**; explicitly incomplete verification
+**`evidence/live-images-post-timeout.json`**, **`evidence/mem1-post-timeout.json`**,
+**`evidence/timeout-evidence-checks.json`**; draw fixtures
+**`evidence/gx-draw-prefix-snapshot{1,2}/`**. Preserve the original timeout result,
+log and monitor. Next: only the declared no-op setup-intake ACK, with normal
+guest interrupt/callback execution and no direct write to the waiting flag.
