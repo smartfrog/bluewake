@@ -2689,3 +2689,51 @@ logo/gameplay or FPS gain is claimed. Commit/rebuild, then one fresh watched
 **O1 -j2 / 300 s ceiling / MEM1 + PNG live / audio=deferred** trial follows to
 observe what the original probe and later boot code actually do. No stale
 emulator or player's data is reused; real-DSP/PCM work remains paused.
+
+## Unit 68: original CARDProbe passes; 45 black presentations, no semantic STOP
+
+Committed VI/O1 **feff0a6**, **-j2**, watched run
+**ed8c366cf38e42c99ebc2c07f9f73207** records the guarded original CARDProbe
+entry at **134,612,247 cycles**, channel **0**, LR **80018F30**, SP **8040CF40**,
+actual retail flag **00**. Guest execution subsequently advances and presents
+more frames without another card interception STOP. Its return value was not
+directly sampled; do not infer a native card result or card presence/absence.
+
+The actual process is stopped by the **300.00 s ceiling**, **exit -15 / waited**,
+launcher status **124**, with early disposition and final result retained.
+There is no closed guest report or final semantic STOP. Last observed progress
+is **434,289,673 cycles / 5,135,976 edges / 1,696,736 turns**, PC **80307EF4**,
+exception **0**, not final counters. Actual live captures verify **45 PNG pairs /
+45 presentation markers / 53 retrace markers / two MEM1 images**, all
+**audio=deferred**. All display images remain numerically opaque black, hash
+**c871acff3fc84ccec64ed29b05f2b1549e05b5067e2e5adf193b60d5490fdae5**;
+frames **27 / 45** opened. Both guarded captured draw-prefix replays pass.
+Later frames have no later contemporaneous MEM1 snapshot and must not be
+replayed with either earlier snapshot. This run remains **INCOMPLETE**; neither
+final decoded/draw totals nor a certified whole-run renderer result is available.
+
+No surviving Vita3K is found. Real GXM waits again release and actual rendering
+continues. Repeated scheduler-idle PCs while frames advance do not establish a
+new deadlock. Only **53 genuine retraces** have occurred under the retained
+clock contract; startup/fade timing remains a possible explanation, not a
+diagnosis. The existing single scheduler snapshot predates CARDProbe, so it
+cannot explain the later guest queues. Next observation reuses that read-only
+snapshot once after **32 actual presentations** and the guarded CARDProbe
+entry, in explicitly deferred continuation only. It will name actual wait
+queues and saved stacks without waking a thread or changing guest time/RAM.
+No new audio behavior, fabricated GPU finish or forced logo draw is justified.
+
+Private root for lane 18:
+
+```text
+/home/fred/projects/zeldaWWHDRecomp/build-f5/ww05/vita3k-run-ed8c366cf38e42c99ebc2c07f9f73207
+```
+
+Actual journal: **`data/Vita3K/Vita3K/ux0/data/bluewake-ww-fixture/ww05.log`**;
+images **`evidence/frames/`**, independent checks
+**`evidence/live-images-post-timeout.json`**, **`evidence/mem1-post-timeout.json`**,
+**`evidence/card-run-diagnosis.json`**, guarded fixtures
+**`evidence/gx-draw-prefix-snapshot{1,2}/`**. Original disposition/result/native
+snapshots/watch log remain intact. No logo, gameplay, sound, physical Vita or
+FPS baseline is claimed. Continue test-first observation, commit and certified
+**O1 -j2** rebuild before another isolated, continuously watched capture trial.
