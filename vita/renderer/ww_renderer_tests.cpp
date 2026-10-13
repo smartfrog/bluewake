@@ -889,7 +889,57 @@ int refused_program_cannot_confirm_completion() {
   return 0;
 }
 
+int color_channel_masks_precede_color_texgens() {
+  for (std::uint8_t channels : {0, 1, 2}) {
+    for (std::uint8_t channel : {0, 1}) {
+      Fixture fixture;
+      RecordingBackend backend;
+      WwRenderer* renderer = nullptr;
+      auto config = fixture.config();
+      CHECK(ww_renderer_create(&renderer, &config, &backend) == nullptr);
+      const auto fifo = gx_ztexture_fixture::lighting_quad(0, channels, channel);
+      CHECK(ww_renderer_write(renderer, fifo.data(), fifo.size()) == nullptr);
+      CHECK(backend.draws.size() == 1);
+      const auto& geometry = backend.draws[0].geometry;
+      constexpr float lit_rg[2] = {63.f / 255.f, 128.f / 255.f};
+      for (unsigned v = 0; v < 4; ++v) {
+        for (int c = 0; c < 2; ++c) {
+          const float expected = channel >= channels ? 0.f : channel == 0 ? lit_rg[c] : 1.f;
+          CHECK(geometry.texcoords[v * 24 + c] == expected);
+        }
+      }
+      WwRendererStats stats;
+      ww_renderer_stats(renderer, &stats);
+      CHECK(stats.draws == 1 && stats.plans_skipped == 0 && stats.gap_count == 0);
+      ww_renderer_destroy(renderer);
+    }
+  }
+  return 0;
+}
+
+int normalized_post_matrix_never_reaches_the_backend() {
+  Fixture fixture;
+  RecordingBackend backend;
+  WwRenderer* renderer = nullptr;
+  auto config = fixture.config();
+  CHECK(ww_renderer_create(&renderer, &config, &backend) == nullptr);
+  const auto fifo = gx_ztexture_fixture::post_matrix_quad(true);
+  CHECK(ww_renderer_write(renderer, fifo.data(), fifo.size()) == nullptr);
+  WwRendererStats stats;
+  ww_renderer_stats(renderer, &stats);
+  CHECK(stats.plans == 1 && stats.plans_skipped == 1);
+  CHECK(stats.draws == 0 && stats.programs == 0 && backend.draws.empty());
+  CHECK(stats.skip_count == 1);
+  CHECK(std::string(stats.skip_reasons[0]) == "post-normalized texture matrix not supported");
+  CHECK(stats.gap_count == 1);
+  CHECK(std::string(stats.gaps[0].name) == "unsupported_texgen" && stats.gaps[0].value == 1);
+  ww_renderer_destroy(renderer);
+  return 0;
+}
+
 int main() {
+  CHECK(color_channel_masks_precede_color_texgens() == 0);
+  CHECK(normalized_post_matrix_never_reaches_the_backend() == 0);
   CHECK(capture_presented_frame_before_next_draw() == 0);
   CHECK(capture_failure_stops_before_next_draw() == 0);
   CHECK(readback_failure_never_calls_writer() == 0);

@@ -152,14 +152,7 @@ def replay_fixture(directory, metadata, *, binary=None):
         output, refusal = bridge.run_stream(binary or bridge.find_binary(), (directory / 'stream.fifo').read_bytes(), memory)
     if refusal is not None:
         return f'bridge ok=0 reason={refusal}\nverdict=rejected\n', 1
-    summary = re.search(r'^bridge .*$', output, re.MULTILINE)
-    if summary is None:
-        raise ValueError('bridge did not report counters')
-    counters = dict(item.split('=', 1) for item in summary[0].split()[1:])
-    gaps = any(int(counters[name]) for name in ('plans_skipped', 'programs_refused', 'copies_refused'))
-    gaps |= int(counters['programs']) < metadata['captured_draws']
-    gaps |= re.search(r'^gap .*=[1-9]\d*$', output, re.MULTILINE) is not None
-    return output + ('verdict=ran-with-coverage-gaps\n' if gaps else 'verdict=ran\n'), int(gaps)
+    return bridge.replay_result(output, captured_draws=metadata['captured_draws'])
 
 
 def main():

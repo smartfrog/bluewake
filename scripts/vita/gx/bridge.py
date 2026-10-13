@@ -11,8 +11,8 @@ partial one (the host stopped mid-command) says so; a malformed or rejected
 one is refused with its reason.
 
 Usage: bridge.py <capture-file> [--mem1 <dump> | --snapshot <manifest>]
-Exit:  0 report printed (including no-bytes-yet and partial captures),
-       1 refusal, 2 usage or missing tooling.
+Exit:  0 replay without gaps (including no-bytes-yet and partial captures),
+       1 refusal or coverage gaps, 2 usage or missing tooling.
 
 Environment:
   WW02_BUILD  build directory (default <main checkout>/build-f2/ww02)
@@ -20,6 +20,7 @@ Environment:
 
 import argparse
 import os
+import re
 import subprocess
 import sys
 import tempfile
@@ -64,6 +65,18 @@ def run_stream(binary, fifo, mem1_path, *, ranges_path=None):
     return None, result.stderr.strip() or "gx_bridge rejected the stream"
 
 
+def replay_result(output, *, captured_draws=None):
+    summary = re.search(r'^bridge .*$', output, re.MULTILINE)
+    if summary is None:
+        raise ValueError('bridge did not report counters')
+    counters = dict(item.split('=', 1) for item in summary[0].split()[1:])
+    gaps = any(int(counters[name]) for name in ('plans_skipped', 'programs_refused', 'copies_refused'))
+    if captured_draws is not None:
+        gaps |= int(counters['programs']) < captured_draws
+    gaps |= re.search(r'^gap .*=[1-9]\d*$', output, re.MULTILINE) is not None
+    return output + ('verdict=ran-with-coverage-gaps\n' if gaps else 'verdict=ran\n'), int(gaps)
+
+
 def run_report(parsed, binary, mem1_path, *, ranges_path=None):
     if not parsed.complete and not parsed.data:
         print("verdict=no-bytes-yet")
@@ -76,9 +89,9 @@ def run_report(parsed, binary, mem1_path, *, ranges_path=None):
         print(f"bridge ok=0 reason={refusal}")
         print("verdict=rejected")
         return 1
-    print(output, end="")
-    print("verdict=ran")
-    return 0
+    text, status = replay_result(output)
+    print(text, end="")
+    return status
 
 
 def run_capture(kind, payload, source, binary, memory, ranges=None):
@@ -97,9 +110,9 @@ def run_capture(kind, payload, source, binary, memory, ranges=None):
         print(f"bridge ok=0 reason={refusal}")
         print("verdict=rejected")
         return 1
-    print(output, end="")
-    print("verdict=ran")
-    return 0
+    text, status = replay_result(output)
+    print(text, end="")
+    return status
 
 
 def main(argv=None):

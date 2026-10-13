@@ -5,6 +5,7 @@
 
 #include "gx_cg.h"
 #include "gx_vita.h"
+#include "gx_texgen_sink.h"
 
 #include "gxruntime/aurora_recomp/retail_gx_frontend.hpp"
 #include "gxruntime/gxcore/gxcore.hpp"
@@ -178,7 +179,7 @@ bool run(std::span<const std::uint8_t> fifo,
   frontend.set_packet_drain_enabled(true);
   frontend.set_event_observer(count_event, &out->counts);
 
-  gxc::GxCoreSink sink;
+  gx_vita::TexGenSink sink;
   sink.set_guest_resolver(&frontend.state().resolver);
   Collector collector;
   collector.result = out;

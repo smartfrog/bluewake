@@ -140,9 +140,10 @@ gxc::DrawPlan lighting_plan() {
   return plan;
 }
 
-float color_component(const gx_vita::TranslatedDraw& draw, std::uint32_t component) {
+float color_component(const gx_vita::TranslatedDraw& draw, std::uint32_t component,
+                      std::uint32_t channel = 0) {
   float value;
-  std::memcpy(&value, draw.geometry.vertices.data() + gxc::kVertexColor0Offset +
+  std::memcpy(&value, draw.geometry.vertices.data() + gxc::kVertexColor0Offset + 16 * channel +
                          component * sizeof(float), sizeof value);
   return value;
 }
@@ -207,6 +208,45 @@ gxc::DrawPlan emboss_plan() {
 int main() {
   int failures = 0;
   std::uint64_t textured_key = 0;
+
+  for (std::uint8_t channels : {0, 1, 2}) {
+    for (bool captured : {false, true}) {
+      auto plan = lighting_plan();
+      auto& key = plan.pipeline.shader;
+      key.num_color_chans = channels;
+      key.lit_valid = captured;
+      key.chan_captured_mask = captured ? 15 : 0;
+      key.litchan[0].enablelighting = 0;
+      key.has_color0 = key.has_color1 = 1;
+      key.num_tex_gens = 2;
+      key.tex_gens[0].texgentype = 2;
+      key.tex_gens[1].texgentype = 3;
+      constexpr float input[2][4] = {{0.25f, 0.5f, 0.75f, 1.f},
+                                     {0.125f, 0.375f, 0.625f, 0.875f}};
+      for (int channel = 0; channel < 2; ++channel) {
+        const auto offset = gxc::kVertexColor0Offset / 4 + 4 * channel;
+        std::memcpy(plan.vertices.data() + offset, input[channel], sizeof input[channel]);
+        for (int c = 0; c < 4; ++c)
+          plan.constants.materials[channel + 2][c] = 32 + 64 * channel + 16 * c;
+      }
+      const auto draw = gx_vita::translate(plan);
+      CHECK(draw.ok);
+      for (int channel = 0; channel < 2; ++channel) {
+        for (int c = 0; c < 4; ++c) {
+          const float expected = channel >= channels ? 0.f
+                                     : captured ? (32.f + 64 * channel + 16 * c) / 255.f
+                                                : input[channel][c];
+          CHECK(color_component(draw, c, channel) == expected);
+          if (c < 2)
+            CHECK(draw.geometry.texcoords[3 * channel + c] == expected);
+        }
+        CHECK(draw.geometry.texcoords[3 * channel + 2] == 1.f);
+      }
+      const auto reference = gxc::generate_wgsl(key);
+      CHECK((reference.find("o.color0 = vec4f(0.0);") != std::string::npos) == (channels == 0));
+      CHECK((reference.find("o.color1 = vec4f(0.0);") != std::string::npos) == (channels <= 1));
+    }
+  }
 
   for (bool tangent : {false, true}) {
     for (bool binormal : {false, true}) {
@@ -553,6 +593,7 @@ int main() {
     plan.vertex_count = 1;
     plan.vertices.resize(gxc::kVertexFloats);
     plan.pipeline.shader.num_tex_gens = 1;
+    plan.pipeline.shader.num_color_chans = 2;
     plan.pipeline.shader.tex_gens[0].texgentype = 2 + channel;
     const auto offset = channel == 0 ? gxc::kVertexColor0Offset : gxc::kVertexColor1Offset;
     plan.vertices[offset / 4] = 0.25f;
