@@ -9,8 +9,9 @@ at frame 11 (Unit 78). Gameplay and 30+ FPS are still unverified. The current
 capture handoff targets complete later-draw FIFO state and synchronized MEM1
 for lane 18 (Units 79-80), not another guessed renderer/audio fix. The first
 extra-draw interval is now captured and passes the guarded native loader.
-The latest CI attempt reaches 96 live images but not its requested draw-time
-RAM window; Unit 85 records that incomplete outcome without extending bounds.
+The 96-image attempt remains preserved in Unit 85. The owner-authorized
+extended attempt stops at the live user-RAM guard before CI (Unit 88); neither
+attempt certifies title-screen resources or gameplay.
 
 ## Unit 1: CP performance selector
 
@@ -3786,3 +3787,81 @@ timeout, native/shader/resource refusal or real preceding wall. Audit,
 attribution and whitespace pass; no Windows CI, physical Vita, sound, gameplay,
 title-screen parity or 30+ FPS claim. No network or push. The authentic extended
 trial outcome is pending until its real artifacts are collected.
+
+## Unit 88: extended attempt stops at the actual user-RAM guard before CI
+
+Rebuild committed **7bbec43**, after trunk **52a8935**, with **VI / O1 / -j2**.
+**All seven private builder stages pass / status 0 / 120.172 s observed
+completion**. All **848 prior objects** remain present; **843 retain their
+tracked inode/size/mtime signatures**, five are rebuilt. All **750 module
+compile commands** have effective final **-O1**. No other O2/O3 build, cache
+clean, source rollback or object deletion is performed. Build evidence:
+
+```text
+/home/fred/projects/zeldaWWHDRecomp/build-f5/ww05/logs/ww16-extended-ci-7bbec43-e39f745d77704b6f88fbcac3b66dce94/
+```
+
+Fresh authentic run **79112c7f1613453f95af98f24f0ad1fd**, source **7bbec43**,
+really requests **1200 s for the guest / 600 s installer / 30 s CPU-I/O
+watchdog / window 101854-102936 / audio=deferred**. Available user RAM is
+**7,373,324,288 bytes before installer** and **7,366,311,936 bytes before guest**;
+both recorded preflights pass the declared **2,684,354,560-byte** floor.
+This is a fresh rebuilt source/package, not an older run relabelled extended.
+
+The live guard observes **2,637,365,248 bytes available** and correctly stops
+the owned guest at **70.212 s**, with **stop_reason=memory-pressure / TERM /
+exit=-15 / waited=true / status 125 / INCOMPLETE / frontier UNAVAILABLE**.
+The **1200 s ceiling is not reached**. Units are explicit: the declared guard
+is the conservative **2.5 GiB**, stricter than decimal 2.5 GB; the stopped
+measurement is **2.456238 GiB**, about **44.8125 MiB** below that floor.
+No kernel OOM, game crash, unsupported guest-code wall or GPU completion
+failure is proved. This is the measured host-RAM budget stop, not a fabricated
+END report or evidence that the game returned to black after its logo.
+
+The external watcher preserves **70 guest samples** with actual whole-process
+CPU **105.69%-979.79%** and process-written output growth. Its highest
+**observed Vita3K VmRSS is 3,963,944,960 bytes / 3.691711 GiB**, already much
+larger than the approximate 1.8 GiB planning estimate. That is a sampled lower
+bound on peak RSS, not a certified maximum. Its last sampled MemAvailable is
+above the stop measurement: the authoritative launcher catches the subsequent
+crossing on its own sampling interval. Neither sample is rewritten to match
+the other, and no particular thread or concurrent application is blamed.
+
+**Eight actual live raw/display PNG pairs / 16 actual retrace markers / 9,002
+complete structurally verified commands / 60,627 exact FIFO bytes** validate.
+All eight display PNGs are the expected early opaque-black hash
+**c871acff3fc84ccec64ed29b05f2b1549e05b5067e2e5adf193b60d5490fdae5**;
+all raw/display RGB pairs match. This full prefix is byte-identical to the
+corresponding Unit 86 authentic prefix. Last image **frame 8 / command 8031 /
+81,004,451 cycles** records **eight cumulative submitted draws / one program /
+zero recorded skips, refusals or gaps**. Last observed progress is
+**134,504,761 cycles / 3,314,813 edges / 528,663 turns**, PC **80328B30**,
+exception **0**, resume **1148**. These are not unavailable final guest totals.
+
+**CI is not reached**: **zero snapshot binaries / captured=0 /
+window_complete=false**, no closed guest report. There is no logo/CI RAM from
+another run borrowed to fill this absence. Private verification:
+
+```text
+/home/fred/projects/zeldaWWHDRecomp/build-f5/ww05/vita3k-run-79112c7f1613453f95af98f24f0ad1fd/evidence/extended-ci-ram-verdict.json
+```
+
+The original **result.json / guest-disposition.json / process.json**, actual
+preflight values, watcher/RSS samples, package/source identities, journal and
+eight image pairs remain intact. **postrun-process-memory-check.json** confirms
+no compiler or Vita3K survivor; no unrelated application is terminated.
+Journal SHA **51046968f2dcb25bd262331cf026f72d623408d235564b97dc222d70590706f8**.
+Original result/journal hashes are rechecked unchanged after collection.
+
+Take the owner's path **(b)** now: pause further attempts until more user RAM
+is genuinely available, or use a machine with more headroom, then retry the
+same 1200 s window and live guard. **At least 8 GiB available initially** is a
+provisional headroom target, not a proven peak-memory guarantee. Do not close
+user applications, drop system caches, lower the guard or raise image/MEM1
+bounds unasked. Incremental snapshots cannot solve this observed pre-window
+pressure: **none was taken**, and the host never allocated a shadow MEM1.
+No speculative renderer, DSP/PCM or guest-clock change is justified by this
+stop. The earlier visible/replayed logo remains valid; this run adds a real
+RAM-budget limitation, not title-screen/gameplay/FPS evidence. Audit,
+attribution and whitespace pass on Linux AArch64; no Windows CI, physical Vita,
+sound, title-screen parity or 30+ FPS claim. No network or push.
