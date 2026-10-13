@@ -9,17 +9,16 @@ frame and no physical-Vita result is claimed anywhere in this document.
 - **Measured:** the current-flags module (translated module at `-O1`, host
   harness at `-O2`) at commit `9fe81ed` (three watched runs, trace logging) and
   at the merged trunk revision `3cb3b5d` (three watched runs, Info logging; the
-  merged module materializes the requested REL and reaches the scheduler idle).
-- **Paused:** the module `-O2` build (at 61/72 remaining edges of its last pass;
-  compiled objects preserved for incremental resume). It was stopped on a
-  memory-pressure request and resumes at the coordinator's signal. `-O3` is
-  gated on `-O2` showing a measurable gain (coordinator arbitration): if it does
-  not, the bottleneck is not the module flags.
+  merged module materializes the requested REL and reaches the scheduler idle);
+  and the module `-O2` build at `2c4bfe5` (three watched runs, Info logging).
+- **O3 not built** (coordinator arbitration): it was gated on `-O2` showing a
+  measurable gain; the measured `-O2` result is neutral within noise (see the
+  comparison below), so the bottleneck is not the module flags and the ~9 h
+  `-O3` build is not started.
 - **Trunk merge:** `3cb3b5d` brings the trunk's Info logging fix (`b368ad1`,
-  avoids syscall trace amplification) and lane 18's renderer. The O2 measurement
-  runs at that revision under Info logging; the `9fe81ed` numbers stand as the
-  measured trace-level baseline, and the merged-revision numbers below are the
-  comparable ones for the variant matrix.
+  avoids syscall trace amplification) and lane 18's renderer. The `9fe81ed`
+  numbers stand as the measured trace-level baseline; the merged-revision
+  numbers are the comparable ones for the variant matrix.
 
 ## What this measures
 
@@ -77,8 +76,8 @@ runtime `user-id: 00`).
 |---|---|---|---|---|---|---|---|---|
 | baseline | `9fe81ed` | -O1 | 0 (trace) | 78,789,721 @ REL refusal | 8.09M/s | — | n/a (stopped) | 0 |
 | baseline | `3cb3b5d` | -O1 | 2 (info) | 78,796,192 @ scheduler idle | 13.42M/s | 19.47M/s | 73.60M/s wall, 71.95M/cpu-s | 0 |
-| module O2 | pending build | -O2 | 2 (info, planned) | | | | | |
-| module O3 | gated on O2 | -O3 | — | | | | | |
+| module O2 | `2c4bfe5` | -O2 | 2 (info) | 78,796,192 @ scheduler idle | 13.09M/s | 19.42M/s | 72.95M/s wall, 72.85M/cpu-s | 0 |
+| module O3 | not built | -O3 | — | — | — | — | — | — |
 
 Per-run baseline evidence at `9fe81ed` (identical cycles, frontier and emitted
 config):
@@ -140,8 +139,38 @@ the hot protocol above is what will produce the number the 30 FPS goal needs.
 The delivered `9fe81ed` runs are not directly comparable to these: they ended
 with the REL refusal, a report write and the teardown crash inside their process
 lifetime, while the merged runs are killed at the deadline; and they logged at
-trace. The variant comparison (below, when `-O2` completes) is run entirely at
-the merged revision with one protocol.
+trace. The variant comparison is run entirely at the merged revision with one
+protocol.
+
+## Module `-O2`: neutral within noise, so `-O3` is not built
+
+The `-O2` module was built at `2c4bfe5` (`optimization: 2`, same host flags, same
+`vi_clock: false`) and measured with the identical protocol, config
+(sha256 `38163242…`, log-level 2) and window. Three runs:
+
+| run | boot to idle (process) | frontier rate (process) | frontier cpu s | frontier cycles/cpu-s | idle-spin rate | idle cycles/cpu-s |
+|---|---|---|---|---|---|---|
+| o2-run1 | 6.01 s | 13.12M/s | 4.62 | 17.06M | 72.73M/s | 72.85M |
+| o2-run2 | 6.02 s | 13.09M/s | 4.54 | 17.36M | 74.36M/s | 72.71M |
+| o2-run3 | 6.10 s | 12.92M/s | 4.69 | 16.80M | 72.95M/s | 72.93M |
+| **median** | **6.02 s** | **13.09M/s** | **4.62** | **17.06M** | **72.95M/s** | **72.85M** |
+
+Against the `-O1` baseline medians (5.87 s / 13.42M/s / 4.61 cpu s / 17.09M /
+73.60M/s / 71.95M):
+
+- **frontier cycles per CPU second: 17.06M vs 17.09M (−0.2%)** — identical.
+- **idle cycles per CPU second: 72.85M vs 71.95M (+1.25%)** — at most a hair
+  above the baseline's own run spread (71.82–72.53M).
+- wall rates: frontier 13.09M/s vs 13.42M/s (−2.5%), idle 72.95M/s vs 73.60M/s
+  (−0.9%) — within the recorded load differences between the runs.
+
+**Verdict: compiling the translated module at `-O2` instead of `-O1` buys at
+most ~1% on the load-robust metrics and nothing measurable on the boot.** The
+`-O3` build (~9 h) is therefore not started, per the arbitration; this agrees
+with the WW-20 profile, where 82.25% of the guest thread's cold-boot CPU is
+Dynarmic native compilation, so the translated code's own speed is not the
+bottleneck at this frontier. The module flags are not the lever; the cold-JIT
+and frame-loop work (lanes 16/20) are.
 
 ## Hot measurement (protocol fixed now; no frame exists yet)
 
@@ -212,10 +241,11 @@ Per-chunk scaling pilot with the exact Vita flags (user seconds; ratios to O1):
 | max | 68.3 | 550.21 | 529.47 | 7.9 | 7.6 |
 
 Historical O1 full build (build-f5 `.ninja_log`): 748 chunk objects, 5.5 h of
-compile CPU, 87 min wall at -j4. With the measured scaling curve: O2 ≈ 34.1 h
-CPU (~8.5 h wall at -j4), O3 ≈ 36.4 h CPU (~9.1 h wall at -j4). Variants are
-built sequentially: the machine has 15 GB RAM and other lanes share it (a
-concurrent pair risks OOM for both).
+compile CPU, 87 min wall at -j4. The measured `-O2` build completed with
+**33.1 h of chunk compile CPU** (the scaling model predicted 34.1 h); it was
+paused twice on memory-pressure requests, resumed incrementally each time, and
+its final passes ran at `-j2` as requested. The `-O3` build (~36.4 h CPU, ~9 h
+wall at -j4) is not started, per the neutral `-O2` result above.
 
 The composite's existing three O1-fallback chunks were pilot-compiled at O3
 (337.7 s / 317.9 s / 276.9 s user) and all succeed, so the O3 variant would
