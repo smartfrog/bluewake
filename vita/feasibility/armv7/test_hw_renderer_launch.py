@@ -320,34 +320,37 @@ class RendererLaunchTest(unittest.TestCase):
             self.assertTrue(record['renderer_launch']['preflight_validated'])
             self.assertEqual(record['renderer_launch']['postmount_validation'], 'UNOBSERVED')
 
-    def test_ww05_install_and_guest_use_the_common_guarded_launcher(self):
+    def test_ww05_install_and_guest_use_common_supervision_without_the_gpu_guard(self):
         plan = {'run': 'a' * 32, 'source': 'b' * 40, 'vpk_sha256': 'c' * 64,
-                'renderer': self.renderer, 'private_config': None, 'phases': {}}
+                'renderer': ww05_launch.RENDERER, 'execution_mode': 'direct-native',
+                'private_config': None, 'phases': ww05_launch.direct_phases(self.root, 1)}
         for name in ('install', 'guest'):
             phase = self.root / 'phases' / name
             (phase / 'evidence').mkdir(parents=True)
-            plan['phases'][name] = {'command': self.command, 'timeout_seconds': 1, 'evidence_root': str(phase)}
 
         def spawn(command, **options):
-            self.assert_pinned(command, options)
+            self.assertEqual(command[0], str(self.root / 'runtime/Vita3K'))
+            self.assertEqual(options['env']['HOME'], str(self.root / 'home'))
+            self.assertNotIn('LIBGL_ALWAYS_SOFTWARE', options['env'])
+            self.assertNotIn('pass_fds', options)
+            self.assertEqual(options['cwd'], str(self.root / 'runtime'))
             return self.fake_process()
 
         boundaries = {'verify_inputs': None, 'config_identity': None, 'verify_stopped': None,
                       'installer_observer': None, 'emitted_config': b'', 'verify_phase_logs': None,
                       'verify_installed': {}, 'restore_config': None, 'fresh_request': 'a' * 32}
-        with self.virtual_node(), mock.patch.object(launch.subprocess, 'Popen', side_effect=spawn) as spawned, \
+        with mock.patch.object(launch.subprocess, 'Popen', side_effect=spawn) as spawned, \
                 ExitStack() as patches:
             for name, value in boundaries.items():
                 patches.enter_context(mock.patch.object(ww05_launch, name, return_value=value))
             self.assertEqual(ww05_launch.execute_run(self.root, plan), 2)
             self.assertEqual(spawned.call_count, 2)
         self.assertIs(ww05_launch.run_owned, launch.run_owned)
-        self.assertEqual(len(self.opened), 2)
-        self.assertEqual(self.closed, [fd for fd, _ in self.opened])
+        self.assertEqual(len(self.opened), 0)
+        self.assertEqual(self.closed, [])
         for phase in plan['phases'].values():
             record = json.loads((Path(phase['evidence_root']) / 'evidence/process.json').read_text())
-            self.assertEqual(record['renderer_launch']['renderer'], self.renderer)
-            self.assertEqual(record['renderer_launch']['postmount_validation'], 'UNOBSERVED')
+            self.assertNotIn('renderer_launch', record)
 
 
 if __name__ == '__main__':

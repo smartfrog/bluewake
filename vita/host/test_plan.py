@@ -39,7 +39,7 @@ class PlanTest(unittest.TestCase):
             self.assertEqual(target.read_bytes(), shader.read_bytes())
             self.assertEqual(record['staged'], stage_plan.file_identity(target))
 
-    def test_optional_disc_staging_keeps_a_verified_identity_and_creates_only_an_empty_bind_target(self):
+    def test_optional_disc_staging_keeps_a_verified_identity_without_a_writable_copy(self):
         import stage_plan
         with tempfile.TemporaryDirectory(dir='/home/fred/projects/zeldaWWHDRecomp/build-f5', prefix='ww05-disc-') as directory:
             root = Path(directory)
@@ -47,7 +47,8 @@ class PlanTest(unittest.TestCase):
             image.write_bytes(b'verified private fixture')
             record = stage_plan.stage_disc(root / 'run', image, stage_plan.sha256(image))
             self.assertEqual(record['identity']['sha256'], stage_plan.sha256(image))
-            self.assertEqual((root / 'run' / record['install_path']).read_bytes(), b'')
+            self.assertEqual((root / 'run' / record['install_path']).readlink(), image)
+            self.assertIn('no OS write confinement', record['transport'])
 
     def test_optional_disc_rejects_a_different_image_before_creating_an_install_target(self):
         import stage_plan
@@ -155,22 +156,21 @@ class PlanTest(unittest.TestCase):
         plan = stage_plan.make_plan(Path('/unused'), args, 'a' * 40, 'b' * 64, 'c' * 32)
         self.assertEqual(plan['mem1_snapshots'], 2)
         self.assertTrue(plan['live_frame_capture'])
-        self.assertIn('/unused/evidence/frames', plan['phases']['guest']['command'])
-        self.assertNotIn('/unused/evidence/frames', plan['phases']['install']['command'])
+        self.assertFalse(any('--bind' in phase['command'] for phase in plan['phases'].values()))
         args.mem1_snapshots = 0
         self.assertEqual(stage_plan.make_plan(Path('/unused'), args, 'a' * 40, 'b' * 64, 'c' * 32)['mem1_snapshots'], 0)
         self.assertNotIn('/unused/evidence/frames', stage_plan.make_plan(Path('/unused'), args, 'a' * 40, 'b' * 64, 'c' * 32)['phases']['guest']['command'])
 
-    def test_optional_disc_is_bound_read_only_at_the_existing_ww13_install_path(self):
+    def test_optional_disc_does_not_add_mounts_to_native_commands(self):
         import stage_plan
         args = SimpleNamespace(libraries=None, wayland_socket=None, timeout=600, continue_gx=64,
                                disc=Path('/private/input.iso'))
         plan = stage_plan.make_plan(Path('/private/run'), args, 'a' * 40, 'b' * 64, 'c' * 32)
         for phase in plan['phases'].values():
             command = phase['command']
-            index = command.index('/private/input.iso')
-            self.assertEqual(command[index - 1:index + 2], ['--ro-bind', '/private/input.iso',
-                             '/run/ww03/data/Vita3K/Vita3K/ux0/data/bluewake/GZLE01.iso'])
+            self.assertEqual(command[0], '/private/run/runtime/Vita3K')
+            self.assertNotIn('/private/input.iso', command)
+            self.assertNotIn('--ro-bind', command)
     def test_deeper_startup_allows_a_bounded_three_minute_phase(self):
         import stage_plan
         with tempfile.TemporaryDirectory(prefix='ww05-deadline-', dir='/home/fred/projects/zeldaWWHDRecomp/build-f5') as directory:
@@ -232,10 +232,10 @@ class PlanTest(unittest.TestCase):
             self.assertEqual(plan['retry'], 'fresh private profile for every attempt')
             self.assertFalse(plan['real_execution'])
             self.assertEqual(plan['phases']['install']['command'][-5:],
-                             ['/stack/vita3k/Vita3K', '--console', '--backend-renderer', 'OpenGL', 'ww05.vpk'])
+                             [str(root / 'runtime/Vita3K'), '--console', '--backend-renderer', 'OpenGL', 'ww05.vpk'])
             self.assertEqual(plan['phases']['guest']['command'][-5:],
-                             ['/stack/vita3k/Vita3K', '--backend-renderer', 'OpenGL', '--installed-path', 'BWWG00005'])
-            self.assertIn('--unshare-all', plan['phases']['guest']['command'])
+                             [str(root / 'runtime/Vita3K'), '--backend-renderer', 'OpenGL', '--installed-path', 'BWWG00005'])
+            self.assertNotIn('--unshare-all', plan['phases']['guest']['command'])
             self.assertEqual(plan['phases']['guest']['timeout_seconds'], 60)
 
 

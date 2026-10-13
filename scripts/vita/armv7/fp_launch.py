@@ -196,7 +196,7 @@ def stop_owned(process):
 
 
 def run_owned(command, root, timeout, report_identity=None, evidence_root=None, memory=False, control=False,
-              phase_observer=None, renderer=None):
+              phase_observer=None, renderer=None, environment=None, cwd=None):
     if not math.isfinite(timeout) or timeout <= 0:
         raise ValueError("timeout must be finite and positive")
     if resource.getrlimit(resource.RLIMIT_FSIZE) != (resource.RLIM_INFINITY, resource.RLIM_INFINITY):
@@ -221,8 +221,8 @@ def run_owned(command, root, timeout, report_identity=None, evidence_root=None, 
                         "pass_fds": list(descriptors), "preflight_validated": True,
                         "guard": renderer_guard_plan(renderer), "postmount_validation": "UNOBSERVED",
                         "source_transport": "preflight O_PATH via /proc/self/fd; bwrap may recanonicalize; fd numbers are per-spawn"}
-                process = subprocess.Popen(execution, cwd=root / "work", stdin=subprocess.DEVNULL, stdout=log, stderr=log,
-                                           env={"PATH": "/usr/bin", "LANG": "C.UTF-8"},
+                process = subprocess.Popen(execution, cwd=cwd if cwd is not None else root / "work", stdin=subprocess.DEVNULL, stdout=log, stderr=log,
+                                           env=environment if environment is not None else {"PATH": "/usr/bin", "LANG": "C.UTF-8"},
                                            start_new_session=True, **options)
         except BaseException:
             if process is not None:

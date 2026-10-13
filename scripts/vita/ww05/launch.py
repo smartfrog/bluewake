@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Install and run WW05 once in a new isolated private profile, preserving all evidence."""
+"""Install and run WW05 natively in a fresh private profile, preserving all evidence."""
 
 import argparse
 import hashlib
@@ -14,13 +14,13 @@ import uuid
 import zipfile
 
 from game_build import OUTPUT, ROOT, checked_sources, sha256
-from stage_plan import stage, validate_continuation, verify_package, checked_build_receipt
+from stage_plan import stage, validate_continuation, validate_timeout, verify_package, checked_build_receipt
 from report import MAX_JOURNAL_COMMANDS, matched, validate, validate_commands
 from fp_campaign import emitted_config, restore_config, runtime_inputs, verify_phase_logs, verify_stopped
-from fp_launch import (REPORT_DIRECTORY, add_render_node_argument, evidence_file, renderer_identity,
-                       run_owned, verify_renderer_identity)
+from fp_launch import REPORT_DIRECTORY, evidence_file, run_owned
+from direct_launch import RENDERER, direct_phases
 from fp_libraries import directory_fd, file_identity, library_identity
-from fp_profile import config_identity, read_profile_file, verify_firmware
+from fp_profile import FIRMWARE_DIRECTORY, config_identity, read_profile_file, verify_firmware
 from activity import ProcessIdleObserver, available_memory_bytes
 from memory_capture import MAX_CAPTURES, publish_replay_manifests, snapshot_outputs, validate_memory_captures, verify_snapshots
 from frame_capture import collect_frames, frame_outputs
@@ -29,7 +29,8 @@ PHASE_LOG_LIMIT = 64 * 1024 * 1024
 
 
 def verify_inputs(root, plan):
-    verify_renderer_identity(plan.get('renderer'))
+    if plan.get('execution_mode') != 'direct-native' or plan.get('renderer') != RENDERER:
+        raise ValueError('WW launch requires an honest direct-native plan')
     source = subprocess.check_output(['git', 'rev-parse', 'HEAD'], cwd=ROOT, text=True).strip()
     if source != plan.get('launcher_source', plan['source']) or subprocess.check_output(['git', 'status', '--porcelain'], cwd=ROOT, text=True):
         raise ValueError('source checkpoint changed')
@@ -39,6 +40,14 @@ def verify_inputs(root, plan):
         raise ValueError('selected build receipt changed')
     if checked_build_receipt(receipt_path, source, plan.get('baseline_build', False)) != plan['build_evidence']:
         raise ValueError('selected guest build identity changed')
+    validate_timeout(plan['phases']['guest']['timeout_seconds'],
+                     scene_capture=plan.get('mem1_command_window') is not None,
+                     idle_timeout=plan.get('idle_timeout_seconds', 30))
+    expected = direct_phases(root, plan['phases']['guest']['timeout_seconds'],
+                             Path(plan['runtime_libraries']['root']),
+                             Path(plan['wayland_socket']) if plan['wayland_socket'] is not None else None)
+    if plan['phases'] != expected:
+        raise ValueError('direct native commands, environment or phase identities changed')
     vpk, package = verify_package(plan['build_evidence'])
     if str(vpk) != plan['source_vpk'] or package != plan['vpk_sha256']:
         raise ValueError('source package identity changed')
@@ -60,10 +69,10 @@ def verify_inputs(root, plan):
         disc = plan['disc']
         if file_identity(Path(disc['path'])) != disc['identity']:
             raise ValueError('verified private disc image changed')
-        placeholder = root / disc['install_path']
-        with directory_fd(placeholder.parent):
-            if placeholder.is_symlink() or placeholder.stat().st_size != 0:
-                raise ValueError('read-only disc bind placeholder changed')
+        link = root / disc['install_path']
+        with directory_fd(link.parent):
+            if not link.is_symlink() or os.readlink(link) != disc['path']:
+                raise ValueError('private disc link changed')
 
 
 def verify_installed(root, plan):
@@ -125,7 +134,7 @@ def fresh_request(root, source, package, continue_gx=0, mem1_snapshots=0, defer_
         with directory_fd(root / 'evidence') as parent:
             os.mkdir('frames', mode=0o700, dir_fd=parent)
         with directory_fd(directory) as parent:
-            os.mkdir('frames', mode=0o700, dir_fd=parent)
+            os.symlink(str(root / 'evidence/frames'), 'frames', dir_fd=parent)
         with directory_fd(directory) as parent:
             descriptor = os.open('ww05.mem1', os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW | os.O_CLOEXEC,
                                  0o600, dir_fd=parent)
@@ -194,7 +203,7 @@ def installer_observer(root, plan):
 
 def execute_run(root, plan):
     record = {'run': plan['run'], 'source': plan['source'], 'vpk_sha256': plan['vpk_sha256'],
-              'renderer': plan.get('renderer', renderer_identity()),
+              'renderer': dict(RENDERER), 'execution_mode': 'direct-native',
               'launcher_source': plan.get('launcher_source', plan['source']),
                'continue_gx': plan.get('continue_gx', 0),
                'mem1_snapshots': plan.get('mem1_snapshots', 0),
@@ -206,22 +215,22 @@ def execute_run(root, plan):
               'frontier_verified': False, 'rendered': False}
     with evidence_file(root, 'execution.json') as stream:
         json.dump({'source': plan['source'], 'run': plan['run'], 'real_execution': True,
-                   'renderer': record['renderer'],
+                   'renderer': record['renderer'], 'execution_mode': record['execution_mode'],
                    'audio': record['audio'],
                    'launcher_source': plan.get('launcher_source', plan['source']),
-                   'policy': 'product owner permits iterative isolated WW05 execution; every attempt is preserved'}, stream)
+                   'policy': 'direct native WW05 execution with private preferences/saves; no OS confinement; every attempt is preserved'}, stream)
         stream.write('\n')
     try:
         verify_inputs(root, plan)
         surface_sync = bool(plan.get('mem1_snapshots', 0))
-        if config_identity(root, surface_sync=surface_sync) != plan['private_config']:
+        if config_identity(root, surface_sync=surface_sync, pref_path=root / FIRMWARE_DIRECTORY) != plan['private_config']:
             raise ValueError('private configuration changed before installation')
         install = plan['phases']['install']
         phase = Path(install['evidence_root'])
         memory_preflight(root, plan, 'install')
         print(f"RUN phase=install evidence={phase}/evidence", flush=True)
         status = run_owned(install['command'], root, install['timeout_seconds'], evidence_root=phase,
-                           phase_observer=installer_observer(root, plan), renderer=plan.get('renderer'))
+                           phase_observer=installer_observer(root, plan), environment=install['environment'], cwd=install['cwd'])
         process = json.loads((phase / 'evidence/process.json').read_text())
         print(f"STOP phase=install reason={process['stop_reason']} seconds={process['duration_seconds']:.2f}", flush=True)
         record.update(install_status=status, install_process=process)
@@ -232,11 +241,11 @@ def execute_run(root, plan):
                 (status == 124 and process['stop_reason'] == 'timeout' and
                  process['exit'] in (0, -signal.SIGTERM, -signal.SIGKILL))):
             raise ValueError('unexpected installer disposition')
-        canonical = emitted_config(root, phase, surface_sync=surface_sync)
+        canonical = emitted_config(root, phase, surface_sync=surface_sync, pref_path=root / FIRMWARE_DIRECTORY)
         verify_phase_logs(root, phase, PHASE_LOG_LIMIT)
         verify_inputs(root, plan)
         payload = verify_installed(root, plan)
-        restore_config(root, canonical, surface_sync=surface_sync)
+        restore_config(root, canonical, surface_sync=surface_sync, pref_path=root / FIRMWARE_DIRECTORY)
         memory_preflight(root, plan, 'guest')
         token = fresh_request(root, plan['source'], plan['vpk_sha256'], plan.get('continue_gx', 0),
                               plan.get('mem1_snapshots', 0), plan.get('defer_audio', False), plan.get('mem1_command_window'))
@@ -253,7 +262,7 @@ def execute_run(root, plan):
             stream.write('\n')
         print(f"RUN phase=guest evidence={phase}/evidence", flush=True)
         status = run_owned(guest['command'], root, guest['timeout_seconds'], evidence_root=phase,
-                            phase_observer=activity_observer(root, plan, phase), renderer=plan.get('renderer'))
+                            phase_observer=activity_observer(root, plan, phase), environment=guest['environment'], cwd=guest['cwd'])
         process = json.loads((phase / 'evidence/process.json').read_text())
         record.update(process_status=status, process=process)
         with evidence_file(root, 'guest-disposition.json') as stream:
@@ -265,11 +274,11 @@ def execute_run(root, plan):
             stream.write('\n')
         print(f"STOP phase=guest reason={process['stop_reason']} seconds={process['duration_seconds']:.2f}", flush=True)
         verify_stopped(process)
-        canonical = emitted_config(root, phase, surface_sync=surface_sync)
+        canonical = emitted_config(root, phase, surface_sync=surface_sync, pref_path=root / FIRMWARE_DIRECTORY)
         verify_phase_logs(root, phase, PHASE_LOG_LIMIT)
         verify_inputs(root, plan)
         verify_installed(root, plan)
-        restore_config(root, canonical, surface_sync=surface_sync)
+        restore_config(root, canonical, surface_sync=surface_sync, pref_path=root / FIRMWARE_DIRECTORY)
         content = read_profile_file(root / REPORT_DIRECTORY / 'ww05.report', 65536, owned=True)
         text = content.decode('utf-8')
         verdict = validate(text, token, plan['source'], plan['vpk_sha256'], plan.get('continue_gx', 0),
@@ -318,7 +327,6 @@ def main():
     parser.add_argument('--idle-timeout', type=float, default=30,
                         help='abort only after this many seconds below 5%% CPU and without guest-output growth')
     parser.add_argument('--wayland-socket', type=Path, required=True)
-    add_render_node_argument(parser)
     parser.add_argument('--continue-gx', type=int, default=0,
                         help=f'journal first N real commands, then keep executing (1..{MAX_JOURNAL_COMMANDS})')
     parser.add_argument('--mem1-snapshots', type=int, choices=range(MAX_CAPTURES + 1), default=0,
@@ -327,7 +335,7 @@ def main():
                          help='snapshot every draw within this inclusive command window; retain all earlier FIFO state')
     parser.add_argument('--defer-audio', action='store_true',
                         help='explicit no-op DSP bootstrap with declared synthetic mails/IRQ; reports audio=deferred; no PCM output')
-    parser.add_argument('--disc', type=Path, help='read-only bind of the already verified private image at the WW13 install path')
+    parser.add_argument('--disc', type=Path, help='link the verified image into the private profile; guest disc I/O is readonly, not OS-confined')
     parser.add_argument('--baseline-build', type=Path,
                         help='explicit preserved ancestor build receipt; guest and current launcher identities stay separate')
     root, plan = stage(parser.parse_args())

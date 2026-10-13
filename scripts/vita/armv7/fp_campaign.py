@@ -147,11 +147,11 @@ def verify_installed(root, package, memory=False, control=False):
     return payload
 
 
-def emitted_config(root, phase, alt=False, surface_sync=False):
+def emitted_config(root, phase, alt=False, surface_sync=False, pref_path=None):
     from fp_launch import evidence_file
 
     from fp_profile import profile_config
-    canonical = profile_config(alt=alt, surface_sync=surface_sync)
+    canonical = profile_config(alt=alt, surface_sync=surface_sync, pref_path=pref_path)
     content = read_profile_file(root / CONFIG_PATH, max(CONFIG_ALT_BYTES, len(canonical)), owned=True)
     with evidence_file(phase, "config-emitted.yml") as stream:
         stream.write(content.decode("utf-8"))
@@ -174,14 +174,16 @@ def verify_phase_logs(root, phase, log_limit=1024 * 1024):
         raise ValueError("runtime cache reported configuration parse failure")
 
 
-def restore_config(root, canonical, alt=False, surface_sync=False):
+def restore_config(root, canonical, alt=False, surface_sync=False, pref_path=None):
     with directory_fd((root / CONFIG_PATH).parent) as parent:
         descriptor = os.open("config.restore.yml", os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW | os.O_CLOEXEC,
                              0o600, dir_fd=parent)
         with os.fdopen(descriptor, "wb") as stream:
             stream.write(canonical)
         os.replace("config.restore.yml", "config.yml", src_dir_fd=parent, dst_dir_fd=parent)
-    if surface_sync:
+    if pref_path is not None:
+        config_identity(root, alt=alt, surface_sync=surface_sync, pref_path=pref_path)
+    elif surface_sync:
         from fp_profile import checked_surface_config
         checked_surface_config(root / CONFIG_PATH, alt=alt)
     elif alt:
