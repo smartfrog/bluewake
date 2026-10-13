@@ -80,12 +80,14 @@ released, and no other application is touched.
 python3 -B -m unittest discover -s scripts/vita/ww56 -p 'test_*.py' -v
 ```
 
-73 tests cover the one-shot trigger scanner, the headroom gate, the static
+78 tests cover the one-shot trigger scanner, the headroom gate, the static
 budget property/kernel verification, the incremental journal tail, the smaps
 summary, the early-stop rules, phase-unit ownership (a foreign unit is never
-stopped), the staged plan schema, the config-gate ordering (the permitted
-`user-id: 00` mutation is validated, restored, then re-checked) and the
-exit-race drain. The suite is pure Python; any native host test build for the
+stopped, and an owned `RemainAfterExit` unit is stopped even with an empty
+control group), the staged plan schema, the config-gate ordering (the
+permitted `user-id: 00` mutation is validated, restored, then re-checked),
+the exit-race drain with cleanup-window output and the core-dump-free stop
+escalation. The suite is pure Python; any native host test build for the
 reviewed SHA stays `-j1` per repo convention.
 
 ## Step 1: read-only preflight
@@ -150,6 +152,7 @@ the run record):
 | `--rel-settle-seconds` | 5 | stop this many seconds after the first requested REL; `0` disables |
 | `--present-grace-seconds` | 10 | stop this many seconds after the first presentation when no REL follows; `0` disables |
 | `--hang-seconds` | 30 | silence + <5% CPU for this long aborts as a hang |
+| `--cleanup-grace-seconds` | 10 | unit stop grace (`TimeoutStopSec`) before systemd escalates the stop; core dumps stay disabled (`LimitCORE=0`) |
 | `--audio` | deferred | deferred DSP bootstrap, as in WW50 |
 | `--continue-gx` | 64 | continuation journal profile, as in WW50 |
 | `--install-budget-bytes` | 2684354560 | installer cap |
@@ -209,9 +212,13 @@ arrives in the guest journal. The watcher reads every log continuously (about
 every 50 ms through the phase observer) and feeds each newly read line to one
 single-fire scanner, so each trigger fires once from wherever its line
 appears. When the owned process exits, the watcher drains the logs once more
-before returning and records the terminal frontier (`terminal_drain` in the
-disposition and watch record): a presentation that landed just before exit is
-counted, and its snapshot is recorded as `SNAPSHOT-MISSED` rather than lost.
+before returning, and drains them again after the unit cleanup completes, so
+output written during the stop window is still counted. A presentation that
+landed just before exit is counted, and its snapshot is recorded as
+`SNAPSHOT-MISSED` rather than lost. The disposition records
+`presentations_at_stop`, `presentations_total` and an independent
+`journal_present_lines` count with `presentations_undrained`; a non-zero
+undrained count would be visible evidence loss, and no count is ever invented.
 
 Each trigger does exactly one `/proc/<pid>/smaps`, `status`, `maps`, thread
 list and one cgroup `memory.stat`/`memory.current`/`memory.events` read. If the
@@ -228,9 +235,9 @@ is the only other memory read, and it only decides whether to release a phase.
 | --- | --- |
 | `/tmp/opencode/ww56-<id>/result.json` | Final record: completion, phases, stops, snapshots, `identities_before` / `identities_after` / `identity_before_equals_after`, errors |
 | `/tmp/opencode/ww56-<id>/effective-plan.json` | Staged plan: commands, environment, hashes, phases |
-| `/tmp/opencode/ww56-<id>/<phase>-{exec,ready,verified-preexec,disposition}.json` | Per-phase command spec, gate pid/cgroup, pre-exec property/kernel/headroom proof, unit ownership (`properties_before_creation`, `invocation_id`), `terminal_drain`, final state |
+| `/tmp/opencode/ww56-<id>/<phase>-{exec,ready,verified-preexec,disposition}.json` | Per-phase command spec, gate pid/cgroup, pre-exec property/kernel/headroom proof, unit ownership (`properties_before_creation`, `invocation_id`), `terminal_drain`, presentation counts (`presentations_at_stop`, `presentations_total`, `journal_present_lines`, `presentations_undrained`), final state |
 | `/tmp/opencode/ww56-<id>/<phase>-blocked.json` | Present only when a headroom gate blocked the phase |
-| `/tmp/opencode/ww56-<id>/cpu-log-watch.jsonl` | One line per ~1 s per phase: pid, cpu_fraction, new log bytes, tail, presentations, snapshots, stop; a final `terminal_drain` line per phase |
+| `/tmp/opencode/ww56-<id>/cpu-log-watch.jsonl` | One line per ~1 s per phase: pid, cpu_fraction, new log lines, tail, presentations, snapshots, stop; one `terminal_drain` line per drain (wrapper exit and post-cleanup), each with both presentation counts |
 | `/tmp/opencode/ww56-<id>/snapshot-*/` | One-shot memory evidence per trigger; raw addresses stay local, no memory bytes read; a trigger that arrives after exit is recorded as `SNAPSHOT-MISSED`, never invented |
 | `/tmp/opencode/ww56-<id>-supervisor.log` | Supervisor console: RELEASE/WATCH/SNAPSHOT/STOP/RESULT lines |
 | `build-f5/ww56-<id>/` | Fresh private profile: staged inputs, phases, installed payload, guest journal and reports |
@@ -263,7 +270,25 @@ separate, read-only step and is never a run gate:
   `LoadState` check), and cleanup stops only the unit invocation this run
   created: the recorded `InvocationID` (or the wrapper's own `Running as unit:
   ...; invocation ID: ...` line) must match, otherwise the unit is left
-  untouched and the refusal is recorded as `foreign_unit_untouched`.
+  untouched and the refusal is recorded as `foreign_unit_untouched`. Units that
+  stay loaded/active after their main process exits (`RemainAfterExit=yes`,
+  empty control group) are still stopped.
+- **Cleanup signals are not a boot crash.** When a phase ends, the supervisor
+  stops the owned unit; systemd sends SIGTERM and, if the guest does not exit
+  within `--cleanup-grace-seconds`, escalates through SIGABRT to SIGKILL. Our
+  units set `LimitCORE=0`, so even a SIGABRT during cleanup produces no core
+  file; systemd may still label the unit result `core-dump` because that is the
+  signal classification, not a produced dump (verified on this host: the
+  coredump handler reports "terminated abnormally without generating a
+  coredump"). Attribute a SIGABRT to cleanup only when the manager journal
+  confirms its origin (the unit's stop sequence); a signal or result
+  classification alone is not proof. A SIGABRT, a killed process or a
+  `core-dump` result during cleanup is our teardown, not a guest failure and
+  not the trial's frontier; report it as cleanup, never as a boot crash. The
+  trial's own stop reasons (the table above) are the only failure vocabulary.
+- Output written during the cleanup window is drained after cleanup and counted
+  in the disposition (`presentations_total`), with `presentations_at_stop` and
+  `journal_present_lines` recorded separately so any evidence loss is visible.
 - On any error the receipts already written stay; the supervisor never deletes
   evidence. Re-running requires a fresh run id.
 - A WW56 run is a bounded observation, not a product result. Say what ran on

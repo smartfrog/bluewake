@@ -65,10 +65,10 @@ from budget_properties import (PROPERTIES, parse_properties,  # noqa: E402
 from headroom import (DEFAULT_GUEST_BUDGET_BYTES, DEFAULT_GUEST_HEADROOM_BYTES,  # noqa: E402
                       DEFAULT_INSTALL_BUDGET_BYTES, DEFAULT_INSTALL_HEADROOM_BYTES,
                       headroom_decision, parse_mem_available)
-from journal import IncrementalLog  # noqa: E402
+from journal import IncrementalLog, count_marker_lines  # noqa: E402
 from snapshot import capture_snapshot  # noqa: E402
 from stop_rules import StopState, evaluate_stop, is_failure  # noqa: E402
-from trigger_events import OneShotTriggerScanner  # noqa: E402
+from trigger_events import PRESENT_MARKER, OneShotTriggerScanner  # noqa: E402
 
 INSTALL_DEADLINE_SECONDS = 60
 PERMIT_TIMEOUT_SECONDS = 15
@@ -134,12 +134,15 @@ def require_fresh_unit(unit):
 def stop_owned_unit(unit, state):
     current = properties(unit)
     recorded = state.get('invocation_id') or wrapper_invocation(state.get('phase_root'), unit)
-    if current.get('ControlGroup'):
+    loaded_active = (current.get('LoadState') == 'loaded' and
+                     current.get('ActiveState') in ('active', 'activating', 'reloading'))
+    if current.get('ControlGroup') or loaded_active:
         if recorded is None or current.get('InvocationID') != recorded:
             state['foreign_unit_untouched'] = {'unit': unit, 'recorded_invocation': recorded,
                                                'current': current}
             raise ValueError('refusing to stop ' + unit + ': its invocation is not the one this run created')
-        subprocess.run(['systemctl', '--user', 'stop', unit], check=True, timeout=5)
+        subprocess.run(['systemctl', '--user', 'stop', unit], check=True,
+                       timeout=state.get('cleanup_stop_timeout_seconds', 30))
     return current
 
 
@@ -397,7 +400,7 @@ class PhaseWatch:
         self.failure_lines = []
         self.new_lines = 0
         self.next_record = 0
-        self.drained = False
+        self.drain_count = 0
 
     def _log_paths(self):
         return (self.phase_root / 'evidence/process.log', self.runroot / 'cache/Vita3K/vita3k.log',
@@ -497,22 +500,25 @@ class PhaseWatch:
         return stop
 
     def final_drain(self, reason):
-        if self.drained:
-            return
-        self.drained = True
         now = time.monotonic()
         lines, journal = self._read_logs()
         self.new_lines += len(lines)
         self._ingest(now, lines, journal)
+        if self.state.get('presentations_at_stop') is None:
+            self.state['presentations_at_stop'] = len(self.state['presentations'])
+        self.drain_count += 1
         self.state['terminal_drain'] = {
-            'reason': reason, 'new_lines': self.new_lines,
-            'presentations': len(self.state['presentations']),
+            'reason': reason, 'drain_count': self.drain_count, 'new_lines': self.new_lines,
+            'presentations_total': len(self.state['presentations']),
+            'presentations_at_stop': self.state['presentations_at_stop'],
             'last_present': self.state['presentations'][-1] if self.state['presentations'] else None,
             'first_rel': self.state.get('first_rel'),
             'failure_lines': list(self.failure_lines),
             'snapshots': [entry['event'] for entry in self.state['snapshots']]}
         record = {'phase': self.name, 'monotonic': now, 'terminal_drain': reason,
-                  'new_lines': self.new_lines, 'presentations': len(self.state['presentations']),
+                  'drain_count': self.drain_count, 'new_lines': self.new_lines,
+                  'presentations_total': len(self.state['presentations']),
+                  'presentations_at_stop': self.state['presentations_at_stop'],
                   'snapshots': self.state['terminal_drain']['snapshots']}
         with (self.receipts / 'cpu-log-watch.jsonl').open('a') as stream:
             stream.write(json.dumps(record) + '\n')
@@ -552,6 +558,8 @@ class PhaseWatch:
         print('WATCH ' + json.dumps(record), flush=True)
         if stop:
             self.state['requested_stop'] = stop
+            if self.state.get('presentations_at_stop') is None:
+                self.state['presentations_at_stop'] = len(self.state['presentations'])
             subprocess.run(['systemctl', '--user', 'kill', '--signal=SIGTERM',
                             '--kill-whom=all', self.unit], check=True, timeout=5)
             return stop
@@ -565,16 +573,20 @@ def run_phase(name, args, runroot, receipts, plan, record, *, budget, headroom, 
     unit = 'ww56-' + args.run_id + '-' + name + '.service'
     state = {'unit': unit, 'budget_bytes': budget, 'headroom_required_bytes': headroom,
              'deadline_seconds': deadline, 'pid': None, 'snapshots': [], 'presentations': [],
-             'released': False, 'phase_root': str(phase_root), 'invocation_id': None}
+             'released': False, 'phase_root': str(phase_root), 'invocation_id': None,
+             'presentations_at_stop': None}
     record['phases'][name] = state
     state['properties_before_creation'] = require_fresh_unit(unit)
+    state['cleanup_stop_timeout_seconds'] = 2 * args.cleanup_grace_seconds + 10
     spec = {'command': entry['command'], 'environment': entry['environment'], 'cwd': entry['cwd'],
             'budget_bytes': budget, 'unit': unit, 'permit_timeout_seconds': PERMIT_TIMEOUT_SECONDS}
     write(receipts, name + '-exec.json', spec)
     command = ['/usr/bin/systemd-run', '--user', '--unit=' + unit, '--slice=app.slice', '--wait', '--pipe',
                '--property=MemoryMax=' + str(budget), '--property=MemorySwapMax=0',
                '--property=OOMPolicy=stop', '--property=KillMode=control-group',
-               '--property=TimeoutStopSec=2s', '--property=RemainAfterExit=yes',
+               '--property=LimitCORE=0',
+               '--property=TimeoutStopSec=' + format(args.cleanup_grace_seconds, 'g') + 's',
+               '--property=RemainAfterExit=yes',
                '--property=RuntimeMaxSec=' + str(int(deadline + 15)),
                '/usr/bin/python3', '-B', str(SCRIPT_DIRECTORY / 'exec_gate.py'), str(receipts), name]
     watch = PhaseWatch(name, args, runroot, receipts, plan, entry, unit, budget, headroom, deadline, state,
@@ -605,6 +617,19 @@ def run_phase(name, args, runroot, receipts, plan, record, *, budget, headroom, 
             state['wrapper'] = json.loads((phase_root / 'evidence/process.json').read_text())
         except FileNotFoundError:
             state['wrapper'] = None
+        try:
+            watch.final_drain('post-cleanup')
+        except BaseException as error:
+            state['drain_error'] = str(error)
+            print('DRAIN-ERROR ' + str(error), flush=True)
+            late_error = late_error or error
+        state['presentations_total'] = len(state['presentations'])
+        try:
+            journal_text = (runroot / REPORT_DIRECTORY / 'ww05.log').read_text(errors='replace')
+        except FileNotFoundError:
+            journal_text = ''
+        state['journal_present_lines'] = count_marker_lines(journal_text, PRESENT_MARKER)
+        state['presentations_undrained'] = max(0, state['journal_present_lines'] - state['presentations_total'])
         state['native_pid_absent_after_cleanup'] = (state['pid'] is None or
                                                     not Path('/proc', str(state['pid'])).exists())
         if state['pid'] is not None and not state['native_pid_absent_after_cleanup']:
@@ -747,6 +772,8 @@ def parse_arguments():
     parser.add_argument('--present-grace-seconds', type=grace_argument, default=10.0,
                         help='stop this many seconds after the first presentation when no REL follows; 0 disables')
     parser.add_argument('--hang-seconds', type=float, default=30.0)
+    parser.add_argument('--cleanup-grace-seconds', type=float, default=10.0,
+                        help='unit stop grace (TimeoutStopSec) before systemd escalates, 1 to 60 seconds; core dumps stay disabled')
     parser.add_argument('--audio', choices=('deferred', 'strict'), default='deferred')
     parser.add_argument('--continue-gx', type=int, default=64)
     parser.add_argument('--install-budget-bytes', type=int, default=DEFAULT_INSTALL_BUDGET_BYTES)
@@ -771,6 +798,8 @@ def parse_arguments():
         parser.error('guest ceiling must be finite, positive and at most 600 seconds')
     if not math.isfinite(args.hang_seconds) or args.hang_seconds <= 0:
         parser.error('hang window must be finite and positive')
+    if not math.isfinite(args.cleanup_grace_seconds) or not 1 <= args.cleanup_grace_seconds <= 60:
+        parser.error('cleanup grace must be finite and between 1 and 60 seconds')
     try:
         validate_continuation(args.continue_gx)
     except ValueError as error:

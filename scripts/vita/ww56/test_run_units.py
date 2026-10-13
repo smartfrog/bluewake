@@ -4,9 +4,12 @@ WW56 creates one transient unit per phase. A unit that already exists (from an
 earlier run, a foreign tool or a leftover failure) must never be stopped by
 this run: the run refuses to reuse it before spawning, and cleanup stops only
 the invocation this run created, proven by the unit's InvocationID (or the
-wrapper's own "Running as unit: ...; invocation ID: ..." line).
+wrapper's own "Running as unit: ...; invocation ID: ..." line). The cleanup
+grace is a bounded CLI value: 1 to 60 seconds inclusive.
 """
 
+from contextlib import redirect_stderr
+import io
 import tempfile
 from pathlib import Path
 from types import SimpleNamespace
@@ -94,13 +97,35 @@ class CleanupOwnershipTests(unittest.TestCase):
                 run.cleanup_phase_unit(UNIT, state)
         stop.assert_not_called()
 
-    def test_a_missing_control_group_stops_nothing(self):
+    def test_an_inactive_unit_stops_nothing(self):
         state = self.state()
-        current = {'ControlGroup': '', 'InvocationID': ''}
+        current = {'LoadState': 'not-found', 'ActiveState': 'inactive', 'SubState': 'dead',
+                   'ControlGroup': '', 'InvocationID': ''}
         with patch.object(run, 'properties', return_value=current), \
                 patch.object(run.subprocess, 'run') as stop:
             run.cleanup_phase_unit(UNIT, state)
         stop.assert_not_called()
+
+    def test_a_remain_after_exit_unit_is_stopped(self):
+        state = self.state()
+        current = {'LoadState': 'loaded', 'ActiveState': 'active', 'SubState': 'exited',
+                   'ControlGroup': '', 'InvocationID': INVOCATION}
+        with patch.object(run, 'properties', return_value=current), \
+                patch.object(run.subprocess, 'run') as stop:
+            run.cleanup_phase_unit(UNIT, state)
+        stop.assert_called_once()
+        self.assertEqual(stop.call_args.args[0], ['systemctl', '--user', 'stop', UNIT])
+
+    def test_a_foreign_remain_after_exit_unit_is_never_stopped(self):
+        state = self.state()
+        current = {'LoadState': 'loaded', 'ActiveState': 'active', 'SubState': 'exited',
+                   'ControlGroup': '', 'InvocationID': FOREIGN}
+        with patch.object(run, 'properties', return_value=current), \
+                patch.object(run.subprocess, 'run') as stop:
+            with self.assertRaisesRegex(ValueError, 'refusing to stop'):
+                run.cleanup_phase_unit(UNIT, state)
+        stop.assert_not_called()
+        self.assertEqual(state['foreign_unit_untouched']['current'], current)
 
     def test_cleanup_falls_back_to_the_wrapper_invocation(self):
         with tempfile.TemporaryDirectory(dir='/tmp/opencode') as temporary:
@@ -142,6 +167,70 @@ class PhaseCollisionTests(unittest.TestCase):
                               self.record, budget=1024, headroom=2048, deadline=60)
         owned.assert_not_called()
         stop.assert_not_called()
+
+
+class PhaseCommandTests(unittest.TestCase):
+    def setUp(self):
+        self.temporary = tempfile.TemporaryDirectory(dir='/tmp/opencode')
+        self.root = Path(self.temporary.name)
+        (self.root / 'receipts').mkdir()
+        (self.root / 'phase/evidence').mkdir(parents=True)
+        self.args = SimpleNamespace(run_id='grace', cleanup_grace_seconds=12.0, hang_seconds=30.0,
+                                    present_grace_seconds=10.0, rel_settle_seconds=5.0)
+        self.plan = {'phases': {'guest': {'evidence_root': str(self.root / 'phase'),
+                                          'command': ['/usr/bin/true'], 'environment': {},
+                                          'cwd': str(self.root)}}}
+        self.record = {'phases': {}}
+
+    def tearDown(self):
+        self.temporary.cleanup()
+
+    def test_phase_units_disable_core_dumps_and_use_the_cleanup_grace(self):
+        captured = {}
+
+        def fake_run_owned(command, root, timeout, **kwargs):
+            captured['command'] = command
+            captured['timeout'] = timeout
+            return 0
+
+        with patch.object(run, 'run_owned', side_effect=fake_run_owned), \
+                patch.object(run, 'properties', return_value={'LoadState': 'not-found'}), \
+                patch.object(run, 'stop_owned_unit', return_value={}):
+            run.run_phase('guest', self.args, self.root, self.root / 'receipts', self.plan,
+                          self.record, budget=1024, headroom=2048, deadline=180.0)
+        command = captured['command']
+        self.assertIn('--property=LimitCORE=0', command)
+        self.assertIn('--property=TimeoutStopSec=12s', command)
+        self.assertNotIn('--property=TimeoutStopSec=2s', command)
+        self.assertEqual(captured['timeout'], 190.0)
+
+
+class CleanupGraceBoundaryTests(unittest.TestCase):
+    BASE_ARGUMENTS = ('run.py',
+                      '--expected-head', '1' * 40,
+                      '--vpk', '/tmp/candidate.vpk', '--vpk-sha256', '2' * 64,
+                      '--guest-source', '3' * 40,
+                      '--disc', '/tmp/disc.iso', '--disc-sha256', '4' * 64,
+                      '--wayland-socket', '/tmp/wayland-0',
+                      '--run-id', 'grace-boundary')
+
+    def parse(self, value):
+        argv = list(self.BASE_ARGUMENTS) + ['--cleanup-grace-seconds', value]
+        with patch.object(run.sys, 'argv', argv), redirect_stderr(io.StringIO()):
+            return run.parse_arguments()
+
+    def test_the_boundary_values_are_accepted(self):
+        for value in ('1', '60'):
+            with self.subTest(value=value):
+                args = self.parse(value)
+                self.assertEqual(args.cleanup_grace_seconds, float(value))
+
+    def test_out_of_range_values_are_rejected(self):
+        for value in ('0.5', '60.5', '0', '-1', 'nan', 'inf'):
+            with self.subTest(value=value):
+                with self.assertRaises(SystemExit) as error:
+                    self.parse(value)
+                self.assertEqual(error.exception.code, 2)
 
 
 if __name__ == '__main__':

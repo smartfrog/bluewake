@@ -9,7 +9,14 @@ from pathlib import Path
 import tempfile
 import unittest
 
-from journal import IncrementalLog
+from journal import IncrementalLog, count_marker_lines
+
+
+class CountMarkerTests(unittest.TestCase):
+    def test_counts_lines_containing_the_marker(self):
+        text = '[frame-present] frame=1 us=1\nnoise\n[frame-present] frame=2 us=2\n'
+        self.assertEqual(count_marker_lines(text, '[frame-present]'), 2)
+        self.assertEqual(count_marker_lines(text, '[rel-frontier]'), 0)
 
 
 class IncrementalLogTests(unittest.TestCase):
