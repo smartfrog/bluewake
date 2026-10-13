@@ -13,6 +13,9 @@ The earlier attempts remain preserved. The requested CI window is now captured
 through command 102936 with three synchronized late MEM1 versions (Unit 89).
 Frame 101 still shows the Nintendo logo, not a verified title screen. Unit 90
 closes the RAM guard's one-second sampling gap found in the measured profile.
+The requested post-102936 retry uses that fast guard but stops for actual host
+RAM pressure before the late window (Unit 91). No post-boundary FIFO or later
+guest wall is captured; the earlier successful CI handoff stays intact.
 
 ## Unit 1: CP performance selector
 
@@ -4005,3 +4008,128 @@ or GPU replay is started at this checkpoint. No Windows CI, physical Vita,
 title-screen/gameplay/whole-game parity, sound or 30+ FPS claim; **audio=deferred**,
 no fabricated guest instructions, RAM, frames, timestamps or completions.
 No network, push, user-app termination or data deletion.
+
+## Unit 91: post-102936 request stopped by actual host RAM before the late window
+
+Lane 18 correctly identifies **102936** as a voluntary end-of-capture, not a
+game wall. Its independent GPU replay now explains frame 101's transparent
+progressive-scan notice and exact logo fade in **vita/renderer/gx_boot_101_replay.md**.
+Fast-forward the clean lane to local integrated **2170346**, including its
+renderer/finish/capture regression union and Unit 90's fast RAM guard. No
+network or remote pull-request check is performed under the no-network rule;
+locally available branches and the integration diff are inspected. No other
+lane's branch or evidence is written.
+
+The new authentic request moves MEM1 capture to **102937-196608**, retaining
+the complete streamed FIFO prefix from command 1, **eight full 24 MiB disk
+snapshots / 128 live PNG pairs / 960x544** bounds, **1200 s guest ceiling**,
+**30 s CPU-OR-output watchdog**, **2.5 GiB RAM floor checked on each owned
+phase callback (~50 ms)**, pinned VI and **audio=deferred**. There is no emulator
+save state to resume: the authentic boot still starts from the private ISO.
+Selecting late MEM1 avoids early snapshot disk writes; it cannot skip guest
+execution or remove the emulator's pre-window resident footprint.
+
+Committed **21703465d2d19883fa073b621031cf0a76f39002**, **VI/O1 -j2**, rebuilds
+successfully in **120.199 observed seconds**. All **848 prior objects** remain,
+**843** retain their recorded signatures; all **750 module compile commands**
+have effective final **-O1**. New immutable build receipt:
+
+```text
+/home/fred/projects/zeldaWWHDRecomp/build-f5/ww05/artifacts-6a4b959c37b74dbfa5a4f57526525199/build-evidence.json
+```
+
+Fresh isolated run **362b25b38c064704a33a49d391a47312**, VPK SHA
+**f2a8b4673b6d8f944cceba1ed7ac3c6006f13fc2b008dd6ce15d5e6f4783888b**,
+passes actual RAM preflights: **6.401733 GiB before installer / 6.328369 GiB
+before guest**. The fast guard then observes **2,607,874,048 available bytes /
+2.428772 GiB**, below **2,684,354,560 bytes / 2.5 GiB**, and terminates/reaps
+only the owned guest sandbox. Preserve **157.572703 s / memory-pressure /
+SIGTERM / exit=-15 / waited=true / status 125 / INCOMPLETE / frontier UNAVAILABLE**.
+There is **no closed ww05.report**; its original missing-report error and
+traceback remain in result.json. Do not rewrite that failure as capture success.
+
+The partial journal contains **9002 complete commands / 60627 FIFO bytes /
+16 genuine retrace markers / eight actual PNG pairs / zero MEM1 snapshots**.
+Strict independent collectors verify all eight raw/display RGB pairs and the
+absence of any selected late snapshots. Each image is **black early-boot
+output**; the last PNG was opened. Its actual metadata records **frame 8 /
+command 8031 / 81004451 cycles / eight submitted draws**, with zero skips,
+program/copy refusals or gaps **at that image boundary only**. The result's
+unverified **rendered=false** is preserved, not replaced with a fabricated
+closed report. This pre-logo partial run does not invalidate the earlier
+verified Nintendo/CI images.
+
+Last recorded progress is **134504761 cycles / 3314813 edges / PC 80328B30 /
+exception 00000000**; the final edge marker is **134512150 cycles / 3315538
+edges / PC 80328B2C**. These are observations, not final guest totals. No
+command after **102936** exists here; **no post-boundary unsupported guest,
+renderer, title-screen or audio wall is demonstrated**. The actual preceding
+blocker is this host's RAM reserve.
+
+### Per-minute memory measurements
+
+The distinct private watcher samples actual **VmRSS, VmSize and VmSwap** once
+per second, while the authoritative launch guard checks MemAvailable about
+every **50 ms**. Relative offsets below start at the first actually observed
+guest emulator sample, not a fabricated guest timestamp. Minute 3 is partial.
+
+| Observed minute | Last sample (s) | Endpoint RSS (GiB) | Change from prior endpoint (MiB) | Endpoint VmSize (GiB) | Sampled VmSwap (bytes) | Minimum sampled available RAM (GiB) |
+| ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| 1 | 59.201 | 3.175018 | — | 10.562851 | 0 | 3.116760 |
+| 2 | 119.423 | 3.685852 | +523.093750 | 11.062851 | 0 | 2.627655 |
+| 3 (partial) | 156.517 | 3.685120 | -0.750000 | 11.062851 | 0 | 2.556717 |
+
+After **65 observed seconds**, sampled RSS is nearly constant around **3.686
+GiB**, ending **0.75 MiB lower**; VmSize is unchanged and every sampled VmSwap
+is zero. This short attempt shows boot allocation followed by a plateau,
+**not an established escalating RSS/virtual allocation leak**. VmSize includes
+reserved mappings and is not committed RAM. The final external sample still
+has **2.556717 GiB available**; the faster guard catches the subsequent
+**2.428772 GiB** crossing. This is not a disagreement to hide: the samples are
+at distinct instants, and the original authoritative stop stays intact.
+The decline in host available RAM is not accompanied by growing sampled
+emulator RSS at the end. No unrelated application is blamed or closed.
+
+The journal stops growing at **62.206 observed seconds**, remaining silent
+for **94.311 s through the last sample**, but emulator aggregate CPU remains
+high (**904.405% at the last sample**). Under the agreed **CPU OR output-growth**
+rule this is not a low-CPU-and-silent hang. It also does not prove guest progress
+during the silent interval. The watcher preserves every sample and the guard
+ends the run for RAM, not inactivity or the 1200 s ceiling.
+
+**Pause equivalent retries.** More genuine host headroom is the next requirement;
+do not lower the guard or close the user's applications. Incremental snapshots
+cannot solve this preceding pressure: **zero snapshots were taken** and full
+captures already stream in **64 KiB** chunks without resident shadow RAM.
+When the reserve permits continuation, advance bounded selected draw windows.
+The existing strict **eight-snapshot exhaustion** and **128-image ceiling**
+would be diagnostic stops, never real game walls; observing a still later title
+may require an explicitly agreed late-image window or revised disk-capture bound.
+Neither bound is silently raised in this attempt.
+
+Read-only lane 18 blocker handoff and measured profile:
+
+```text
+/home/fred/projects/zeldaWWHDRecomp/build-f5/ww05/vita3k-run-362b25b38c064704a33a49d391a47312/evidence/lane18-post-ci-blocker.json
+/home/fred/projects/zeldaWWHDRecomp/build-f5/ww05/vita3k-run-362b25b38c064704a33a49d391a47312/evidence/post-ci-memory-profile.json
+```
+
+Sibling **post-ci-live-images-verified.json**, **post-ci-memory-captures-verified.json**,
+original **run-watch.jsonl / process.json / result.json / request / plan / ww05.log**
+and eight image pairs remain private and unchanged, with original SHA-256 values
+in the handoff. Journal SHA **16a39a01590a5a3b02ed1d6121b533ee132516a7bdf64c3544f0c8016651445f**;
+result SHA **a47474a366e5ebadfa36dccc1ef56c67c002128d8f200f5a637fedeac1155c89**.
+Distinct **watch-post-ci-build.py / watch-post-ci-run.py** sources and build
+telemetry stay under **build-f5/ww05/logs/**; earlier supervisors are not overwritten.
+No compiler, emulator or owned sandbox survivor remains. The successful Unit 89
+CI handoff is neither changed nor relabeled as post-102936 input.
+
+Linux AArch64: watched **795 host/DVD tests / 1918 subtests** pass; native GX
+rebuild uses **-j2**, then **203 GX tests / 109 subtests** pass, including the
+integrated renderer contract/novelty regression union. Logs:
+**ww16-post-ci-2170346-host-tests.log**, its **host-tests-watch.jsonl**, and
+**ww16-post-ci-2170346-gx-tests.log**. Repository audit, attribution and whitespace
+checks pass. No production code, renderer, guest-clock, RAM size, runtime pin,
+DSP/PCM or frame behavior changes in this delivery. No new GPU replay, physical
+Vita, Windows CI, title screen, gameplay, sound or 30+ FPS claim; no network,
+push, fake FIFO/resource/completion or deletion of user data.
