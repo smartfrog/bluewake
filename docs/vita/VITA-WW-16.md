@@ -1669,3 +1669,37 @@ implementation (`logs/ww16-ai-timing-red.log`); green in
 (`logs/ww16-ai-timing-arm-link.log`); audit/attribution/whitespace pass. A clean
 committed VI/O1 rebuild and watched **MEM1 + live-PNG** trial follows, retaining
 actual images/counts and the next real STOP separately from no-dump FPS evidence.
+
+## Unit 45: zero AI timing passes; the next frontier is idle DSP audio-DMA setup
+
+Committed VI/O1 build **d4ca48e**, watched MEM1/live-PNG run
+**24356e49e61d44c8b088bc9634afb278**: the real stopped-AI zero timing store passes.
+New STOP is a **halfword read of CC005030 at 80316950**, sourced as DSP
+**AUDIO_DMA_START_HI** (`DSP.cpp:63,314-321`), not the separate ARAM DMA block.
+Final state **85,311,730 cycles / 1,033,646 edges**, advancing 230 cycles / 18 edges
+beyond Unit 43. Still **nine draws / eight actual presentations**, **8,963 decoded
+/ 2,048 journal commands**, zero skips/refusals/gaps.
+
+**Eight live PNGs, two actual MEM1 captures and all wall markers verify**; the
+last PNG was opened and remains uniform opaque black. Display hash unchanged:
+**c871acff3fc84ccec64ed29b05f2b1549e05b5067e2e5adf193b60d5490fdae5**.
+Both memory hashes still match Unit 39. Both independently guarded prefix
+replays pass with the actual captured memories: **14,464 bytes / two plans and
+programmes**, no gaps/refusals, explicit complete MEM1 coverage acknowledgement.
+This is still an initialization-clear image, not a visible logo/game scene,
+whole-run replay, physical-Vita parity or an FPS baseline.
+
+Private hand-off root:
+
+```text
+/home/fred/projects/zeldaWWHDRecomp/build-f5/ww05/vita3k-run-24356e49e61d44c8b088bc9634afb278
+```
+
+Latest image **`evidence/frames/frame-8.png`**; pixel/provenance manifests
+**`evidence/live-images.json`**, **`evidence/live-capture-checks.json`**; memory
+manifest **`evidence/mem1-capture.json`**; draw fixtures
+**`evidence/gx-draw-prefix-snapshot{1,2}/`** and
+**`evidence/guarded-mem1-replays.json`**. Installer **1.29 s**, guest **92.97 s**,
+known post-report shutdown **133**, no inactive/timeout termination. Next source
+work is stopped audio-DMA register configuration only; DMA enable, PCM transfer
+or audio completion cannot be invented to cross that frontier.
