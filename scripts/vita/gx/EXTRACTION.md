@@ -246,3 +246,48 @@ truncating long draw records and must retain matching texture/array/DL bytes.
 Source-backed assumption: journal order/index/hex bytes are the capture contract
 in `capture.py`; renderer totals are not FIFO evidence. When that evidence
 arrives, run the selector first, before further synthetic feature work.
+
+## Post-logo standby
+
+The 101-frame run `3f5aaa45e50f4c35b8785969f3b5bf5c` ends at command
+**102936**; its last snapshot is bound to draw **102699**, not to the report's
+final extent. Delivery `2ffaace`/trunk `6cb922c` names this same run. Requests
+through **102937** or **103001** correctly refuse before creating a fixture.
+The STOP is the deliberate capture-window completion, not a diagnosed boot
+hang or a captured final black screen. A new FIFO and synchronized resources
+after this boundary are still required.
+
+The gallery can wait without replaying the known initialization/logo captures:
+
+```sh
+WW02_BUILD=build-f6/ww18/late-b403 python3 scripts/vita/gx/gallery.py \
+  --source /home/fred/projects/zeldaWWHDRecomp/build-f5 \
+  --build build-f6/ww18/late-b403 --output build-f6/ww18/images \
+  --watch --interval 30 --recent-hours 24 --notify --after-command 102936 \
+  --known-logo build-f6/ww18/scene-3f5aaa/image-snapshot1/capture.png
+```
+
+Use **103000** instead when the requested window starts strictly after that
+command. The gate uses the **last actual draw in the snapshot-bound prefix**,
+never report totals or the producer's timing number. Exact FIFO/MEM1 hashes,
+sparse guards, watched GPU execution and immutable gallery entries are retained.
+The existing replay selects the richest bound prefix; distinct per-draw snapshots
+remain independently replayable with `extract.py --through-command N`.
+
+`--known-logo` requires a validated, full-red logo reference kept privately.
+New pixels outside its mask, non-red RGB, red brighter than its verified maximum
+or changed nonblack dimensions produce **`gallery-new-content`**. Black and red
+logo-envelope frames are archived without waking `--notify`. Replay/input
+blockers still wake with a nonzero status; their errors are not hidden.
+Each classification records the reference PNG SHA. This is a **novelty candidate**,
+not automatic title-screen recognition or gameplay certification. Red-only
+content entirely inside the logo envelope can be ambiguous and requires GX
+state/resource inspection; a palette/alpha-zero notice is not visible content.
+
+The filter was run on all 101 original live PNGs: **10 black, 91 logo-compatible,
+zero novelty alerts**. Unit tests cover threshold boundaries, notification
+suppression, novel regions/colors, incomplete pixels and invalid references.
+Without these optional flags, legacy gallery notification behavior is unchanged.
+The single-writer lock remains mandatory. A `--notify` watcher exits on its first
+novelty/blocker event and must be supervised and restarted; never launch a second
+watcher while the first owns the gallery.

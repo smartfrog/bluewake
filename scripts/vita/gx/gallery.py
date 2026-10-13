@@ -18,6 +18,7 @@ import capture
 import extract
 import image
 import memory_snapshot
+import novelty
 
 FORMAT = 'gx-frame-gallery-v1'
 DEFAULT_SOURCE = Path('/home/fred/projects/zeldaWWHDRecomp/build-f5')
@@ -74,13 +75,15 @@ def inspect_run(report, code_revision):
     draws, count, _, _, snapshot, raw = max(choices)
     if draws == 0:
         raise ValueError('snapshot-bound prefix has no logged draw yet')
+    last_draw = max(number for number, data in enumerate(commands[:count], 1)
+                    if data[0] & 0xF8 in extract.DRAW_FAMILIES)
     manifest = json.loads(raw)
     identity = hashlib.sha256()
     for data in (journal_bytes, report_bytes, raw, code_revision.encode()):
         identity.update(hashlib.sha256(data).digest())
     header = re.search(r'^WW05\s+\S+\s+([0-9a-f]{40})\b', report_bytes.decode(), re.MULTILINE)
     return dict(run_id=run_id(report), report=report, journal=journal, snapshot=snapshot,
-                revision=identity.hexdigest(), draws=draws,
+                 revision=identity.hexdigest(), draws=draws, last_draw_command=last_draw,
                 journal_sha256=memory_snapshot.sha256(journal_bytes),
                 report_sha256=memory_snapshot.sha256(report_bytes),
                 manifest_sha256=memory_snapshot.sha256(raw),
@@ -120,7 +123,13 @@ def write_state(output, state):
         png = entry.get('image')
         size = f'[{png["width"]}×{png["height"]}, {entry["image_bytes"]} bytes]({entry["image_path"]})' if png else '—'
         checksum = f'`{png["sha256"]}`' if png else '—'
-        result = ('**NONBLACK** ' if entry['nonblack'] else '') + entry['verdict']
+        if entry.get('new_visual_content'):
+            label = '**NEW CONTENT CANDIDATE** '
+        elif entry.get('visual', {}).get('classification') == 'logo-compatible':
+            label = 'logo-compatible '
+        else:
+            label = '**NONBLACK** ' if entry['nonblack'] else ''
+        result = label + entry['verdict']
         rows.append(f'| {link} | {entry["date"]} | {entry["draws"]} | {entry.get("rendered", "—")} | '
                     f'{entry.get("lane16_draws", "—")} | {size} | {checksum} | {result} |')
     if any(entry.get('image') for entry in state['entries']):
@@ -135,15 +144,17 @@ def write_state(output, state):
     atomic_write(output / 'INDEX.md', '\n'.join(rows) + '\n')
 
 
-def render_candidate(candidate, output, build, code_revision):
+def render_candidate(candidate, output, build, code_revision, known_logo=None):
     name = candidate['revision'][:12] + '-' + uuid.uuid4().hex[:8]
     job = output / candidate['run_id'] / name
     job.mkdir(parents=True, mode=0o700)
     frame = job / 'frame'
     fixture = build / 'gallery-fixtures' / candidate['run_id'] / name
     fixture.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
-    entry = {key: candidate[key] for key in ('run_id', 'revision', 'date', 'draws', 'source_commit', 'fifo_sha256')}
+    entry = {key: candidate[key] for key in ('run_id', 'revision', 'date', 'draws', 'source_commit',
+                                            'fifo_sha256', 'last_draw_command')}
     entry.update(event='gallery-failed', verdict='image-unavailable', nonblack=False, image=None,
+                 new_visual_content=False,
                  renderer_revision=code_revision, snapshot=str(candidate['snapshot']),
                  source_report=str(candidate['report']), entry_path=str((job / 'entry.json').relative_to(output)))
     try:
@@ -173,13 +184,22 @@ def render_candidate(candidate, output, build, code_revision):
             entry['nonblack'] = (manifest['verdict'] in ('image-captured', 'image-captured-with-coverage-gaps') and
                                  entry['image']['alpha_nonzero'] > 0 and entry['image']['distinct_rgba'] > 1)
             entry['event'] = 'gallery-nonblack' if entry['nonblack'] else 'gallery-added'
+            if known_logo is not None and manifest['verdict'] in ('image-captured', 'image-captured-with-coverage-gaps'):
+                entry['visual'] = novelty.classify_frame(frame / 'capture.png', entry['image']['sha256'], known_logo)
+                entry['nonblack'] = entry['visual']['nonblack_RGB_pixels'] > 0
+                entry['new_visual_content'] = entry['visual']['classification'] == 'new-content-candidate'
+                entry['event'] = ('gallery-new-content' if entry['new_visual_content'] else
+                                  'gallery-known-logo' if entry['nonblack'] else 'gallery-added')
     except (OSError, ValueError, subprocess.CalledProcessError) as error:
-        entry.update(event='gallery-failed', verdict='image-unavailable', image=None, nonblack=False, error=str(error))
+        entry.update(event='gallery-failed', verdict='image-unavailable', image=None,
+                     nonblack=False, new_visual_content=False, error=str(error))
     atomic_write(job / 'entry.json', json.dumps(entry, indent=2) + '\n')
     return entry
 
 
-def scan_once(source, output, build, *, recent_hours=24, code_revision):
+def scan_once(source, output, build, *, recent_hours=24, code_revision, after_command=0, known_logo=None):
+    if type(after_command) is not int or after_command < 0:
+        raise ValueError('command threshold must be a nonnegative integer')
     source, output, build = Path(source).resolve(), Path(output).resolve(), Path(build).resolve()
     if not source.is_dir():
         raise ValueError('capture source directory does not exist')
@@ -191,6 +211,8 @@ def scan_once(source, output, build, *, recent_hours=24, code_revision):
         name = run_id(report)
         try:
             candidate = inspect_run(report, code_revision)
+            if candidate['last_draw_command'] <= after_command:
+                continue
             completed = any(entry['revision'] == candidate['revision'] for entry in state['entries'])
             if completed and name not in state['deferred']:
                 continue
@@ -206,11 +228,16 @@ def scan_once(source, output, build, *, recent_hours=24, code_revision):
             state['deferred'].pop(name, None)
             write_state(output, state)
             continue
-        entry = render_candidate(candidate, output, build, code_revision)
+        entry = render_candidate(candidate, output, build, code_revision, known_logo)
         state['entries'].append(entry)
         state['deferred'].pop(name, None)
         write_state(output, state)
         yield entry
+
+
+def notification_required(event, *, new_content_only):
+    return (not new_content_only or bool(event.get('new_visual_content')) or
+            event['event'] in ('gallery-failed', 'gallery-deferred'))
 
 
 def main():
@@ -221,10 +248,22 @@ def main():
     parser.add_argument('--recent-hours', type=float, default=24, help='0 includes all captured runs')
     parser.add_argument('--watch', action='store_true')
     parser.add_argument('--interval', type=float, default=30)
-    parser.add_argument('--notify', action='store_true', help='exit after one update to wake the owning session')
+    parser.add_argument('--notify', action='store_true',
+                        help='exit on an update; with --known-logo, only visual candidates or blockers')
+    parser.add_argument('--after-command', type=int, default=0,
+                        help='replay only snapshots whose last bound draw is after this command')
+    parser.add_argument('--known-logo', type=Path,
+                        help='verified full-red logo PNG; notify only on content outside its envelope')
     args = parser.parse_args()
-    if not math.isfinite(args.interval) or not math.isfinite(args.recent_hours) or args.interval <= 0 or args.recent_hours < 0:
+    if (not math.isfinite(args.interval) or not math.isfinite(args.recent_hours) or
+            args.interval <= 0 or args.recent_hours < 0):
         parser.error('interval must be positive and recent-hours nonnegative')
+    if args.after_command < 0:
+        parser.error('command threshold must be a nonnegative integer')
+    try:
+        known_logo = novelty.load_logo(args.known_logo) if args.known_logo is not None else None
+    except (OSError, ValueError) as error:
+        parser.error(str(error))
     output = (args.output or args.build / 'images').resolve()
     if not args.source.is_dir():
         parser.error('capture source directory does not exist')
@@ -238,16 +277,19 @@ def main():
         except BlockingIOError:
             parser.error('another gallery watcher owns this output')
         watch_state = dict(pid=os.getpid(), source=str(args.source.resolve()), output=str(output),
-                           started=datetime.now(timezone.utc).isoformat(), interval=args.interval)
+                            started=datetime.now(timezone.utc).isoformat(), interval=args.interval,
+                            after_command=args.after_command,
+                            known_logo_sha256=known_logo['sha256'] if known_logo is not None else None)
         try:
             while True:
                 code = subprocess.check_output(['git', 'rev-parse', 'HEAD'], cwd=image.ROOT, text=True).strip()
                 atomic_write(output / 'WATCH.json', json.dumps(dict(watch_state, status='scanning'), indent=2) + '\n')
-                for event in scan_once(args.source, output, args.build, recent_hours=args.recent_hours, code_revision=code):
+                for event in scan_once(args.source, output, args.build, recent_hours=args.recent_hours,
+                                       code_revision=code, after_command=args.after_command, known_logo=known_logo):
                     atomic_write(output / 'UPDATE.json', json.dumps(event, indent=2) + '\n')
                     print(json.dumps(event, sort_keys=True), flush=True)
-                    if args.notify:
-                        return 0
+                    if args.notify and notification_required(event, new_content_only=known_logo is not None):
+                        return 1 if known_logo is not None and event['event'] in ('gallery-failed', 'gallery-deferred') else 0
                 if not args.watch:
                     return 0
                 atomic_write(output / 'WATCH.json', json.dumps(dict(watch_state, status='waiting'), indent=2) + '\n')
