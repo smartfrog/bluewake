@@ -99,6 +99,34 @@ class DirectLaunchTest(unittest.TestCase):
                     with self.assertRaisesRegex(ValueError, 'commands, environment or phase identities'):
                         launch.verify_inputs(Path('/private/run'), plan)
 
+    def test_candidate_plan_is_verified_through_the_candidate_admission(self):
+        import launch
+        plan = self.plan()
+        plan.update(candidate_build=True, candidate={'descriptor': '/private/candidate.json',
+                                                     'descriptor_sha256': 'd' * 64},
+                    build_evidence_path='/private/receipt.json', build_evidence_sha256='d' * 64,
+                    build_evidence={'source': 'a' * 40}, runtime_libraries={'root': '/approved/dependencies'},
+                    wayland_socket=None)
+        with patch('launch.subprocess.check_output', side_effect=['a' * 40, '']), \
+                patch('launch.checked_sources'), patch('launch.sha256', return_value='d' * 64), \
+                patch('launch.load_candidate_descriptor', return_value={'synthetic': True}) as load, \
+                patch('launch.checked_candidate_receipt', return_value=plan['build_evidence']), \
+                patch('launch.verify_candidate_package', side_effect=ValueError('synthetic candidate gate')), \
+                patch('launch.checked_build_receipt', side_effect=AssertionError('legacy admission used')):
+            with self.assertRaisesRegex(ValueError, 'synthetic candidate gate'):
+                launch.verify_inputs(Path('/private/run'), plan)
+        load.assert_called_once_with(Path('/private/candidate.json'))
+
+    def test_launcher_check_mode_verifies_without_staging_or_executing(self):
+        import launch
+        argv = ['launch', '--check', '--candidate-build', '/private/candidate.json',
+                '--wayland-socket', '/run/user/1000/wayland-0']
+        with patch.object(sys, 'argv', argv), patch('launch.check', return_value=0) as check, \
+                patch('launch.stage', side_effect=AssertionError('check mode must not stage')), \
+                patch('launch.execute_run', side_effect=AssertionError('check mode must not execute')):
+            self.assertEqual(launch.main(), 0)
+        check.assert_called_once()
+
     def test_firmware_staging_records_the_native_preference_path_and_exact_config(self):
         from fp_launch import create_run
         from fp_profile import CONFIG_PATH, FIRMWARE_DIRECTORY, config_identity, profile_config, stage_firmware

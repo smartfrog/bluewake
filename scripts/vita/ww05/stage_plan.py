@@ -180,9 +180,120 @@ def checked_build_receipt(path, launcher_source, baseline=False):
     return evidence
 
 
+CANDIDATE_DESCRIPTOR_KIND = 'ww05-private-candidate-v1'
+CANDIDATE_RECEIPT_STATUS = 'PASS-private-offline-build-inspection'
+
+
+def is_full_hex_identity(value, length):
+    return isinstance(value, str) and len(value) == length and all(c in '0123456789abcdef' for c in value)
+
+
+def load_candidate_descriptor(path):
+    path = reject_symlinks(path)
+    descriptor = json.loads(read_profile_file(path, 64 * 1024, owned=True))
+    if not isinstance(descriptor, dict):
+        raise ValueError('candidate descriptor must be a JSON object')
+    if descriptor.get('kind') != CANDIDATE_DESCRIPTOR_KIND:
+        raise ValueError('unknown candidate descriptor schema')
+    fields = {'kind', 'receipt', 'source', 'composite_digest', 'vpk_sha256', 'eboot_sha256', 'pad_input'}
+    if set(descriptor) != fields:
+        raise ValueError('candidate descriptor fields differ from the reviewed schema')
+    if not isinstance(descriptor['receipt'], str) or not Path(descriptor['receipt']).is_absolute():
+        raise ValueError('candidate descriptor receipt must be an absolute path')
+    if not is_full_hex_identity(descriptor['source'], 40):
+        raise ValueError('candidate descriptor source must be a full commit identity')
+    for field in ('composite_digest', 'vpk_sha256', 'eboot_sha256'):
+        if not is_full_hex_identity(descriptor[field], 64):
+            raise ValueError('candidate descriptor ' + field + ' must be a full SHA-256 identity')
+    if type(descriptor['pad_input']) is not bool:
+        raise ValueError('candidate descriptor pad_input must be a boolean')
+    return descriptor
+
+
+def checked_candidate_receipt(descriptor, launcher_source):
+    path = reject_symlinks(Path(descriptor['receipt']))
+    evidence = json.loads(read_profile_file(path, 1024 * 1024, owned=True))
+    if not isinstance(evidence, dict):
+        raise ValueError('candidate receipt must be a JSON object')
+    if evidence.get('status') != CANDIDATE_RECEIPT_STATUS:
+        raise ValueError('unknown candidate receipt schema')
+    source = evidence.get('source')
+    if not is_full_hex_identity(source, 40):
+        raise ValueError('candidate receipt source must be a full commit identity')
+    if source != descriptor['source']:
+        raise ValueError('candidate receipt source differs from the descriptor')
+    if evidence.get('pins') != PINS:
+        raise ValueError('candidate receipt pins differ from the verified runtime')
+    if evidence.get('composite_digest') != descriptor['composite_digest']:
+        raise ValueError('candidate receipt composite identity differs from the descriptor')
+    if evidence.get('current_composite_digest') != descriptor['composite_digest']:
+        raise ValueError('candidate receipt current composite identity differs from the descriptor')
+    config = evidence.get('config')
+    if not isinstance(config, dict):
+        raise ValueError('candidate receipt config is missing')
+    pad_input = config.get('pad_input')
+    if not isinstance(pad_input, dict) or pad_input.get('enabled') is not descriptor['pad_input']:
+        raise ValueError('candidate receipt PAD state differs from the descriptor')
+    ancestry = subprocess.run(['git', 'merge-base', '--is-ancestor', source, launcher_source],
+                              cwd=ROOT, capture_output=True, text=True)
+    if ancestry.returncode == 1:
+        raise ValueError('candidate source is not an ancestor of the launcher')
+    if ancestry.returncode != 0:
+        raise RuntimeError('cannot verify candidate ancestry: ' + ancestry.stderr)
+    return evidence
+
+
+def verify_candidate_package(descriptor, evidence):
+    artifacts = evidence.get('artifacts')
+    if not isinstance(artifacts, dict) or not {'ww05.vpk', 'eboot.bin'} <= set(artifacts):
+        raise ValueError('candidate receipt artifacts are missing')
+    for name, entry in artifacts.items():
+        if (not isinstance(entry, dict) or not isinstance(entry.get('path'), str) or
+                not Path(entry['path']).is_absolute()):
+            raise ValueError('candidate receipt artifact path is invalid: ' + name)
+        if type(entry.get('bytes')) is not int or not is_full_hex_identity(entry.get('sha256'), 64):
+            raise ValueError('candidate receipt artifact identity is invalid: ' + name)
+        identity = file_identity(reject_symlinks(Path(entry['path'])))
+        if identity['bytes'] != entry['bytes'] or identity['sha256'] != entry['sha256']:
+            raise ValueError('candidate artifact changed: ' + name)
+    if artifacts['ww05.vpk']['sha256'] != descriptor['vpk_sha256']:
+        raise ValueError('candidate VPK does not match the descriptor')
+    if artifacts['eboot.bin']['sha256'] != descriptor['eboot_sha256']:
+        raise ValueError('candidate eboot does not match the descriptor')
+    members = evidence.get('vpk_members')
+    if not isinstance(members, dict) or sorted(members) != ['eboot.bin', 'main.dol', 'sce_sys/param.sfo']:
+        raise ValueError('candidate receipt VPK members are missing')
+    for name, entry in members.items():
+        if type(entry.get('bytes')) is not int or not is_full_hex_identity(entry.get('sha256'), 64):
+            raise ValueError('candidate receipt VPK member identity is invalid: ' + name)
+    vpk = Path(artifacts['ww05.vpk']['path'])
+    with zipfile.ZipFile(vpk) as archive:
+        if sorted(archive.namelist()) != ['eboot.bin', 'main.dol', 'sce_sys/param.sfo'] or archive.testzip() is not None:
+            raise ValueError('candidate package entries/CRC mismatch')
+        for name, entry in members.items():
+            info = archive.getinfo(name)
+            with archive.open(name) as stream:
+                actual = hashlib.file_digest(stream, 'sha256').hexdigest()
+            if info.file_size != entry['bytes'] or actual != entry['sha256']:
+                raise ValueError('candidate package payload mismatch: ' + name)
+    if any(members['eboot.bin'][field] != artifacts['eboot.bin'][field] for field in ('bytes', 'sha256')):
+        raise ValueError('candidate package eboot identity differs from the receipt artifact')
+    return vpk, artifacts['ww05.vpk']['sha256']
+
+
+def candidate_metadata(descriptor, path, evidence, package):
+    return {'descriptor': str(path), 'descriptor_sha256': sha256(path),
+            'receipt': str(Path(descriptor['receipt'])), 'receipt_sha256': sha256(Path(descriptor['receipt'])),
+            'source': evidence['source'], 'composite_digest': evidence['composite_digest'],
+            'vpk_sha256': package, 'eboot_sha256': evidence['artifacts']['eboot.bin']['sha256'],
+            'pad_input': descriptor['pad_input']}
+
+
 def stage(args):
     if getattr(args, 'render_node', None) is not None:
         raise ValueError('direct native WW launch does not accept a render-node sandbox guard')
+    if getattr(args, 'candidate_build', None) is not None and getattr(args, 'baseline_build', None) is not None:
+        raise ValueError('candidate and baseline build selection are mutually exclusive')
     CpuIdleWindow(getattr(args, 'idle_timeout', 30), 0.05)
     validate_continuation(getattr(args, 'continue_gx', 0))
     validate_memory_captures(getattr(args, 'mem1_snapshots', 0), getattr(args, 'continue_gx', 0),
@@ -195,13 +306,26 @@ def stage(args):
         raise ValueError('plan requires an immutable clean delivery checkpoint')
     checked_sources()
     baseline_path = getattr(args, 'baseline_build', None)
-    receipt_path = Path(baseline_path) if baseline_path is not None else OUTPUT / 'build-evidence.json'
-    evidence = checked_build_receipt(receipt_path, launcher_source, baseline=baseline_path is not None)
+    candidate_path = getattr(args, 'candidate_build', None)
+    candidate = None
+    footprint_path = None
+    if candidate_path is not None:
+        candidate_path = reject_symlinks(candidate_path)
+        descriptor = load_candidate_descriptor(candidate_path)
+        evidence = checked_candidate_receipt(descriptor, launcher_source)
+        receipt_path = Path(descriptor['receipt'])
+    else:
+        receipt_path = Path(baseline_path) if baseline_path is not None else OUTPUT / 'build-evidence.json'
+        evidence = checked_build_receipt(receipt_path, launcher_source, baseline=baseline_path is not None)
+        footprint_path = Path(evidence['snapshot']) / 'footprint.json'
     source = evidence['source']
-    footprint_path = Path(evidence['snapshot']) / 'footprint.json'
     if resource.getrlimit(resource.RLIMIT_FSIZE) != (resource.RLIM_INFINITY, resource.RLIM_INFINITY):
         raise ValueError('RLIMIT_FSIZE must remain unlimited for the copied emulator')
-    vpk, package = verify_package(evidence)
+    if candidate_path is not None:
+        vpk, package = verify_candidate_package(descriptor, evidence)
+        candidate = candidate_metadata(descriptor, candidate_path, evidence, package)
+    else:
+        vpk, package = verify_package(evidence)
     run = uuid.uuid4().hex
     root = OUTPUT / ('vita3k-run-' + run)
     create_run(root)
@@ -228,8 +352,9 @@ def stage(args):
                  wayland_socket=str(args.wayland_socket) if args.wayland_socket is not None else None, build_evidence=evidence,
                 source_vpk=str(vpk), build_evidence_sha256=sha256(receipt_path),
                 build_evidence_path=str(receipt_path), baseline_build=baseline_path is not None,
-                launcher_source=launcher_source, footprint_path=str(footprint_path),
-                footprint=json.loads(footprint_path.read_text()))
+                candidate_build=candidate is not None, candidate=candidate,
+                launcher_source=launcher_source, footprint_path=str(footprint_path) if footprint_path is not None else None,
+                footprint=json.loads(footprint_path.read_text()) if footprint_path is not None else None)
     plan['disc'] = disc
     (root / 'phases').mkdir(mode=0o700)
     for name, entry in plan['phases'].items():
@@ -246,6 +371,44 @@ def stage(args):
     return root, plan
 
 
+def check(args):
+    if getattr(args, 'render_node', None) is not None:
+        raise ValueError('direct native WW launch does not accept a render-node sandbox guard')
+    if getattr(args, 'candidate_build', None) is not None and getattr(args, 'baseline_build', None) is not None:
+        raise ValueError('candidate and baseline build selection are mutually exclusive')
+    CpuIdleWindow(getattr(args, 'idle_timeout', 30), 0.05)
+    validate_continuation(getattr(args, 'continue_gx', 0))
+    validate_memory_captures(getattr(args, 'mem1_snapshots', 0), getattr(args, 'continue_gx', 0),
+                             getattr(args, 'mem1_command_window', None))
+    validate_timeout(args.timeout, scene_capture=getattr(args, 'mem1_command_window', None) is not None,
+                     idle_timeout=getattr(args, 'idle_timeout', 30))
+    launcher_source = subprocess.check_output(['git', 'rev-parse', 'HEAD'], cwd=ROOT, text=True).strip()
+    if subprocess.check_output(['git', 'status', '--porcelain'], cwd=ROOT, text=True):
+        raise ValueError('check requires an immutable clean delivery checkpoint')
+    checked_sources()
+    baseline_path = getattr(args, 'baseline_build', None)
+    candidate_path = getattr(args, 'candidate_build', None)
+    candidate = None
+    if candidate_path is not None:
+        candidate_path = reject_symlinks(candidate_path)
+        descriptor = load_candidate_descriptor(candidate_path)
+        evidence = checked_candidate_receipt(descriptor, launcher_source)
+        vpk, package = verify_candidate_package(descriptor, evidence)
+        candidate = candidate_metadata(descriptor, candidate_path, evidence, package)
+        receipt_path = Path(descriptor['receipt'])
+    else:
+        receipt_path = Path(baseline_path) if baseline_path is not None else OUTPUT / 'build-evidence.json'
+        evidence = checked_build_receipt(receipt_path, launcher_source, baseline=baseline_path is not None)
+        vpk, package = verify_package(evidence)
+    print('CHECK ' + json.dumps({'kind': 'ww05-admission-check-v1', 'launcher_source': launcher_source,
+                                 'guest_source': evidence['source'], 'receipt': str(receipt_path),
+                                 'receipt_sha256': sha256(receipt_path), 'source_vpk': str(vpk),
+                                 'vpk_sha256': package, 'baseline_build': baseline_path is not None,
+                                 'candidate': candidate}, indent=2), flush=True)
+    print('CHECK ONLY — nothing written; zero Vita3K processes', flush=True)
+    return 0
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--timeout', type=float, default=60)
@@ -255,7 +418,14 @@ def main():
     parser.add_argument('--mem1-command-window', type=int, nargs=2, metavar=('START', 'END'))
     parser.add_argument('--defer-audio', action='store_true')
     parser.add_argument('--disc', type=Path)
-    stage(parser.parse_args())
+    parser.add_argument('--candidate-build', type=Path,
+                        help='explicit private candidate descriptor; the receipt, artifacts and PAD state are verified strictly')
+    parser.add_argument('--check', action='store_true',
+                        help='verify admission read-only; launch nothing and write nothing')
+    args = parser.parse_args()
+    if args.check:
+        return check(args)
+    stage(args)
     print('STAGED ONLY — zero Vita3K processes; no guest request')
     return 0
 
