@@ -1576,3 +1576,68 @@ green in `logs/ww16-live-frames-final-host.log`, profile/GX/WW12 evidence in
 No physical Vita, Windows CI or authentic live game PNG is claimed yet: fresh
 committed rebuild and continuously watched two-MEM1/live-PNG trial follow.
 The sourced next gameplay frontier remains stopped-AI timing **CC006C0C**.
+
+## Unit 43: eight authentic live PNGs, with clean guarded draw-prefix replay
+
+Fresh committed VI/O1 build **75c6f99**, watched MEM1/live-PNG run
+**c96a4be9176f4a7694854a114db960ed**: **eight actual presentations produce eight
+verified live PNG pairs and metadata records directly in evidence/frames**.
+No replay or preview creates these images. Their command boundaries are
+**1227, 2199, 3171, 4143, 5115, 6087, 7059, 8031**, with consecutive real frame
+indices. The ninth draw is unpresented at the STOP and is not made into a ninth
+PNG or measurement stamp. Report: **nine draws / eight presentations**,
+**8,963 decoded / 2,048 journal commands**, zero skips/refusals/gaps. All eight
+presentation and ten retrace wall stamps still parse and match the report.
+
+**All eight display PNGs are numerically uniform opaque black**, **960×544 /
+522,240 pixels each**, and the last was opened and visually inspected. No logo
+or scene is visible. Every display RGB byte equals its preserved raw readback;
+only the declared display-alpha conversion changes alpha. The raw images retain
+**440,384 alpha-zero black pixels / 81,856 alpha-255 black pixels**, not invented
+opaque RGBA. The identical display hash also matches lane 18's independently
+verified initialization-clear replay; this is consistency, not pixel parity or
+gameplay certification.
+
+```text
+display PNG SHA-256:
+c871acff3fc84ccec64ed29b05f2b1549e05b5067e2e5adf193b60d5490fdae5
+raw PNG SHA-256:
+16afe13865182669ab43333868305b16c554029989ba9d68e7c57a5816739940
+```
+
+**Private evidence root**:
+
+```text
+/home/fred/projects/zeldaWWHDRecomp/build-f5/ww05/vita3k-run-c96a4be9176f4a7694854a114db960ed
+```
+
+- **`evidence/frames/frame-{1..8}.png`**, matching `-rgba.png` and `.json`:
+  actual live front-buffer output. Open **`evidence/frames/frame-8.png`** for the
+  latest presentation, not an extrapolated preview.
+- **`evidence/live-images.json`**, **`evidence/live-capture-checks.json`**:
+  exact PNG/metadata hashes, complete pixel statistics, frame/command/cycle/time
+  provenance, raw/display equality, inspection and explicit no-gameplay/no-FPS
+  verdict. The guest-only frame mount and surface-writeback configuration verify;
+  final config SHA **a3d18d0c8536e633323b395d3cc56bdd300ac6f72482b8829867555d13d7b1d3**.
+- **`evidence/mem1-capture.json`** and original numbered MEM1 files/manifests in
+  the fixture directory: **two actual 24 MiB captures at draws 990 / 1962**.
+  Both RAM hashes match Unit 39 exactly; the new capture hooks do not change
+  those guest bytes or the final executed cycles/edges.
+- **`evidence/gx-draw-prefix-snapshot{1,2}/`**: after importing the delivered
+  guard/display-copy fix, **both independent guarded replays now pass**:
+  **14,464 FIFO bytes / 4,045 events / 2 plans and programmes**, no skip/refusal
+  or nonzero gap, **`verdict=ran`**, explicit **GX_MEM1_RANGES_V1** acknowledgement
+  for the complete 24 MiB range. Original refusals from Unit 39 are preserved,
+  not overwritten. Provenance in **`evidence/guarded-mem1-replays.json`**. Prefix
+  translation is not whole-run replay, resource-version or GPU pixel parity.
+- **`evidence/result.json`**, **`evidence/run-watch.jsonl`**, original guest log
+  and report: certified commands/frontier, two memories and eight images;
+  continuous CPU/log/snapshot/PNG-growth monitoring while the process lived.
+
+Closed STOP remains **CC006C0C = 0**, word store **80316E24**, final
+**85,311,500 cycles / 1,033,628 edges**. Install **1.24 s**, guest **99.97 s**,
+known post-report shutdown **exit 133**. High-CPU silence is activity, not a
+watchdog hang. This snapshot/readback/PNG-write profile is **not an FPS baseline**;
+Unit 41's no-dump numbers are retained separately. No physical-Vita performance,
+visible gameplay or FPS gain is claimed. Next: the sourced stopped-AI zero
+interrupt-timing initialization, with active audio/timing still explicit STOPs.
