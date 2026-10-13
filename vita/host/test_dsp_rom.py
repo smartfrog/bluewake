@@ -71,10 +71,29 @@ class DspRomTest(unittest.TestCase):
     def test_a_genuine_mail_waiter_is_not_misclassified_as_the_nonwaiting_post_consumption_query(self):
         self.probe('rom-deferred-empty-waiter')
 
-    def test_deferred_no_op_accepts_only_the_bounded_setup_packet_without_reading_audio_tables_or_emitting_a_reply(self):
+    def test_deferred_setup_emits_a_declared_metadata_ack_only_after_five_discarded_words_without_touching_audio_memory(self):
         trace = self.probe('rom-deferred-setup')
-        self.assertIn('mail=81000001', trace)
+        self.assertIn('mail=81000040', trace)
         self.assertEqual(trace.count('event=setup-word'), 5)
+        self.assertIn('synthetic_mail=DCD10004,F3558100', trace)
+
+    def test_deferred_setup_ack_tag_is_derived_from_the_received_command_not_a_fixed_game_reply(self):
+        self.assertIn('synthetic_mail=DCD10004,F35581AB', self.probe('rom-deferred-setup-ack-tag'))
+
+    def test_setup_irq_ack_before_mail_consumption_does_not_drop_the_second_word_or_retrigger_an_irq(self):
+        self.probe('rom-deferred-setup-ack-first')
+
+    def test_setup_irq_is_delivered_only_when_the_guest_enables_its_DSP_mask(self):
+        self.probe('rom-deferred-setup-ack-masked')
+
+    def test_failed_setup_ack_trace_does_not_consume_the_last_word_or_publish_a_synthetic_reply(self):
+        self.probe('rom-deferred-setup-ack-trace')
+
+    def test_setup_ack_cannot_overwrite_an_unconsumed_outgoing_mail(self):
+        self.probe('rom-deferred-setup-ack-busy')
+
+    def test_reset_discards_the_pending_setup_ack_without_replaying_it_over_the_ROM_ready_mail(self):
+        self.probe('rom-deferred-setup-ack-reset')
 
     def test_deferred_input_assertion_is_a_declared_no_op_not_a_new_CPU_interrupt(self):
         self.assertIn('event=assert-to-no-op', self.probe('rom-deferred-setup-assert'))

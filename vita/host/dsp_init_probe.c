@@ -6,10 +6,12 @@
 
 static bool fail_rom_trace;
 static bool fail_deferred_trace;
+static bool fail_setup_ack_trace;
 
 int __wrap_fprintf(FILE* stream, const char* format, ...) {
     if (stream == stderr && ((fail_rom_trace && strncmp(format, "[dsp-rom-", 9u) == 0) ||
-                            (fail_deferred_trace && strncmp(format, "[audio-deferred]", 16u) == 0))) {
+                            (fail_deferred_trace && strncmp(format, "[audio-deferred]", 16u) == 0) ||
+                            (fail_setup_ack_trace && strstr(format, "event=setup-acceptance-ack") != NULL))) {
         errno = ENOSPC;
         return -1;
     }
@@ -38,6 +40,7 @@ static void rom_probe(WwHost* host, const char* scenario) {
     const bool invalid_deferred = strncmp(scenario, "rom-deferred-invalid-", 21u) == 0;
     const bool empty_query = strncmp(scenario, "rom-deferred-empty-", 19u) == 0;
     bool deferred_boot_done = false;
+    bool deferred_reset = false;
     host->dsp.audio_deferred = deferred;
     const StaticRecompRange query_range = {0x8028E880u, 0x8028E890u};
     const StaticRecompModuleDesc query_module = {.code_ranges = &query_range, .num_code_ranges = 1u};
@@ -64,6 +67,8 @@ static void rom_probe(WwHost* host, const char* scenario) {
     const WwDspInterface dsp_before = host->dsp;
     WwDspInterface expected_dsp;
     const u32 dsp_mail = host->dsp.dsp_mailbox;
+    u32 expected_dsp_mail = dsp_mail;
+    u16 expected_setup_sync = 0u;
     const bool refusal = strcmp(scenario, "rom-unconsumed-ready") == 0 ||
                          strcmp(scenario, "rom-unselected") == 0 || strcmp(scenario, "rom-unknown-command") == 0 ||
                          strcmp(scenario, "rom-trace-failure") == 0;
@@ -114,7 +119,7 @@ static void rom_probe(WwHost* host, const char* scenario) {
             rom_send(host, 0xCAFE0000u | start);
             if (fail_deferred_trace || invalid_deferred) {
                 assert(host->error != NULL && !host->dsp.deferred_task_started &&
-                       !host->dsp.deferred_task_interrupt && !host->dsp.deferred_handshake_pending &&
+                       !host->dsp.deferred_task_interrupt && host->dsp.deferred_reply_mail == 0u &&
                        host->dsp.rom_boot.parameter == 0x80F3D001u);
                 goto verify_rom;
             }
@@ -131,6 +136,7 @@ static void rom_probe(WwHost* host, const char* scenario) {
             assert(read_register(host, 0xCC005004u) == 0xF355u);
             assert(read_register(host, 0xCC005006u) == 0x1111u);
             assert(read_register(host, 0xCC005004u) == 0x7355u);
+            expected_dsp_mail = 0x73551111u;
             if (strcmp(scenario, "rom-deferred-ack-first") != 0) {
                 assert(ww_dsp_interface_interrupt_pending(&host->dsp));
                 control_write(host, 0x0980u);
@@ -172,17 +178,70 @@ static void rom_probe(WwHost* host, const char* scenario) {
                     goto verify_rom;
                 }
                 fail_deferred_trace = strcmp(scenario, "rom-deferred-setup-word-trace") == 0;
-                const u32 setup[] = {0x81000001u, 0x80002000u, 0x80003000u, 0x80004000u, 0x80005000u};
+                const u32 command = strcmp(scenario, "rom-deferred-setup-ack-tag") == 0 ? 0x81AB0040u : 0x81000040u;
+                const u32 setup[] = {command, 0x80002000u, 0x80003000u, 0x80004000u, 0x80005000u};
                 for (u32 index = 0u; index < 5u; ++index) {
+                    assert(host->dsp.dsp_mailbox == 0x73551111u && !ww_dsp_interface_interrupt_pending(&host->dsp));
+                    if (index == 4u && strcmp(scenario, "rom-deferred-setup-ack-trace") == 0)
+                        fail_setup_ack_trace = true;
+                    const bool pending_reply = index == 4u && strcmp(scenario, "rom-deferred-setup-ack-busy") == 0;
+                    if (pending_reply)
+                        host->dsp.dsp_mailbox |= 0x80000000u;
                     rom_send(host, setup[index]);
+                    if (fail_setup_ack_trace || pending_reply) {
+                        assert(host->error != NULL && host->dsp.deferred_setup_words_left == 1u &&
+                               host->dsp.deferred_setup_sync == command >> 16u && !host->dsp.deferred_setup_discarded &&
+                               !host->dsp.deferred_task_interrupt && host->dsp.deferred_reply_mail == 0u);
+                        assert(host->dsp.dsp_mailbox == (pending_reply ? 0xF3551111u : 0x73551111u));
+                        host->dsp.dsp_mailbox = expected_dsp_mail;
+                        goto verify_rom;
+                    }
                     if (fail_deferred_trace) {
                         assert(host->error != NULL && host->dsp.deferred_setup_words_left == 5u &&
                                !host->dsp.deferred_setup_discarded);
                         goto verify_rom;
                     }
                     assert(host->error == NULL && read_register(host, 0xCC005000u) == ((setup[index] & 0x7FFFFFFFu) >> 16u));
+                    expected_setup_sync = (u16)(command >> 16u);
+                    assert(host->dsp.deferred_setup_sync == expected_setup_sync);
                 }
                 assert(host->dsp.deferred_setup_words_left == 0u && host->dsp.deferred_setup_discarded);
+                assert(ww_dsp_interface_interrupt_pending(&host->dsp));
+                if (strcmp(scenario, "rom-deferred-setup-ack-reset") == 0) {
+                    control_write(host, 0x0805u);
+                    assert(host->error == NULL && host->dsp.audio_deferred && !host->dsp.deferred_task_started &&
+                           !host->dsp.deferred_task_interrupt && host->dsp.deferred_reply_mail == 0u &&
+                           host->dsp.deferred_setup_words_left == 0u && host->dsp.deferred_setup_sync == 0u &&
+                           !host->dsp.deferred_setup_discarded);
+                    control_write(host, 0x0800u);
+                    assert(read_register(host, 0xCC005004u) == 0x8071u);
+                    assert(read_register(host, 0xCC005006u) == 0xFEEDu);
+                    assert(read_register(host, 0xCC005004u) == 0x0071u && !ww_dsp_interface_interrupt_pending(&host->dsp));
+                    expected_dsp_mail = 0x0071FEEDu;
+                    expected_setup_sync = 0u;
+                    deferred_reset = true;
+                    goto verify_rom;
+                }
+                if (strcmp(scenario, "rom-deferred-setup-ack-masked") == 0) {
+                    control_write(host, 0x0800u);
+                    assert(!ww_dsp_interface_interrupt_pending(&host->dsp) && host->dsp.deferred_task_interrupt);
+                    control_write(host, 0x0900u);
+                    assert(ww_dsp_interface_interrupt_pending(&host->dsp));
+                }
+                assert(read_register(host, WW_DSP_CONTROL) == 0x0980u);
+                assert(read_register(host, 0xCC005004u) == 0xDCD1u);
+                if (strcmp(scenario, "rom-deferred-setup-ack-first") == 0)
+                    control_write(host, 0x0980u);
+                assert(read_register(host, 0xCC005006u) == 4u);
+                assert(read_register(host, 0xCC005004u) == 0xF355u);
+                assert(read_register(host, 0xCC005006u) == command >> 16u);
+                assert(read_register(host, 0xCC005004u) == 0x7355u);
+                if (strcmp(scenario, "rom-deferred-setup-ack-first") != 0) {
+                    assert(ww_dsp_interface_interrupt_pending(&host->dsp));
+                    control_write(host, 0x0980u);
+                }
+                assert(!ww_dsp_interface_interrupt_pending(&host->dsp));
+                expected_dsp_mail = 0x73550000u | (command >> 16u);
                 if (strcmp(scenario, "rom-deferred-setup-repeat") == 0) {
                     rom_send(host, 5u);
                     assert(host->error != NULL && host->dsp.deferred_setup_words_left == 0u &&
@@ -220,24 +279,30 @@ verify_rom:
         expected_dsp.rom_selected = false;
         expected_dsp.deferred_task_started = true;
         expected_dsp.deferred_task_interrupt = false;
-        expected_dsp.deferred_handshake_pending = false;
-        expected_dsp.dsp_mailbox = 0x73551111u;
+        expected_dsp.deferred_reply_mail = 0u;
+        expected_dsp.dsp_mailbox = expected_dsp_mail;
         expected_dsp.control = 0x0900u;
         if (strncmp(scenario, "rom-deferred-setup", 18u) == 0) {
             expected_dsp.deferred_setup_words_left = host->dsp.deferred_setup_words_left;
             expected_dsp.deferred_setup_discarded = host->dsp.deferred_setup_discarded;
+            expected_dsp.deferred_setup_sync = expected_setup_sync;
         }
     }
     if (strcmp(scenario, "rom-reset") == 0) {
         expected_dsp.control = 0x0804u;
         expected_dsp.rom_mail_pending = true;
     }
+    if (deferred_reset) {
+        expected_dsp.control = 0x0800u;
+        expected_dsp.rom_selected = true;
+        expected_dsp.deferred_task_started = false;
+    }
     assert(memcmp(&host->dsp, &expected_dsp, sizeof(expected_dsp)) == 0);
     assert(host->cycles.absolute_cycles == cycles && host->cpu.timebase == 0u);
     assert(memcmp(memory, host->cpu.ram, host->cpu.ram_size) == 0);
     assert(memcmp(&audio, &host->audio, sizeof(audio)) == 0);
     assert(!dol_interrupts_external_pending(&host->interrupts));
-    assert(host->dsp.dsp_mailbox == (deferred_boot_done ? 0x73551111u : dsp_mail));
+    assert(host->dsp.dsp_mailbox == expected_dsp_mail);
     assert(host->stream.decoded == 0u && host->frontier.size == 0u);
     free(memory);
 }

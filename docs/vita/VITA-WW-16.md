@@ -2233,3 +2233,49 @@ Images **`evidence/frames/frame-{1..8}.png`**; explicitly incomplete verificatio
 **`evidence/gx-draw-prefix-snapshot{1,2}/`**. Preserve the original timeout result,
 log and monitor. Next: only the declared no-op setup-intake ACK, with normal
 guest interrupt/callback execution and no direct write to the waiting flag.
+
+## Unit 58: declared setup-intake ACK reuses the bounded two-word mailbox
+
+The actual Unit 57 wait is an ACK dependency. In the explicit **audio=deferred**
+no-op profile only, the fifth successfully discarded setup word now publishes
+**synthetic DCD10004 / F3550000 | received command's upper half**, plus a synthetic
+**DSPINT 0080**. Pinned **Zelda.cpp:333,411,501-527** and **UCodes.h:73** source
+the protocol; the observed **81000040** command therefore receives **F3558100**,
+not a fixed guessed callback token. The actual handler's **8028EEE8** branch
+calls the task's **+0x34 / 52-byte request callback**, **80289130**; that callback
+validates the F355 prefix and dispatches the tag through **8028EB00**. Its real
+registered completion callback, **8028E6A0**, must clear the guest pending flag.
+The host does not write that flag, jump the guest PC, call the callback natively,
+or manufacture instruction execution.
+
+The bootstrap's hard-coded second-word boolean becomes one owned, bounded
+**deferred_reply_mail** slot shared by bootstrap and setup. Reading the first
+low word advances to the second; reading the second clears busy. Only the first
+word raises the declared task interrupt. Guest masking/W1C acknowledgement is
+unchanged, including acknowledgement before mailbox consumption. No outstanding
+word, follow-up or IRQ may be overwritten; reset clears queued reply and sync
+tag. The setup tag is latched only after a successfully logged command word.
+Failed final-word/ACK publication preserves the partial input and emits no reply.
+
+This ACK means **accepted/discarded by the no-op**, not initialized coefficients,
+configured voices, completed mixing, DSP execution, PCM, sample progress or
+audio-DMA completion. The trace spells out **origin=no-op-intake**,
+**configuration=not-executed**, synthetic mail/IRQ and no PCM. Startup/task/mail
+diagnostics now declare **bootstrap-and-setup** and **synthetic-no-op-mailbox**,
+not bootstrap-only. Every run/report/image/memory remains **audio=deferred**.
+Strict behavior, the source-backed ROM receiver and all later unsupported task
+commands remain unchanged explicit refusals. The full DSP port stays paused.
+
+Linux AArch64: **707 host tests**, **29 WW12**, **83 FP**, **51 GX** pass; ARM
+host links. Setup ACK test was genuinely red on the missing IRQ before the
+implementation (**logs/ww16-deferred-setup-ack-red.log**); whole-suite green
+**logs/ww16-deferred-setup-ack-reviewed-host.log**. Six added tests cover derived
+tag, early interrupt ACK, masking, failed ACK trace, busy-mail refusal and reset
+of a queued setup reply. Existing partial intake/unknown command/strict refusal
+tests stay green. Complete MEM1, audio state, DSP state outside the declared
+mail/intake/IRQ delta, clocks/timebase and GX frontier stay unchanged in the
+synthetic probe. ARM logs **logs/ww16-deferred-setup-ack-{final,reviewed}-arm.log**;
+only the prior DSP-init signedness warning remains. Audit, attribution and
+whitespace pass. No Windows CI, physical Vita, real sound, visible scene or FPS
+gain is claimed. Commit/rebuild, then a fresh continuously watched **MEM1 + PNG
+live + audio=deferred** trial must prove the actual callback releases the wait.

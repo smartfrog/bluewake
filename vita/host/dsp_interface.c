@@ -77,6 +77,8 @@ static bool control_write(WwDspInterface* dsp, const CPUState* cpu, u16 value) {
         memset(&dsp->rom_boot, 0, sizeof(dsp->rom_boot));
         dsp->deferred_setup_words_left = 0u;
         dsp->deferred_setup_discarded = false;
+        dsp->deferred_setup_sync = 0u;
+        dsp->deferred_reply_mail = 0u;
         memcpy(dsp->init_image, cpu->ram + WW_DSP_INIT_LOAD_ADDRESS, WW_DSP_INIT_TRANSFER_BYTES);
         dsp->init_loaded = true;
         dsp->init_cycles_remaining = DSP_INIT_CORE_CYCLES;
@@ -91,7 +93,8 @@ static bool control_write(WwDspInterface* dsp, const CPUState* cpu, u16 value) {
         dsp->rom_mail_pending = true;
         dsp->deferred_task_started = false;
         dsp->deferred_task_interrupt = false;
-        dsp->deferred_handshake_pending = false;
+        dsp->deferred_reply_mail = 0u;
+        dsp->deferred_setup_sync = 0u;
         dsp->deferred_setup_words_left = 0u;
         dsp->deferred_setup_discarded = false;
     }
@@ -231,9 +234,9 @@ bool ww_dsp_interface_read(WwDspInterface* dsp, u32 address, u8 size, u64* value
             dsp->rom_mail_pending = false;
         }
         *value = dsp->dsp_mailbox & 0xFFFFu;
-        if (dsp->audio_deferred && dsp->deferred_task_started && dsp->deferred_handshake_pending) {
-            dsp->deferred_handshake_pending = false;
-            dsp->dsp_mailbox = 0xF3551111u;
+        if (dsp->audio_deferred && dsp->deferred_task_started && dsp->deferred_reply_mail != 0u) {
+            dsp->dsp_mailbox = dsp->deferred_reply_mail;
+            dsp->deferred_reply_mail = 0u;
         } else {
             dsp->dsp_mailbox &= ~DSP_MAIL_BUSY;
         }

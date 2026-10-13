@@ -479,14 +479,14 @@ static u64 mmio_read(CPUState* cpu, u32 address, u8 size) {
         if ((host->dsp.dsp_mailbox & 0x80000000u) == 0u && !supported_work &&
             !deferred_mail_status_query(host, cpu)) {
             ww_host_fail(host, host->dsp.audio_deferred ?
-                         "deferred DSP bootstrap mails exhausted; guest requires another task response" :
+                         "deferred DSP replies exhausted; guest requires an unmodeled task response" :
                          "DSP task boot mailbox requires a DSP task backend; no reply injected", address, cpu->pc);
             return 0u;
         }
     }
     if (host->dsp.audio_deferred && host->dsp.deferred_task_started && size == 2u &&
         (address == 0xCC005004u || address == 0xCC005006u) &&
-        fprintf(stderr, "[audio-deferred] event=guest-mail-read address=%08X pc=%08X lr=%08X latched_mail=%08X origin=synthetic-bootstrap\n",
+        fprintf(stderr, "[audio-deferred] event=guest-mail-read address=%08X pc=%08X lr=%08X latched_mail=%08X origin=synthetic-no-op-mailbox\n",
                 address, cpu->pc, cpu->lr, host->dsp.dsp_mailbox) < 0) {
         ww_host_fail(host, "deferred DSP guest-mail trace write failed", address, cpu->pc);
         return 0u;

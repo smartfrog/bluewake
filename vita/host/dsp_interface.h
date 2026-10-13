@@ -45,7 +45,8 @@ typedef struct WwDspInterface {
     bool audio_deferred;
     bool deferred_task_started;
     bool deferred_task_interrupt;
-    bool deferred_handshake_pending;
+    u32 deferred_reply_mail;
+    u16 deferred_setup_sync;
     u8 deferred_setup_words_left;
     bool deferred_setup_discarded;
 } WwDspInterface;
