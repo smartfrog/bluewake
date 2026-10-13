@@ -20,7 +20,7 @@ from fp_campaign import emitted_config, restore_config, runtime_inputs, verify_p
 from fp_launch import REPORT_DIRECTORY, evidence_file, run_owned
 from fp_libraries import directory_fd, file_identity, library_identity
 from fp_profile import config_identity, read_profile_file, verify_firmware
-from activity import ProcessIdleObserver
+from activity import ProcessIdleObserver, available_memory_bytes
 from memory_capture import MAX_CAPTURES, publish_replay_manifests, snapshot_outputs, validate_memory_captures, verify_snapshots
 from frame_capture import collect_frames, frame_outputs
 
@@ -152,7 +152,22 @@ def activity_observer(root, plan, phase, extra_outputs=()):
                *snapshot_outputs(root / REPORT_DIRECTORY),
                *frame_outputs(root / 'evidence/frames'),
                *extra_outputs)
-    return ProcessIdleObserver(plan.get('idle_timeout_seconds', 30), plan.get('cpu_threshold', 0.05), outputs)
+    return ProcessIdleObserver(plan.get('idle_timeout_seconds', 30), plan.get('cpu_threshold', 0.05), outputs,
+                              plan.get('minimum_available_memory_bytes', 0))
+
+
+def memory_preflight(root, plan, phase):
+    minimum = plan.get('minimum_available_memory_bytes', 0)
+    if not minimum:
+        return
+    available = available_memory_bytes()
+    with evidence_file(root, f'memory-before-{phase}.json') as stream:
+        json.dump({'source': plan['source'], 'phase': phase, 'available_memory_bytes': available,
+                   'minimum_available_memory_bytes': minimum, 'ready': available >= minimum,
+                   'memory_source': '/proc/meminfo:MemAvailable in kB'}, stream, indent=2)
+        stream.write('\n')
+    if available < minimum:
+        raise MemoryError(f'pause before {phase}: available user RAM {available} bytes is below {minimum} bytes')
 
 
 def installer_observer(root, plan):
@@ -182,6 +197,8 @@ def execute_run(root, plan):
                'mem1_snapshots': plan.get('mem1_snapshots', 0),
                'mem1_command_window': plan.get('mem1_command_window'),
                'audio': 'deferred' if plan.get('defer_audio', False) else 'strict',
+               'extended_scene_capture': plan.get('extended_scene_capture', False),
+               'minimum_available_memory_bytes': plan.get('minimum_available_memory_bytes', 0),
               'completion': 'INCOMPLETE', 'reported_frontier': 'UNAVAILABLE',
               'frontier_verified': False, 'rendered': False}
     with evidence_file(root, 'execution.json') as stream:
@@ -197,6 +214,7 @@ def execute_run(root, plan):
             raise ValueError('private configuration changed before installation')
         install = plan['phases']['install']
         phase = Path(install['evidence_root'])
+        memory_preflight(root, plan, 'install')
         print(f"RUN phase=install evidence={phase}/evidence", flush=True)
         status = run_owned(install['command'], root, install['timeout_seconds'], evidence_root=phase,
                            phase_observer=installer_observer(root, plan))
@@ -215,6 +233,7 @@ def execute_run(root, plan):
         verify_inputs(root, plan)
         payload = verify_installed(root, plan)
         restore_config(root, canonical, surface_sync=surface_sync)
+        memory_preflight(root, plan, 'guest')
         token = fresh_request(root, plan['source'], plan['vpk_sha256'], plan.get('continue_gx', 0),
                               plan.get('mem1_snapshots', 0), plan.get('defer_audio', False), plan.get('mem1_command_window'))
         with evidence_file(phase, 'preparation.json') as stream:
@@ -280,7 +299,7 @@ def execute_run(root, plan):
                        status=status or (0 if verdict == 'PASS' else 1))
     except Exception as error:
         expected_report_missing = (isinstance(error, FileNotFoundError) and error.filename == 'ww05.report' and
-                                   record.get('process', {}).get('stop_reason') in ('inactive', 'timeout'))
+                                   record.get('process', {}).get('stop_reason') in ('inactive', 'timeout', 'memory-pressure'))
         record.update(error=str(error), traceback=traceback.format_exc(),
                       status=record['process_status'] if expected_report_missing else 2)
     with evidence_file(root, 'result.json') as stream:

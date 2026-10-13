@@ -6,6 +6,17 @@ from pathlib import Path
 import stat
 import time
 
+MIN_EXTENDED_AVAILABLE_MEMORY_BYTES = 5 * 1024 ** 3 // 2
+
+
+def available_memory_bytes():
+    records = [line.split() for line in Path('/proc/meminfo').read_text().splitlines()]
+    available = [fields for fields in records if fields and fields[0] == 'MemAvailable:']
+    if (len(available) != 1 or len(available[0]) != 3 or available[0][2] != 'kB' or
+            not available[0][1].isdecimal()):
+        raise ValueError('available memory requires one actual MemAvailable value in kB')
+    return int(available[0][1]) * 1024
+
 
 class CpuIdleWindow:
     def __init__(self, seconds, threshold):
@@ -55,7 +66,9 @@ def process_cpu_ticks(pid):
 
 
 class ProcessIdleObserver:
-    def __init__(self, seconds=30, threshold=0.05, output_paths=()):
+    def __init__(self, seconds=30, threshold=0.05, output_paths=(), minimum_available_memory_bytes=0):
+        if type(minimum_available_memory_bytes) is not int or minimum_available_memory_bytes < 0:
+            raise ValueError('minimum available memory must be a nonnegative integer byte count')
         self.window = CpuIdleWindow(seconds, threshold)
         self.ticks_per_second = os.sysconf('SC_CLK_TCK')
         self.counters = {}
@@ -65,6 +78,7 @@ class ProcessIdleObserver:
         self.output_paths = tuple(Path(path) for path in output_paths)
         self.output_sizes = {}
         self.output_growth_bytes = 0
+        self.minimum_available_memory_bytes = minimum_available_memory_bytes
 
     def __call__(self, pid):
         now = time.monotonic()
@@ -86,7 +100,15 @@ class ProcessIdleObserver:
             growth += max(0, identity[2] - previous_size)
         self.output_sizes = current_sizes
         self.output_growth_bytes += growth
-        if not self.window.sample(now, cpu_seconds, output_active=growth > 0):
+        inactive = self.window.sample(now, cpu_seconds, output_active=growth > 0)
+        if self.minimum_available_memory_bytes:
+            available = available_memory_bytes()
+            if available < self.minimum_available_memory_bytes:
+                return {'stop_reason': 'memory-pressure', 'available_memory_bytes': available,
+                        'minimum_available_memory_bytes': self.minimum_available_memory_bytes,
+                        'memory_source': '/proc/meminfo:MemAvailable in kB',
+                        'monitored_pids': sorted({identity[0] for identity in self.counters})}
+        if not inactive:
             return None
         return {'stop_reason': 'inactive', 'idle_seconds': now - self.window.idle_since,
                 'idle_timeout_seconds': self.window.seconds, 'cpu_threshold': self.window.threshold,

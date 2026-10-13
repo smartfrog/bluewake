@@ -100,6 +100,39 @@ class PlanTest(unittest.TestCase):
                 stage_plan.make_plan(Path('/unused'), SimpleNamespace(timeout=600, continue_gx=133260,
                                      mem1_snapshots=2, mem1_command_window=window), 'a' * 40, 'b' * 64, 'c' * 32)
 
+    def test_extended_scene_window_keeps_install_deadline_and_records_ram_guard(self):
+        import stage_plan
+        for timeout in (1200, 1800):
+            with self.subTest(timeout=timeout):
+                args = SimpleNamespace(libraries=None, wayland_socket=None, timeout=timeout, continue_gx=133260,
+                                       mem1_snapshots=8, mem1_command_window=[101854, 102936])
+                plan = stage_plan.make_plan(Path('/unused'), args, 'a' * 40, 'b' * 64, 'c' * 32)
+                self.assertEqual(plan['phases']['guest']['timeout_seconds'], timeout)
+                self.assertEqual(plan['phases']['install']['timeout_seconds'], 600)
+                self.assertEqual(plan['minimum_available_memory_bytes'], 5 * 1024 ** 3 // 2)
+                self.assertEqual(plan['frame_capture_limit'], 128)
+                self.assertEqual(plan['idle_timeout_seconds'], 30)
+
+    def test_extended_capture_cannot_disable_the_short_watchdog(self):
+        import stage_plan
+        args = SimpleNamespace(libraries=None, wayland_socket=None, timeout=1200, continue_gx=133260,
+                               mem1_snapshots=8, mem1_command_window=[101854, 102936], idle_timeout=60)
+        with self.assertRaisesRegex(ValueError, 'watchdog'):
+            stage_plan.make_plan(Path('/unused'), args, 'a' * 40, 'b' * 64, 'c' * 32)
+
+    def test_extended_capture_deadline_is_still_bounded(self):
+        import stage_plan
+        args = SimpleNamespace(timeout=1801, continue_gx=133260, mem1_snapshots=8,
+                               mem1_command_window=[101854, 102936])
+        with self.assertRaisesRegex(ValueError, 'deadline'):
+            stage_plan.make_plan(Path('/unused'), args, 'a' * 40, 'b' * 64, 'c' * 32)
+
+    def test_snapshots_without_a_window_cannot_extend_the_default_deadline(self):
+        import stage_plan
+        args = SimpleNamespace(timeout=1200, continue_gx=133260, mem1_snapshots=8)
+        with self.assertRaisesRegex(ValueError, 'deadline'):
+            stage_plan.make_plan(Path('/unused'), args, 'a' * 40, 'b' * 64, 'c' * 32)
+
     def test_memory_snapshot_request_is_explicit_bounded_and_requires_the_draw_journal(self):
         import stage_plan
         for count, journal in ((-1, 2048), (9, 2048), (1, 0), (2, 0)):

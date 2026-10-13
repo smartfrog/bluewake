@@ -87,6 +87,50 @@ class PrivateLaunchTest(unittest.TestCase):
         self.assertFalse((self.root / 'phases/guest/evidence/process.json').exists())
         self.assertFalse(list(self.root.rglob('ww05.request')))
 
+    def test_insufficient_ram_withholds_install_before_any_process_starts(self):
+        import launch
+        minimum = 5 * 1024 ** 3 // 2
+        self.plan['minimum_available_memory_bytes'] = minimum
+        with patch('launch.available_memory_bytes', return_value=minimum - 1024), \
+             patch('launch.run_owned', side_effect=AssertionError('RAM pause must not spawn')):
+            status, result = self.run_fake()
+        self.assertEqual(status, 2)
+        self.assertIn('available user RAM', result['error'])
+        self.assertFalse((self.root / 'phases/install/evidence/process.json').exists())
+        self.assertFalse(list(self.root.rglob('ww05.request')))
+
+    def test_guest_ram_gate_is_rechecked_after_the_installer_is_reaped(self):
+        import launch
+        minimum = 5 * 1024 ** 3 // 2
+        self.successful_fake()
+        self.plan['minimum_available_memory_bytes'] = minimum
+        with patch('launch.available_memory_bytes', side_effect=(minimum, minimum - 1024)), \
+             patch('activity.available_memory_bytes', return_value=minimum):
+            status, result = self.run_fake()
+        self.assertEqual(status, 2)
+        self.assertIn('available user RAM', result['error'])
+        self.assertTrue(result['install_process']['waited'])
+        self.assertFalse((self.root / 'phases/guest/evidence/process.json').exists())
+        self.assertFalse(list(self.root.rglob('ww05.request')))
+
+    def test_live_ram_pressure_reaps_owned_guest_and_preserves_incomplete_disposition(self):
+        import launch
+        minimum = 5 * 1024 ** 3 // 2
+        self.plan['minimum_available_memory_bytes'] = minimum
+        self.fake("app=root/'data/Vita3K/Vita3K/ux0/app/BWWG00005'\napp.mkdir(parents=True)\n"
+                  "with zipfile.ZipFile('ww05.vpk') as archive: archive.extractall(app)\n",
+                  "print('synthetic RAM-guard fixture', flush=True)\ntime.sleep(10)")
+        def available():
+            return minimum - 1024 if list(self.root.rglob('ww05.request')) else minimum
+        with patch('launch.available_memory_bytes', return_value=minimum), \
+             patch('activity.available_memory_bytes', side_effect=available):
+            status, result = self.run_fake()
+        self.assertEqual(status, 125)
+        self.assertEqual(result['process']['stop_reason'], 'memory-pressure')
+        self.assertTrue(result['process']['waited'])
+        self.assertEqual(result['completion'], 'INCOMPLETE')
+        self.assertEqual(result['reported_frontier'], 'UNAVAILABLE')
+
     def test_idle_guest_is_reaped_early_with_partial_log_evidence(self):
         self.fake("app=root/'data/Vita3K/Vita3K/ux0/app/BWWG00005'\napp.mkdir(parents=True)\n"
                   "with zipfile.ZipFile('ww05.vpk') as archive: archive.extractall(app)\n",
