@@ -61,7 +61,7 @@ def write_dol_binary(root, text_bytes):
 
 def build_rel(module_id, sections_data, imports=None):
     sec_count = len(sections_data)
-    fixed_hdr_size = 0x1C
+    fixed_hdr_size = 0x48
     header_size = fixed_hdr_size + sec_count * 8
     imp_offset = header_size
     imp_size = sum(8 + len(v) * 4 for v in (imports or {}).values())
@@ -173,6 +173,8 @@ def test_single_dol_no_rels():
         assert "MODULE_CHUNK_RANGE_COUNT 2u" in tbl
         rm = (out / "rel_modules.inc").read_text()
         assert "MODULE_REL_MODULE_COUNT 0u" in rm
+        data = (out / "rel_data.inc").read_text()
+        assert "MODULE_REL_LIFECYCLE_V2_COUNT 0u" in data
     print("PASS: test_single_dol_no_rels")
 
 
@@ -398,7 +400,7 @@ def test_determinism():
             td = setup_fixture(td, dol_chunks=dc, rel_specs=[{"module_id": mid, "chunks": rc}])
             run_generator(td)
             out = Path(td) / "composite"
-            for f in ["generated_composite.h", "module_tables.inc", "rel_modules.inc"]:
+            for f in ["generated_composite.h", "module_tables.inc", "rel_modules.inc", "rel_data.inc"]:
                 store[f] = hashlib.sha256((out / f).read_bytes()).hexdigest()
     assert d1 == d2, f"non-deterministic"
     print("PASS: test_determinism")
@@ -437,6 +439,109 @@ def test_lifecycle_metadata_complete():
         for mid in (1, 2, 3):
             assert f"s_rel_sec_{mid}[]" in rm
     print("PASS: test_lifecycle_metadata_complete")
+
+
+def lifecycle_fixture():
+    rel = bytearray(build_rel(37, [(False, None, b""),
+                                  (True, None, bytes(32))]))
+    rel[0x30:0x33] = bytes([1, 1, 1])
+    struct.pack_into(">III", rel, 0x34, 0, 12, 28)
+    sections = gc.rel_linked_sections(rel, REL_BASE)
+    start = sections[1]["linked_start"]
+    chunks = [(start, start + 16), (start + 16, start + 32)]
+    return rel, sections, chunks
+
+
+def test_lifecycle_all_entries_across_chunks():
+    rel, sections, chunks = lifecycle_fixture()
+    start = sections[1]["linked_start"]
+    assert gc.rel_lifecycle_addresses(rel, sections, chunks) == (start, start + 12, start + 28)
+
+
+def test_lifecycle_absent_entries():
+    rel, sections, chunks = lifecycle_fixture()
+    rel[0x30:0x33] = bytes(3)
+    struct.pack_into(">III", rel, 0x34, 0, 0, 0)
+    assert gc.rel_lifecycle_addresses(rel, sections, chunks) == (0, 0, 0)
+
+
+def test_lifecycle_invalid_headers():
+    cases = [("section", 0x31, 9), ("offset", 0x38, 32),
+             ("alignment", 0x3C, 3), ("absent", 0x31, 0)]
+    for label, offset, value in cases:
+        rel, sections, chunks = lifecycle_fixture()
+        if offset < 0x34:
+            rel[offset] = value
+        else:
+            struct.pack_into(">I", rel, offset, value)
+        try:
+            gc.rel_lifecycle_addresses(rel, sections, chunks)
+        except ValueError as exc:
+            assert "lifecycle" in str(exc), (label, str(exc))
+        else:
+            raise AssertionError(f"accepted invalid lifecycle {label}")
+
+
+def test_lifecycle_requires_translated_coverage():
+    rel, sections, chunks = lifecycle_fixture()
+    try:
+        gc.rel_lifecycle_addresses(rel, sections, chunks[:1])
+    except ValueError as exc:
+        assert "unresolved" in str(exc) and "translated" in str(exc)
+    else:
+        raise AssertionError("accepted untranslated lifecycle entry")
+
+
+def test_lifecycle_export_preserves_legacy_stride():
+    rel, sections, chunks = lifecycle_fixture()
+    with tempfile.TemporaryDirectory() as td:
+        td = setup_fixture(td)
+        (td / "rels_bin" / "0037.rel").write_bytes(rel)
+        write_rel_module(td / "rels_out", 37, chunks)
+        run_generator(td)
+        text = (td / "composite" / "rel_data.inc").read_text()
+        start = sections[1]["linked_start"]
+        assert f"{{37u, 0x{start:08X}u}}," in text
+        assert "static const BlueWakeRelLifecycleV2 s_rel_lifecycle_v2[]" in text
+        assert f"{{37u, 0x{start:08X}u, 0x{start + 12:08X}u, 0x{start + 28:08X}u}}," in text
+        assert "#define MODULE_REL_LIFECYCLE_V2_COUNT 1u" in text
+
+
+def test_lifecycle_invalid_executable_sections():
+    cases = [("executable", False), ("offset", 0), ("size", 0),
+             ("size", 31), ("offset", 0xFFFF), ("linked_start", 0),
+             ("linked_start", 0x100000000), ("linked_start", REL_BASE + 1)]
+    for key, value in cases:
+        rel, sections, chunks = lifecycle_fixture()
+        sections[1][key] = value
+        try:
+            gc.rel_lifecycle_addresses(rel, sections, chunks)
+        except ValueError as exc:
+            assert "invalid executable offset" in str(exc)
+        else:
+            raise AssertionError(f"accepted invalid lifecycle section {key}={value}")
+
+
+def test_lifecycle_truncated_header():
+    rel, sections, chunks = lifecycle_fixture()
+    try:
+        gc.rel_lifecycle_addresses(rel[:0x3F], sections, chunks)
+    except ValueError as exc:
+        assert "truncated" in str(exc)
+    else:
+        raise AssertionError("accepted truncated lifecycle header")
+
+
+def test_generator_rejects_invalid_lifecycle():
+    rel, sections, chunks = lifecycle_fixture()
+    struct.pack_into(">I", rel, 0x38, 32)
+    with tempfile.TemporaryDirectory() as td:
+        td = setup_fixture(td)
+        (td / "rels_bin" / "0037.rel").write_bytes(rel)
+        write_rel_module(td / "rels_out", 37, chunks)
+        result = run_generator(td, expect_fail=True)
+        assert "REL module 37: REL lifecycle epilog" in result.stderr
+        assert not (td / "composite" / "rel_data.inc").exists()
 
 
 def test_import_across_modules():
@@ -506,6 +611,14 @@ def main():
         test_determinism,
         test_indirect_call_lookup,
         test_lifecycle_metadata_complete,
+        test_lifecycle_all_entries_across_chunks,
+        test_lifecycle_absent_entries,
+        test_lifecycle_invalid_headers,
+        test_lifecycle_requires_translated_coverage,
+        test_lifecycle_export_preserves_legacy_stride,
+        test_lifecycle_invalid_executable_sections,
+        test_lifecycle_truncated_header,
+        test_generator_rejects_invalid_lifecycle,
         test_import_across_modules,
         test_zero_length_section,
     ]
