@@ -14,7 +14,7 @@ through command 102936 with three synchronized late MEM1 versions (Unit 89).
 Frame 101 still shows the Nintendo logo, not a verified title screen. Unit 90
 closes the RAM guard's one-second sampling gap found in the measured profile.
 The requested post-102936 retry uses that fast guard but stops for actual host
-RAM pressure before the late window (Unit 91). No post-boundary FIFO or later
+RAM pressure before the late window (Units 91-92). No post-boundary FIFO or later
 guest wall is captured; the earlier successful CI handoff stays intact.
 
 ## Unit 1: CP performance selector
@@ -4133,3 +4133,119 @@ checks pass. No production code, renderer, guest-clock, RAM size, runtime pin,
 DSP/PCM or frame behavior changes in this delivery. No new GPU replay, physical
 Vita, Windows CI, title screen, gameplay, sound or 30+ FPS claim; no network,
 push, fake FIFO/resource/completion or deletion of user data.
+
+## Unit 92: immediate no-rebuild retry reaches frame 30, then the RAM floor
+
+The owner explicitly reopens the RAM window and requests **immediate launch,
+no rebuild**, retaining **102937-196608 / 1200 s / eight disk-streamed MEM1
+snapshots / 128 images / audio=deferred / fast 2.5 GiB guard**. Actual initial
+inspection finds **6.312393 GiB available** and no emulator/compiler survivor.
+Local integrated trunk **ba73753** is a documentation-only fast-forward over
+Unit 91. Reuse the unchanged immutable **VI/O1 -j2** package actually built
+from **2170346**, receipt **artifacts-6a4b959c37b74dbfa5a4f57526525199/build-evidence.json**;
+do not relabel it as a new **ba73753** or **3f228b1** build. The authenticated
+launcher source is **ba73753c4dba923c87ba0214d5f80be6ced42163**, guest source
+**21703465d2d19883fa073b621031cf0a76f39002**, unchanged VPK SHA
+**f2a8b4673b6d8f944cceba1ed7ac3c6006f13fc2b008dd6ce15d5e6f4783888b**.
+No build, compiler or other optimization trial is started.
+
+Fresh isolated run **e6a42f8cb3ec400fae1fe98e7faf69ac** passes its actual
+guest RAM preflight at **6.443375 GiB**, then stops for **memory-pressure**:
+**263.339781 s / 2,684,076,032 available bytes / 2.499740601 GiB**, below
+the **2,684,354,560-byte / 2.5 GiB** floor by **272 KiB**. Preserve
+**SIGTERM / exit=-15 / waited=true / status 125 / INCOMPLETE / frontier
+UNAVAILABLE**, including the missing **ww05.report** error/traceback. The
+~50 ms guard stays active; only the owned sandbox is terminated/reaped.
+
+The watcher receives the actual post-cleanup STOP line at **2026-10-13
+18:04:33.486566 (CEST, GMT+2; machine-local zone)**. This is a measured
+external receipt timestamp, **not the exact UTC instant of the RAM reading**.
+The authoritative **263.339781 s** is phase duration including TERM/reap;
+the pressure event itself is not separately wall-clock stamped. Original
+**guest-start-observed.json / guest-stop-observed.json** and per-sample clocks
+are retained without inventing extra timestamp precision.
+
+Verified partial extent: **31,583 complete commands / 214,745 FIFO bytes /
+38 real retrace markers / 30 actual PNG pairs / zero late MEM1 snapshots**.
+Frames **1-10 are black; 11-30 show the red Nintendo logo fading in**. The
+opened last image is Nintendo, **not a title screen**. All **60 raw/display
+PNG files** match the corresponding original Unit 89 images byte-for-byte,
+and every raw/display RGB pair passes the strict collector. Frame 30 records
+**command 30555 / 304684951 cycles / 50 draws/plans/programs / two distinct
+programs / zero skipped/refused work or gaps at that image boundary**.
+Last progress is **312741789 cycles / 4389415 edges / PC 80307EF4 /
+exception 00000000**; last edge marker **312765009 cycles / 4389506 edges /
+PC 80307EF4**. These are observations, not a closed final guest state.
+**No post-102936 FIFO or synchronized resource is available; no later guest
+wall is proved.** The earlier successful CI handoff remains unchanged.
+
+### Memory pattern: boot allocations plus independent host fluctuations
+
+The distinct private watcher adds actual clocks and **MemFree / Cached /
+SReclaimable / SwapFree / SwapTotal**, alongside the existing **MemAvailable /
+VmRSS / VmSize / VmSwap** samples. It does not inspect or close user apps.
+Offsets below start at the first observed guest sample; the final row is partial.
+
+| Minute | Last sample (s) | Endpoint RSS (GiB) | RSS endpoint change (MiB) | Endpoint VmSize (GiB) | Minimum sampled available RAM (GiB) |
+| ---: | ---: | ---: | ---: | ---: | ---: |
+| 1 | 59.274 | 2.786972 | — | 10.147842 | 3.676590 |
+| 2 | 119.528 | 3.839142 | +1077.421875 | 11.218170 | 2.706375 |
+| 3 | 179.786 | 3.839142 | 0.000000 | 11.218170 | 2.697067 |
+| 4 | 239.176 | 4.108215 | +275.531250 | 11.468353 | 2.572433 |
+| 5 (partial) | 262.289 | 4.117889 | +9.906250 | 11.468353 | 2.526764 |
+
+Maximum **observed** RSS is **4,421,550,080 bytes / 4.117889 GiB**;
+sampled guest VmSwap is always zero. The previously measured **3.686/3.78 GiB
+plateaus are not whole-boot peak bounds**. This run resumes guest/output progress
+and allocates another later step before frame 30. There are stationary intervals
+and boot-dependent growth, not proof of a continuously escalating memory leak.
+The final external sample, **18:04:32.934869 (CEST, GMT+2)**, still has
+**2.527374 GiB available**; the faster guard subsequently catches **2.499741
+GiB**. Keep these distinct instants, not a fictional missing guard pause.
+
+Actual host availability rises while emulator RSS stays fixed: **+183.921875
+MiB at 18:02:39.333049**, with **MemFree +185.906250 MiB / Cached -2 MiB**;
+**+100.171875 MiB at 18:03:53.679451**, with **MemFree +101.781250 MiB /
+Cached -2 MiB** (both **2026-10-13, CEST/GMT+2**). Memory is being freed
+outside the emulator's observed RSS, but **a particular app closure is not
+established**: allocator releases, cache/system work or other processes can
+also cause these changes. At the end, **18:04:25.910555**, available RAM falls
+**30.765625 MiB with unchanged emulator RSS and Cached**; at
+**18:04:30.928633** it falls another **32.6875 MiB with unchanged RSS**, while
+Cached falls **92.421875 MiB** and MemFree rises **59.703125 MiB**. No
+per-application lifecycle trace exists, so do not assign these events to a
+user action or claim the arithmetic is an exact system-wide allocation ledger.
+
+| RAM-stopped run | Guest preflight available (GiB) | Phase duration (s) | Available at guard (GiB) | Maximum observed RSS (GiB) | PNG pairs |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| `79112c7` (Unit 88, earlier 1 Hz guard) | 6.860413 | 70.212 | 2.456238 | 3.691711 | 8 |
+| `362b25b` (Unit 91, fast guard) | 6.328369 | 157.573 | 2.428772 | 3.685852 | 8 |
+| `e6a42f8` (this fast-guard retry) | 6.443375 | 263.340 | 2.499741 | 4.117889 | 30 |
+
+The observed pattern is **variable host reserve plus boot-phase allocation**:
+more initial RAM is not a guarantee of a longer run, and being above the prior
+**terminal** 2.43 GiB value at launch does not reserve that memory throughout
+boot. This requested opening lasted longer and reached Nintendo, but still
+closed before the selected late window. **Pause automatic equivalent retries**;
+the next attempt needs sustained genuine headroom or another explicit owner
+opening. Do not lower the floor or terminate user apps. Incremental snapshots
+still cannot remedy this pre-window pressure: **zero snapshots were taken**.
+
+Private read-only handoff and all comparison measurements:
+
+```text
+/home/fred/projects/zeldaWWHDRecomp/build-f5/ww05/vita3k-run-e6a42f8cb3ec400fae1fe98e7faf69ac/evidence/lane18-immediate-post-ci-verdict.json
+/home/fred/projects/zeldaWWHDRecomp/build-f5/ww05/vita3k-run-e6a42f8cb3ec400fae1fe98e7faf69ac/evidence/immediate-retry-memory-pattern.json
+```
+
+Sibling **immediate-retry-live-images-verified.json** and
+**immediate-retry-memory-captures-verified.json** retain strict partial-output
+validation separately from the original failed result. All original result,
+process, journal, telemetry and image hashes are rechecked unchanged. Distinct
+**logs/watch-post-ci-retry-ba73753.py** is preserved in this run; earlier
+watchers/attempts are not overwritten. No emulator/compiler survivor remains.
+Linux AArch64: **87 focused activity/launch/plan tests / 39 subtests** pass
+(**ww16-immediate-post-ci-ba73753-focused.log**); audit, attribution and
+whitespace pass. No production-code, renderer, guest-clock, runtime-pin or
+audio change, new GPU replay, Windows CI, physical Vita, title/gameplay or FPS
+claim. No network, push, user-app termination or fabricated evidence.
