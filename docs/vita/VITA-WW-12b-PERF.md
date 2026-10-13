@@ -10,10 +10,11 @@ frame and no physical-Vita result is claimed anywhere in this document.
   harness at `-O2`) at commit `9fe81ed` (three watched runs, trace logging) and
   at the merged trunk revision `3cb3b5d` (three watched runs, Info logging; the
   merged module materializes the requested REL and reaches the scheduler idle).
-- **In flight:** the module `-O2` build (interrupted once to merge the trunk;
-  resuming at `3cb3b5d`). `-O3` is gated on `-O2` showing a measurable gain
-  (coordinator arbitration): if it does not, the bottleneck is not the module
-  flags.
+- **Paused:** the module `-O2` build (at 61/72 remaining edges of its last pass;
+  compiled objects preserved for incremental resume). It was stopped on a
+  memory-pressure request and resumes at the coordinator's signal. `-O3` is
+  gated on `-O2` showing a measurable gain (coordinator arbitration): if it does
+  not, the bottleneck is not the module flags.
 - **Trunk merge:** `3cb3b5d` brings the trunk's Info logging fix (`b368ad1`,
   avoids syscall trace amplification) and lane 18's renderer. The O2 measurement
   runs at that revision under Info logging; the `9fe81ed` numbers stand as the
@@ -131,13 +132,49 @@ Against real time: the boot's 0.162 s of hardware work takes 5.87 s at the
 process boundary (**~36x slower**) or 4.05 s of guest execution (**~25x
 slower**); the idle loop then runs at ~73.6M cycles/s wall (~72M cycles/cpu-s).
 For 30 fps the guest needs ~243M cycles/s; the idle spin is still ~3.3x short,
-and the boot workload ~12x short.
+and the boot workload ~12x short. **These are cold-boot bounds, not steady-state
+execution cost:** per the WW-20 profile most of the boot's guest-thread CPU is
+cold JIT compilation and much of the process CPU is software presentation, so
+the hot protocol above is what will produce the number the 30 FPS goal needs.
 
 The delivered `9fe81ed` runs are not directly comparable to these: they ended
 with the REL refusal, a report write and the teardown crash inside their process
 lifetime, while the merged runs are killed at the deadline; and they logged at
 trace. The variant comparison (below, when `-O2` completes) is run entirely at
 the merged revision with one protocol.
+
+## Hot measurement (protocol fixed now; no frame exists yet)
+
+The numbers above are **cold boot** numbers, and the WW-20 profile (trunk
+commit `8bfd2d5`, `docs/vita/VITA-WW-20-PROFILE.md`) shows what that mixes: 82.25%
+of the main guest thread's user samples are **cold Dynarmic JIT compilation**,
+only 17.06% generated guest code; the full process spends ~45.7% of sampled CPU
+on software presentation; and 34.29% of the measured guest wall is a post-crash
+teardown tail. The 30 FPS goal is a **steady-state frame loop with a warm JIT
+cache**, so the FPS that counts must be measured **hot**, and any absolute claim
+from this document is a cold-boot number only.
+
+The hot protocol (to run when the game presents frames; nothing here estimates
+its result):
+
+- **Source:** the per-frame `[frame-present] frame=N us=T` markers already wired
+  by lane 16, parsed by the WW-12 harness (`scripts/vita/perf/`); a malformed,
+  repeated or backwards stamp is refused. `[frame-timing]` retraces stay the
+  secondary clock signal.
+- **Window:** late frames only, after the frame loop is established and the JIT
+  cache is warm — startup, cold compilation transients and teardown are excluded
+  explicitly, and the excluded boundaries are recorded in the baseline document.
+- **Metrics:** presented frames per second over the fixed window (non-overlapping
+  windows anchored at the first stamp; median of window rates, plus p95 and
+  minimum so one slow second cannot hide), and the per-frame interval
+  distribution. The emulator's own present count is never the source.
+- **Repeats:** three runs per variant and configuration, same revision, same
+  emitted config, same scene and window; the median of medians is the headline.
+- **Reporting:** every hot number carries its source SHA, scene, window,
+  configuration digest and the run log; a hot number without them is inadmissible.
+
+Until a frame series exists, this document's gap figures must be read as cold
+boot bounds, not as the steady-state cost of executing the game.
 
 ## The real-time gap (delivered trace baseline, historical)
 
@@ -204,6 +241,10 @@ of this matrix.
 - Nothing has rendered: `draws=0 presented=0` at both revisions; the merged boot
   stops at the scheduler idle waiting for the video system (`vi_enabled=0`), and
   the experimental VI clock was off for every run here.
+- Every number here is a cold-boot number; per the WW-20 profile it includes
+  cold JIT compilation, software presentation and teardown. It does not measure
+  steady-state execution cost and cannot certify or refute the 30 FPS goal; the
+  hot protocol above is required for that.
 - Boot throughput is not steady-state game throughput; the measured frontier is
   dominated by boot code, DVD callbacks and initialization.
 - Wall numbers include emulator startup and harness polling; the `9fe81ed`
