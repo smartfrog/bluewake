@@ -2737,3 +2737,36 @@ images **`evidence/frames/`**, independent checks
 snapshots/watch log remain intact. No logo, gameplay, sound, physical Vita or
 FPS baseline is claimed. Continue test-first observation, commit and certified
 **O1 -j2** rebuild before another isolated, continuously watched capture trial.
+
+## Unit 69: bounded post-card queue observation, no guest wakeup or time change
+
+The existing scheduler-idle observer now has one additional observation in
+**explicit audio-deferred continuation**, after the original guarded CARDProbe
+entry and at least **32 actual presentation markers**. It still requires the
+linked REL and the observed **80307EF4** idle boundary. The original single
+post-link observation is preserved for strict/default runs. Later iterations
+cannot produce unbounded queue/stack dumps; only successful publication sets
+the additional observation flag.
+
+Both snapshots identify **stage / audio / actual present-marker count** alongside
+the existing run bits, current context, real wait queues, saved PPC stacks,
+pending DVD work and renderer/VI counters. The same validated real-MEM1 reads
+are reused. No guest PC/register, RAM, audio/device state, timebase/cycle budget,
+callback or thread wakeup is supplied. This is diagnostic observation, not a
+fix for the black image or a claim that a blocked queue exists.
+
+Test-first: the focused test genuinely failed **one snapshot instead of two**
+(**logs/ww16-post-card-idle-red.log**). Five new tests verify the observed queue
+contents at the milestone, bounded repetition, parameterized strict/no-
+continuation/no-card/31-presentations exclusions, unlinked exclusion, and loud
+trace failure without marking the late observation complete. The reused probe
+checks unchanged RAM, registers, PC, DSP state, cycles and timebase.
+**732 host tests pass** on Linux AArch64
+(**logs/ww16-post-card-idle-host.log**); ARM host links with **-j2**
+(**logs/ww16-post-card-idle-arm.log**). Audit/attribution/whitespace pass. No
+Windows CI or physical Vita run is available, and no logo/gameplay, sound or FPS
+result is claimed. Commit and certified **VI/O1 -j2** rebuild, then one fresh
+continuously watched **300 s ceiling / journal 2048 / MEM1=2 + PNG live /
+audio=deferred** trial. Keep actual images and incomplete provenance even if
+the run reaches its phase ceiling; do not infer a DSP dependency from silence
+or an idle PC alone.

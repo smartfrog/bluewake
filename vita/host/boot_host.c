@@ -843,14 +843,20 @@ bool ww_host_edge(void* user, CPUState* cpu, u32 address) {
                                        observed_retrace_sleep || observed_draw_done_sleep || observed_async_draw_done) &&
                                          ww_host_module_contains_address(host->module, address);
     const bool desktop_edge = bluewake_edge_maybe_intercept(address);
-    if (address == 0x80307EF4u && host->rel_image.linked && !host->scheduler_idle_observed) {
+    if (address == 0x80307EF4u && host->rel_image.linked &&
+        (!host->scheduler_idle_observed ||
+         (host->dsp.audio_deferred && host->stream.enabled && host->card_probe_observed &&
+          host->frame_timing.present.index >= 32u && !host->post_card_idle_observed))) {
         const char* error = ww_host_observe_scheduler_idle(host);
         if (error != NULL) {
             ww_host_fail(host, error, address, address);
             host->edge_stopped = true;
             return true;
         }
-        host->scheduler_idle_observed = true;
+        if (host->scheduler_idle_observed)
+            host->post_card_idle_observed = true;
+        else
+            host->scheduler_idle_observed = true;
     }
     if (desktop_edge && ww_host_module_contains_address(host->module, address) && ww_host_dvd_edge(host, address)) {
         host->edge_stopped = host->error != NULL;

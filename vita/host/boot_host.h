@@ -98,6 +98,7 @@ typedef struct WwHost {
     bool disc_owned;
     bool dvd_callback_active;
     bool scheduler_idle_observed;
+    bool post_card_idle_observed;
     bool dsp_task_boot_observed;
     bool card_probe_observed;
     bool vi_clock_enabled;

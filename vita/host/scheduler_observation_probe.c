@@ -26,6 +26,7 @@ int main(int argc, char** argv) {
     CPUState* cpu = &host->cpu;
     const bool task_boot = strncmp(argv[1], "dsp-", 4u) == 0;
     const bool card_probe = strncmp(argv[1], "card-", 5u) == 0;
+    const bool late_idle = strncmp(argv[1], "late-", 5u) == 0;
     cpu->pc = card_probe ? 0x8031D400u : task_boot ? 0x803193ACu : 0x80307EF4u;
     const u32 entry = cpu->pc;
     cpu->gpr[1] = 0x80007000u;
@@ -77,8 +78,14 @@ int main(int argc, char** argv) {
             assert(host->error == NULL);
         }
     }
-    host->rel_image.linked = strcmp(argv[1], "unlinked") != 0;
+    host->rel_image.linked = strcmp(argv[1], "unlinked") != 0 && strcmp(argv[1], "late-unlinked") != 0;
     host->rel_image.module_id = 1u;
+    if (late_idle) {
+        host->dsp.audio_deferred = strcmp(argv[1], "late-strict") != 0;
+        host->stream.enabled = strcmp(argv[1], "late-no-continuation") != 0;
+        host->card_probe_observed = strcmp(argv[1], "late-no-card") != 0;
+        host->frame_timing.present.index = strcmp(argv[1], "late-early") == 0 ? 31u : 32u;
+    }
     mem_write16(cpu, 0x803A2960u + 0x2C8u, 4u);
     mem_write32(cpu, 0x803A2960u + 0x2DCu, 0x80006008u);
     mem_write32(cpu, 0x803A2960u + 0x198u, 0x803059D0u);
@@ -110,6 +117,21 @@ int main(int argc, char** argv) {
             assert(host->card_probe_observed);
         if (strcmp(argv[1], "repeat") == 0 || strcmp(argv[1], "dsp-repeat") == 0 || strcmp(argv[1], "card-repeat") == 0)
             assert(!ww_host_edge(host, cpu, cpu->pc));
+        if (late_idle) {
+            fail_trace = strcmp(argv[1], "late-trace") == 0;
+            const bool second_intercepted = ww_host_edge(host, cpu, cpu->pc);
+            if (fail_trace) {
+                assert(second_intercepted && host->edge_stopped && host->error != NULL);
+                assert(strstr(host->error, "scheduler") != NULL);
+                assert(!host->post_card_idle_observed);
+            } else {
+                assert(!second_intercepted && host->error == NULL && cpu->exception == 0u);
+                const bool eligible = host->dsp.audio_deferred && host->stream.enabled && host->card_probe_observed &&
+                                      host->frame_timing.present.index >= 32u && host->rel_image.linked;
+                assert(host->post_card_idle_observed == eligible);
+                assert(!ww_host_edge(host, cpu, cpu->pc));
+            }
+        }
         if (task_boot && (strcmp(argv[1], "dsp-empty") == 0 || strcmp(argv[1], "dsp-available") == 0 ||
                          strcmp(argv[1], "dsp-rom-pending") == 0 || strcmp(argv[1], "dsp-init-pending") == 0 ||
                          strcmp(argv[1], "dsp-halted-pending") == 0)) {
