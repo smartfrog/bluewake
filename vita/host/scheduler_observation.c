@@ -97,10 +97,11 @@ const char* ww_host_observe_dsp_task_boot(WwHost* host) {
     if (host->dsp_task_boot_observed)
         return NULL;
     const WwDspInterface* dsp = &host->dsp;
-    if (fprintf(stderr, "[dsp-task-boot] pc=%08X lr=%08X sp=%08X task=%08X task_bytes=64 control=%04X cpu_mail=%08X dsp_mail=%08X rom_selected=%u rom_pending=%u init_loaded=%u init_cycles=%llu cycles=%llu mode=guest-body reply_injection=none task_hex=",
+    if (fprintf(stderr, "[dsp-task-boot] pc=%08X lr=%08X sp=%08X task=%08X task_bytes=64 control=%04X cpu_mail=%08X dsp_mail=%08X rom_selected=%u rom_pending=%u init_loaded=%u init_cycles=%llu cycles=%llu mode=guest-body audio=%s reply_injection=%s task_hex=",
                 entry, cpu->lr, stack, task, dsp->control, dsp->cpu_mailbox, dsp->dsp_mailbox,
                 dsp->rom_selected, dsp->rom_mail_pending, dsp->init_loaded,
-                (unsigned long long)dsp->init_cycles_remaining, (unsigned long long)host->cycles.absolute_cycles) < 0)
+                (unsigned long long)dsp->init_cycles_remaining, (unsigned long long)host->cycles.absolute_cycles,
+                dsp->audio_deferred ? "deferred" : "strict", dsp->audio_deferred ? "deferred-bootstrap-only" : "none") < 0)
         return "DSP task observation trace write failed";
     const u8* bytes = cpu->ram + (task - GC_RAM_BASE);
     for (u32 index = 0u; index < 64u; ++index) {

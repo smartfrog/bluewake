@@ -34,6 +34,8 @@ const char* ww_dsp_rom_receive(WwDspInterface* dsp, u32 mail, u32 pc) {
                         dsp->rom_boot.source, dsp->rom_boot.length, dsp->rom_boot.dmem_length,
                         dsp->rom_boot.imem_address, (u16)mail, dsp->rom_boot.received, pc) < 0)
                 return "DSP ROM task request trace write failed";
+            if (dsp->audio_deferred)
+                return ww_dsp_deferred_launch(dsp, (u16)mail, pc);
             return "DSP ROM task launch requires a DSP task backend; transfer and execution not implemented";
         default:
             return "unsupported DSP ROM parameter state";

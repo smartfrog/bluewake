@@ -1942,3 +1942,81 @@ The next dependency is an executable sourced DSP task backend. The existing
 shared adapter and pinned interpreter/HLE are being checked for ARM source
 reuse; their desktop build does not establish Vita support. The launch STOP
 stays intact until a real transfer/execution path is proved.
+
+## Unit 52: coordinator-approved audio deferral keeps the video trial explicit
+
+The coordinator now authorizes a **declared no-op DSP task backend** to prioritize
+visible pixels, then video FPS. This changes the prior no-synthetic-DSP-mail rule
+**only in an explicit audio-deferred profile**; it does not authorize fabricated
+GPU completions, guest instructions, callbacks, RAM, frames, timestamps or FPS.
+The real DSP port is paused. Its five source candidates passed syntax and actual
+ELF32 ARM object compilation with VitaSDK GCC **15.2.0**; none was linked or run.
+Private compiler/source/object hashes and unresolved symbols remain under Unit
+51's **evidence/dsp-arm-source-probe/**, including **arm-objects/objects.json**.
+Read-only local fmt headers were used for that probe; no pin, dependency or other
+repository was modified, and no network was used.
+
+### What this game's boot actually checks
+
+The actual translated guest body, rather than the older notes' approximate
+token spelling, establishes the required bootstrap:
+
+- **8028ECA0 interrupt handler** acknowledges **DSPINT 0080** through the DSP
+  control register, then polls and consumes a busy mailbox word. This is a DSP
+  task interrupt, **not AID 0008 PCM-DMA completion or ARAM 0020 completion**.
+- The **DCD10000** branch at **8028ED78-8028EDA4** writes task state **1** and
+  calls its **+28 / 40-byte init callback**, the actual **8028E860 DspHandShake**.
+  The host must not perform either guest write or callback for it.
+- **8028E870-8028E880** polls **DSPCheckMailFromDSP** until the busy bit is set,
+  reads and discards a second mailbox word, then calls **8028F080**, which writes
+  the JAudio running flag. **It does not compare that second word's content or
+  verify any PCM output at this step.**
+- Pinned **Zelda.cpp:45-55** and **UCodes.h:58** source the startup pair
+  **DCD10000 / F3551111**, first mail interrupting. **DSP.h:27-31,50-60** sources
+  DSPINT **0080**, mask **0100**, separately from AID and ARAM. The existing
+  interrupt source/guest vector path and normal guest control-register W1C
+  acknowledgement are retained, following **MailHandler.cpp:21-68**.
+
+### Explicit stub and report contract
+
+**scripts/vita/ww05/launch.py --defer-audio** is off by default and requires the
+real continuation journal. It creates an exclusive **ww05.audio** request bound
+to the new run's token/source/package. The host accepts only value **1** and marks
+the report header **audio=deferred**, even on early failure. Strict reports and
+their prior behavior remain unchanged; a profile/header mismatch fails validation.
+Execution/request/result, live-frame and MEM1 provenance also retain the declared
+audio mode, and collectors refuse relabelling strict evidence as deferred. WW12
+accepts the declared header and retains audio modes in a deferred run series;
+presentation/retrace stamps and FPS arithmetic are unchanged.
+
+**vita/host/dsp_deferred.c** accepts one complete, bounded, even-length IRAM-shaped
+bootstrap request with zero data transfer. Its task body is **no-op**: **no code
+copy, DSP instructions, PCM, sample progress or audio-DMA completion**. It supplies
+only the two **explicitly synthetic** startup words and a **synthetic DSPINT**,
+masked and acknowledged normally. Reading the first low word exposes the second;
+reading the second clears its busy bit without reissuing either word or an IRQ.
+The actual guest handler, state write, init callback and running-flag write still
+execute as guest instructions. Traces declare the synthetic origin and log real
+guest mailbox PC/LR, allowing the next trial to prove which callers consumed them.
+Failed trace publication produces no stub bootstrap state. Reset clears the stub
+task state while preserving the profile's declared audio policy.
+
+Post-bootstrap task commands and further empty-mail waits remain explicit,
+audio-labelled frontiers; this small stub is **not a Zelda mixer or an audio
+engine**. They will be classified from actual guest behavior, not automatically
+called proof that real audio is required. If a real DSP-processing wait blocks
+video, preserve/report that dependency for the coordinator's proposed DSP lane.
+
+Linux AArch64: **693 host tests**, **29 WW12**, **83 FP launcher**, **51 GX** pass;
+ARM host links. Evidence **logs/ww16-audio-deferred-certified-{host,arm}.log**,
+**logs/ww16-audio-deferred-perf-green.log**, **logs/ww16-audio-deferred-{fp,gx}.log**.
+The authenticated strict launch refusal in Unit 51 is the pre-change baseline.
+The initial new IO report test used an incomplete synthetic fixture and timed
+out; that preserved log is **not counted as a meaningful red feature test**.
+The corrected consumer fixture, request/mode integrity, strict-default refusal,
+bounded stub inputs, masked/W1C interrupt, two-word queue, early acknowledgement,
+trace failure and unsupported later commands all verify. RAM/audio buffers and
+guest cycles/timebase remain unchanged in the synthetic stub tests. Audit,
+attribution and whitespace pass. No Windows CI, physical Vita, sound or new game
+pixels are claimed. Committed rebuild and a fresh watched **MEM1 + PNG live +
+audio=deferred** trial follow immediately.

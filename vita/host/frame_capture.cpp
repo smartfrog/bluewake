@@ -48,12 +48,12 @@ static const char* capture_frame(const WwRendererFrame* frame, void* user) try {
         return "live frame evidence metadata open failed";
     const WwMem1Capture* identity = &host->mem1_capture;
     const int written = fprintf(stream,
-        "{\"kind\":\"ww05-live-frame-v1\",\"token\":\"%s\",\"source\":\"%s\",\"vpk_sha256\":\"%s\","
+        "{\"kind\":\"ww05-live-frame-v1\",\"token\":\"%s\",\"source\":\"%s\",\"vpk_sha256\":\"%s\",\"audio\":\"%s\","
         "\"frame\":%llu,\"command\":%llu,\"draws\":%llu,\"width\":%u,\"height\":%u,\"us\":%llu,\"cycles\":%llu,"
         "\"mem1_snapshots\":%u,\"phase\":\"after-gx-present-before-next-frame\",\"row_order\":\"top-first\","
         "\"raw\":\"frame-%llu-rgba.png\",\"display\":\"frame-%llu.png\","
         "\"display_transform\":\"alpha=255; RGB unchanged from raw front-buffer readback\"}\n",
-        identity->token, identity->source, identity->package, index,
+        identity->token, identity->source, identity->package, host->dsp.audio_deferred ? "deferred" : "strict", index,
         static_cast<unsigned long long>(host->stream.decoded), static_cast<unsigned long long>(stats.draws),
         frame->width, frame->height, static_cast<unsigned long long>(us),
         static_cast<unsigned long long>(host->cycles.absolute_cycles), identity->captured, index, index);

@@ -470,9 +470,18 @@ static u64 mmio_read(CPUState* cpu, u32 address, u8 size) {
         const bool supported_work = (host->dsp.control & WW_DSP_HALT_BIT) == 0u &&
             (host->dsp.rom_mail_pending || (!host->dsp.rom_selected && host->dsp.init_cycles_remaining != 0u));
         if ((host->dsp.dsp_mailbox & 0x80000000u) == 0u && !supported_work) {
-            ww_host_fail(host, "DSP task boot mailbox requires a DSP task backend; no reply injected", address, cpu->pc);
+            ww_host_fail(host, host->dsp.audio_deferred ?
+                         "deferred DSP bootstrap mails exhausted; guest requires another task response" :
+                         "DSP task boot mailbox requires a DSP task backend; no reply injected", address, cpu->pc);
             return 0u;
         }
+    }
+    if (host->dsp.audio_deferred && host->dsp.deferred_task_started && size == 2u &&
+        (address == 0xCC005004u || address == 0xCC005006u) &&
+        fprintf(stderr, "[audio-deferred] event=guest-mail-read address=%08X pc=%08X lr=%08X latched_mail=%08X origin=synthetic-bootstrap\n",
+                address, cpu->pc, cpu->lr, host->dsp.dsp_mailbox) < 0) {
+        ww_host_fail(host, "deferred DSP guest-mail trace write failed", address, cpu->pc);
+        return 0u;
     }
     if (ww_dsp_interface_read(&host->dsp, address, size, &value)) {
         refresh(host);

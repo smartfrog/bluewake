@@ -42,3 +42,20 @@ class DspRomTest(unittest.TestCase):
 
     def test_refused_init_transfer_preserves_the_real_ROM_upload_configuration(self):
         self.probe('rom-invalid-init')
+
+    def test_explicit_deferred_bootstrap_produces_only_the_two_declared_synthetic_words_and_one_DSP_interrupt(self):
+        self.assertIn('synthetic_mail=DCD10000,F3551111 synthetic_irq=0080', self.probe('rom-deferred'))
+
+    def test_guest_interrupt_acknowledgement_before_mail_consumption_does_not_lose_or_reissue_the_handshake(self):
+        self.probe('rom-deferred-ack-first')
+
+    def test_deferred_bootstrap_trace_failure_does_not_publish_synthetic_state(self):
+        self.probe('rom-deferred-trace')
+
+    def test_post_bootstrap_audio_task_commands_remain_explicit_refusals_not_silent_completions(self):
+        self.probe('rom-deferred-command')
+
+    def test_deferred_stub_cannot_acknowledge_an_incomplete_or_unbounded_task_configuration(self):
+        for invalid in range(7):
+            with self.subTest(invalid=invalid):
+                self.probe(f'rom-deferred-invalid-{invalid}')

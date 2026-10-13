@@ -14,6 +14,20 @@ sys.path.insert(0, str(ROOT / 'scripts/vita/armv7'))
 
 
 class PlanTest(unittest.TestCase):
+    def test_audio_policy_is_recorded_for_each_explicit_profile(self):
+        import stage_plan
+        for enabled, expected in ((True, 'deferred'), (False, 'strict')):
+            with self.subTest(enabled=enabled):
+                args = SimpleNamespace(libraries=None, wayland_socket=None, timeout=180, continue_gx=2048, defer_audio=enabled)
+                plan = stage_plan.make_plan(Path('/unused'), args, 'a' * 40, 'b' * 64, 'c' * 32)
+                self.assertEqual(plan['audio'], expected)
+
+    def test_deferred_audio_cannot_be_used_without_the_real_command_journal(self):
+        import stage_plan
+        args = SimpleNamespace(timeout=180, continue_gx=0, defer_audio=True)
+        with self.assertRaises(ValueError):
+            stage_plan.make_plan(Path('/unused'), args, 'a' * 40, 'b' * 64, 'c' * 32)
+
     def test_shader_compiler_is_copied_into_the_private_profile_with_its_identity(self):
         import stage_plan
         with tempfile.TemporaryDirectory(dir='/tmp/opencode', prefix='ww16-shader-') as directory:

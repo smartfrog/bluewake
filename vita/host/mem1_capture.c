@@ -55,12 +55,13 @@ const char* ww_host_capture_mem1(WwHost* host) {
     if (stream == NULL)
         return "MEM1 capture metadata open failed";
     const int written = fprintf(stream,
-        "{\"kind\":\"ww05-mem1-snapshot-v1\",\"token\":\"%s\",\"source\":\"%s\",\"vpk_sha256\":\"%s\","
+        "{\"kind\":\"ww05-mem1-snapshot-v1\",\"token\":\"%s\",\"source\":\"%s\",\"vpk_sha256\":\"%s\",\"audio\":\"%s\","
         "\"snapshot\":%u,\"limit\":%u,\"file\":\"ww05.mem1-%u.bin\",\"physical_base\":\"00000000\","
         "\"guest_base\":\"80000000\",\"bytes\":%u,\"command\":%llu,\"opcode\":\"%02X\","
         "\"pc\":\"%08X\",\"completion_pc\":\"%08X\",\"cycles\":%llu,\"us\":%llu,\"presented\":%llu,"
         "\"phase\":\"before-renderer-write\",\"scope\":\"raw physical MEM1 only; external aliases and MEM2 are not captured\"}\n",
-        capture->token, capture->source, capture->package, number, capture->limit, number, host->cpu.ram_size,
+        capture->token, capture->source, capture->package, host->dsp.audio_deferred ? "deferred" : "strict",
+        number, capture->limit, number, host->cpu.ram_size,
         (unsigned long long)host->stream.decoded, draw->bytes[0], draw->pc, draw->completion_pc,
         (unsigned long long)host->cycles.absolute_cycles, (unsigned long long)us,
         (unsigned long long)host->frame_timing.present.index);

@@ -18,12 +18,14 @@ def frame_outputs(directory):
                  for suffix in ('-rgba.png', '.png', '.json') for partial in ('', '.partial'))
 
 
-def collect_frames(directory, output, *, enabled, presented, token, source, package):
+def collect_frames(directory, output, *, enabled, presented, token, source, package, audio='strict'):
     from fp_libraries import directory_fd
     from fp_profile import read_profile_file
 
     if type(presented) is not int or presented < 0 or (enabled and presented > MAX_FRAMES):
         raise ValueError('live capture presentation count exceeds its diagnostic bound')
+    if audio not in ('strict', 'deferred'):
+        raise ValueError('invalid declared audio policy')
     expected = {f'frame-{frame}{suffix}' for frame in range(1, presented + 1)
                 for suffix in ('-rgba.png', '.png', '.json')} if enabled else set()
     observed = set()
@@ -48,6 +50,8 @@ def collect_frames(directory, output, *, enabled, presented, token, source, pack
                                display_transform='alpha=255; RGB unchanged from raw front-buffer readback').items():
             if record.get(key) != value:
                 raise ValueError('live frame identity, presentation or boundary mismatch')
+        if record.get('audio', 'strict') != audio:
+            raise ValueError('live frame audio policy differs from the declared run profile')
         for key in ('frame', 'command', 'draws', 'width', 'height', 'us', 'cycles', 'mem1_snapshots'):
             if type(record.get(key)) is not int or not 0 <= record[key] <= (1 << 64) - 1:
                 raise ValueError('live frame numeric metadata mismatch')
@@ -72,7 +76,7 @@ def collect_frames(directory, output, *, enabled, presented, token, source, pack
                 raise ValueError('live frame PNG dimensions differ from metadata')
         verify_display_rgb(raw, display)
         frames.append(record)
-    return dict(kind='ww05-live-images-v1', enabled=enabled, captures=len(frames), frames=frames,
+    return dict(kind='ww05-live-images-v1', enabled=enabled, audio=audio, captures=len(frames), frames=frames,
                 parity_verified=False, gameplay_verified=False, fps_baseline=not enabled,
                 capture_point='after-gx-present-before-next-frame',
                 policy='actual front-buffer readback only; preserve raw alpha, display alpha=255 with identical RGB; uniform pixels are not a game scene')

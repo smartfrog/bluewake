@@ -61,9 +61,10 @@ static bool control_write(WwDspInterface* dsp, const CPUState* cpu, u16 value) {
     const bool verified = load_init || (dsp->init_loaded ? loaded_init_matches(dsp) : init_matches(dsp, cpu));
     if ((reset || running) && !verified)
         return reject(dsp, "DSP reset/release requires byte-identical documented init ucode");
-    if (running && !reset && !load_init && !dsp->rom_selected && !dsp->init_loaded)
+    const bool deferred_task = dsp->audio_deferred && dsp->deferred_task_started;
+    if (running && !reset && !load_init && !deferred_task && !dsp->rom_selected && !dsp->init_loaded)
         return reject(dsp, "DSP release requires verified reset-selected ROM");
-    if (running && !reset && !load_init && !dsp->rom_selected && dsp->init_cycles_remaining == 0u)
+    if (running && !reset && !load_init && !deferred_task && !dsp->rom_selected && dsp->init_cycles_remaining == 0u)
         return reject(dsp, "completed DSP init requires reset before release");
     if (running && (dsp->cpu_mailbox & DSP_MAIL_BUSY))
         return reject(dsp, "queued ROM mail protocol not implemented");
@@ -81,7 +82,12 @@ static bool control_write(WwDspInterface* dsp, const CPUState* cpu, u16 value) {
         dsp->init_cycles_remaining = 0u;
         dsp->rom_selected = true;
         dsp->rom_mail_pending = true;
+        dsp->deferred_task_started = false;
+        dsp->deferred_task_interrupt = false;
+        dsp->deferred_handshake_pending = false;
     }
+    if (value & 0x0080u)
+        dsp->deferred_task_interrupt = false;
     if ((value & DSP_ARAM_INTERRUPT) && dsp->aram_cycles_remaining == 0u)
         bluewake_aram_dma_acknowledge(&dsp->aram);
     dsp->control = value & (DSP_INIT | DSP_HALT | DSP_INTERRUPT_MASKS);
@@ -158,7 +164,7 @@ bool ww_dsp_interface_advance(WwDspInterface* dsp, u64 cycles, u64 ticks) {
         return false;
     dsp->aram_cycles_remaining = cycles < dsp->aram_cycles_remaining ? dsp->aram_cycles_remaining - cycles : 0u;
     dsp->init_ticks_remaining = ticks < dsp->init_ticks_remaining ? dsp->init_ticks_remaining - (u16)ticks : 0u;
-    if ((dsp->control & DSP_HALT) || dsp->rom_selected || dsp->init_cycles_remaining == 0u)
+    if ((dsp->control & DSP_HALT) || dsp->rom_selected || dsp->deferred_task_started || dsp->init_cycles_remaining == 0u)
         return true;
     if (!loaded_init_matches(dsp))
         return reject(dsp, "DSP init execution requires byte-identical loaded documented ucode");
@@ -187,8 +193,9 @@ u64 ww_dsp_interface_deadline(const WwDspInterface* dsp) {
 }
 
 bool ww_dsp_interface_interrupt_pending(const WwDspInterface* dsp) {
-    return dsp->aram_cycles_remaining == 0u && (dsp->control & (DSP_ARAM_INTERRUPT << 1u)) &&
-           bluewake_aram_dma_interrupt_pending(&dsp->aram);
+    return (dsp->audio_deferred && dsp->deferred_task_interrupt && (dsp->control & 0x0100u)) ||
+           (dsp->aram_cycles_remaining == 0u && (dsp->control & (DSP_ARAM_INTERRUPT << 1u)) &&
+            bluewake_aram_dma_interrupt_pending(&dsp->aram));
 }
 
 bool ww_dsp_interface_read(WwDspInterface* dsp, u32 address, u8 size, u64* value) {
@@ -215,12 +222,18 @@ bool ww_dsp_interface_read(WwDspInterface* dsp, u32 address, u8 size, u64* value
             dsp->rom_mail_pending = false;
         }
         *value = dsp->dsp_mailbox & 0xFFFFu;
-        dsp->dsp_mailbox &= ~DSP_MAIL_BUSY;
+        if (dsp->audio_deferred && dsp->deferred_task_started && dsp->deferred_handshake_pending) {
+            dsp->deferred_handshake_pending = false;
+            dsp->dsp_mailbox = 0xF3551111u;
+        } else {
+            dsp->dsp_mailbox &= ~DSP_MAIL_BUSY;
+        }
         return true;
     case WW_DSP_CONTROL:
         *value = dsp->control | (dsp->init_ticks_remaining != 0u ? DSP_INIT_CODE : 0u) |
                  (dsp->aram_cycles_remaining != 0u ? DSP_DMA_BUSY :
-                 bluewake_aram_dma_interrupt_pending(&dsp->aram) ? DSP_ARAM_INTERRUPT : 0u);
+                 bluewake_aram_dma_interrupt_pending(&dsp->aram) ? DSP_ARAM_INTERRUPT : 0u) |
+                 (dsp->audio_deferred && dsp->deferred_task_interrupt ? 0x0080u : 0u);
         return true;
     case WW_DSP_AR_INFO: *value = dsp->ar_info; return true;
     case WW_DSP_AR_MODE: *value = 1u; return true;
@@ -242,6 +255,8 @@ bool ww_dsp_interface_write(WwDspInterface* dsp, CPUState* cpu, u32 address, u8 
         return true;
     case 0xCC005002u: {
         if (!(dsp->control & DSP_HALT)) {
+            if (dsp->audio_deferred && dsp->deferred_task_started)
+                return reject(dsp, "deferred DSP post-bootstrap task command not modeled; audio=deferred");
             const u32 mail = (dsp->cpu_mailbox & 0xFFFF0000u) | (u16)value;
             const char* error = ww_dsp_rom_receive(dsp, mail, cpu != NULL ? cpu->pc : 0u);
             if (error != NULL)

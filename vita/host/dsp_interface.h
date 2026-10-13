@@ -42,11 +42,16 @@ typedef struct WwDspInterface {
     bool rom_selected;
     bool rom_mail_pending;
     WwDspRomBoot rom_boot;
+    bool audio_deferred;
+    bool deferred_task_started;
+    bool deferred_task_interrupt;
+    bool deferred_handshake_pending;
 } WwDspInterface;
 
 void ww_dsp_interface_init(WwDspInterface* dsp, const u8* init_reference);
 bool ww_dsp_interface_read(WwDspInterface* dsp, u32 address, u8 size, u64* value);
 const char* ww_dsp_rom_receive(WwDspInterface* dsp, u32 mail, u32 pc);
+const char* ww_dsp_deferred_launch(WwDspInterface* dsp, u16 start, u32 pc);
 bool ww_dsp_interface_write(WwDspInterface* dsp, CPUState* cpu, u32 address, u8 size, u64 value);
 bool ww_dsp_interface_advance(WwDspInterface* dsp, u64 cycles, u64 ticks);
 u64 ww_dsp_interface_deadline(const WwDspInterface* dsp);

@@ -69,6 +69,9 @@ def make_plan(root, args, source, package, run):
     validate_timeout(args.timeout)
     limit = getattr(args, 'continue_gx', 0)
     memory_captures = getattr(args, 'mem1_snapshots', 0)
+    defer_audio = getattr(args, 'defer_audio', False)
+    if type(defer_audio) is not bool or (defer_audio and not limit):
+        raise ValueError('audio deferral requires an explicit boolean and the continuation journal')
     idle_timeout = getattr(args, 'idle_timeout', 30)
     CpuIdleWindow(idle_timeout, 0.05)
     validate_continuation(limit)
@@ -92,6 +95,7 @@ def make_plan(root, args, source, package, run):
                 '/run/ww03/data/Vita3K/Vita3K/ux0/data/bluewake/GZLE01.iso']
     return {'ticket': 'VITA-WW-05', 'method': 'startup-gx-v1', 'title': 'BWWG00005',
             'continue_gx': limit, 'mem1_snapshots': memory_captures,
+            'defer_audio': defer_audio, 'audio': 'deferred' if defer_audio else 'strict',
             'live_frame_capture': bool(memory_captures), 'frame_capture_limit': 128,
             'idle_timeout_seconds': idle_timeout, 'cpu_threshold': 0.05,
             'activity_policy': 'CPU >= 5% OR growing process/cache log, guest journal/report/dispatch, or installed payload; '
@@ -240,6 +244,7 @@ def main():
     parser.add_argument('--wayland-socket', type=Path, required=True)
     parser.add_argument('--continue-gx', type=int, default=0)
     parser.add_argument('--mem1-snapshots', type=int, choices=(0, 1, 2), default=0)
+    parser.add_argument('--defer-audio', action='store_true')
     parser.add_argument('--disc', type=Path)
     stage(parser.parse_args())
     print('STAGED ONLY — zero Vita3K processes; no guest request')

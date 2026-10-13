@@ -48,6 +48,18 @@ def real_reports():
 
 
 class BootReportTest(unittest.TestCase):
+    def test_deferred_audio_is_retained_without_changing_frame_or_guest_cycle_counts(self):
+        report = parse_boot_report(PASS_REPORT.replace('platform=VITA\n', 'platform=VITA audio=deferred\n'))
+        self.assertEqual(report.audio, 'deferred')
+        self.assertEqual((report.edges, report.cycles, report.rendered), (2, 120, 0))
+        self.assertEqual(boot_series([report])['audio_modes'], ['deferred'])
+
+    def test_deferred_and_strict_boot_reports_are_not_silently_combined_into_an_unlabelled_series(self):
+        strict = parse_boot_report(PASS_REPORT)
+        deferred = parse_boot_report(PASS_REPORT.replace('platform=VITA\n', 'platform=VITA audio=deferred\n'))
+        self.assertEqual(boot_series([strict, deferred])['audio_modes'], ['deferred', 'strict'])
+        self.assertNotIn('audio_modes', boot_series([strict]))
+
     def test_parses_a_complete_pass_report(self):
         report = parse_boot_report(PASS_REPORT)
         self.assertEqual((report.token, report.source, report.package), (TOKEN, SOURCE, PACKAGE))

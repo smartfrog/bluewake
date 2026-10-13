@@ -19,7 +19,7 @@ class MainIoTest(unittest.TestCase):
                     dispatch_trace=None, stale_dispatch=False, mmio_poll=False, aram_dma=False, dsp_init=False,
                     cpu_boundary=None, exi=False, cp_control=None, fifo=None, prior_aram_transfers=None,
                     cp_distance=None, cp_distance_high=None, cp_clear=None, consumer=False, wpar=None,
-                    continue_gx=None, memory_captures=None):
+                    continue_gx=None, memory_captures=None, defer_audio=None):
         with tempfile.TemporaryDirectory(dir=OUT, prefix='io-') as directory:
             root = Path(directory)
             data = bytearray(260)
@@ -36,6 +36,8 @@ class MainIoTest(unittest.TestCase):
                 (root / 'ww05.continue').write_text(f'{"c" * 32} {"a" * 40} {"b" * 64} {continue_gx}\n')
             if memory_captures is not None:
                 (root / 'ww05.mem1').write_text(f'{"c" * 32} {"a" * 40} {"b" * 64} {memory_captures}\n')
+            if defer_audio is not None:
+                (root / 'ww05.audio').write_text(f'{"c" * 32} {"a" * 40} {"b" * 64} {defer_audio}\n')
             if stale:
                 (root / 'ww05.report').write_text('preserve me')
             if stale_dispatch:
@@ -208,6 +210,18 @@ class MainIoTest(unittest.TestCase):
         status, report = self.run_fixture(consumer=True, continue_gx=2048)
         self.assertEqual(status, 1)
         self.assertIn('GX_STREAM mode=continue decoded=28 logged=28 limit=2048 pending=0 read_bytes=32\n', report)
+
+    def test_explicit_audio_deferral_marks_the_guest_report_even_before_a_task_is_launched(self):
+        status, report = self.run_fixture(consumer=True, continue_gx=2048, defer_audio=1)
+        self.assertIsNotNone(report)
+        self.assertIn('platform=HOST audio=deferred\n', report)
+
+    def test_invalid_audio_deferral_request_cannot_start_an_unlabelled_trial(self):
+        for value in (0, 2):
+            with self.subTest(value=value):
+                status, report = self.run_fixture(continue_gx=2048, defer_audio=value)
+                self.assertNotEqual(status, 0)
+                self.assertIsNone(report)
 
     def test_invalid_memory_capture_request_stops_before_guest_execution_or_report_creation(self):
         for limit in ('0', '3', '-1', '2 extra', '2\nextra'):

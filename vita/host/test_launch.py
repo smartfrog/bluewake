@@ -14,6 +14,16 @@ sys.path.insert(0, str(ROOT / 'scripts/vita/armv7'))
 
 
 class PrivateLaunchTest(unittest.TestCase):
+    def test_deferred_audio_request_is_bound_to_the_new_run_identity_and_never_reuses_stale_mode_files(self):
+        from launch import fresh_request
+        from fp_launch import REPORT_DIRECTORY
+        token = fresh_request(self.root, 'a' * 40, 'b' * 64, continue_gx=2048, defer_audio=True)
+        request = self.root / REPORT_DIRECTORY / 'ww05.audio'
+        self.assertEqual(request.read_text(), f'{token} {"a" * 40} {"b" * 64} 1\n')
+        with self.assertRaises(ValueError):
+            fresh_request(self.root, 'a' * 40, 'b' * 64, continue_gx=2048, defer_audio=True)
+        self.assertEqual(request.read_text(), f'{token} {"a" * 40} {"b" * 64} 1\n')
+
     def setUp(self):
         from fp_launch import create_run, sandbox_command
         from fp_profile import CONFIG_PATH, CONFIG_TEMPLATE, config_identity

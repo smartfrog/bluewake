@@ -138,3 +138,12 @@ class LiveFramesTest(unittest.TestCase):
                                     token='c' * 32, source='a' * 40, package='b' * 64)
             self.assertEqual(result['captures'], 2)
             self.assertEqual((root / 'frames/frame-1.png').read_bytes(), before)
+
+    def test_strict_frame_images_cannot_be_relabelled_as_a_deferred_audio_run(self):
+        from frame_capture import collect_frames
+        with tempfile.TemporaryDirectory(dir='/tmp/opencode', prefix='ww16-live-') as directory:
+            root = Path(directory)
+            self.probe(root, 'image-two')
+            with self.assertRaisesRegex(ValueError, 'audio policy'):
+                collect_frames(root / 'frames', root / 'frames', enabled=True, presented=2,
+                               token='c' * 32, source='a' * 40, package='b' * 64, audio='deferred')

@@ -28,10 +28,12 @@ def snapshot_outputs(directory):
                  for kind in ('bin', 'json') for partial in ('', '.partial'))
 
 
-def verify_snapshots(directory, *, token, source, package, count, journal):
+def verify_snapshots(directory, *, token, source, package, count, journal, audio='strict'):
     from fp_profile import read_profile_file
 
     validate_memory_captures(count, bool(journal))
+    if audio not in ('strict', 'deferred'):
+        raise ValueError('invalid MEM1 audio policy')
     commands = journal_commands(journal) if count else []
     fifo_hash = hashlib.sha256(b''.join(commands)).hexdigest()
     draws = [(index, data[0]) for index, data in enumerate(commands, 1)
@@ -54,8 +56,10 @@ def verify_snapshots(directory, *, token, source, package, count, journal):
         expected_fields = {'kind', 'token', 'source', 'vpk_sha256', 'snapshot', 'limit', 'file',
                            'physical_base', 'guest_base', 'bytes', 'command', 'opcode', 'pc',
                            'completion_pc', 'cycles', 'us', 'presented', 'phase', 'scope'}
-        if not isinstance(record, dict) or set(record) != expected_fields:
+        if not isinstance(record, dict) or set(record) not in (expected_fields, expected_fields | {'audio'}):
             raise ValueError('MEM1 snapshot metadata schema mismatch')
+        if record.get('audio', 'strict') != audio:
+            raise ValueError('MEM1 snapshot audio policy differs from the declared profile')
         expected_values = {'kind': 'ww05-mem1-snapshot-v1', 'token': token, 'source': source,
                            'vpk_sha256': package, 'snapshot': index, 'limit': count,
                            'file': f'ww05.mem1-{index}.bin', 'physical_base': '00000000',
@@ -83,7 +87,7 @@ def verify_snapshots(directory, *, token, source, package, count, journal):
                                         regions=[dict(address=0, offset=0, size=MEM1_BYTES)],
                                         producer=dict(record))
         snapshots.append(record)
-    return {'kind': 'ww05-mem1-capture-manifest-v1', 'requested': count, 'captured': len(snapshots),
+    return {'kind': 'ww05-mem1-capture-manifest-v1', 'audio': audio, 'requested': count, 'captured': len(snapshots),
             'snapshots': snapshots, 'policy': 'time-matched raw MEM1 only; no invented bytes, zero-filled replay, alias reconstruction or whole-run memory-version claim'}
 
 

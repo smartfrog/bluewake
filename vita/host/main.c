@@ -72,13 +72,16 @@ int fixture_run(int argc, char** argv) {
     char token[33], source[41], package[65];
     u32 command_log_limit;
     u32 memory_capture_limit;
+    u32 deferred_audio;
     const char* partial = WW05_DIRECTORY "ww05.partial";
     const char* complete = WW05_DIRECTORY "ww05.report";
     if (argc > 1 || diagnostic_request(WW05_DIRECTORY "ww05.request", WW05_SOURCE, token, source, package) ||
         requested_limit(WW05_DIRECTORY "ww05.continue", WW_GX_MAX_JOURNAL_COMMANDS,
                         token, source, package, &command_log_limit) ||
         requested_limit(WW05_DIRECTORY "ww05.mem1", WW_MEM1_MAX_CAPTURES,
-                        token, source, package, &memory_capture_limit) ||
+                         token, source, package, &memory_capture_limit) ||
+        requested_limit(WW05_DIRECTORY "ww05.audio", 1u, token, source, package, &deferred_audio) ||
+        (deferred_audio != 0u && command_log_limit == 0u) ||
         (memory_capture_limit != 0u && command_log_limit == 0u) ||
         !diagnostic_absent(partial) || !diagnostic_absent(complete) ||
         !diagnostic_absent(WW05_DIRECTORY "ww05.log") ||
@@ -91,8 +94,8 @@ int fixture_run(int argc, char** argv) {
     FILE* report = fopen(partial, "wx");
     if (report == NULL)
         return 1;
-    int error = fprintf(report, "WW05 %s %s %s method=startup-gx-v1 phase=guest platform=%s\n",
-                         token, source, package, WW05_PLATFORM) < 0;
+    int error = fprintf(report, "WW05 %s %s %s method=startup-gx-v1 phase=guest platform=%s%s\n",
+                          token, source, package, WW05_PLATFORM, deferred_audio ? " audio=deferred" : "") < 0;
     error |= fflush(report) != 0 || ferror(report) != 0;
     if (error) {
         const int closed = fclose(report);
@@ -115,6 +118,9 @@ int fixture_run(int argc, char** argv) {
     const BlueWakeRelData* data = staticrecomp_get_rel_data(&count);
     error |= fprintf(stderr, "[host] stage=initialize\n") < 0;
     bool initialized = !error && ww_host_init(host);
+    host->dsp.audio_deferred = deferred_audio != 0u;
+    error |= fprintf(stderr, "[audio-policy] audio=%s pcm_output=none deferred_task_body=no-op synthetic_boot_mail=%s\n",
+                     deferred_audio ? "deferred" : "strict", deferred_audio ? "explicit-opt-in" : "disabled") < 0;
     host->stream.enabled = command_log_limit != 0u;
     host->stream.log_limit = command_log_limit;
     host->mem1_capture = (WwMem1Capture){.limit = memory_capture_limit, .token = token,

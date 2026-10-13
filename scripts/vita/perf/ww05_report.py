@@ -2,8 +2,8 @@
 """Boot-frontier evidence from WW05 runs, for the VITA-WW-12 harness.
 
 Each run of the boot fixture writes one report with a STATE line carrying the
-guest's edge count and absolute cycles at the stop, and a verdict line that
-today always says rendered=0: no frame has ever been presented. This parser
+guest's edge count and absolute cycles at the stop, and a verdict line carrying
+the actual presentation count. This parser
 extracts those numbers for a run series. It does not certify the frontier;
 scripts/vita/ww05/report.py does that. The report shapes are the contract in
 that validator: the complete form (eight lines) and the short allocation
@@ -22,7 +22,7 @@ import statistics
 
 HEADER = re.compile(
     r"^WW05 ([0-9a-f]{32}) ([0-9a-f]{40}) ([0-9a-f]{64}) "
-    r"method=startup-gx-v1 phase=guest platform=(\S+)$")
+    r"method=startup-gx-v1 phase=guest platform=(\S+)(?: audio=(deferred))?$")
 STATE = re.compile(
     r"^STATE entry=([0-9A-F]{8}) pc=([0-9A-F]{8}) sp=([0-9A-F]{8}) "
     r"edges=(\d+) exception=([0-9A-F]{8}) cycles=(\d+)$")
@@ -50,6 +50,7 @@ class BootReport:
     exception: int | None
     frontier_complete: bool
     frontier_opcode: int | None
+    audio: str = 'strict'
 
 
 def parse_boot_report(text: str) -> BootReport:
@@ -78,6 +79,7 @@ def parse_boot_report(text: str) -> BootReport:
         exception=int(state.group(5), 16) if state is not None else None,
         frontier_complete=frontier is not None and frontier.group(1) == "1",
         frontier_opcode=int(frontier.group(2), 16) if frontier is not None else None,
+        audio=header.group(5) or 'strict',
     )
 
 
@@ -86,7 +88,7 @@ def boot_series(reports: list) -> dict:
         raise BootReportError("no reports: nothing to summarize")
     edges = [report.edges for report in reports if report.edges is not None]
     cycles = [report.cycles for report in reports if report.cycles is not None]
-    return {
+    result = {
         "runs": len(reports),
         "pass": sum(1 for report in reports if report.verdict == "PASS"),
         "fail": sum(1 for report in reports if report.verdict == "FAIL"),
@@ -95,6 +97,9 @@ def boot_series(reports: list) -> dict:
         "edges": _stats(edges),
         "cycles": _stats(cycles),
     }
+    if any(report.audio == 'deferred' for report in reports):
+        result['audio_modes'] = sorted({report.audio for report in reports})
+    return result
 
 
 def _stats(values: list) -> dict | None:
