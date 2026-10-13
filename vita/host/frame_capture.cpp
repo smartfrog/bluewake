@@ -8,6 +8,38 @@ extern "C" {
 #include <cerrno>
 #include <dirent.h>
 
+static const char* trace_renderer_reasons(const WwRendererStats& stats, unsigned long long frame, const char* audio) {
+    const struct {
+        const char* category;
+        u32 count;
+        const char* const* reasons;
+    } groups[] = {{"plan", stats.skip_count, stats.skip_reasons},
+                  {"shader", stats.refusal_count, stats.refusal_reasons},
+                  {"copy", stats.copy_refusal_count, stats.copy_refusal_reasons}};
+    for (const auto& group : groups) {
+        if (group.count > WW_RENDERER_MAX_REASONS)
+            return "live frame renderer reason count exceeds its bound";
+        for (u32 index = 0u; index < group.count; ++index) {
+            if (group.reasons[index] == nullptr)
+                return "live frame renderer reason is missing";
+            if (fprintf(stderr, "[frame-renderer-refusal] frame=%llu category=%s audio=%s reason=%s\n",
+                        frame, group.category, audio, group.reasons[index]) < 0)
+                return "live frame renderer refusal trace write failed";
+        }
+    }
+    if (stats.gap_count > WW_RENDERER_MAX_GAPS)
+        return "live frame renderer gap count exceeds its bound";
+    for (u32 index = 0u; index < stats.gap_count; ++index) {
+        if (stats.gaps[index].name == nullptr)
+            return "live frame renderer gap name is missing";
+        if (fprintf(stderr, "[frame-renderer-gap] frame=%llu audio=%s name=%s value=%llu\n",
+                    frame, audio, stats.gaps[index].name,
+                    static_cast<unsigned long long>(stats.gaps[index].value)) < 0)
+            return "live frame renderer gap trace write failed";
+    }
+    return nullptr;
+}
+
 static const char* capture_frame(const WwRendererFrame* frame, void* user) try {
     auto* host = static_cast<WwHost*>(user);
     WwRendererStats stats{};
@@ -52,11 +84,20 @@ static const char* capture_frame(const WwRendererFrame* frame, void* user) try {
         "\"frame\":%llu,\"command\":%llu,\"draws\":%llu,\"width\":%u,\"height\":%u,\"us\":%llu,\"cycles\":%llu,"
         "\"mem1_snapshots\":%u,\"phase\":\"after-gx-present-before-next-frame\",\"row_order\":\"top-first\","
         "\"raw\":\"frame-%llu-rgba.png\",\"display\":\"frame-%llu.png\","
-        "\"display_transform\":\"alpha=255; RGB unchanged from raw front-buffer readback\"}\n",
+        "\"display_transform\":\"alpha=255; RGB unchanged from raw front-buffer readback\","
+        "\"renderer\":{\"fifo_bytes\":%llu,\"events\":%llu,\"plans\":%llu,\"plans_skipped\":%llu,"
+        "\"programs\":%llu,\"programs_distinct\":%llu,\"programs_refused\":%llu,\"copies\":%llu,"
+        "\"copies_refused\":%llu,\"display_copies\":%llu,\"gaps\":%u}}\n",
         identity->token, identity->source, identity->package, host->dsp.audio_deferred ? "deferred" : "strict", index,
         static_cast<unsigned long long>(host->stream.decoded), static_cast<unsigned long long>(stats.draws),
         frame->width, frame->height, static_cast<unsigned long long>(us),
-        static_cast<unsigned long long>(host->cycles.absolute_cycles), identity->captured, index, index);
+        static_cast<unsigned long long>(host->cycles.absolute_cycles), identity->captured, index, index,
+        static_cast<unsigned long long>(stats.fifo_bytes), static_cast<unsigned long long>(stats.events),
+        static_cast<unsigned long long>(stats.plans), static_cast<unsigned long long>(stats.plans_skipped),
+        static_cast<unsigned long long>(stats.programs), static_cast<unsigned long long>(stats.programs_distinct),
+        static_cast<unsigned long long>(stats.programs_refused), static_cast<unsigned long long>(stats.copies),
+        static_cast<unsigned long long>(stats.copies_refused), static_cast<unsigned long long>(stats.display_copies),
+        stats.gap_count);
     if (written < 0) {
         const int closed = fclose(stream);
         return closed != 0 ? "live frame metadata write and close failed" : "live frame metadata write failed";
@@ -68,7 +109,7 @@ static const char* capture_frame(const WwRendererFrame* frame, void* user) try {
                 index, static_cast<unsigned long long>(host->stream.decoded), static_cast<unsigned long long>(us),
                 frame->width, frame->height, index, index) < 0)
         return "live frame evidence trace write failed";
-    return nullptr;
+    return trace_renderer_reasons(stats, index, host->dsp.audio_deferred ? "deferred" : "strict");
 } catch (const std::bad_alloc&) {
     return "live frame PNG allocation failed";
 }

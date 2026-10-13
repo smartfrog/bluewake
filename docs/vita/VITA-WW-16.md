@@ -2883,3 +2883,46 @@ Actual journal **`data/Vita3K/Vita3K/ux0/data/bluewake-ww-fixture/ww05.log`**;
 snapshots/monitor samples stay intact. No logo, gameplay, physical Vita, sound,
 FPS baseline or 30+ FPS claim. Do not raise the phase ceiling or capture bounds
 to hide the unresolved black picture; preserve **O1 -j2** and pause full DSP/PCM.
+
+## Unit 72: retain actual renderer health at the live image boundary
+
+Each already-authorized live PNG metadata record now retains its actual
+**renderer fifo bytes / events / plans / skipped plans / submitted programs /
+distinct program keys / shader refusals / copies / refused copies / display
+copies / gap count**, sampled by the same existing stats call **after actual
+presentation and before next-frame parsing**. Draw count, identity, explicit
+**audio**, original capture clock/cycles and raw/display image policy stay
+unchanged. Actual bounded skip/shader/copy reasons and named nonzero gaps are
+also emitted with the frame index and audio mode; trace failure remains fatal.
+No shader, draw, device completion or pixel is replaced.
+
+The existing private collector validates the optional complete numeric schema
+and bounded gap count. Earlier metadata without these counters stays accepted
+as **unknown**, never augmented with invented zeros. The counters belong to
+that capture instant only and do not turn a later timeout into a certified
+final report or provide missing contemporaneous late MEM1 for replay. No-dump
+profiles still do no readback and emit no frame metadata; renderer code and
+guest instruction/timing/audio behavior are unchanged.
+
+Test-first: actual two-presentation synthetic metadata was genuinely red with
+missing **renderer** fields (**logs/ww16-frame-renderer-red.log**). Six added
+tests verify contemporaneous counters, real fixture-driven shader refusal with
+no extra submitted draw, loud refusal-trace failure preserving already
+published images, parameterized malformed integers, partial schema rejection,
+and absent legacy counters staying absent. The synthetic triangle's existing
+**unresolved_tex_matrix** gap was initially mistaken for zero by the new test;
+inspection proved actual values **1 / 2** in the two frames. The test now
+asserts that evidence rather than hiding the gap or altering the renderer.
+Failed check **logs/ww16-frame-renderer-green-live.log** and exact synthetic
+files **logs/ww16-frame-renderer-synthetic-inspection/** remain preserved.
+That synthetic gap is **not** a diagnosis of the game's black image.
+
+Linux AArch64: **738 host tests pass**
+(**logs/ww16-frame-renderer-host.log**), all 732 prior scenarios green; ARM host
+links with **-j2** (**logs/ww16-frame-renderer-arm.log**), no new warnings.
+Audit/attribution/whitespace pass. No physical Vita, Windows CI, sound, logo,
+gameplay or FPS claim. Commit and certified **VI/O1 -j2** rebuild, then a fresh
+continuously watched **300 s ceiling / journal 2048 / MEM1=2 + live PNG /
+audio=deferred** trial to expose the actual later renderer counters without
+another blind extension of the ceiling. Full DSP/PCM remains paused and all
+prior captures/incomplete evidence remain untouched.

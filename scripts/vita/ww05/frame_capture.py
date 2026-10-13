@@ -11,6 +11,8 @@ from gx.image_metadata import png_metadata, verify_display_rgb
 
 MAX_FRAMES = 128
 MAX_PNG_BYTES = 4 * 1024 * 1024
+RENDERER_COUNTERS = frozenset(('fifo_bytes', 'events', 'plans', 'plans_skipped', 'programs', 'programs_distinct',
+                              'programs_refused', 'copies', 'copies_refused', 'display_copies', 'gaps'))
 
 
 def frame_outputs(directory):
@@ -55,6 +57,14 @@ def collect_frames(directory, output, *, enabled, presented, token, source, pack
         for key in ('frame', 'command', 'draws', 'width', 'height', 'us', 'cycles', 'mem1_snapshots'):
             if type(record.get(key)) is not int or not 0 <= record[key] <= (1 << 64) - 1:
                 raise ValueError('live frame numeric metadata mismatch')
+        if 'renderer' in record:
+            renderer = record['renderer']
+            if not isinstance(renderer, dict) or set(renderer) != RENDERER_COUNTERS:
+                raise ValueError('live frame renderer counter schema mismatch')
+            if any(type(value) is not int or not 0 <= value <= (1 << 64) - 1 for value in renderer.values()):
+                raise ValueError('live frame renderer numeric counter mismatch')
+            if renderer['gaps'] > 16:
+                raise ValueError('live frame renderer gap count exceeds its bound')
         if record['us'] <= previous_us:
             raise ValueError('live capture clock did not advance')
         if not 1 <= record['width'] <= 4096 or not 1 <= record['height'] <= 4096 or record['width'] * record['height'] > 960 * 544:

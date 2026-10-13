@@ -10,6 +10,7 @@ import test_host
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / 'feasibility/gx'))
 from test_png_capture import parse_png
 sys.path.insert(0, str(Path(__file__).resolve().parents[2] / 'scripts/vita/armv7'))
+sys.path.insert(0, str(Path(__file__).resolve().parents[2] / 'scripts/vita/ww05'))
 
 
 class LiveFramesTest(unittest.TestCase):
@@ -83,7 +84,6 @@ class LiveFramesTest(unittest.TestCase):
             self.assertFalse((root / 'frames/frame-1.json').exists())
 
     def test_live_collector_keeps_both_pngs_in_private_evidence_and_records_exact_pixel_statistics(self):
-        sys.path.insert(0, str(Path(__file__).resolve().parents[2] / 'scripts/vita/ww05'))
         from frame_capture import collect_frames
         with tempfile.TemporaryDirectory(dir='/tmp/opencode', prefix='ww16-live-') as directory:
             root = Path(directory)
@@ -147,3 +147,81 @@ class LiveFramesTest(unittest.TestCase):
             with self.assertRaisesRegex(ValueError, 'audio policy'):
                 collect_frames(root / 'frames', root / 'frames', enabled=True, presented=2,
                                token='c' * 32, source='a' * 40, package='b' * 64, audio='deferred')
+
+    def test_live_metadata_keeps_actual_renderer_counters_at_each_presentation(self):
+        with tempfile.TemporaryDirectory(dir='/tmp/opencode', prefix='ww16-live-') as directory:
+            root = Path(directory)
+            log = self.probe(root, 'image-two')
+            for frame in (1, 2):
+                with self.subTest(frame=frame):
+                    metadata = json.loads((root / f'frames/frame-{frame}.json').read_text())
+                    renderer = metadata['renderer']
+                    self.assertEqual(renderer['plans'], frame)
+                    self.assertEqual(renderer['programs'], frame)
+                    self.assertEqual(renderer['programs_distinct'], 1)
+                    self.assertEqual(renderer['display_copies'], frame)
+                    for field in ('plans_skipped', 'programs_refused', 'copies_refused'):
+                        self.assertEqual(renderer[field], 0)
+                    self.assertEqual(renderer['gaps'], 1)
+                    self.assertIn(f'[frame-renderer-gap] frame={frame} audio=strict name=unresolved_tex_matrix value={frame}', log)
+
+    def test_live_metadata_exposes_a_real_shader_refusal_without_claiming_an_extra_submitted_draw(self):
+        with tempfile.TemporaryDirectory(dir='/tmp/opencode', prefix='ww16-live-') as directory:
+            root = Path(directory)
+            log = self.probe(root, 'image-refused')
+            metadata = json.loads((root / 'frames/frame-2.json').read_text())
+            self.assertEqual(metadata['draws'], 1)
+            self.assertEqual(metadata['renderer']['plans'], 2)
+            self.assertEqual(metadata['renderer']['programs_refused'], 1)
+            self.assertIn('category=shader audio=strict reason=indirect TEV lookups not supported', log)
+
+    def test_renderer_refusal_trace_failure_stops_and_preserves_the_actual_published_frame(self):
+        with tempfile.TemporaryDirectory(dir='/tmp/opencode', prefix='ww16-live-') as directory:
+            root = Path(directory)
+            log = self.probe(root, 'image-refusal-trace-failure')
+            self.assertIn('refusal trace write failed', log)
+            self.assertTrue((root / 'frames/frame-2.png').exists())
+            metadata = json.loads((root / 'frames/frame-2.json').read_text())
+            self.assertEqual(metadata['renderer']['programs_refused'], 1)
+
+    def test_live_collector_rejects_malformed_present_renderer_counters(self):
+        from frame_capture import collect_frames
+        for value in (-1, True, 1.5, '0', 1 << 64):
+            with self.subTest(value=value), tempfile.TemporaryDirectory(dir='/tmp/opencode', prefix='ww16-live-') as directory:
+                root = Path(directory)
+                self.probe(root, 'image-two')
+                path = root / 'frames/frame-2.json'
+                metadata = json.loads(path.read_text())
+                metadata['renderer']['programs_refused'] = value
+                path.write_text(json.dumps(metadata))
+                with self.assertRaisesRegex(ValueError, 'renderer'):
+                    collect_frames(root / 'frames', root / 'frames', enabled=True, presented=2,
+                                   token='c' * 32, source='a' * 40, package='b' * 64)
+
+    def test_live_collector_rejects_partial_renderer_counter_schema(self):
+        from frame_capture import collect_frames
+        with tempfile.TemporaryDirectory(dir='/tmp/opencode', prefix='ww16-live-') as directory:
+            root = Path(directory)
+            self.probe(root, 'image-two')
+            path = root / 'frames/frame-2.json'
+            metadata = json.loads(path.read_text())
+            del metadata['renderer']['programs_refused']
+            path.write_text(json.dumps(metadata))
+            with self.assertRaisesRegex(ValueError, 'renderer'):
+                collect_frames(root / 'frames', root / 'frames', enabled=True, presented=2,
+                               token='c' * 32, source='a' * 40, package='b' * 64)
+
+    def test_legacy_frame_metadata_without_renderer_counters_remains_unknown_not_zero(self):
+        from frame_capture import collect_frames
+        with tempfile.TemporaryDirectory(dir='/tmp/opencode', prefix='ww16-live-') as directory:
+            root = Path(directory)
+            self.probe(root, 'image-two')
+            for frame in (1, 2):
+                path = root / f'frames/frame-{frame}.json'
+                metadata = json.loads(path.read_text())
+                del metadata['renderer']
+                path.write_text(json.dumps(metadata))
+            result = collect_frames(root / 'frames', root / 'frames', enabled=True, presented=2,
+                                    token='c' * 32, source='a' * 40, package='b' * 64)
+            for frame in result['frames']:
+                self.assertNotIn('renderer', frame)

@@ -87,6 +87,11 @@ extern "C" int __wrap_fprintf(FILE* stream, const char* format, ...) {
         errno = ENOSPC;
         return -1;
     }
+    if (capture_scenario != nullptr && std::strcmp(capture_scenario, "image-refusal-trace-failure") == 0 &&
+        stream == stderr && std::strstr(format, "[frame-renderer-refusal]") == format) {
+        errno = ENOSPC;
+        return -1;
+    }
     va_list arguments;
     va_start(arguments, format);
     const int result = std::vfprintf(stream, format, arguments);
@@ -225,7 +230,10 @@ int main(int argc, char** argv) {
             for (u32 frame = 1u; frame <= 2u; ++frame) {
                 if (frame == 2u) {
                     std::vector<u8> draw;
-                    gx_fixture::push_triangle(draw);
+                    if (std::strcmp(scenario, "image-refused") == 0 || std::strcmp(scenario, "image-refusal-trace-failure") == 0)
+                        draw = gx_fixture::build_indirect_triangle();
+                    else
+                        gx_fixture::push_triangle(draw);
                     assert(feed(host, draw.data(), draw.size()) == nullptr);
                 }
                 const u8 display_copy[] = {0x61u, 0x52u, 0u, 0x40u, 0u};
@@ -236,6 +244,11 @@ int main(int argc, char** argv) {
                 }
                 if (backend.fail_readback || backend.invalid_readback || std::strcmp(scenario, "image-png-write-failure") == 0) {
                     assert(error != nullptr && backend.presents == 1u && backend.readbacks == 1u);
+                    break;
+                }
+                if (frame == 2u && std::strcmp(scenario, "image-refusal-trace-failure") == 0) {
+                    assert(error != nullptr && std::strstr(error, "refusal trace write failed") != nullptr);
+                    assert(backend.presents == 2u && backend.readbacks == 2u && backend.draws == 1u);
                     break;
                 }
                 assert(error == nullptr && backend.presents == frame);
