@@ -36,7 +36,19 @@ static void rom_send(WwHost* host, u32 mail) {
 static void rom_probe(WwHost* host, const char* scenario) {
     const bool deferred = strncmp(scenario, "rom-deferred", 12u) == 0;
     const bool invalid_deferred = strncmp(scenario, "rom-deferred-invalid-", 21u) == 0;
+    const bool empty_query = strncmp(scenario, "rom-deferred-empty-", 19u) == 0;
     host->dsp.audio_deferred = deferred;
+    const StaticRecompRange query_range = {0x8028E880u, 0x8028E890u};
+    const StaticRecompModuleDesc query_module = {.code_ranges = &query_range, .num_code_ranges = 1u};
+    if (empty_query) {
+        const DolLayout layout = {.text_address = {query_range.start}, .text_size = {16u}};
+        host->module = &query_module;
+        assert(ww_code_guard_init(&host->code_guard, &host->cpu, &layout));
+        if (strcmp(scenario, "rom-deferred-empty-changed") == 0)
+            host->cpu.ram[query_range.start - GC_RAM_BASE] ^= 1u;
+        if (strcmp(scenario, "rom-deferred-empty-unregistered") == 0)
+            host->module = NULL;
+    }
     control_write(host, 0x0800u);
     assert(host->error == NULL && read_register(host, 0xCC005004u) == 0x8071u);
     if (strcmp(scenario, "rom-unconsumed-ready") != 0)
@@ -122,6 +134,18 @@ static void rom_probe(WwHost* host, const char* scenario) {
                 control_write(host, 0x0980u);
             }
             assert(!ww_dsp_interface_interrupt_pending(&host->dsp) && host->error == NULL);
+            if (empty_query) {
+                const WwDspInterface before_query = host->dsp;
+                host->dsp_task_boot_observed = true;
+                host->cpu.pc = 0x80319080u;
+                host->cpu.lr = strcmp(scenario, "rom-deferred-empty-waiter") == 0 ? 0x8028E874u : 0x8028E884u;
+                const u64 value = read_register(host, 0xCC005004u);
+                if (strcmp(scenario, "rom-deferred-empty-original") == 0)
+                    assert(value == 0x7355u && host->error == NULL && host->cpu.exception == 0u);
+                else
+                    assert(value == 0u && host->error != NULL && host->error_address == 0xCC005004u);
+                assert(memcmp(&host->dsp, &before_query, sizeof(before_query)) == 0);
+            }
             if (strcmp(scenario, "rom-deferred-command") == 0) {
                 rom_send(host, 0xCDD10001u);
                 assert(host->error != NULL && strstr(host->error, "deferred DSP") != NULL);

@@ -2064,3 +2064,34 @@ mail-read PC/LR and exception registers remain in the private guest log. Install
 no inactive/timeout termination. The real-DSP source port remains paused under
 the coordinator's video-first decision; this probe correction needs no new DSP
 response, task execution, sample clock or audio-DMA completion.
+
+## Unit 54: admit only the original nonwaiting post-handshake mailbox query
+
+The authentic Unit 53 exception proves **PC/LR 8028E884**, after the real callback
+consumed its handshake. The fix recognizes only a deferred, already bootstrapped
+host reading **DSPCheckMail at 80319080 with LR 8028E884**, whose caller block
+**8028E880** is both registered in the actual module and matches **16 original
+loaded DOL bytes** through the existing code guard. That is the source's
+nonwaiting post-consumption query before **8028F080**, not the earlier polling
+loop. Changed/unregistered caller text or the real waiter LR **8028E874** is still
+refused. Strict-mode behavior is unchanged.
+
+The permitted query goes through the ordinary device read, returning the actual
+retained **7355 high half** with its busy bit clear; the guest's own helper
+extracts zero. **No new mailbox word, interrupt, callback, running-flag write,
+guest PC jump, memory, time or DSP execution is synthesized.** It merely removes
+an erroneous STOP so the next actual guest instruction can execute. Later task
+processing remains explicitly deferred and must not be mistaken for a completed
+audio operation.
+
+Linux AArch64: **696 host tests pass**, three added contract scenarios (one
+parameterized): registered original query, changed/unregistered code, genuine
+waiter. The existing synthetic DSP probe checks complete DSP state, RAM/audio
+buffers, clocks/timebase, interrupts and frontier remain unchanged by the query.
+The original-query test was genuinely red before the guard correction
+(**logs/ww16-deferred-empty-probe-red.log**) and green with the whole suite
+(**logs/ww16-deferred-empty-probe-green.log**). Actual ARM host links without new
+warnings (**logs/ww16-deferred-empty-probe-arm.log**); audit/attribution/whitespace
+pass. No hardware, new visible pixels or FPS gain is claimed from these tests.
+Commit/rebuild and a fresh watched **MEM1 + PNG live + audio=deferred** trial
+follow, keeping video progress separate from any audio-processing dependency.

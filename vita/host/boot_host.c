@@ -448,6 +448,13 @@ static bool audio_dma_config_register(u32 address, u8 size) {
     return size == 2u && (address == 0xCC005030u || address == 0xCC005032u || address == 0xCC005036u);
 }
 
+static bool deferred_mail_status_query(const WwHost* host, const CPUState* cpu) {
+    return host->dsp.audio_deferred && host->dsp.deferred_task_started &&
+           cpu->pc == 0x80319080u && cpu->lr == 0x8028E884u &&
+           ww_host_module_contains_address(host->module, 0x8028E880u) &&
+           ww_code_guard_copied_text_matches(&host->code_guard, cpu, 0x8028E880u, 0x8028E880u, 16u);
+}
+
 static u16* pe_config_register(WwHost* host, u32 address, u8 size) {
     if (size != 2u || address < 0xCC001000u || address > 0xCC001008u || (address & 1u) != 0u)
         return NULL;
@@ -469,7 +476,8 @@ static u64 mmio_read(CPUState* cpu, u32 address, u8 size) {
     if (host->dsp_task_boot_observed && address == 0xCC005004u && size == 2u) {
         const bool supported_work = (host->dsp.control & WW_DSP_HALT_BIT) == 0u &&
             (host->dsp.rom_mail_pending || (!host->dsp.rom_selected && host->dsp.init_cycles_remaining != 0u));
-        if ((host->dsp.dsp_mailbox & 0x80000000u) == 0u && !supported_work) {
+        if ((host->dsp.dsp_mailbox & 0x80000000u) == 0u && !supported_work &&
+            !deferred_mail_status_query(host, cpu)) {
             ww_host_fail(host, host->dsp.audio_deferred ?
                          "deferred DSP bootstrap mails exhausted; guest requires another task response" :
                          "DSP task boot mailbox requires a DSP task backend; no reply injected", address, cpu->pc);

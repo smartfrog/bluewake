@@ -59,3 +59,14 @@ class DspRomTest(unittest.TestCase):
         for invalid in range(7):
             with self.subTest(invalid=invalid):
                 self.probe(f'rom-deferred-invalid-{invalid}')
+
+    def test_original_registered_nonwaiting_probe_returns_the_retained_busy_clear_mail_without_new_state(self):
+        self.probe('rom-deferred-empty-original')
+
+    def test_empty_status_query_cannot_bypass_the_guard_with_changed_or_unregistered_caller_code(self):
+        for scenario in ('rom-deferred-empty-changed', 'rom-deferred-empty-unregistered'):
+            with self.subTest(scenario=scenario):
+                self.probe(scenario)
+
+    def test_a_genuine_mail_waiter_is_not_misclassified_as_the_nonwaiting_post_consumption_query(self):
+        self.probe('rom-deferred-empty-waiter')
