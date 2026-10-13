@@ -69,7 +69,7 @@ class RendererCommandTest(unittest.TestCase):
         expected.extend(['/stack/vita3k/Vita3K', '--backend-renderer', 'OpenGL'])
         self.assertEqual(launch.sandbox_command(root, 'Vita3K', ['--backend-renderer', 'OpenGL']), expected)
 
-    def test_opt_in_changes_only_one_device_bind_and_the_software_force(self):
+    def test_opt_in_keeps_mount_scope_and_delays_libraries_until_the_guard(self):
         root = Path('/unused')
         with tempfile.TemporaryDirectory(dir='/tmp/opencode', prefix='ww24-display-') as directory, \
                 socket.socket(socket.AF_UNIX) as server:
@@ -85,9 +85,15 @@ class RendererCommandTest(unittest.TestCase):
                     self.assertEqual(command[index - 2:index + 3], ['--dir', '/dev/dri', '--dev-bind', str(NODE), str(NODE)])
                     self.assertEqual(command.count('--dev-bind'), 1)
                     self.assertNotIn('LIBGL_ALWAYS_SOFTWARE', command)
-                    reduced = command[:index - 2] + command[index + 3:]
-                    software = baseline.index('LIBGL_ALWAYS_SOFTWARE')
-                    self.assertEqual(reduced, baseline[:software - 1] + baseline[software + 2:])
+                    guard = command.index('/usr/bin/python3')
+                    libraries = '/stack/vita3k-env/lib' if options.get('libraries') else ''
+                    self.assertEqual(command[guard:], launch.renderer_guard_command(['/stack/vita3k/Vita3K'], HARDWARE, libraries))
+                    reduced = command[:index - 2] + command[index + 3:guard] + ['/stack/vita3k/Vita3K']
+                    for variable in ('LIBGL_ALWAYS_SOFTWARE', 'LD_LIBRARY_PATH'):
+                        if variable in baseline:
+                            environment = baseline.index(variable)
+                            baseline[environment - 1:environment + 2] = []
+                    self.assertEqual(reduced, baseline)
 
     def test_renderer_identity_records_requested_device_without_claiming_a_gpu(self):
         with node_stat():
@@ -197,6 +203,7 @@ class RendererPlanTest(unittest.TestCase):
         args = SimpleNamespace(libraries=None, wayland_socket=None, timeout=60)
         plan = stage_plan.make_plan(Path('/unused'), args, 'a' * 40, 'b' * 64, 'c' * 32)
         self.assertEqual(plan['renderer'], SOFTWARE)
+        self.assertNotIn('renderer_guard', plan)
         for phase in plan['phases'].values():
             self.assertEqual(phase['renderer'], SOFTWARE)
             self.assertIn('LIBGL_ALWAYS_SOFTWARE', phase['command'])
@@ -207,13 +214,27 @@ class RendererPlanTest(unittest.TestCase):
         with node_stat():
             plan = stage_plan.make_plan(Path('/unused'), args, 'a' * 40, 'b' * 64, 'c' * 32)
         self.assertEqual(plan['renderer'], HARDWARE)
+        self.assertEqual(plan['renderer_guard']['method'], 'mounted-render-node-stat-v1')
         for phase in plan['phases'].values():
             self.assertEqual(phase['renderer'], HARDWARE)
+            self.assertEqual(phase['renderer_guard'], plan['renderer_guard'])
             command = phase['command']
             index = command.index('--dev-bind')
             self.assertEqual(command[index:index + 3], ['--dev-bind', str(NODE), str(NODE)])
             self.assertNotIn('LIBGL_ALWAYS_SOFTWARE', command)
             self.assertIn('--unshare-all', command)
+
+    def test_ww05_optional_mounts_are_inserted_before_the_guard_not_inside_guest_argv(self):
+        for options, source in (({'disc': Path('/synthetic.iso')}, '/synthetic.iso'),
+                                ({'mem1_snapshots': 2, 'continue_gx': 2048}, '/unused/evidence/frames')):
+            with self.subTest(options=options), node_stat():
+                args = SimpleNamespace(libraries=None, wayland_socket=None, timeout=60, render_node=NODE, **options)
+                plan = stage_plan.make_plan(Path('/unused'), args, 'a' * 40, 'b' * 64, 'c' * 32)
+                command = plan['phases']['guest']['command']
+                guard = command.index('/usr/bin/python3')
+                self.assertLess(command.index(source), guard)
+                application = ['/stack/vita3k/Vita3K', '--backend-renderer', 'OpenGL', '--installed-path', 'BWWG00005']
+                self.assertEqual(command[guard:], launch.renderer_guard_command(application, HARDWARE))
 
     def test_ww05_invalid_node_fails_before_staging_or_reading_game_inputs(self):
         args = SimpleNamespace(timeout=60, render_node=Path('/dev/null'))
@@ -253,9 +274,11 @@ class RendererPlanTest(unittest.TestCase):
             root, = output.glob('vita3k-run-*')
             plan = json.loads((root / 'evidence/plan.json').read_text())
             self.assertEqual(plan['renderer'], HARDWARE)
+            self.assertEqual(plan['renderer_guard']['method'], 'mounted-render-node-stat-v1')
             for name, phase in plan['phases'].items():
                 saved = json.loads((root / 'phases' / name / 'evidence/plan.json').read_text())
                 self.assertEqual(saved['renderer'], HARDWARE)
+                self.assertEqual(saved['renderer_guard'], plan['renderer_guard'])
                 self.assertEqual(saved, phase)
                 self.assertNotIn('LIBGL_ALWAYS_SOFTWARE', phase['command'])
                 self.assertEqual(phase['command'].count('--dev-bind'), 1)

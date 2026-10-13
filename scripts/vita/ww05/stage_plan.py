@@ -19,7 +19,7 @@ from memory_capture import MAX_CAPTURES, validate_memory_captures
 
 sys.path.insert(0, str(ROOT / 'scripts/vita/armv7'))
 from fp_launch import (add_render_node_argument, create_run, evidence_file, reject_symlinks,
-                       renderer_identity, sandbox_command, stage_runtime)
+                       renderer_guard_plan, renderer_identity, sandbox_command, stage_runtime)
 from fp_libraries import file_identity, library_identity
 from fp_profile import config_identity, stage_firmware, read_profile_file
 from fp_campaign import runtime_inputs
@@ -92,18 +92,19 @@ def make_plan(root, args, source, package, run):
                      'timeout_seconds': min(args.timeout, 600) if name == 'install' else args.timeout,
                      'evidence_root': str(root / 'phases' / name)}
                for name, command in commands.items()}
+    sandbox_program = '/usr/bin/python3' if render_node is not None else '/stack/vita3k/Vita3K'
     if memory_captures:
         command = phases['guest']['command']
-        index = command.index('/stack/vita3k/Vita3K')
+        index = command.index(sandbox_program)
         command[index:index] = ['--bind', str(root / 'evidence/frames'),
                               '/run/ww03/data/Vita3K/Vita3K/ux0/data/bluewake-ww-fixture/frames']
     disc = getattr(args, 'disc', None)
     if disc is not None:
         for phase in phases.values():
-            index = phase['command'].index('/stack/vita3k/Vita3K')
+            index = phase['command'].index(sandbox_program)
             phase['command'][index:index] = ['--ro-bind', str(disc),
                 '/run/ww03/data/Vita3K/Vita3K/ux0/data/bluewake/GZLE01.iso']
-    return {'ticket': 'VITA-WW-05', 'method': 'startup-gx-v1', 'title': 'BWWG00005',
+    plan = {'ticket': 'VITA-WW-05', 'method': 'startup-gx-v1', 'title': 'BWWG00005',
             'renderer': renderer,
             'continue_gx': limit, 'mem1_snapshots': memory_captures,
             'mem1_command_window': command_window, 'journal_byte_limit': MAX_JOURNAL_BYTES,
@@ -137,6 +138,12 @@ def make_plan(root, args, source, package, run):
                         'parser once; opcode/raw bytes/start and completion PC/SP; edge-service latch; rendered=0',
             'input_policy': 'recheck clean source, artifacts, runtime, config and firmware before launch; '
                             'reject existing phase process evidence; preserve every attempt'}
+    guard = renderer_guard_plan(renderer)
+    if guard is not None:
+        plan['renderer_guard'] = guard
+        for phase in phases.values():
+            phase['renderer_guard'] = guard
+    return plan
 
 
 def verify_package(evidence):

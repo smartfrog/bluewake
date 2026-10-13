@@ -221,7 +221,7 @@ def execute_run(root, plan):
         memory_preflight(root, plan, 'install')
         print(f"RUN phase=install evidence={phase}/evidence", flush=True)
         status = run_owned(install['command'], root, install['timeout_seconds'], evidence_root=phase,
-                           phase_observer=installer_observer(root, plan))
+                           phase_observer=installer_observer(root, plan), renderer=plan.get('renderer'))
         process = json.loads((phase / 'evidence/process.json').read_text())
         print(f"STOP phase=install reason={process['stop_reason']} seconds={process['duration_seconds']:.2f}", flush=True)
         record.update(install_status=status, install_process=process)
@@ -253,7 +253,7 @@ def execute_run(root, plan):
             stream.write('\n')
         print(f"RUN phase=guest evidence={phase}/evidence", flush=True)
         status = run_owned(guest['command'], root, guest['timeout_seconds'], evidence_root=phase,
-                            phase_observer=activity_observer(root, plan, phase))
+                            phase_observer=activity_observer(root, plan, phase), renderer=plan.get('renderer'))
         process = json.loads((phase / 'evidence/process.json').read_text())
         record.update(process_status=status, process=process)
         with evidence_file(root, 'guest-disposition.json') as stream:
