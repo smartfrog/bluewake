@@ -227,11 +227,16 @@ class MainIoTest(unittest.TestCase):
                 self.assertIsNone(report)
 
     def test_invalid_memory_capture_request_stops_before_guest_execution_or_report_creation(self):
-        for limit in ('0', '9', '-1', '2 extra', '2\nextra'):
+        for limit in ('0', '17', '-1', '2 extra', '2\nextra'):
             with self.subTest(limit=limit):
                 status, report = self.run_fixture(consumer=True, continue_gx=2048, memory_captures=limit)
                 self.assertNotEqual(status, 0)
                 self.assertIsNone(report)
+
+    def test_two_digit_snapshot_budget_passes_the_native_identity_bound_request_parser(self):
+        status, report = self.run_fixture(consumer=True, continue_gx=2048, memory_captures=16)
+        self.assertEqual(status, 1)
+        self.assertIn('STOP reason=unsupported MMIO read', report)
 
     def test_memory_capture_requires_the_opt_in_command_journal(self):
         status, report = self.run_fixture(consumer=True, memory_captures=1)

@@ -11,14 +11,14 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from gx.capture import journal_commands
 from report import MAX_JOURNAL_COMMANDS
 
-MAX_CAPTURES = 8
+MAX_CAPTURES = 16
 MEM1_BYTES = 24 * 1024 * 1024
 DRAW_FAMILIES = (0x80, 0x90, 0x98, 0xA0, 0xA8, 0xB0, 0xB8)
 
 
 def validate_memory_captures(count, continue_gx, command_window=None):
     if type(count) is not int or not 0 <= count <= MAX_CAPTURES:
-        raise ValueError('MEM1 capture count must be 0..8')
+        raise ValueError(f'MEM1 capture count must be 0..{MAX_CAPTURES}')
     if count and not continue_gx:
         raise ValueError('MEM1 capture requires an opt-in command journal')
     if command_window is not None:
