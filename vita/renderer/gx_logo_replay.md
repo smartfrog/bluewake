@@ -1,5 +1,10 @@
 # VITA-WW-18: synchronized later-draw GPU replay
 
+Follow-up: the later CI window is now captured and replayed. See
+[gx_boot_101_replay.md](gx_boot_101_replay.md) for the exact frame-101 match and
+the transparent progressive-scan notice. The missing-window statements below
+describe the earlier 85-frame run, not the new delivery.
+
 ## Outcome
 
 The supplied later draws reproduce the Nintendo logo. **Draw 10767 is a
