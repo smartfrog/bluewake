@@ -39,7 +39,7 @@ struct Counts {
   std::uint64_t programs = 0;
   std::uint64_t programs_refused = 0;
   std::uint64_t programs_distinct = 0; // unique shader keys among the programs
-  std::uint64_t copies = 0;
+  std::uint64_t copies = 0; // texture destinations; GXCopyDisp is a frame boundary
   std::uint64_t copies_ok = 0;
   std::uint64_t copies_refused = 0;
 };

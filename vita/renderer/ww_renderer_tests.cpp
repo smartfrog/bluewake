@@ -144,6 +144,19 @@ public:
     if (present_error != nullptr)
       return present_error;
     ++presents;
+    events.push_back("present");
+    return nullptr;
+  }
+
+  const char* readback(WwRendererFramePixels& frame) override {
+    events.push_back("readback");
+    if (readback_error != nullptr)
+      return readback_error;
+    frame.width = 2;
+    frame.height = 1;
+    frame.rgba = {1, 2, 3, 255, 4, 5, 6, 255};
+    if (invalid_readback)
+      frame.rgba.pop_back();
     return nullptr;
   }
 
@@ -166,6 +179,9 @@ public:
   const char* copy_error = nullptr;
   const char* present_error = nullptr;
   const char* finish_error = nullptr;
+  const char* readback_error = nullptr;
+  bool invalid_readback = false;
+  std::vector<std::string> events;
   std::vector<DrawRecord> draws;
   std::vector<CopyRecord> copies;
 };
@@ -197,6 +213,112 @@ std::vector<std::uint8_t> frame_with_display_copy() {
   std::vector<std::uint8_t> fifo = gx_fixture::build_textured_triangle();
   gx_fixture::push_bp(fifo, 0x52u, 1u << 14u);
   return fifo;
+}
+
+struct FrameCapture {
+  explicit FrameCapture(RecordingBackend* backend) : backend(backend) {}
+  RecordingBackend* backend;
+  unsigned calls = 0;
+  std::size_t draws_at_capture = 0;
+  std::vector<std::uint8_t> pixels;
+  const char* error = nullptr;
+};
+
+const char* capture_frame(const WwRendererFrame* frame, void* user) {
+  auto& capture = *static_cast<FrameCapture*>(user);
+  ++capture.calls;
+  capture.draws_at_capture = capture.backend->draws.size();
+  capture.pixels.assign(frame->rgba, frame->rgba + frame->size);
+  capture.backend->events.push_back("capture");
+  return capture.error;
+}
+
+int capture_presented_frame_before_next_draw() {
+  Fixture fixture;
+  RecordingBackend backend;
+  FrameCapture capture{&backend};
+  WwRenderer* renderer = nullptr;
+  auto config = fixture.config();
+  CHECK(ww_renderer_create(&renderer, &config, &backend) == nullptr);
+  CHECK(ww_renderer_set_frame_capture(renderer, capture_frame, &capture) == nullptr);
+  auto fifo = frame_with_display_copy();
+  const auto next = gx_fixture::build_state_triangle();
+  fifo.insert(fifo.end(), next.begin(), next.end());
+  CHECK(ww_renderer_write(renderer, fifo.data(), fifo.size()) == nullptr);
+  CHECK(capture.calls == 0);
+  CHECK(ww_renderer_present(renderer, nullptr) == nullptr);
+  CHECK(capture.calls == 1 && capture.draws_at_capture == 1);
+  CHECK(backend.draws.size() == 2);
+  CHECK(backend.events == std::vector<std::string>({"present", "readback", "capture"}));
+  CHECK(capture.pixels == std::vector<std::uint8_t>({1, 2, 3, 255, 4, 5, 6, 255}));
+  ww_renderer_destroy(renderer);
+  return 0;
+}
+
+int capture_failure_stops_before_next_draw() {
+  Fixture fixture;
+  RecordingBackend backend;
+  FrameCapture capture{&backend};
+  capture.error = "PNG disk failure";
+  WwRenderer* renderer = nullptr;
+  auto config = fixture.config();
+  CHECK(ww_renderer_create(&renderer, &config, &backend) == nullptr);
+  CHECK(ww_renderer_set_frame_capture(renderer, capture_frame, &capture) == nullptr);
+  auto fifo = frame_with_display_copy();
+  const auto next = gx_fixture::build_state_triangle();
+  fifo.insert(fifo.end(), next.begin(), next.end());
+  CHECK(ww_renderer_write(renderer, fifo.data(), fifo.size()) == nullptr);
+  const char* error = ww_renderer_present(renderer, nullptr);
+  CHECK(error != nullptr && std::strcmp(error, "PNG disk failure") == 0);
+  CHECK(backend.draws.size() == 1);
+  CHECK(std::strcmp(ww_renderer_write(renderer, next.data(), next.size()), error) == 0);
+  ww_renderer_destroy(renderer);
+  return 0;
+}
+
+int readback_failure_never_calls_writer() {
+  Fixture fixture;
+  RecordingBackend backend;
+  backend.readback_error = "framebuffer readback unavailable";
+  FrameCapture capture{&backend};
+  WwRenderer* renderer = nullptr;
+  auto config = fixture.config();
+  CHECK(ww_renderer_create(&renderer, &config, &backend) == nullptr);
+  const auto fifo = gx_fixture::build_textured_triangle();
+  CHECK(ww_renderer_write(renderer, fifo.data(), fifo.size()) == nullptr);
+  CHECK(ww_renderer_capture_frame(renderer, capture_frame, &capture) != nullptr);
+  CHECK(capture.calls == 0);
+  ww_renderer_destroy(renderer);
+  return 0;
+}
+
+int capture_is_off_by_default() {
+  Fixture fixture;
+  RecordingBackend backend;
+  WwRenderer* renderer = nullptr;
+  auto config = fixture.config();
+  CHECK(ww_renderer_create(&renderer, &config, &backend) == nullptr);
+  const auto fifo = frame_with_display_copy();
+  CHECK(ww_renderer_write(renderer, fifo.data(), fifo.size()) == nullptr);
+  CHECK(ww_renderer_present(renderer, nullptr) == nullptr);
+  CHECK(backend.events == std::vector<std::string>({"present"}));
+  ww_renderer_destroy(renderer);
+  return 0;
+}
+
+int invalid_readback_never_calls_writer() {
+  Fixture fixture;
+  RecordingBackend backend;
+  backend.invalid_readback = true;
+  FrameCapture capture{&backend};
+  WwRenderer* renderer = nullptr;
+  auto config = fixture.config();
+  CHECK(ww_renderer_create(&renderer, &config, &backend) == nullptr);
+  const char* error = ww_renderer_capture_frame(renderer, capture_frame, &capture);
+  CHECK(error != nullptr && std::strstr(error, "dimensions/bytes") != nullptr);
+  CHECK(capture.calls == 0);
+  ww_renderer_destroy(renderer);
+  return 0;
 }
 
 float vertex_float(const DrawRecord& draw, std::uint32_t vertex,
@@ -753,8 +875,14 @@ int refused_program_cannot_confirm_completion() {
   WwRenderer* renderer = nullptr;
   WwRendererConfig config = fixture.config();
   CHECK(ww_renderer_create(&renderer, &config, &backend) == nullptr);
-  const auto fifo = gx_fixture::build_indirect_triangle();
+  const auto fifo = gx_fixture::build_dstalpha_triangle();
   CHECK(ww_renderer_write(renderer, fifo.data(), fifo.size()) == nullptr);
+  WwRendererStats stats{};
+  ww_renderer_stats(renderer, &stats);
+  CHECK(stats.plans == 1u && stats.programs_refused == 1u && stats.draws == 0u);
+  CHECK(stats.refusal_count == 1u);
+  CHECK(std::strcmp(stats.refusal_reasons[0],
+                    "destination alpha requires dual-source blending") == 0);
   CHECK(ww_renderer_finish(renderer) != nullptr);
   CHECK(backend.finishes == 0 && backend.presents == 0);
   ww_renderer_destroy(renderer);
@@ -762,6 +890,11 @@ int refused_program_cannot_confirm_completion() {
 }
 
 int main() {
+  CHECK(capture_presented_frame_before_next_draw() == 0);
+  CHECK(capture_failure_stops_before_next_draw() == 0);
+  CHECK(readback_failure_never_calls_writer() == 0);
+  CHECK(capture_is_off_by_default() == 0);
+  CHECK(invalid_readback_never_calls_writer() == 0);
   CHECK(primitive_coverage() == 0);
   CHECK(indexed_vertex_coverage() == 0);
   CHECK(indexed_xf_coverage() == 0);

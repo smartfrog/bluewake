@@ -29,6 +29,33 @@ WW02_BUILD=build-f6/ww18 python3 scripts/vita/gx/bridge.py FIXTURE/stream.fifo \
   --snapshot FIXTURE/memory.json
 ```
 
+For a **visible GPU image** rather than translation counters alone, add
+`--image-output build-f6/ww18/images/NEW` to extraction. The PNG, raw RGBA PNG,
+local HTML viewer and SHA/source manifest are retained privately. See
+`vita/renderer/gx_visible_image.md` for capture boundaries, the surface-sync
+setting, explicit presentation-alpha handling and live-host integration limits.
+No image is synthesized when memory is missing.
+
+Lane 16 may deliver numbered snapshots taken **before renderer write at command
+N**. The producer command is timing provenance, **not necessarily the FIFO
+extent**: the real `33aa66c9...` manifests bind the full 2,048-command logged
+journal despite being captured before commands 990/1962. Replay the extent bound
+by `fifo_sha256` unchanged. Only when the manifest binds a shorter prefix, use:
+
+```sh
+WW02_BUILD=build-f6/ww18 python3 scripts/vita/gx/extract.py RUN/ww05.log \
+  --snapshot RUN/ww05.mem1-1.snapshot.json --through-command N \
+  --output build-f6/ww18/real-first-draw-NEW \
+  --image-output build-f6/ww18/images/real-first-draw-NEW
+```
+
+The selector copies **whole commands 1 through N** unchanged and validates the
+snapshot FIFO hash against that exact prefix. It retains the full journal/report
+source hashes and total journal extent, labels `selected-command-prefix`, and
+keeps the full report's pending tail separate from the selected whole-command
+prefix. It refuses N outside logged coverage. No source log is edited and no
+later resource versions are guessed from an earlier dump.
+
 The legacy explicit form still accepts a raw, contiguous memory image starting
 at physical address zero, without a manifest:
 
@@ -179,7 +206,7 @@ truncating long draw records and must retain matching texture/array/DL bytes.
 
 ## Checked on Linux
 
-- 70 Python tests pass, including snapshot format/hash/bounds validation,
+- 81 Python tests pass, including snapshot format/hash/bounds validation,
   sparse coverage, fixture tampering and stale-bridge refusal, plus frame validation after a memory-dependent
   command, sequence gaps, metadata, pending tails, memory refusal, silent draw
   loss and nonzero feature gaps.

@@ -1,5 +1,24 @@
 # VITA-WW-18: first captured real draw prefix
 
+## Matching-memory image delivered
+
+The newer same-run capture `33aa66c91b9d49a1b78cbabdeb1f86c3` delivered actual
+24 MiB MEM1 snapshots. Its snapshot 2 and the exact 2,048-command/14,464-byte
+journal replay through the guarded bridge with **two usable plans/programs,
+zero gaps/refusals and `verdict=ran`**.
+
+The actual vitaGL replay PNG was opened:
+`build-f6/ww18/images/real-33aa-snapshot2/capture.png`, with `image.json`, raw
+RGBA PNG and a local viewer beside it. SHA-256:
+`c871acff3fc84ccec64ed29b05f2b1549e05b5067e2e5adf193b60d5490fdae5`.
+It is black uniformly, consistent with the two recorded opaque-black 640×480
+initialization quads, not evidence of gameplay. The final capture is a labelled
+preview of the logged prefix, not its missing next GX presentation.
+Full provenance, GPU run and limits: [gx_visible_image.md](gx_visible_image.md).
+All images/RAM/resources remain private and ignored; no source pin changed.
+
+## Earlier blocked capture (historical)
+
 The real stream took priority as soon as it appeared; emboss implementation was
 paused to extract and inspect it. Renderer branch at `0c425d0`.
 
