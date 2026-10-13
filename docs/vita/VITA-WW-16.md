@@ -2597,3 +2597,54 @@ short observation at the new frontier. CPU/output are still watched continuously
 low CPU **AND** silence still aborts at 30 s, and extra time is **not** treated
 as a fix or proof of healthy progress. Do not add an audio wakeup or fake GPU
 finish to hide this software-render wait. Other O2 work remains untouched.
+
+## Unit 66: real GXM finish wait releases; ninth frame and CARDProbe frontier
+
+Committed VI/O1 **328ccaa**, **-j2**, watched 300 s-ceiling diagnostic run
+**14dbc3f44e0446cd9a130675b74e5528** finishes guest execution at **178.96 s**,
+before the ceiling. Both actual native snapshots capture the ww-fixture wait;
+symbolizing the recorded, mapped Vita3K return addresses against that trial's
+owned debug ELF identifies **renderer::finish → export_sceGxmFinish → bridge →
+ThreadState::run_loop**, not a DSP-processing loop. Sleeping guest threads wait
+while software raster workers execute. Signed/tagged unmapped return values
+remain uninterpreted raw evidence, not invented addresses.
+
+The actual GXM wait later releases with **no new DSP/GPU completion or guest
+instruction bypass**. A **ninth actual presentation / live PNG pair**, command
+**9003**, is published. Therefore the earlier silent trials were observing a
+long software-render wait interrupted by their ceilings, not a proved permanent
+module crash/deadlock or real-PCM dependency. The longer diagnostic ceiling is
+not a rendering fix and does not prove this wall duration on other runs/devices.
+
+New explicit STOP: **8031D400 CARDProbe**, **`desktop interception unsupported;
+guest not skipped`**. Existing **runtime/host/src/card_runtime.c:123-126** maps
+this desktop entry to CARDProbe; original **8031D400-8031D438** is a 56-byte guest
+wrapper that checks retail byte **800030E3** and otherwise calls original
+**EXIProbe 8030A448**. Next step admits this registered, guarded original guest
+body rather than a desktop memory-card shim. No real HOME, save/card image,
+native success/no-card return, callback or device completion will be supplied.
+Unsupported later card/device work must remain an explicit STOP.
+
+Closed report: **134,612,247 cycles / 3,322,635 edges**, **9,933 decoded / 2,048
+journal commands**, **ten draws / nine presentations**, zero renderer
+skips/refusals/gaps. **Nine actual live PNG pairs**, **two actual MEM1 images**,
+**nine presentation / 16 retrace markers** verify, **audio=deferred**. The tenth
+draw is not presented and is not a tenth image/timing marker. Every displayed
+PNG is still numerically opaque black; **frame-9.png** opened. Both guarded
+captured two-draw-prefix replays pass, not whole-run resource-version/GPU parity
+certification. No logo, gameplay, sound, physical Vita or FPS baseline claim.
+
+Private root for lane 18:
+
+```text
+/home/fred/projects/zeldaWWHDRecomp/build-f5/ww05/vita3k-run-14dbc3f44e0446cd9a130675b74e5528
+```
+
+**`evidence/frames/frame-9.png`**, **`evidence/live-images.json`**,
+**`evidence/live-capture-checks.json`**, **`evidence/mem1-capture.json`**,
+**`evidence/native-silent-snapshot-{1,2}.json`**,
+**`evidence/native-guest-wait-symbols.txt`**, private sampler/helper source bytes;
+fixtures **`evidence/gx-draw-prefix-snapshot{1,2}/`**. Install **1.26 s**, closed
+certified frontier report, then known shutdown **133**; no timeout/inactive
+termination. No surviving Vita3K. Continue the boot/render path at CARDProbe,
+with **O1 -j2**, fresh isolated profile, real guest execution and live images.
