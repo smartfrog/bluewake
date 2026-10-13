@@ -111,3 +111,30 @@ per-image manifest.
   nonuniform image. Actual watcher launch/PID and later results are runtime
   evidence in `images/WATCH.json`, `UPDATE.json` and the ledger, not promises
   inferred from this document.
+
+## Keeping the night watch within the staging quota
+
+The third gallery import stopped on `Disk quota exceeded` before publication.
+The filesystem still had free space, but `/tmp` enforces a per-user quota.
+Only completed lane-18 emulator profiles were deduplicated: identical runtime
+and `vs0`/`sa0` files, verified by SHA and mode, now share private hardlinks.
+All paths and bytes remain; no dumps, images, logs or lane-16 runs were removed.
+The private operation record is `build-f6/ww18/quota-recovery.json`.
+
+Image replay now opts into `launch.py --share-readonly-stack`. A content-addressed
+cache under `build-f6/ww18/readonly-stack-cache` supplies firmware/runtime
+hardlinks; it never links back to the original local stack. The sandbox binds
+these trees read-only. Cache bytes and mode are checked on every staging copy;
+corruption fails loudly. Cross-filesystem destinations use independent copies.
+VPKs always stay independent because staging can replace them. User profiles,
+caches, fixtures, reports and captures are still private to each run. Ordinary
+launcher calls keep their existing copy behavior unless explicitly opted in.
+
+The interrupted run `24356e49e61d44c8b088bc9634afb278` then completed under the
+watched shared-stack path: **2 logged draws / 2 replay submissions / 9 lane-16
+draws**, the same black PNG SHA as above, and no scene signal. Its manifest
+records dirty source hashes and `readonly_stack_shared: true`; install and run
+stopped on completed evidence at 0.525 and 5.142 seconds on Linux/Vita3K, not a
+physical Vita. The four staging scenarios failed on the missing helper first,
+then passed; the full Python suite now has **105 passing tests**. All indexed
+PNG hashes were checked unchanged after the quota recovery.

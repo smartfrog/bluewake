@@ -13,12 +13,14 @@ Environment:
 """
 
 import argparse
+import errno
 import hashlib
 import json
 import os
 import re
 from pathlib import Path
 import shutil
+import stat
 import subprocess
 import sys
 import time
@@ -54,6 +56,31 @@ def surface_sync_config(text):
     if re.search(r'^disable-surface-sync:.*$', text, re.MULTILINE):
         return re.sub(r'^disable-surface-sync:.*$', setting, text, flags=re.MULTILINE)
     return text.rstrip('\n') + '\n' + setting + '\n'
+
+
+def copy_readonly(source, destination, cache):
+    source, destination, cache = Path(source), Path(destination), Path(cache)
+    if source.suffix.lower() == '.vpk':
+        return shutil.copy2(source, destination)
+    checksum = sha256(source)
+    mode = stat.S_IMODE(source.stat().st_mode)
+    cache.mkdir(parents=True, exist_ok=True, mode=0o700)
+    stored = cache / f'{checksum}-{mode:04o}'
+    if not stored.exists():
+        temporary = cache / ('.stage-' + uuid.uuid4().hex)
+        shutil.copy2(source, temporary)
+        if sha256(temporary) != checksum:
+            raise ValueError(f'readonly source changed while staging: {source}')
+        temporary.replace(stored)
+    if sha256(stored) != checksum or stat.S_IMODE(stored.stat().st_mode) != mode:
+        raise ValueError(f'readonly cache SHA-256 mismatch: {stored}')
+    try:
+        os.link(stored, destination)
+    except OSError as error:
+        if error.errno != errno.EXDEV:
+            raise
+        shutil.copy2(stored, destination)
+    return str(destination)
 
 
 def find_recompcore():
@@ -165,6 +192,7 @@ def main():
     parser.add_argument("--fixture", type=Path, help="validated private extracted fixture to stage")
     parser.add_argument("--watched", action="store_true", help="monitor logs/CPU and abort silent hangs")
     parser.add_argument("--surface-sync", action="store_true", help="enable GPU surface writeback for capture")
+    parser.add_argument("--share-readonly-stack", action="store_true", help="deduplicate immutable firmware/runtime bytes only")
     parser.add_argument("--wayland-socket", type=Path,
                         default=Path(f"/run/user/{os.getuid()}/wayland-0"))
     args = parser.parse_args()
@@ -185,8 +213,11 @@ def main():
     root.mkdir(mode=0o700)
     for name in (*WRITABLE_DIRECTORIES, "evidence", "phases", "config-system", "data-system"):
         (root / name).mkdir(mode=0o700)
+    copy_static = shutil.copy2
+    if args.share_readonly_stack:
+        copy_static = lambda source, destination: copy_readonly(source, destination, build / 'readonly-stack-cache')
     for name in ("vs0", "sa0"):
-        shutil.copytree(stack / "firmware" / name, root / FIRMWARE / name, symlinks=True)
+        shutil.copytree(stack / "firmware" / name, root / FIRMWARE / name, symlinks=True, copy_function=copy_static)
     # The Cg runtime compiler, staged privately for the profile only.
     shacccg_source = CLOUDPUNK_STACK / "vita3k/data/Vita3K/Vita3K/ur0/data/libshacccg.suprx"
     if not shacccg_source.is_file():
@@ -202,7 +233,7 @@ def main():
             source = args.fixture / name
             if source.is_file():
                 shutil.copyfile(source, root / UX0_DATA / name)
-    shutil.copytree(stack / "vita3k", root / "runtime")
+    shutil.copytree(stack / "vita3k", root / "runtime", copy_function=copy_static)
     shutil.copyfile(vpk, root / "runtime" / vpk.name)
     config_dir = root / "config/Vita3K"
     config_dir.mkdir(parents=True, exist_ok=True)
@@ -265,6 +296,7 @@ def main():
               "vpk": {"path": str(vpk), "sha256": sha256(vpk)},
               "phases": phases, "evidence": evidence,
               "report_lines": report_lines}
+    result['readonly_stack_shared'] = args.share_readonly_stack
     (root / "evidence" / "result.json").write_text(json.dumps(result, indent=2) + "\n")
     print(json.dumps({"run": result["run"], "ok": ok, "status": status,
                       "evidence": evidence, "report_lines": report_lines},
