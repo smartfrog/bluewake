@@ -14,7 +14,7 @@ import uuid
 import zipfile
 
 from game_build import OUTPUT, ROOT, STACK, PINS, COMPOSITE_DIGEST, checked_sources, sha256
-from report import MAX_JOURNAL_COMMANDS
+from report import MAX_JOURNAL_COMMANDS, MAX_JOURNAL_BYTES
 from memory_capture import validate_memory_captures
 
 sys.path.insert(0, str(ROOT / 'scripts/vita/armv7'))
@@ -48,7 +48,7 @@ def validate_timeout(timeout):
 
 
 def validate_continuation(limit):
-    if not 0 <= limit <= MAX_JOURNAL_COMMANDS:
+    if type(limit) is not int or not 0 <= limit <= MAX_JOURNAL_COMMANDS:
         raise ValueError(f'continuation journal limit must be 1..{MAX_JOURNAL_COMMANDS}, or zero for the default frontier')
 
 
@@ -69,13 +69,14 @@ def make_plan(root, args, source, package, run):
     validate_timeout(args.timeout)
     limit = getattr(args, 'continue_gx', 0)
     memory_captures = getattr(args, 'mem1_snapshots', 0)
+    command_window = getattr(args, 'mem1_command_window', None)
     defer_audio = getattr(args, 'defer_audio', False)
     if type(defer_audio) is not bool or (defer_audio and not limit):
         raise ValueError('audio deferral requires an explicit boolean and the continuation journal')
     idle_timeout = getattr(args, 'idle_timeout', 30)
     CpuIdleWindow(idle_timeout, 0.05)
     validate_continuation(limit)
-    validate_memory_captures(memory_captures, limit)
+    validate_memory_captures(memory_captures, limit, command_window)
     commands = {'install': ['--console', '--backend-renderer', 'OpenGL', 'ww05.vpk'],
                 'guest': ['--backend-renderer', 'OpenGL', '--installed-path', 'BWWG00005']}
     phases = {name: {'command': sandbox_command(root, 'Vita3K', command, args.libraries, args.wayland_socket),
@@ -95,13 +96,16 @@ def make_plan(root, args, source, package, run):
                 '/run/ww03/data/Vita3K/Vita3K/ux0/data/bluewake/GZLE01.iso']
     return {'ticket': 'VITA-WW-05', 'method': 'startup-gx-v1', 'title': 'BWWG00005',
             'continue_gx': limit, 'mem1_snapshots': memory_captures,
+            'mem1_command_window': command_window, 'journal_byte_limit': MAX_JOURNAL_BYTES,
             'defer_audio': defer_audio, 'audio': 'deferred' if defer_audio else 'strict',
             'live_frame_capture': bool(memory_captures), 'frame_capture_limit': 128,
             'idle_timeout_seconds': idle_timeout, 'cpu_threshold': 0.05,
             'activity_policy': 'CPU >= 5% OR growing process/cache log, guest journal/report/dispatch, or installed payload; '
                                'exclude observer-written monitoring evidence; only silence AND low CPU can be inactive',
             'continuation_policy': 'opt-in; journal first N commands; no guest execution cap; '
-                                   'preserve first frontier; stop on unsupported behavior or owned phase deadline',
+                                    'preserve first frontier; stop on unsupported behavior or owned phase deadline',
+            'memory_window_policy': 'explicit opt-in diagnostic stop after the actual completed end command; '
+                                    'snapshot every selected draw before renderer write; no guest time or completion injection',
             'run': run, 'source': source, 'vpk_sha256': package,
             'real_execution': False, 'retry': 'fresh private profile for every attempt', 'phases': phases,
             'cwd': str(root / 'work'), 'sandbox_cwd': '/stack/vita3k',
@@ -182,7 +186,8 @@ def stage(args):
     validate_timeout(args.timeout)
     CpuIdleWindow(getattr(args, 'idle_timeout', 30), 0.05)
     validate_continuation(getattr(args, 'continue_gx', 0))
-    validate_memory_captures(getattr(args, 'mem1_snapshots', 0), getattr(args, 'continue_gx', 0))
+    validate_memory_captures(getattr(args, 'mem1_snapshots', 0), getattr(args, 'continue_gx', 0),
+                             getattr(args, 'mem1_command_window', None))
     args.libraries = STACK / 'vita3k-env'
     launcher_source = subprocess.check_output(['git', 'rev-parse', 'HEAD'], cwd=ROOT, text=True).strip()
     if subprocess.check_output(['git', 'status', '--porcelain'], cwd=ROOT, text=True):
@@ -243,7 +248,8 @@ def main():
     parser.add_argument('--timeout', type=float, default=60)
     parser.add_argument('--wayland-socket', type=Path, required=True)
     parser.add_argument('--continue-gx', type=int, default=0)
-    parser.add_argument('--mem1-snapshots', type=int, choices=(0, 1, 2), default=0)
+    parser.add_argument('--mem1-snapshots', type=int, choices=range(9), default=0)
+    parser.add_argument('--mem1-command-window', type=int, nargs=2, metavar=('START', 'END'))
     parser.add_argument('--defer-audio', action='store_true')
     parser.add_argument('--disc', type=Path)
     stage(parser.parse_args())

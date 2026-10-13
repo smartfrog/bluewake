@@ -9,17 +9,23 @@ import sys
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from gx.capture import journal_commands
+from report import MAX_JOURNAL_COMMANDS
 
-MAX_CAPTURES = 2
+MAX_CAPTURES = 8
 MEM1_BYTES = 24 * 1024 * 1024
 DRAW_FAMILIES = (0x80, 0x90, 0x98, 0xA0, 0xA8, 0xB0, 0xB8)
 
 
-def validate_memory_captures(count, continue_gx):
+def validate_memory_captures(count, continue_gx, command_window=None):
     if type(count) is not int or not 0 <= count <= MAX_CAPTURES:
-        raise ValueError('MEM1 capture count must be 0..2')
+        raise ValueError('MEM1 capture count must be 0..8')
     if count and not continue_gx:
         raise ValueError('MEM1 capture requires an opt-in command journal')
+    if command_window is not None:
+        if (not isinstance(command_window, (list, tuple)) or len(command_window) != 2 or
+                any(type(value) is not int for value in command_window) or not count or
+                not 1 <= command_window[0] <= command_window[1] <= continue_gx):
+            raise ValueError('MEM1 command window requires snapshots and a complete logged command prefix')
 
 
 def snapshot_outputs(directory):
@@ -28,25 +34,48 @@ def snapshot_outputs(directory):
                  for kind in ('bin', 'json') for partial in ('', '.partial'))
 
 
-def verify_snapshots(directory, *, token, source, package, count, journal, audio='strict'):
+def verify_snapshots(directory, *, token, source, package, count, journal, audio='strict', command_window=None):
     from fp_profile import read_profile_file
 
-    validate_memory_captures(count, bool(journal))
+    commands = journal_commands(journal) if count else []
+    validate_memory_captures(count, MAX_JOURNAL_COMMANDS if commands else 0, command_window)
     if audio not in ('strict', 'deferred'):
         raise ValueError('invalid MEM1 audio policy')
-    commands = journal_commands(journal) if count else []
-    fifo_hash = hashlib.sha256(b''.join(commands)).hexdigest()
     draws = [(index, data[0]) for index, data in enumerate(commands, 1)
-             if (data[0] & 0xF8) in DRAW_FAMILIES][:count]
+             if (data[0] & 0xF8) in DRAW_FAMILIES and
+             (command_window is None or command_window[0] <= index <= command_window[1])]
+    if command_window is not None and len(draws) > count:
+        raise ValueError('scene MEM1 draw window exhausted its snapshot budget')
+    draws = draws[:count]
+    if command_window is not None and len(commands) >= command_window[1] and not draws:
+        raise ValueError('scene MEM1 command window contains no recorded draws')
+    selected_commands = {index for index, _ in draws}
+    prefix_hashes = {}
+    fifo_digest = hashlib.sha256()
+    for index, data in enumerate(commands, 1):
+        fifo_digest.update(data)
+        if index in selected_commands:
+            prefix_hashes[index] = fifo_digest.hexdigest()
+    fifo_hash = fifo_digest.hexdigest()
     provenance = {}
+    window_witnesses = []
     for line in journal.splitlines() if count else ():
         if line.startswith('[gx-command]'):
             fields = dict(item.split('=', 1) for item in line.split()[1:])
-            provenance[int(fields['index'])] = fields
+            if int(fields['index']) in selected_commands:
+                provenance[int(fields['index'])] = fields
+        elif command_window is not None and line.startswith('[mem1-window]'):
+            window_witnesses.append(line)
+            if len(window_witnesses) > MAX_CAPTURES:
+                raise ValueError('MEM1 command window witness count exceeds its bound')
     expected = {f'ww05.mem1-{index}.{kind}' for index in range(1, len(draws) + 1) for kind in ('bin', 'json')}
     observed = {path.name for path in directory.glob('ww05.mem1-*')}
+    if command_window is not None:
+        observed -= {'ww05.mem1-start', 'ww05.mem1-end'}
     if observed != expected:
         raise ValueError('MEM1 snapshot outputs are missing, partial, unexpected or not requested')
+    if command_window is not None and len(window_witnesses) != len(draws):
+        raise ValueError('MEM1 command window witness count mismatch')
     snapshots = []
     previous_us = -1
     for index, (command, opcode) in enumerate(draws, 1):
@@ -82,12 +111,22 @@ def verify_snapshots(directory, *, token, source, package, count, journal, audio
             raise ValueError('MEM1 snapshot is not the complete actual 24 MiB extent')
         record.update(sha256=hashlib.sha256(data).hexdigest(), metadata_sha256=hashlib.sha256(content).hexdigest(),
                       path=str(binary_path), metadata_path=str(metadata_path))
+        if command_window is not None:
+            window_marker = (f'[mem1-window] snapshot={index} start_command={command_window[0]} '
+                             f'end_command={command_window[1]} command={command}')
+            if window_witnesses.count(window_marker) != 1:
+                raise ValueError('MEM1 snapshot is missing its bound command window witness')
+            record['command_window'] = list(command_window)
+            record['replay_scope'] = 'selected draw-time MEM1; earlier resource versions and external aliases are not certified'
         record['replay_manifest'] = dict(format='gx-mem1-snapshot-v1', binary=binary_path.name,
-                                        binary_sha256=record['sha256'], fifo_sha256=fifo_hash,
+                                        binary_sha256=record['sha256'],
+                                        fifo_sha256=prefix_hashes[command] if command_window is not None else fifo_hash,
                                         regions=[dict(address=0, offset=0, size=MEM1_BYTES)],
                                         producer=dict(record))
         snapshots.append(record)
     return {'kind': 'ww05-mem1-capture-manifest-v1', 'audio': audio, 'requested': count, 'captured': len(snapshots),
+            'command_window': command_window,
+            'window_complete': command_window is None or len(commands) >= command_window[1],
             'snapshots': snapshots, 'policy': 'time-matched raw MEM1 only; no invented bytes, zero-filled replay, alias reconstruction or whole-run memory-version claim'}
 
 

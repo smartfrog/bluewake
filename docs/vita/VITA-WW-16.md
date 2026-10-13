@@ -4,6 +4,14 @@ The objective is the game running at 30+ FPS. Boot progress, command decoding an
 a black pre-logo window do not meet it. Every unsupported operation remains an
 explicit STOP; no guest instruction, FIFO data, GPU completion or frame is invented.
 
+October 13 checkpoint: **the authentic Nintendo boot logo is visible**, first
+at frame 11 (Unit 78). Gameplay and 30+ FPS are still unverified. The current
+capture handoff targets complete later-draw FIFO state and synchronized MEM1
+for lane 18 (Units 79-80), not another guessed renderer/audio fix. The first
+extra-draw interval is now captured and passes the guarded native loader.
+The latest CI attempt reaches 96 live images but not its requested draw-time
+RAM window; Unit 85 records that incomplete outcome without extending bounds.
+
 ## Unit 1: CP performance selector
 
 The authentic WW05 continuation stops at `CC000006`, halfword zero, PC `803202C4`
@@ -2927,6 +2935,67 @@ audio=deferred** trial to expose the actual later renderer counters without
 another blind extension of the ceiling. Full DSP/PCM remains paused and all
 prior captures/incomplete evidence remain untouched.
 
+## Unit 73: 83 submitted draws, two programs, no observed refusal, still black RGB
+
+Committed VI/O1 **508f611**, **-j2**, watched diagnostic run
+**3080b87e2f50436c98fa8efeca7eefae** authentically verifies the new live renderer
+metadata. At all **55 actual capture instants**, **plans_skipped / programs_refused /
+copies_refused / gaps are zero**. Frame **55**, command **56076**, records
+**83 plans / submitted draws / programs**, **two distinct program keys**,
+**379,563 renderer bytes / 108,293 events / 55 display copies**, no EFB copies.
+These are actual counters at that image boundary, not final totals or pixel
+parity proof. Zero refusals are **not** retroactively assigned to the earlier
+121-frame trial or to work after this last capture.
+
+Independent artifact checks: **55 live PNG pairs / presentation markers**,
+**63 real retrace markers**, **two MEM1 images**, **audio=deferred**; every
+display image still opaque black, same RGB/hash. **frame-55.png** opened. Both
+guarded early draw-prefix replays pass; there is no valid late-frame replay
+using those earlier memories. Last observed progress is **515,297,154 cycles /
+5,617,494 edges / 2,012,144 turns**, PC **80307EF4**, exception **0**.
+Actual termination remains **300.02 s timeout / exit -15 / waited**, launcher
+**124**, early disposition and final result intact, no closed guest report,
+**INCOMPLETE / frontier UNAVAILABLE**. No Vita3K survivor remains.
+
+Private root for lane 18:
+
+```text
+/home/fred/projects/zeldaWWHDRecomp/build-f5/ww05/vita3k-run-3080b87e2f50436c98fa8efeca7eefae
+```
+
+Actual journal **`data/Vita3K/Vita3K/ux0/data/bluewake-ww-fixture/ww05.log`**;
+images and per-image renderer metadata **`evidence/frames/`**, independent checks
+**`evidence/live-images-post-timeout.json`**, **`evidence/mem1-post-timeout.json`**,
+**`evidence/renderer-health-run-diagnosis.json`**, guarded fixtures
+**`evidence/gx-draw-prefix-snapshot{1,2}/`**. Original snapshots, source receipts
+and monitor records remain private and preserved.
+
+The unresolved question is now **actual pixel output/readback**, not an observed
+parser/Cg refusal or main-thread DSP wait. Next verification reuses the existing
+**synthetic** WW02 demo's known red default-surface clear, front/back reads,
+green FBO clear and known fixture draws, with surface synchronization enabled.
+This is separate from authentic guest execution: no game RAM, journal, frame,
+callback, timestamp or FPS may be manufactured from a synthetic control. It
+contains no disc or DSP/audio workload and cannot establish game rendering.
+Its source **vita/feasibility/gx/gx_vita_main.cpp** already implements those
+positive controls; do not duplicate them or alter the read-only vitaGL/emulator
+pins to obtain an expected pixel. Use a fresh private **O1 -j2** control build
+and isolated, continuously watched profile, bounded phase ceiling and immediate
+stop on its actual closed report. Keep its package/sources/config/hash/CPU/log
+evidence, and report a failed pixel control plainly. Full DSP/PCM stays paused;
+no logo/gameplay, physical Vita or FPS claim is justified by these counters.
+
+Private control build wiring **logs/ww16-readback-control-source/CMakeLists.txt**
+reuses the committed demo/fixture/PNG and renderer translation sources without
+editing them or the pins. Only demo packaging and optimization are private:
+**50 generated translation-unit commands all have effective -O1**, verified
+before building, **-j2** maximum. Configuration succeeds
+(**logs/ww16-readback-control-configure.log**). No game module/disc/MEM1 image
+is staged in this synthetic profile. Its result must stay separate from WW05's
+explicit audio-deferred guest trials; the synthetic control has no audio/DSP
+workload, not a sound claim. Repository audit/attribution/whitespace pass;
+the existing **738 host tests** remain the last checked game-host baseline.
+
 ## Integration checkpoint: full union with the October 13 trunk
 
 Resolved the pending merge of **508f611** into **vita-integration**, whose
@@ -2968,3 +3037,686 @@ No emulator/game trial was launched during the merge intervention. No Windows
 CI or physical Vita test was available; local contract-test success is not a
 gameplay or FPS claim. No network/push. The ww16 checkout and its pending
 synthetic pixel-control work remain preserved for resumption after this merge.
+
+## Unit 74: sync the verified renderer trunk before the next authentic scene trial
+
+The ww16 worktree merges verified integration **c3262c6**, preserving the
+separately committed Unit 73 record **7ba92e0**. Only the appended history
+conflicts; both histories are retained in full. **vita/** and **scripts/** match
+the integration tree exactly before this documentation entry. No pin, private
+attempt, player's data or other lane's build is discarded.
+
+The next rebuilt guest therefore receives the trunk's TexGen sink/matrix and
+color-channel ordering fixes, indirect/emboss support and explicit original-LOD
+refusal, rather than continuing on an older renderer. The genuine finish,
+frame-boundary callback, raw/display RGB preservation, live renderer counters
+and explicit **audio=deferred** protocol remain intact. This merge is not a
+claim that any previous black image now becomes a scene.
+
+Re-plan the pending synthetic control: lane 18 already has a positively colored
+authored checker under **/tmp/opencode/ww18/build-f6/ww18/images/
+synthetic-checker-visible/**. Read-only verification of the existing PNG gives
+the exact recorded SHA **97ed8bae1cf7694508b8d2ccb621e16f85a40cd8df4b4dce7712c97179320da8**,
+four colors / **130,560 pixels each**, raw/display RGB identical. Its original
+revision **e0b0993** and synthetic-no-game-assets source remain declared.
+**logs/ww16-existing-positive-control-check.json** records the check. It is
+historical synthetic evidence, not a new emulator trial, a game frame, pixel
+parity or a physical-Vita result. Do not repeat that control blindly or borrow
+its pixels for the game. The prepared, unbuilt private control project remains
+preserved; the immediate next step is the real guest on the synced renderer.
+
+Linux AArch64, **CC=gcc / builds -j2**: **767 host/DVD tests** pass in isolated
+**/tmp/opencode/ww16-sync-c3262c6/** outputs
+(**logs/ww16-trunk-sync-host.log**); the **111 GX Python tests** also pass
+(**logs/ww16-trunk-sync-gx-python.log**). Audit/attribution/whitespace pass.
+The integration's native renderer/Cg/bridge and perf/FP results remain the
+separate checks recorded above. No owned Vita3K remains before trial preparation.
+
+Commit the sync, then certified **VI/O1 -j2** rebuild and one fresh continuously
+watched **600 s maximum ceiling / journal 2048 / MEM1=2 + live PNG /
+audio=deferred** trial. Keep genuine presentation/retrace markers and the
+**128-presentation / 960×544** capture bounds. The target remains the first
+actual nonblack frame and scene content after the clears, not merely more draw
+counters. Capture timing is not an FPS baseline; keep the FPS watch's hot-run
+protocol separate. If it remains black or hits a refusal, source that actual
+wall before changing a seam. No fabricated GPU/audio completion, real DSP/PCM,
+guest-time alteration, logo/gameplay, physical Vita or 30+ FPS claim.
+
+## Unit 75: bounded black prefix on the synced renderer and a mixed pixel control
+
+Certified **b8e2048 / VI / O1 / -j2** authentic run
+**a3eb11fc6882448c93a4688ca5bc46a9** retains **128 actual live PNG pairs**, all
+**960x544 / 522,240 opaque black display pixels**, SHA
+**c871acff3fc84ccec64ed29b05f2b1549e05b5067e2e5adf193b60d5490fdae5**.
+Raw/display RGB is checked for every pair. **129 actual presentations / 136
+real `[frame-timing]` retrace markers / two MEM1 snapshots** are observed.
+Presentation 129 has **no PNG**: the unchanged 128-image bound stopped the host.
+The closed report says **133,260 decoded commands / 2048 logged / 216 submitted
+draws / three distinct programs / zero plans skipped, shader or copy refusals**.
+Its final stopped state is **1,106,693,761 cycles / 8,796,068 edges**, PC
+**80301504**, exception **00000001**; the STOP reason is the capture bound,
+not a newly admitted gameplay/audio dependency.
+
+The launcher timed out at **600.001 s**, **SIGTERM / exit=-15 / waited=true**.
+It validated the closed guest report and journal but then rejected **129** as
+outside the image collector's bound. Original **result.json status=2 /
+INCOMPLETE / frontier UNAVAILABLE** and the **PENDING** disposition remain
+untouched. Separate **evidence/renderer-postrun-check.json** checks report
+identity/framing (**frontier-only PASS**, not gameplay); **verified-live-prefix-
+128.json** independently validates exactly the existing 128 images, explicitly
+leaving presentation 129's pixels unavailable. **actual-retrace-marker-check.json**
+uses the real `[frame-timing] retrace=` prefix, not the nonexistent
+`[frame-retrace]` prefix initially searched in the post-run check. No capture
+bound, report, PNG, guest RAM or timestamp is rewritten to promote the failed
+launcher result. No owned Vita3K remains after the run.
+
+There is a real change in submitted work at **frame 101 / command 102936 /
+879,863,624 cycles**: the third program appears and **tlut_texture=2** begins.
+Frame 128 records **213 submitted draws / three programs / tlut_texture=56**.
+The read-only pin's **GXRuntime/graphics/gxcore/src/gxcore.cpp:1044-1047** increments
+that counter for **every valid CI-format texture**, independent of palette
+resolution. It is **not evidence that palette decoding failed**; the Vita
+translator already uses the pinned CI/TLUT decoder. No full DSP/PCM work is
+warranted by that counter. **1,498 actual DVD callback deliveries and returns**
+occur in this run. The two early MEM1 images still cannot certify later scene
+textures or geometry.
+
+The prepared private WW02 control is now built from clean committed
+**b8e2048**, **50 effective-O1 translation units / -j2**, unchanged pins and
+vitaGL archive. Build identity is **logs/ww16-readback-control-b8e2048-build.json**;
+VPK SHA **226c03f3ab93ae56b70d0cdec1214241c84bb2a25c1ce078f4389118be57f789**.
+An absent output-parent error happened **before any emulator started**; its
+record remains under **build-f5/ww16-readback-control-runs-b8e2048/**.
+Fresh watched synthetic run **2415b6df25574a0f9a7009b6f67a0c8d** uses surface
+sync and stops at the actual closed **demo done 2** report after **3.106 s**;
+the owned process is terminated/reaped rather than waiting for the 90 s ceiling.
+
+This control is **mixed, not green**: red front **255,0,0,255** is correct;
+back and the complete/error-free FBO read **0,0,0,0**; the first triangle and
+its clear both read black and fail two pixel assertions. The later synthetic
+HUD produces **29 distinct RGBA values** in the actual PNG, SHA
+**1fca81c349a1a2ff272f35b252827dc86e48ddeb312c3ccecc15c2d1f5c8e78f**,
+opened and numerically checked (**evidence/pixel-check.json**). The demo's
+sampled distinct-color count is 11, not the whole-PNG count of 29. This is raw
+synthetic PNG evidence with its original alpha, not an opaque game-frame pair.
+It proves some current GPU/readback paths yield nonblack RGB, not that the
+FBO, triangle, real host's surface or GX transforms are correct.
+
+Re-plan: source the real backend's surface/matrix seam with an authored
+synthetic control through **WwRenderer**, which unlike the demo does not
+override the captured projection. Keep this separate from authentic frames;
+do not guess a TLUT/DSP fix or extend the frame/deadline bounds to hide black.
+Existing **767 host/DVD / 111 GX Python** checks for b8e2048 remain the baseline;
+this evidence-only unit is verified by the real artifact checks above.
+Linux AArch64/Vita3K only; no Windows CI, physical Vita, visible logo/gameplay,
+pixel parity, sound or 30+ FPS claim. No network or push.
+
+## Unit 76: transpose captured GX dot rows for Cg's row-vector multiply
+
+The source seam is now reproduced independently of game assets. Clean
+**8c05f2d / O1 / -j2** controls use the actual **WwRenderer / vitaGL backend /
+Cg**, with lane 18's authored checker copied read-only into fresh private
+fixtures. No scene RAM is borrowed. **build-f5/ww16-matrix-control-8c05f2d/**
+retains package/config/FIFO identities, watched profiles and exact PNG checks.
+
+Identity run **56ceb89c142f4fe796033d646adb05c4** reproduces the known checker
+SHA **97ed8bae1cf7694508b8d2ccb621e16f85a40cd8df4b4dce7712c97179320da8**:
+four exact **130,560-pixel** quadrants. The second control only changes the
+authored XF position rows: X/Y scale **0.5**, X translation **+0.25**.
+Run **d56e92854bc2418c9cbfcaac57d73fe4** still closes **demo done 0**, but
+independent pixel verification is **RED**: colored bounds are
+**[160,672) x [91,453)**, not **[360,840) x [136,408)**, with color populations
+**50,771 / 50,771 / 23,503 / 23,503** instead of **32,640 each**. PNG SHA
+**ba1cba7067d41e09a29832b092e3ef07d382a4c82e2b7a4b796d1fddf838f360**.
+Raw/display RGB agrees. The report's submission success is not pixel success.
+
+Sourced cause: pinned **gxcore.cpp:1560-1562 / 1641-1658** builds XF and
+projection **dot rows**; pinned **gxcore_shader.cpp:946-948** dots those rows
+with the view position. Our generated Cg instead uses **mul(vector, matrix)**,
+while **translate_transform** previously copied the rows without transposing.
+The real VitaGL uniform upload uses **GL_FALSE** and copies its floats as-is
+(read-only **custom_shaders.c:2908-2928**). The authored pixel failure matches
+translation entering **W** rather than X. No DSP or GPU completion hypothesis
+is needed to explain this demonstrated transform error.
+
+**gx_vita.cpp** now transposes both the padded XF position matrix and projection
+into the Cg row-vector uniform layout. Per-vertex PNMTXIDX remains transformed
+on the CPU with an identity position uniform; it is not transformed twice.
+The header states the actual layout. Existing direct-value checks are updated;
+a new parameterized renderer check compares non-symmetric translated/scaled
+position and orthographic/perspective clip results against the GX row-dot
+reference. It fails on the old translation at **view == expected_view**
+(**logs/ww16-matrix-native-red.log**) and passes after the change.
+
+Linux AArch64, builds **-j2**: **767 host/DVD**, **75 GX native-wrapper** and
+**111 GX Python** tests pass; native framebuffer PNG checks pass too
+(**logs/ww16-matrix-host.log / ww16-matrix-native-suites-certified.log**).
+The initial suite invocation used the wrong renderer-output environment and
+was rejected as stale; that log and the separate missing PNG CLI-argument
+invocation remain preserved. The final suite explicitly selects the fresh
+outputs for both **WW02_BUILD** and **WW17_BUILD**. Whitespace/audit/attribution
+pass. No source pin or production desktop path changes.
+
+Commit this unit, rebuild the committed control **O1 / -j2**, and require the
+actual translated checker pixels to match before the next fresh watched
+authentic **VI/O1 / journal 2048 / MEM1=2 / live PNG / audio=deferred** trial.
+Keep the 128-image and 600 s maximum bounds; stop a diagnostic at its closed
+report rather than wasting its remaining ceiling. The transform seam is
+proved on synthetic/native evidence only so far; no game scene, hardware
+parity, physical Vita, Windows CI, sound or FPS result is claimed.
+
+## Unit 77: the committed transform fix passes exact GPU pixels before game rebuild
+
+Clean committed **5f3e179**, **56 effective-O1 control translation units / -j2**,
+rebuilt in a new private directory **build-f5/ww16-matrix-control-5f3e179/**.
+The input bytes are the unchanged authored identity/translated checker
+fixtures from Unit 76, not expected-image files or any captured game scene.
+Package SHA is **9217f835171d00a28a511847d1fa3fb888adff3f013dc77d928b462183d89977**;
+**build/control-build-identity.json** records source/config/compiler identities.
+
+Fresh continuously watched control **c9daa81a2adc40729788acc336342d87** keeps
+the exact identity-checker SHA and four **130,560-pixel** quadrants. The corrected
+translated control **a1641f325649471abd9c751556a4af49** now gives exactly
+**[360,840) x [136,408)** colored bounds and **32,640 pixels of each authored
+color**, with **391,680 black background pixels**. Raw/display RGB is identical.
+PNG SHA **df16dd48e7ad776b40bb3c5d0854264fa57edd76c71e03b3d8d6be372c7bbd4d**;
+opened and inspected, with exact checks in each run's
+**evidence/matrix-pixel-check.json**. The same translation control was pixel-red
+before the fix; it is pixel-green now, not merely a successful draw submission.
+Its actual closed report is observed and the owned process terminated/reaped
+after **2.563 s**, rather than waiting for the 90 s ceiling. No owned Vita3K
+survivor remains before game trial preparation.
+
+This establishes the demonstrated GX-to-Cg transform seam on Linux AArch64 /
+Vita3K with the current renderer. It does **not** turn the previous 128 black
+game frames into a scene, certify the mixed FBO/WW02 triangle control, establish
+later game resource versions, or prove physical-Vita/pixel parity or FPS.
+The **767 host/DVD / 75 GX native-wrapper / 111 GX Python** results apply to
+this exact code; this unit only appends evidence, without another renderer fix.
+
+Next: certified committed **VI/O1 -j2** game rebuild, fresh watched authentic
+trial with unchanged **journal 2048 / MEM1=2 / live PNG / audio=deferred** and
+**128-image / 960x544 / 600 s maximum** bounds. The private copied watcher
+**logs/watch-matrix-run.py** retains the original watcher and adds an explicit
+owned SIGTERM once the actual bounded, identity-validated guest **END** report
+exists, to avoid waiting through active shutdown after the diagnostic is
+already over. It records **evidence/closed-report-stop.json**, does not write a
+guest report or inject a completion, and leaves termination and collector
+failures visible. Its syntax is checked; that new stop behavior still awaits
+the real trial. CPU-or-process-output growth monitoring and the 30 s
+low-CPU-plus-silence abort remain unchanged. Native ptrace sampling is not
+needed to retest this sourced pixel seam. Full DSP/PCM stays paused; no network,
+push, player data change, game scene or 30+ FPS claim.
+
+## Unit 78: first authentic nonblack frame, the Nintendo boot logo
+
+Certified **98c99e1 / VI / O1 / -j2** run
+**b0f643a2cf6f4ad5916c791df6b87365** verifies the matrix fix on actual game output:
+frames **1-10** retain the exact opaque-black hash, then **frame 11 / command
+11004 / 150,764,580 cycles** shows the real **Nintendo boot logo**. Its PNG has
+**25,616 nonblack RGB pixels**, first visible red values up to 15, SHA
+**0411aab11be85ba3df03fd4cf62c1640f010774c10378cef6800c60308d9cda6**.
+Frames **38 and 93** show the clear red logo, each **26,422 nonblack pixels**;
+frame 93 PNG SHA is
+**686603975980849d2b6e60b5605fb16f009655beaa6946e95cbdce2043af1f2e**.
+All three PNGs are opened and visually inspected; every preserved raw/display
+pair has identical RGB, not synthetic replacement pixels or a replay image.
+
+**93 genuine live PNG pairs / 101 retrace markers / two initial MEM1 images**
+are independently verified in **evidence/postrun-image-memory-check.json**;
+**first-visible-logo-check.json** records exact first/logo-frame pixel counts
+and identity. Frame 93's actual counters are **121 cumulative submitted draws /
+two programs / zero recorded skips, refusals or gaps**, command **94722**,
+**815,055,002 cycles**. This is not a 121-draw scene or a whole-run final total.
+The last bounded image is a logo, not gameplay.
+
+The authoritative runner disposition remains **600.001 s timeout / SIGTERM /
+exit=-15 / waited=true / status 124 / INCOMPLETE / frontier UNAVAILABLE**, with
+no closed guest report or final guest counters. The owner-directed capture
+handoff also led to a controller TERM request near this run's end; its separate
+record does **not** override or explain the runner's measured timeout. Cleanup
+finds no survivor requiring KILL. The logo observation is real even though the
+attempt is incomplete. The private root and every prior attempt remain intact.
+No physical Vita, Windows CI, gameplay, sound, parity or FPS claim.
+
+## Unit 79: complete state prefix and draw-time MEM1 in an explicit scene window
+
+Read lane 18's **gx_black_frame_audit.md** from its worktree at delivery
+**2cef9ce** (the local integration checkout does not yet contain that file).
+Its **b8e2048** diagnosis is accurate: only 2048/133260 commands and init-time
+MEM1 cannot replay later work. Its first extra-draw interval is **9976-11004**;
+the first CI interval is **101854-102936**. The new logo result above is a
+different, rebuilt source; it does not retroactively change the audited inputs.
+
+The capture seam now accepts up to **196,608 complete commands**, streamed to
+the private journal rather than accumulated in guest RAM, with a separate
+hard **8 MiB raw-FIFO-byte budget**. Exhaustion fails before certifying another
+command; the existing **64 MiB text-log read bound** remains. A native test
+really feeds/logs **133,260 commands**, reuses drained native buffers, and
+continues decoding command 133261 without falsely logging it. The 2048-prefix
+option still works; these bounds do not invent unobserved command bytes.
+
+New opt-in **--mem1-command-window START END**, with **--mem1-snapshots 1..8**,
+takes the actual full **24 MiB MEM1 immediately before every draw** in that
+inclusive interval. Earlier draw snapshots are skipped, but every preceding
+CP/BP/XF/FIFO command is retained from command 1. A missing/inverted/unlogged
+endpoint or endpoint without snapshots is rejected before guest execution.
+Identity-bound **ww05.mem1-start / ww05.mem1-end** reuse the existing strict
+request reader. Eight full files bound disk cost to **192 MiB**; capture writes
+the existing MEM1 in **64 KiB chunks**, with no shadow MEM1 allocation or dirty-
+write tracker. Incremental snapshots are unnecessary for this bounded first
+delivery. More selected draws than the requested snapshot budget explicitly
+STOP instead of silently losing a resource version.
+
+Each selected snapshot has its original token/source/package/command/PC/frame/
+cycle/time provenance and a native command-window witness. Its lane 18
+**gx-mem1-snapshot-v1** manifest binds the exact FIFO **prefix through that
+specific draw**, not future commands or an init-time digest. Use **extract.py
+--through-command DRAW --snapshot ww05.mem1-N.snapshot.json**. The collector
+labels earlier resource versions and external aliases/MEM2 **uncertified**;
+neither old RAM nor zero padding supplies missing late resources. Every selected
+draw in the interval gets its own resource version. No claim that late MEM1
+certifies the resources of all earlier draws.
+
+The explicit window ends the diagnostic only **after the actual completed end
+command and its renderer/presentation processing**, with a declared
+**STOP reason=scene MEM1 draw window capture complete**. This produces a real
+closed guest report rather than waiting through an unrelated remainder of the
+600 s ceiling. It is off by default; ordinary continuation still has no guest
+execution cap. The 128-live-image / 960x544 bounds, real VI clock/guest handlers,
+CPU-or-output activity watch and **audio=deferred** semantics are unchanged.
+
+The acceptance tests were red on the old 2048 ceiling before implementation.
+Linux AArch64 **-j2**: **779 host/DVD tests / 1911 subtests**, including streamed
+large prefix, raw-byte exhaustion, late RAM mutations, per-draw digest binding,
+snapshot-budget failure, identity-bound endpoints and strict main-loop window
+termination; **111 GX Python tests / 78 subtests** pass. Initial focused suite:
+**159 tests**, then the added request/window guards pass in the full suite
+(**logs/ww16-scene-capture-focused.log / ww16-scene-capture-host-final.log**).
+The **75 GX native-wrapper / 111 GX Python** checks are also rerun together:
+**186 tests / 109 subtests** pass. Snapshot verification stores provenance only
+for the selected at-most-eight draws and hashes FIFO prefixes incrementally,
+instead of retaining a per-command provenance dictionary for the large prefix.
+Audit/attribution/whitespace pass. No renderer, audio, pin or production default
+is changed by this capture unit; no Windows CI or physical Vita available.
+
+Commit/rebuild **VI/O1 -j2**, then fresh watched capture of **9976-11004** with
+the complete prefix through 11004 and at most eight scene-time snapshots.
+Validate the real artifacts before the separate CI-window trial through
+**102936**. Lane 18 receives the unchanged private journal, each matching
+binary/manifest and actual live PNG/report identities; no public game resources
+or push. Nintendo visibility is established; scene replay and 30+ FPS still
+need their own evidence.
+
+## Unit 80: first extra-draw window delivered with actual late RAM
+
+Certified **39ee655 / VI / O1 / -j2**, fresh watched run
+**b403a0647ca6495cbe8edcd415c0b76f**, reaches the requested **9976-11004**
+interval and writes a real closed report at its explicit window-end STOP.
+**11,004 / 11,004 decoded/logged commands**, **74,190 exact FIFO bytes**,
+**12 cumulative submitted draws / two programs / 11 presentations / 18 retraces**;
+zero recorded skipped plans, shader/copy refusals or gaps. **11 live raw/display
+PNG pairs** validate, and the opened last image is the actual Nintendo logo,
+with the same first-visible SHA as Unit 78. It is not a substituted replay.
+
+The **two actual 24 MiB MEM1 snapshots** are before the two draws in this
+window, not the initial draws 990/1962. Both precede presentation 11:
+
+| Snapshot | Draw command | Actual cycles | MEM1 SHA-256 | Exact bound FIFO prefix SHA-256 |
+| --- | ---: | ---: | --- | --- |
+| 1 | 10716 | 142689111 | `4a0503bfa9fd53ac9b868522df742ef95ac5d38b0d992b5ec79c3dc92aea355a` | `f8869c428817908fe3a6773fd351f8f070ac0ee5f48a6065f39fb8a76d3274e6` |
+| 2 | 10767 | 142693052 | `beb257c9dfa5ffa39022c4cdd3f1e161640d7d4dc80f259dcbf17f680da661ea` | `9c7b233a00bbd8dc49a8fbac367f9f4b4ada68fcab1e97dc8230654207e7bb9e` |
+
+Lane 18's existing strict **memory_snapshot.load** accepts each original
+manifest only with its matching selected draw prefix: **72,094 bytes / 11
+draws** and **72,806 bytes / 12 draws**. Asking either snapshot to certify the
+later full-window FIFO is explicitly rejected, rather than rebinding its
+digest. Each binary supplies exactly the complete physical MEM1 region;
+the reconstructed loader image is byte-identical, with no holes or zero padding.
+The differing RAM hashes are kept as separate resource versions.
+
+The same-source GX native bridge (renderer code unchanged from the already
+tested matrix fix) replays both guarded inputs: **verdict=ran**, all **11 / 12
+plans/programs** accepted, zero recorded skips/refusals/gaps. This checks the
+loader, state prefix and translation chain, **not GPU pixel parity** or earlier
+resource versions. External aliases/MEM2 remain uncaptured and explicitly
+uncertified. No new emulator/GPU replay is started for this handoff.
+
+Private root (read-only original inputs for lane 18):
+
+```text
+/home/fred/projects/zeldaWWHDRecomp/build-f5/ww05/vita3k-run-b403a0647ca6495cbe8edcd415c0b76f/
+```
+
+- **evidence/lane18-scene-window-handoff.json**: exact source/package/report/log
+  identities, snapshot timing, selector commands and guarded replay results.
+- **data/Vita3K/Vita3K/ux0/data/bluewake-ww-fixture/**: unchanged **ww05.log /
+  ww05.report / ww05.mem1-{1,2}.bin / .json / .snapshot.json**.
+- **evidence/late-draw-prefix-snapshot{1,2}/**: extracted FIFO, original snapshot
+  provenance, physical coverage and **guarded-native-replay.txt**.
+- **evidence/frames/frame-11{,-rgba}.png / frame-11.json**: actual visible frame,
+  original RGB and contemporaneous cumulative counters.
+
+For fresh extraction, use **--through-command 10716** with snapshot 1 or
+**--through-command 10767** with snapshot 2, never the full-window FIFO digest.
+The handoff JSON contains exact commands with a new private output placeholder.
+No source/journal/manifest from another run is borrowed, overwritten or published.
+
+Actual closed STOP is **scene MEM1 draw window capture complete**, final state
+**150,764,595 cycles / 3,416,100 edges / PC 80301504 / exception 00000001**.
+The copied watcher observes the identity-validated real END report and signals
+only the owned emulator. Measured process disposition is **exit=133 /
+waited=true / 224.440 s**; the launcher's validation says **COMPLETE / frontier-
+only PASS**, while its **status=133** remains visible. This is a closed capture
+diagnostic, **not a clean normal game exit**. No owned Vita3K survivor remains.
+Journal SHA **e87a504a01aba4f64658b45907022e38a2ffea5f4174faf5f3fcdc869bbfb75e**;
+report SHA **bd65e89317e0d51d3fba7cb901d47153e40a8863e5ed1ecfbc911879da2585ed**.
+
+Next: commit this evidence, certified **VI/O1 -j2** rebuild, then a separate
+fresh continuously watched **101854-102936** CI-window capture, capacity
+**133260 commands / at most eight draw-time MEM1 images**, unchanged 600 s
+maximum / 128 live images / actual CPU-or-output watch / **audio=deferred**.
+The first interval's delivery gate is met; a genuine CI input, later scene
+content, gameplay, physical Vita, Windows CI, sound, parity and 30+ FPS still
+need their own evidence. No pin change, network or push.
+
+## Unit 81: the first CI attempt misses its window without borrowing earlier RAM
+
+Certified **b276f38 / VI / O1 / -j2**, watched attempt
+**a31f77e552114075806cf6ec06f6c536**, keeps executing/rendering but stops at the
+unchanged **600.001 s ceiling**, before **101854-102936**. **85 actual live PNG
+pairs / 92 retrace markers** validate independently; the complete structurally
+framed journal prefix contains **87,529 commands / 590,240 raw FIFO bytes**.
+No snapshot binary is written: only the identity-bound window request files
+exist. **captured=0 / window_complete=false** is independently checked; the
+Nintendo-window or init RAM is not substituted for the missing CI resources.
+
+Frame 85 / command **86586** records **113 cumulative submitted draws / two
+programs / zero observed skips, refusals or gaps**, **750,246,461 cycles**.
+Last observed progress is **750,285,684 cycles / 7,016,288 edges / 2,927,097
+turns**, PC **802EC8BC**, exception **0**. These are observation instants, not
+unavailable final counters. The process remains active with CPU or output
+growth during the diagnostic; no low-CPU-and-silent hang is proved.
+
+Original **result.json / guest-disposition.json** remain untouched:
+**timeout / SIGTERM / exit=-15 / waited=true / status 124 / INCOMPLETE /
+frontier UNAVAILABLE**, no closed guest report. Private
+**evidence/ci-window-incomplete-check.json** preserves exact journal and PNG
+checks without inventing an END report. No owned Vita3K remains after reap.
+The first extra-draw handoff from Unit 80 is still valid; **the CI handoff is
+not ready**. Do not extend the deadline merely to conceal this missing data.
+
+## Unit 82: byte-identical command records without per-byte diagnostic formatting
+
+The capture writer has a sourced, avoidable cost: **gx_stream.c** writes the
+header, then calls **fprintf("%02X") once per raw byte**, then writes a newline.
+**main.c** explicitly sets this redirected journal's **stderr to _IONBF**;
+**vita/feasibility/armv7/platform.c:23-40** redirects it into the private log.
+The preceding CI prefix therefore implies **765,298 command-record formatting
+calls**, plus separate draw-layout lines. This is a count derived from the
+source and actual byte/command counts, **not a measured syscall total, FPS or
+proof that formatting caused the missed window**. Real GPU waits still exist.
+
+Isolate a small journal helper: encode the already framed bytes into one fixed
+**2,051-byte hex buffer** and make **one formatted command-record call**, with
+the original header/provenance/hex/newline unchanged. The separate layout
+witness, command/raw-byte limits and fail-loud write checks remain. Counters
+advance only after that record succeeds. No guest instructions, cycle charging,
+RAM/resources, FIFO payload, framebuffer, GPU completion or audio policy changes.
+No full-prefix buffer, shadow MEM1, new dependency or default opt-in is added.
+It does not assume the C library performs only one kernel write internally.
+
+Test-first native instrumentation is **red** on the old writer: the short mixed
+CP/BP/XF fixture emits **54 formatted calls for 11 commands**, not 11
+(**logs/ww16-journal-record-red.log**). After the helper, it emits **11 calls**.
+Before/after stderr transcripts are **byte-identical** for that fixture, the
+maximum supported **1,025-byte / 255-word XF** command, and the **2048-command**
+prefix. Independent saved hashes and transcripts live under
+**logs/ww16-journal-record-byte-check/**. Existing first/second write-failure,
+raw-byte-budget, continuation, large-journal and snapshot-window tests remain
+green; failures cannot certify a partial/unlogged command.
+
+Linux AArch64, builds **-j2**: **781 host/DVD tests / 1911 subtests** pass
+(**logs/ww16-journal-record-host.log**); **75 GX native-wrapper + 111 GX Python
+tests / 109 subtests** pass together. Audit/attribution/whitespace pass.
+The improvement is a proved reduction in formatted calls with unchanged
+bytes, **not yet a measured gain on the game diagnostic**. Commit, certified
+**VI/O1 -j2** rebuild, then one fresh watched attempt at the **same CI window /
+133260-command capacity / eight-snapshot budget / 600 s maximum / 128 live
+images / audio=deferred**. Preserve any failure; no guessed renderer/DSP seam,
+fake completion, Windows/physical-Vita check, gameplay, parity or FPS claim.
+
+## Unit 83: reduced formatter reaches 93 images but still misses the CI window
+
+Certified **54f1a6e / VI / O1 / -j2**, watched run
+**4cf8acd00eef494c806b5347c3497e88**, reaches **93 actual live PNG pairs /
+101 real retrace markers / 95,738 structurally verified commands / 644,797 raw
+FIFO bytes**. The first **87,529 commands** are byte-identical to the preceding
+CI attempt's FIFO. This is more retained diagnostic output at the same ceiling,
+not a controlled formatter-only speed attribution or game FPS measurement.
+
+All **frames 1-10 have zero RGB; every frame 11-93 is nonblack**. The opened
+last PNG still shows the Nintendo logo and has **26,422 nonblack RGB pixels**,
+SHA **686603975980849d2b6e60b5605fb16f009655beaa6946e95cbdce2043af1f2e**.
+Frame 93 / command **94722** records **121 cumulative submissions / two
+programs / zero recorded skips, refusals or gaps**, **815,055,002 cycles**.
+Last observed progress is **823,140,517 cycles / 7,446,716 edges / 3,210,741
+turns**, PC **80307EF4**, exception **0**; these are not final guest counters.
+
+The requested **101854-102936** window is still unreached. Exactly **zero MEM1
+binaries** exist, with **captured=0 / window_complete=false**. The unchanged
+**600.001 s timeout / SIGTERM / exit=-15 / waited=true / status 124 /
+INCOMPLETE / frontier UNAVAILABLE**, missing guest report, and per-second
+CPU-or-output watch remain preserved. There is no low-CPU-and-silent hang,
+closed-report stop or post-logo black scene established here. No owned Vita3K
+survivor remains. Read-only verification and all original evidence live under:
+
+```text
+/home/fred/projects/zeldaWWHDRecomp/build-f5/ww05/vita3k-run-4cf8acd00eef494c806b5347c3497e88/
+  evidence/ci-window-incomplete-check.json
+```
+
+Read lane 18's follow-up **vita/renderer/gx_logo_replay.md**, delivery
+**0bcbf4d**, without editing that worktree. It independently GPU-replays Unit
+80's exact selected prefixes: draw **10716** is the textured Nintendo quad;
+**10767** is its captured black fade overlay, alpha **238/255**, yielding
+**RGB_before × 17/255**. The resulting raw and display PNGs match the actual
+live frame 11 byte-for-byte, with zero RGB-channel error. That lane explicitly
+labels the selected-prefix final preview **not a guest GX presentation**.
+This is strong parity for this one logo/fade image, not scene or whole-game
+parity. Its former black audit remains a valid record of the old **b8e2048**
+inputs; neither missing CI RAM nor a later black transition is inferred.
+
+## Unit 84: deliver each complete journal record to stdio contiguously
+
+Unit 82 removed the per-byte **fprintf** loop, but its final **fprintf** still
+formats directly into unbuffered **stderr**. One formatted call is not a
+guarantee about the library's underlying I/O. Refine only this diagnostic seam:
+format the original header into a fixed **2,210-byte record**, append the exact
+uppercase hex and newline in that same buffer, then call **fwrite** once for
+the complete record. There is no full-prefix buffering or delayed flush.
+The existing explicit **_IONBF** mode stays; a short write immediately fails
+before **decoded/logged/logged_bytes/frontier** certify that command.
+Header and framed-command extents are checked before writing the buffer.
+The layout witness, snapshot timing, guest cycles/handlers, renderer and real
+GPU/VI completion behavior are unchanged. This is not proof of one kernel
+write internally or of game FPS improvement.
+
+The new contiguous-write/short-write cases are red on the previous formatter
+(**logs/ww16-contiguous-journal-red.log**). The new writer emits **11 whole
+records in 11 stdio writes** for the short mixed CP/BP/XF fixture. Existing
+first/second-record write failures remain fail-loud, and an injected short
+write leaves all command-certification counters at zero. The old per-byte
+writer's saved stderr remains **byte-identical** for the short fixture,
+maximum **1,025-byte XF** command and **2048-command prefix**; exact checks are
+preserved in **logs/ww16-journal-record-byte-check/contiguous-final.json**, with
+the matching synthetic proof executable retained separately from later builds.
+
+The first full suite caught two overly broad test-only **fwrite** injections:
+the MEM1/PNG failure scenarios also intercepted the new journal write before
+reaching their intended capture surface. Scope those existing injections to
+non-stdout/stderr capture files, as their flush test already does; do not hide
+or ignore either failure. The full rerun is green: Linux AArch64, **-j2**,
+**783 host/DVD tests / 1911 subtests**, **75 GX native-wrapper + 111 GX Python
+tests / 109 subtests**. Logs: **ww16-contiguous-journal-host-final.log**;
+audit/attribution/whitespace also pass. No Windows CI or physical Vita available.
+
+After removing obsolete probe-only formatted-call bookkeeping, the final
+stream/drain suite is rerun: **21 tests / two subtests** pass, including every
+record failure and the actual 133260-command native prefix.
+
+Commit and certify a fresh **VI/O1 -j2** rebuild, then retry the **same
+101854-102936 window / 133260-command capacity / eight draw-time MEM1 maximum /
+600 s ceiling / 128 actual live images / audio=deferred**. Neither failed CI
+attempt is replaced or promoted. Full earlier FIFO state and per-draw resource
+versions remain the delivery gate. No raise of bounds, borrowed initial/logo
+RAM, guessed TLUT/DSP/renderer fix, fake frames/completion, sound, gameplay,
+whole-game parity or 30+ FPS claim. No network or push.
+
+## Unit 85: contiguous records are authentic, but the CI handoff is still incomplete
+
+The committed **51c5668** rebuild passes all seven private builder stages,
+certified **VI / O1 / -j2**. Fresh watched attempt
+**1957a0b2c9ff4911b2fe17dd1a59db33** preserves **96 actual live raw/display PNG
+pairs / 104 actual retrace markers / 98,789 structurally verified complete
+commands / 665,200 exact FIFO bytes**. Its first **95,738 commands** are
+byte-identical to Unit 83's already-verified prefix. Every draw-layout witness
+is consumed by its matching whole command. The contiguous writer did not
+truncate, reorder, replace or invent captured bytes.
+
+All **frames 1-10 are RGB black; every frame 11-96 is nonblack**. Raw/display
+RGB is identical for all pairs. The opened frame 96 still shows the Nintendo
+logo, **26,422 nonblack RGB pixels**, PNG SHA
+**419041854b1f6a82bb046d378aef68ce46d53161079f441226043fe32df94464**.
+Frame 96 / command **97773** has **124 cumulative submitted draws / two
+programs / zero recorded skips, refusals or gaps**, **839,358,258 cycles**.
+Last observed progress is **847,398,697 cycles / 7,590,683 edges / 3,305,190
+turns**, PC **80307EF4**, exception **0**, resume **2784**. Those are actual
+observation instants, not unavailable final guest totals. The images do not
+establish an intervening return to black, a later scene or gameplay.
+
+**101854-102936** remains unreached. Exactly **zero CI snapshot binaries**
+exist; only the identity-bound window request files are present. The strict
+collector independently verifies **captured=0 / window_complete=false**.
+No initialization/logo RAM, alternate run's resource versions, synthesized END
+report or unobserved CI bytes are substituted. The original disposition stays
+**600.001 s timeout / SIGTERM / exit=-15 / waited=true / status 124 /
+INCOMPLETE / frontier UNAVAILABLE**, with no closed guest report. Independent
+post-run verification does not overwrite or promote that result.
+
+The continuous watcher preserves **594 guest samples**, actual whole-process
+CPU **99.53%-995.27%** over measured intervals, and process-written output
+growth. High aggregate CPU is not a main-thread progress or GPU-wait diagnosis;
+the low-CPU **AND** silence abort rule was never satisfied. No owned Vita3K
+survivor remains after reap. The actual measured live-image wall instants
+show **184.106528 s from frame 1 to frame 10**, including **145.707328 s from
+frame 8 to frame 9** (81,004,451 to 134,562,378 actual cycles), and
+**109.218110 s over the last 20 image intervals**. These are diagnostic wall
+observations, including capture/emulator/guest/rendering costs, **not fabricated
+guest time, an FPS baseline or attribution to a particular thread**.
+
+Private root:
+
+```text
+/home/fred/projects/zeldaWWHDRecomp/build-f5/ww05/vita3k-run-1957a0b2c9ff4911b2fe17dd1a59db33/
+```
+
+- **evidence/ci-window-incomplete-check.json**: exact identity, original failed
+  result/digest, complete prefix framing, memory absence, all 96 RGB counts,
+  matching PNGs, actual counters and byte-identical prior prefix.
+- **evidence/capture-wall-observations.json**: original per-image wall/cycle/
+  command differences, no synthetic timestamps or FPS claim.
+- **data/Vita3K/Vita3K/ux0/data/bluewake-ww-fixture/ww05.log**: unchanged journal
+  SHA **287dbe601877985d528779d9d3f973da6202e5b9c2c7f2d09f36dd6e1c987422**.
+- **evidence/frames/frame-96{,-rgba}.png / frame-96.json**, original
+  **result.json / guest-disposition.json / run-watch.jsonl**, and the copied
+  watcher source remain intact.
+
+Do not start another identical CI attempt solely hoping to pass the ceiling.
+The source-complete journal and draw-time snapshot implementation are checked,
+and the first logo/fade delivery is verified and independently GPU-replayed by
+lane 18. **The late CI delivery gate is not met.** The next justified step is a
+bounded measurement of the actual guest/main-thread/renderer waits behind the
+long diagnostic intervals, before choosing another capture-cost or performance
+change. The 600 s / 128 image / 960x544 bounds and **audio=deferred** remain;
+there is no newly proved DSP/PCM dependency, TLUT failure or renderer defect.
+No further rebuild or emulator is started at this checkpoint. The tested code
+remains **51c5668**; this unit records evidence only. Audit/attribution/whitespace
+pass on Linux AArch64; no Windows CI, physical Vita, gameplay, sound, whole-game
+parity or 30+ FPS is claimed. No network or push.
+
+## Unit 86: owner-requested rebuild at 85ef54f and watched authentic verdict
+
+Inspect the reported leftover compilers before signalling anything. The actual
+**ps / /proc** inspection finds **zero compiler, Ninja or CMake processes**,
+including no visible compiler zombie. The last existing **vita-build-121.log**
+already has **status 0 / 113.500 s**, source **51c5668**; its unchanged timestamp
+is not evidence of an ongoing blocked build. **85ef54f** had not yet been
+rebuilt at the previous checkpoint. No process is killed without an owned,
+blocked identity. Initial evidence is preserved in
+**logs/ww16-85ef54f-recovery-initial-inspection.json**.
+
+Run the requested incremental build from clean, committed **85ef54f**, with
+**VI / O1 / -j2**, preserving all existing objects. The copied private recovery
+controller emits a **15 s build heartbeat**, recording owned process state,
+**wchan**, CPU and actual build-output changes; inaccessible kernel stacks are
+explicitly recorded rather than guessed. Its declared inactivity stop requires
+both low CPU and unchanged process-written outputs for **60 s**. Root-process
+CPU remains active during the later artifact inspection/publication interval,
+even when no object changes. No inactivity stop or compiler cleanup is needed.
+The original trial's separate **30 s CPU-AND-output inactivity rule** remains.
+
+**All seven builder stages pass / status 0 / 120.226 s observed completion**;
+the actual incremental Vita build is **113.386 s**, **vita-build-122.log**.
+Of **848 prior objects**, **843 retain their exact tracked inode/size/mtime
+signatures**, five are rebuilt and **none is missing**. No clean, deletion,
+source rollback or unrelated O2/O3 build is performed. All **750 module compile
+commands** have effective final **-O1**. The new identity-bound receipt and
+private artifacts certify **85ef54f**, not relabelled binaries from **51c5668**.
+Recovery evidence, watcher source, build logs and object-preservation result:
+
+```text
+/home/fred/projects/zeldaWWHDRecomp/build-f5/ww05/logs/ww16-recovery-85ef54f-e1e57900f02d44548c27d395d25e5fc9/
+```
+
+The controller then launches the requested fresh isolated authentic trial,
+**a85b38504ed3435db17cf9c43f856bf0**, source **85ef54f**, with unchanged
+**133260-command capacity / MEM1=8 / window 101854-102936 / 600 s ceiling /
+128-image bound / audio=deferred**. The verified result is **real execution and
+Nintendo-logo progression, then the diagnostic deadline**, not a captured new
+unsupported-operation wall or low-CPU/silent hang.
+
+**92 actual live raw/display PNG pairs / 100 actual retrace markers / 94,721
+complete structurally verified commands / 637,996 exact FIFO bytes** are
+preserved. This whole FIFO extent is byte-identical to the corresponding
+prefix of Unit 85's run. All **frames 1-10 are RGB black; 11-92 are nonblack**;
+all raw/display RGB pairs match. The opened last PNG is the Nintendo logo,
+**26,422 nonblack pixels**, SHA
+**dad5a19e99c8fdbbc2915c6b9411bf7b44e057e1172640ca5f433fe2991a6a05**.
+Frame 92 / command **93705** records **120 cumulative submitted draws / two
+programs / zero recorded skips, refusals or gaps**, **806,953,919 cycles**.
+Last observed progress is **815,054,247 cycles / 7,398,448 edges / 3,179,257
+turns**, PC **80255A04**, exception **0**, resume **2709**. These are not final
+guest totals. The watcher preserves **593 guest samples**, measured aggregate
+CPU **106.90%-983.41%**, and actual output growth, not a game FPS baseline.
+
+The CI window is **not reached**: **zero snapshot binaries / captured=0 /
+window_complete=false**. Preserve **600.001 s timeout / SIGTERM / exit=-15 /
+waited=true / status 124 / INCOMPLETE / frontier UNAVAILABLE**, with no closed
+guest report. No earlier RAM or fabricated END/report/completion supplies the
+missing CI resources. Private result:
+
+```text
+/home/fred/projects/zeldaWWHDRecomp/build-f5/ww05/vita3k-run-a85b38504ed3435db17cf9c43f856bf0/evidence/owner-requested-recovery-verdict.json
+```
+
+That independent verification binds the actual build/source/package, preserved
+original result, journal, PNGs, resource absence and watcher measurements.
+**postrun-process-check.json** records no compiler or Vita3K survivor and zero
+cleanup signals. Journal SHA:
+**1d407f214a0995e416b655a1698b63a151684d51bcaf4612062c24312e458a5f**.
+Original result/journal hashes are rechecked unchanged after collection.
+Audit/attribution/whitespace pass on Linux AArch64. No repository code change,
+physical Vita, Windows CI, gameplay, sound, whole-game parity or 30+ FPS claim;
+no network or push. The requested rebuild and authentic verdict are delivered;
+the late CI capture gate remains open and is not disguised as a success.

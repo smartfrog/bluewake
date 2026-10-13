@@ -4,7 +4,7 @@
 #include "gxruntime/gx_recomp.h"
 
 enum { WW_GX_MAX_COMMAND_BYTES = 1025u };
-enum { WW_GX_MAX_JOURNAL_COMMANDS = 2048u };
+enum { WW_GX_MAX_JOURNAL_COMMANDS = 196608u, WW_GX_MAX_JOURNAL_BYTES = 8u * 1024u * 1024u };
 
 typedef struct WwGxCheckpoint {
     u8 bytes[WW_GX_MAX_COMMAND_BYTES];
@@ -33,6 +33,7 @@ typedef struct WwGxStream {
     u64 decoded;
     u32 logged;
     u32 log_limit;
+    u32 logged_bytes;
     bool enabled;
     WwGxCheckpoint recent[WW_GX_RECENT_COMMANDS];
     WwGxCpWrite cp_writes[WW_GX_RECENT_CP_WRITES];

@@ -9,8 +9,14 @@ const char* ww_host_capture_mem1(WwHost* host) {
         return NULL;
     if (capture->limit > WW_MEM1_MAX_CAPTURES || capture->captured > capture->limit)
         return "MEM1 capture exceeds its bounded request";
-    if (capture->captured == capture->limit)
+    if ((capture->start_command == 0u) != (capture->end_command == 0u) ||
+        capture->start_command > capture->end_command || capture->end_command > host->stream.log_limit)
+        return "MEM1 capture draw window requires a complete logged prefix";
+    if (capture->start_command != 0u && (host->stream.decoded < capture->start_command ||
+                                       host->stream.decoded > capture->end_command))
         return NULL;
+    if (capture->captured == capture->limit)
+        return capture->start_command != 0u ? "scene MEM1 draw window exhausted its snapshot budget" : NULL;
     const WwGxCheckpoint* draw = &host->stream.command;
     if (!host->stream.enabled || host->stream.decoded == 0u || host->stream.decoded > host->stream.log_limit ||
         !draw->complete || draw->size < 3u || draw->size != draw->required ||
@@ -65,7 +71,10 @@ const char* ww_host_capture_mem1(WwHost* host) {
         (unsigned long long)host->stream.decoded, draw->bytes[0], draw->pc, draw->completion_pc,
         (unsigned long long)host->cycles.absolute_cycles, (unsigned long long)us,
         (unsigned long long)host->frame_timing.present.index);
-    if (written < 0) {
+    const int window_written = capture->start_command != 0u
+        ? fprintf(stderr, "[mem1-window] snapshot=%u start_command=%u end_command=%u command=%llu\n",
+                  number, capture->start_command, capture->end_command, (unsigned long long)host->stream.decoded) : 0;
+    if (written < 0 || window_written < 0) {
         const int closed = fclose(stream);
         return closed != 0 ? "MEM1 capture metadata write and close failed" : "MEM1 capture metadata write failed";
     }
