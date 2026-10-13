@@ -2020,3 +2020,47 @@ guest cycles/timebase remain unchanged in the synthetic stub tests. Audit,
 attribution and whitespace pass. No Windows CI, physical Vita, sound or new game
 pixels are claimed. Committed rebuild and a fresh watched **MEM1 + PNG live +
 audio=deferred** trial follow immediately.
+
+## Unit 53: real guest handler and handshake run; a nonwaiting probe is misclassified
+
+Committed VI/O1 build **5c4483a**, watched live-PNG/MEM1/audio-deferred run
+**5f2be0ca0d2d475daaed1a6419ff62f7**: the declared no-op bootstrap accepts the
+task request, and the **actual guest DSP interrupt handler consumes DCD10000**
+(`CC005006 / 80319098 / LR 8028ED10`). The **actual 8028E860 init callback
+consumes F3551111** (`CC005006 / 80319098 / LR 8028E880`). No callback body,
+guest state write or guest instruction was skipped. The two mail values and
+bootstrap DSPINT are explicitly synthetic, **audio=deferred**, no PCM claim.
+
+The next STOP is **CC005004 / 80319080**, with actual exception caller LR and
+parent PC **8028E884**. Source at **8028E880** performs one more **DSPCheckMail**
+after consuming the handshake, then **unconditionally calls 8028F080** to set the
+running flag. There is no compare/branch waiting on that third query. Thus the
+host's generic empty-mail refusal is **too broad**: this run is **not evidence
+that real audio/DSP processing blocks video**. The genuine busy-wait is the
+earlier **8028E870 → 8028E874 compare/branch**, not this probe. Next fix will admit
+only the guarded original nonwaiting query, returning the actual retained
+busy-clear mailbox state, **without another synthetic reply or IRQ**.
+
+Final **85,380,652 cycles / 1,035,494 edges**, +399 / +35 beyond Unit 51. Still
+**nine draws / eight presentations**, **8,963 decoded / 2,048 journal commands**,
+zero renderer skips/refusals/gaps. **Eight actual live PNG pairs**, two actual
+MEM1 images, eight presentation and ten retrace stamps verify. All image/memory
+provenance and run/report headers retain **audio=deferred**. Display PNGs remain
+uniform opaque black, the last opened and inspected; no logo, gameplay or FPS
+baseline claim. Both captured, guarded two-draw-prefix replays remain clean.
+
+Private hand-off root:
+
+```text
+/home/fred/projects/zeldaWWHDRecomp/build-f5/ww05/vita3k-run-5f2be0ca0d2d475daaed1a6419ff62f7
+```
+
+Latest image **`evidence/frames/frame-8.png`**; image/check/memory manifests
+**`evidence/live-images.json`**, **`evidence/live-capture-checks.json`**,
+**`evidence/mem1-capture.json`**; fixtures
+**`evidence/gx-draw-prefix-snapshot{1,2}/`** and guarded replay provenance. Original
+mail-read PC/LR and exception registers remain in the private guest log. Install
+**1.25 s**, guest **128.29 s**, closed report followed by known shutdown **133**;
+no inactive/timeout termination. The real-DSP source port remains paused under
+the coordinator's video-first decision; this probe correction needs no new DSP
+response, task execution, sample clock or audio-DMA completion.
