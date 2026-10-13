@@ -773,7 +773,7 @@ def parse_arguments():
                         help='stop this many seconds after the first presentation when no REL follows; 0 disables')
     parser.add_argument('--hang-seconds', type=float, default=30.0)
     parser.add_argument('--cleanup-grace-seconds', type=float, default=10.0,
-                        help='unit stop grace (TimeoutStopSec) before systemd escalates; core dumps stay disabled')
+                        help='unit stop grace (TimeoutStopSec) before systemd escalates, 1 to 60 seconds; core dumps stay disabled')
     parser.add_argument('--audio', choices=('deferred', 'strict'), default='deferred')
     parser.add_argument('--continue-gx', type=int, default=64)
     parser.add_argument('--install-budget-bytes', type=int, default=DEFAULT_INSTALL_BUDGET_BYTES)
@@ -798,8 +798,8 @@ def parse_arguments():
         parser.error('guest ceiling must be finite, positive and at most 600 seconds')
     if not math.isfinite(args.hang_seconds) or args.hang_seconds <= 0:
         parser.error('hang window must be finite and positive')
-    if not math.isfinite(args.cleanup_grace_seconds) or not 0 < args.cleanup_grace_seconds <= 60:
-        parser.error('cleanup grace must be finite, positive and at most 60 seconds')
+    if not math.isfinite(args.cleanup_grace_seconds) or not 1 <= args.cleanup_grace_seconds <= 60:
+        parser.error('cleanup grace must be finite and between 1 and 60 seconds')
     try:
         validate_continuation(args.continue_gx)
     except ValueError as error:

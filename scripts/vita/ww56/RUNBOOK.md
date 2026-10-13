@@ -280,10 +280,12 @@ separate, read-only step and is never a run gate:
   file; systemd may still label the unit result `core-dump` because that is the
   signal classification, not a produced dump (verified on this host: the
   coredump handler reports "terminated abnormally without generating a
-  coredump"). A SIGABRT, a killed process or a `core-dump` result during
-  cleanup is our teardown, not a guest failure and not the trial's frontier;
-  report it as cleanup, never as a boot crash. The trial's own stop reasons
-  (the table above) are the only failure vocabulary.
+  coredump"). Attribute a SIGABRT to cleanup only when the manager journal
+  confirms its origin (the unit's stop sequence); a signal or result
+  classification alone is not proof. A SIGABRT, a killed process or a
+  `core-dump` result during cleanup is our teardown, not a guest failure and
+  not the trial's frontier; report it as cleanup, never as a boot crash. The
+  trial's own stop reasons (the table above) are the only failure vocabulary.
 - Output written during the cleanup window is drained after cleanup and counted
   in the disposition (`presentations_total`), with `presentations_at_stop` and
   `journal_present_lines` recorded separately so any evidence loss is visible.

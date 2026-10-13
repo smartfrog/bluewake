@@ -4,9 +4,12 @@ WW56 creates one transient unit per phase. A unit that already exists (from an
 earlier run, a foreign tool or a leftover failure) must never be stopped by
 this run: the run refuses to reuse it before spawning, and cleanup stops only
 the invocation this run created, proven by the unit's InvocationID (or the
-wrapper's own "Running as unit: ...; invocation ID: ..." line).
+wrapper's own "Running as unit: ...; invocation ID: ..." line). The cleanup
+grace is a bounded CLI value: 1 to 60 seconds inclusive.
 """
 
+from contextlib import redirect_stderr
+import io
 import tempfile
 from pathlib import Path
 from types import SimpleNamespace
@@ -200,6 +203,34 @@ class PhaseCommandTests(unittest.TestCase):
         self.assertIn('--property=TimeoutStopSec=12s', command)
         self.assertNotIn('--property=TimeoutStopSec=2s', command)
         self.assertEqual(captured['timeout'], 190.0)
+
+
+class CleanupGraceBoundaryTests(unittest.TestCase):
+    BASE_ARGUMENTS = ('run.py',
+                      '--expected-head', '1' * 40,
+                      '--vpk', '/tmp/candidate.vpk', '--vpk-sha256', '2' * 64,
+                      '--guest-source', '3' * 40,
+                      '--disc', '/tmp/disc.iso', '--disc-sha256', '4' * 64,
+                      '--wayland-socket', '/tmp/wayland-0',
+                      '--run-id', 'grace-boundary')
+
+    def parse(self, value):
+        argv = list(self.BASE_ARGUMENTS) + ['--cleanup-grace-seconds', value]
+        with patch.object(run.sys, 'argv', argv), redirect_stderr(io.StringIO()):
+            return run.parse_arguments()
+
+    def test_the_boundary_values_are_accepted(self):
+        for value in ('1', '60'):
+            with self.subTest(value=value):
+                args = self.parse(value)
+                self.assertEqual(args.cleanup_grace_seconds, float(value))
+
+    def test_out_of_range_values_are_rejected(self):
+        for value in ('0.5', '60.5', '0', '-1', 'nan', 'inf'):
+            with self.subTest(value=value):
+                with self.assertRaises(SystemExit) as error:
+                    self.parse(value)
+                self.assertEqual(error.exception.code, 2)
 
 
 if __name__ == '__main__':
