@@ -2366,3 +2366,53 @@ only the preexisting DSP-init warning; audit/attribution/whitespace pass. No
 Windows CI, physical Vita, sound, new scene or FPS gain is claimed. Commit,
 rebuild and fresh watched **MEM1 + PNG live + audio=deferred** trial follow to
 confirm the actual packet and its real guest callback path.
+
+## Unit 61: actual command-0D ACK passes; next frontier is PCM-DMA activation
+
+Committed VI/O1 build **fe73d51**, watched live-PNG/MEM1/audio-deferred run
+**162cb9a0a41f461b84e4a1fe1ed61914** witnesses the actual control packet
+**8D00000A / 803EA5E0**, deliberately discarded without reading its parameter
+target. The actual request callback consumes synthetic **F3558D00** at
+**80319098 / LR 8028914C**, after the actual handler consumes **DCD10004**.
+Execution leaves the original **8028E838** pending wait and advances to the
+audio thread's DMA start. The **8028E7E0** flag-clear path is inferred from the
+unchanged original code and forward progress, not a separately logged entry.
+
+New STOP: **8046 to CC005036 at 803169C4**, caller **8028903C**:
+**`audio DMA configuration requires stopped engines; enable/transfer needs a PCM backend`**.
+Original **803169B4-803169C8 AIStartDMA** reads the length, ORs enable **8000**,
+writes it, then returns **without any completion/PCM-result check**. The audio
+thread next enters **OSReceiveMessage** at **80289048**, blocking on its own
+message queue; this does not by itself prove the other threads/video require
+real audio. Length **0046** is **70 32-byte blocks**, not an observed transfer.
+
+The reusable real device's **audio_dma.c:127-145** would latch an active source,
+remaining blocks and an AID interrupt when enabled. Do **not** invoke that enable
+path in the declared no-op: it would imply transfers/completions the stub never
+performs. Next seam suppresses only the requested enable bit in the explicit
+deferred profile, retaining the sourced stopped length/source configuration,
+**DMA disabled / AID IRQ none / PCM none**, and logs the suppression. If the
+guest checks the enable bit it must read disabled, not a fake running state.
+No initial DMA completion, sample clock, silence samples or audio callback is
+invented. Actual subsequent guest scheduling/video progress must be observed.
+
+Final **85,553,773 cycles / 1,051,944 edges**, +163,276 / +15,865 beyond Unit 59.
+**Nine draws / eight presentations**, **8,963 decoded / 2,048 journal commands**,
+zero renderer skips/refusals/gaps. Eight live PNG pairs, two actual MEM1 images,
+eight presentation and ten retrace markers verify, all **audio=deferred**.
+Display PNGs remain numerically opaque black; last opened. Both guarded captured
+two-draw-prefix replays pass. No scene, sound, physical Vita or FPS baseline claim.
+
+Private root:
+
+```text
+/home/fred/projects/zeldaWWHDRecomp/build-f5/ww05/vita3k-run-162cb9a0a41f461b84e4a1fe1ed61914
+```
+
+Image **`evidence/frames/frame-8.png`**; **`evidence/live-images.json`**,
+**`evidence/live-capture-checks.json`**, **`evidence/mem1-capture.json`**; fixtures
+**`evidence/gx-draw-prefix-snapshot{1,2}/`**. Install **1.27 s**, guest **16.08 s**,
+closed report followed by known shutdown **133**; no inactive/timeout termination.
+This shorter wall duration is **not** an isolated performance measurement or an
+FPS improvement claim. The full DSP/PCM port stays paused under video-first
+coordination; investigate only honest DMA suppression and actual guest progress.
