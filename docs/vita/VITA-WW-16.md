@@ -3644,3 +3644,79 @@ No further rebuild or emulator is started at this checkpoint. The tested code
 remains **51c5668**; this unit records evidence only. Audit/attribution/whitespace
 pass on Linux AArch64; no Windows CI, physical Vita, gameplay, sound, whole-game
 parity or 30+ FPS is claimed. No network or push.
+
+## Unit 86: owner-requested rebuild at 85ef54f and watched authentic verdict
+
+Inspect the reported leftover compilers before signalling anything. The actual
+**ps / /proc** inspection finds **zero compiler, Ninja or CMake processes**,
+including no visible compiler zombie. The last existing **vita-build-121.log**
+already has **status 0 / 113.500 s**, source **51c5668**; its unchanged timestamp
+is not evidence of an ongoing blocked build. **85ef54f** had not yet been
+rebuilt at the previous checkpoint. No process is killed without an owned,
+blocked identity. Initial evidence is preserved in
+**logs/ww16-85ef54f-recovery-initial-inspection.json**.
+
+Run the requested incremental build from clean, committed **85ef54f**, with
+**VI / O1 / -j2**, preserving all existing objects. The copied private recovery
+controller emits a **15 s build heartbeat**, recording owned process state,
+**wchan**, CPU and actual build-output changes; inaccessible kernel stacks are
+explicitly recorded rather than guessed. Its declared inactivity stop requires
+both low CPU and unchanged process-written outputs for **60 s**. Root-process
+CPU remains active during the later artifact inspection/publication interval,
+even when no object changes. No inactivity stop or compiler cleanup is needed.
+The original trial's separate **30 s CPU-AND-output inactivity rule** remains.
+
+**All seven builder stages pass / status 0 / 120.226 s observed completion**;
+the actual incremental Vita build is **113.386 s**, **vita-build-122.log**.
+Of **848 prior objects**, **843 retain their exact tracked inode/size/mtime
+signatures**, five are rebuilt and **none is missing**. No clean, deletion,
+source rollback or unrelated O2/O3 build is performed. All **750 module compile
+commands** have effective final **-O1**. The new identity-bound receipt and
+private artifacts certify **85ef54f**, not relabelled binaries from **51c5668**.
+Recovery evidence, watcher source, build logs and object-preservation result:
+
+```text
+/home/fred/projects/zeldaWWHDRecomp/build-f5/ww05/logs/ww16-recovery-85ef54f-e1e57900f02d44548c27d395d25e5fc9/
+```
+
+The controller then launches the requested fresh isolated authentic trial,
+**a85b38504ed3435db17cf9c43f856bf0**, source **85ef54f**, with unchanged
+**133260-command capacity / MEM1=8 / window 101854-102936 / 600 s ceiling /
+128-image bound / audio=deferred**. The verified result is **real execution and
+Nintendo-logo progression, then the diagnostic deadline**, not a captured new
+unsupported-operation wall or low-CPU/silent hang.
+
+**92 actual live raw/display PNG pairs / 100 actual retrace markers / 94,721
+complete structurally verified commands / 637,996 exact FIFO bytes** are
+preserved. This whole FIFO extent is byte-identical to the corresponding
+prefix of Unit 85's run. All **frames 1-10 are RGB black; 11-92 are nonblack**;
+all raw/display RGB pairs match. The opened last PNG is the Nintendo logo,
+**26,422 nonblack pixels**, SHA
+**dad5a19e99c8fdbbc2915c6b9411bf7b44e057e1172640ca5f433fe2991a6a05**.
+Frame 92 / command **93705** records **120 cumulative submitted draws / two
+programs / zero recorded skips, refusals or gaps**, **806,953,919 cycles**.
+Last observed progress is **815,054,247 cycles / 7,398,448 edges / 3,179,257
+turns**, PC **80255A04**, exception **0**, resume **2709**. These are not final
+guest totals. The watcher preserves **593 guest samples**, measured aggregate
+CPU **106.90%-983.41%**, and actual output growth, not a game FPS baseline.
+
+The CI window is **not reached**: **zero snapshot binaries / captured=0 /
+window_complete=false**. Preserve **600.001 s timeout / SIGTERM / exit=-15 /
+waited=true / status 124 / INCOMPLETE / frontier UNAVAILABLE**, with no closed
+guest report. No earlier RAM or fabricated END/report/completion supplies the
+missing CI resources. Private result:
+
+```text
+/home/fred/projects/zeldaWWHDRecomp/build-f5/ww05/vita3k-run-a85b38504ed3435db17cf9c43f856bf0/evidence/owner-requested-recovery-verdict.json
+```
+
+That independent verification binds the actual build/source/package, preserved
+original result, journal, PNGs, resource absence and watcher measurements.
+**postrun-process-check.json** records no compiler or Vita3K survivor and zero
+cleanup signals. Journal SHA:
+**1d407f214a0995e416b655a1698b63a151684d51bcaf4612062c24312e458a5f**.
+Original result/journal hashes are rechecked unchanged after collection.
+Audit/attribution/whitespace pass on Linux AArch64. No repository code change,
+physical Vita, Windows CI, gameplay, sound, whole-game parity or 30+ FPS claim;
+no network or push. The requested rebuild and authentic verdict are delivered;
+the late CI capture gate remains open and is not disguised as a success.
