@@ -78,3 +78,37 @@ const char* ww_host_observe_scheduler_idle(WwHost* host) {
     }
     return NULL;
 }
+
+const char* ww_host_observe_dsp_task_boot(WwHost* host) {
+    if (host == NULL)
+        return "DSP task observation requires a host";
+    CPUState* cpu = &host->cpu;
+    const u32 entry = 0x803193ACu;
+    const u32 task = cpu->gpr[3];
+    const u32 stack = cpu->gpr[1];
+    if (cpu->pc != entry || !ww_host_module_contains_address(host->module, entry) ||
+        !ww_code_guard_copied_text_matches(&host->code_guard, cpu, entry, entry, 32u))
+        return "DSP task observation requires the registered original DOL entry";
+    if (!real_mem1(cpu, task, 64u) || ww_host_linked_alias_overlaps(task, 64u))
+        return "DSP task observation requires a real MEM1 task descriptor";
+    if (stack < GC_RAM_BASE + 24u || !real_mem1(cpu, stack - 24u, 32u) ||
+        ww_host_linked_alias_overlaps(stack - 24u, 32u))
+        return "DSP task observation requires the real guest prologue stack range";
+    if (host->dsp_task_boot_observed)
+        return NULL;
+    const WwDspInterface* dsp = &host->dsp;
+    if (fprintf(stderr, "[dsp-task-boot] pc=%08X lr=%08X sp=%08X task=%08X task_bytes=64 control=%04X cpu_mail=%08X dsp_mail=%08X rom_selected=%u rom_pending=%u init_loaded=%u init_cycles=%llu cycles=%llu mode=guest-body reply_injection=none task_hex=",
+                entry, cpu->lr, stack, task, dsp->control, dsp->cpu_mailbox, dsp->dsp_mailbox,
+                dsp->rom_selected, dsp->rom_mail_pending, dsp->init_loaded,
+                (unsigned long long)dsp->init_cycles_remaining, (unsigned long long)host->cycles.absolute_cycles) < 0)
+        return "DSP task observation trace write failed";
+    const u8* bytes = cpu->ram + (task - GC_RAM_BASE);
+    for (u32 index = 0u; index < 64u; ++index) {
+        if (fprintf(stderr, "%02X", bytes[index]) < 0)
+            return "DSP task observation descriptor trace write failed";
+    }
+    if (fprintf(stderr, "\n") < 0)
+        return "DSP task observation trace closure failed";
+    host->dsp_task_boot_observed = true;
+    return NULL;
+}

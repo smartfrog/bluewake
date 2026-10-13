@@ -466,6 +466,14 @@ static u64 mmio_read(CPUState* cpu, u32 address, u8 size) {
         dol_guest_memory_read(&host->memory, address, size, &value))
         return value;
     observe(cpu);
+    if (host->dsp_task_boot_observed && address == 0xCC005004u && size == 2u) {
+        const bool supported_work = (host->dsp.control & WW_DSP_HALT_BIT) == 0u &&
+            (host->dsp.rom_mail_pending || (!host->dsp.rom_selected && host->dsp.init_cycles_remaining != 0u));
+        if ((host->dsp.dsp_mailbox & 0x80000000u) == 0u && !supported_work) {
+            ww_host_fail(host, "DSP task boot mailbox requires a DSP task backend; no reply injected", address, cpu->pc);
+            return 0u;
+        }
+    }
     if (ww_dsp_interface_read(&host->dsp, address, size, &value)) {
         refresh(host);
         return value;
@@ -770,7 +778,16 @@ bool ww_host_edge(void* user, CPUState* cpu, u32 address) {
             return true;
         }
     }
-    const bool compiled_cpu_boundary = (address == 0x80328F84u || address == 0x80303A50u ||
+    const bool observed_dsp_task = address == 0x803193ACu;
+    if (observed_dsp_task) {
+        const char* error = ww_host_observe_dsp_task_boot(host);
+        if (error != NULL) {
+            ww_host_fail(host, error, address, address);
+            host->edge_stopped = true;
+            return true;
+        }
+    }
+    const bool compiled_cpu_boundary = (address == 0x80328F84u || address == 0x80303A50u || observed_dsp_task ||
                                        observed_retrace_sleep || observed_draw_done_sleep || observed_async_draw_done) &&
                                          ww_host_module_contains_address(host->module, address);
     const bool desktop_edge = bluewake_edge_maybe_intercept(address);

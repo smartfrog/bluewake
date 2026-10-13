@@ -1770,3 +1770,46 @@ No inactivity/timeout termination, fabricated frame, logo/gameplay claim or FPS
 comparison is made. The next seam is guarded observation of the actual DSP-task
 entry and guest mailbox access, preserving the real body and explicitly
 refusing unsupported task-peer behavior rather than adopting desktop replies.
+
+## Unit 48: observe the actual DSP task and keep missing mailbox behavior explicit
+
+The **803193AC __DSP_boot_task** boundary now reuses the existing SDK observation
+path rather than the desktop reply-arming shortcut. Admission requires the
+registered DOL entry, **32 original loaded text bytes** verified through the
+existing code guard, an unaliased real-MEM1 task range and the actual prologue's
+stack range (**SP-24 through SP+8**). It records entry/LR/SP/task address, **64
+opaque actual task bytes**, DSP control/mailbox/ROM/init state and executed
+cycles once, then lets the **real guest body run normally**. The task bytes are
+bounded evidence, not a reconstructed descriptor, DSP program or scripted reply.
+No guest register, RAM, DSP state, return, ready bit, callback or wakeup is changed
+by observation. Every repeated entry is revalidated; logging failure is fatal.
+
+At the ensuing real **CC005004** halfword mailbox poll, a missing busy reply
+without supported **running** ROM/init work explicitly stops with
+**`DSP task boot mailbox requires a DSP task backend; no reply injected`**.
+This prevents an unsupported peer from becoming either a fabricated message or
+an indefinite busy-wait. Existing busy mail, the verified running ROM source and
+verified pending init work retain their existing behavior. A halted pending flag
+is not a due event. No desktop task-mail flags or new response constants are
+copied into the actual host path. The real loaded task still needs a sourced
+DSP backend; this unit is guarded execution/diagnosis, not that implementation.
+
+Linux AArch64: **672 host tests pass**, ten added observation/peer scenarios
+extending the existing scheduler probe: original entry, changed/unregistered code,
+invalid task/stack mapping, bounded repeat, logging failure, empty/stale mailbox,
+actual busy mail, verified ROM/init work, and halted pending work. Full RAM and
+general registers stay unchanged; DSP changes are limited to the already sourced
+ROM read behavior. The admitted-entry test was red before the seam
+(`logs/ww16-dsp-task-observation-red.log`); all tests green in
+`logs/ww16-dsp-task-observation-final.log`. Actual ARM host links
+(`logs/ww16-dsp-task-observation-final-arm.log`; only the existing DSP signedness
+warning). Audit/attribution/whitespace pass. No pin, renderer or desktop behavior
+change; no physical-Vita or authentic task execution is claimed from these tests.
+
+The existing shared **dsp_adapter_c / dsp_hle_backend** is a source candidate for
+the next real peer, but its current optional build consumes donor objects and
+Mac frameworks (`runtime/host/CMakeLists.txt:702-755`), not an ARM/Vita backend.
+It is not linked or silently substituted here. Commit/rebuild and a watched
+MEM1/live-PNG diagnostic trial follow. The last healthy capture run needed
+**116.38 s**, so the next explicit phase ceiling is **180 s**, still with the
+same 30-second low-CPU **AND** silence abort and continuous live monitoring.

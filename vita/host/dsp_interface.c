@@ -5,7 +5,7 @@
 #include <stdio.h>
 #include <string.h>
 
-#define DSP_HALT 0x0004u
+#define DSP_HALT WW_DSP_HALT_BIT
 #define DSP_INIT 0x0800u
 #define DSP_INIT_CODE 0x0400u
 #define DSP_INTERRUPT_MASKS 0x0150u
