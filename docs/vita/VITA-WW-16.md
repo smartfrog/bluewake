@@ -2648,3 +2648,44 @@ fixtures **`evidence/gx-draw-prefix-snapshot{1,2}/`**. Install **1.26 s**, close
 certified frontier report, then known shutdown **133**; no timeout/inactive
 termination. No surviving Vita3K. Continue the boot/render path at CARDProbe,
 with **O1 -j2**, fresh isolated profile, real guest execution and live images.
+
+## Unit 67: CARDProbe is a guarded original guest wrapper, not a desktop card shim
+
+The observed **8031D400 CARDProbe** entry is admitted only when its entry and
+last instruction are registered and all **56 original loaded DOL bytes** match
+the existing code guard. Text/stack/retail-flag ranges must be owned real MEM1
+and not overlap linked aliases. The original **8-byte prologue** needs the
+16-byte extent from **SP-8 through SP+7**, covering its saved LR store. Retail
+byte **800030E3** remains actual RAM, only observed, never replaced.
+
+The observer emits one bounded **card-probe / mode=guest-body /
+result_injection=none / storage=none** trace after validation, then the existing
+dispatcher executes the original wrapper. It does **not** set r3, advance PC,
+call EXIProbe natively, create/read a memory card or save image, open real HOME,
+or inject an attach/detach/callback/completion. Original **EXIProbe 8030A448**
+and its device/MMIO behavior remain on the normal guest path. All other desktop
+card interceptions stay refused until observed and sourced. Repeated calls still
+validate original code/ownership but do not repeat the initial trace; failed
+publication stops before admission and does not mark the observation complete.
+
+The reused scheduler/DSP observation probe covers **five added tests**: original
+entry admission, parameterized changed entry/tail text and missing/truncated
+registration, parameterized low/high stack range refusal, trace failure, and
+bounded repeated observation. It checks unchanged guest registers, PC, RAM,
+DSP state, cycles/timebase and no fabricated callback/result. The first valid
+entry was genuinely red on the desktop refusal before implementation
+(**logs/ww16-card-probe-red.log**). During implementation a last-byte registration
+check was corrected to the existing API's aligned last instruction; the inherited
+DSP low-stack fixture also needed CARDProbe's actual smaller 8-byte prologue
+bound. Both failed attempts remain preserved, not counted as separate feature
+red tests.
+
+Linux AArch64: **727 host tests pass**
+(**logs/ww16-card-probe-certified-host.log**), all 722 previous scenarios green;
+ARM host links (**logs/ww16-card-probe-reviewed-arm.log**) with **-j2** and no new
+warnings. Audit/attribution/whitespace pass. Synthetic admission is not a game
+run or proof of card presence/absence. No Windows CI, physical Vita, sound,
+logo/gameplay or FPS gain is claimed. Commit/rebuild, then one fresh watched
+**O1 -j2 / 300 s ceiling / MEM1 + PNG live / audio=deferred** trial follows to
+observe what the original probe and later boot code actually do. No stale
+emulator or player's data is reused; real-DSP/PCM work remains paused.

@@ -830,7 +830,16 @@ bool ww_host_edge(void* user, CPUState* cpu, u32 address) {
             return true;
         }
     }
-    const bool compiled_cpu_boundary = (address == 0x80328F84u || address == 0x80303A50u || observed_dsp_task ||
+    const bool observed_card_probe = address == 0x8031D400u;
+    if (observed_card_probe) {
+        const char* error = ww_host_observe_card_probe(host);
+        if (error != NULL) {
+            ww_host_fail(host, error, address, address);
+            host->edge_stopped = true;
+            return true;
+        }
+    }
+    const bool compiled_cpu_boundary = (address == 0x80328F84u || address == 0x80303A50u || observed_dsp_task || observed_card_probe ||
                                        observed_retrace_sleep || observed_draw_done_sleep || observed_async_draw_done) &&
                                          ww_host_module_contains_address(host->module, address);
     const bool desktop_edge = bluewake_edge_maybe_intercept(address);

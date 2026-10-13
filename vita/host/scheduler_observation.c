@@ -113,3 +113,30 @@ const char* ww_host_observe_dsp_task_boot(WwHost* host) {
     host->dsp_task_boot_observed = true;
     return NULL;
 }
+
+const char* ww_host_observe_card_probe(WwHost* host) {
+    if (host == NULL)
+        return "CARDProbe observation requires a host";
+    CPUState* cpu = &host->cpu;
+    const u32 entry = 0x8031D400u;
+    const u32 bytes = 56u;
+    const u32 stack = cpu->gpr[1];
+    if (cpu->pc != entry || !ww_host_module_contains_address(host->module, entry) ||
+        !ww_host_module_contains_address(host->module, entry + bytes - 4u) ||
+        !ww_code_guard_copied_text_matches(&host->code_guard, cpu, entry, entry, bytes) ||
+        ww_host_linked_alias_overlaps(entry, bytes))
+        return "CARDProbe observation requires the registered original DOL wrapper";
+    if (stack < GC_RAM_BASE + 8u || !real_mem1(cpu, stack - 8u, 16u) ||
+        ww_host_linked_alias_overlaps(stack - 8u, 16u))
+        return "CARDProbe observation requires the real guest prologue stack range";
+    if (!real_mem1(cpu, 0x800030E0u, 4u) || ww_host_linked_alias_overlaps(0x800030E0u, 4u))
+        return "CARDProbe observation requires the original retail flag range";
+    if (host->card_probe_observed)
+        return NULL;
+    if (fprintf(stderr, "[card-probe] pc=%08X lr=%08X sp=%08X channel=%u retail_flag=%02X cycles=%llu mode=guest-body result_injection=none storage=none\n",
+                entry, cpu->lr, stack, cpu->gpr[3], cpu->ram[0x30E3u],
+                (unsigned long long)host->cycles.absolute_cycles) < 0)
+        return "CARDProbe observation trace write failed";
+    host->card_probe_observed = true;
+    return NULL;
+}

@@ -30,3 +30,22 @@ class SchedulerObservationTest(unittest.TestCase):
 
     def test_log_failure_stops_loudly_without_waking_the_guest(self):
         self.probe('trace')
+
+    def test_registered_original_CARDProbe_is_admitted_as_guest_body_without_a_card_result_or_callback_injection(self):
+        self.assertIn('mode=guest-body result_injection=none storage=none', self.probe('card-original'))
+
+    def test_CARDProbe_admission_rejects_changed_or_unregistered_original_code(self):
+        for scenario in ('card-code', 'card-code-tail', 'card-unregistered', 'card-short-range'):
+            with self.subTest(scenario=scenario):
+                self.probe(scenario)
+
+    def test_CARDProbe_admission_requires_the_real_guest_prologue_stack_range(self):
+        for scenario in ('card-stack', 'card-stack-high'):
+            with self.subTest(scenario=scenario):
+                self.probe(scenario)
+
+    def test_CARDProbe_trace_failure_stops_before_the_original_body_is_admitted(self):
+        self.probe('card-trace')
+
+    def test_repeated_CARDProbe_calls_execute_normally_without_repeating_the_initial_observation(self):
+        self.assertEqual(self.probe('card-repeat').count('[card-probe]'), 1)

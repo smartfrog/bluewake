@@ -99,6 +99,7 @@ typedef struct WwHost {
     bool dvd_callback_active;
     bool scheduler_idle_observed;
     bool dsp_task_boot_observed;
+    bool card_probe_observed;
     bool vi_clock_enabled;
     bool gpu_finish_committed;
     u64 gpu_finish_index;
@@ -133,6 +134,7 @@ const char* ww_host_materialize_rel(WwHost* host, u32 owner, const char* name);
 const char* ww_host_link_profile_list(WwHost* host, u32 object);
 const char* ww_host_observe_scheduler_idle(WwHost* host);
 const char* ww_host_observe_dsp_task_boot(WwHost* host);
+const char* ww_host_observe_card_probe(WwHost* host);
 void ww_host_vi_advance(WwHost* host, u64 cycles);
 void ww_gx_remember_command(WwGxStream* stream, const WwGxCheckpoint* command);
 const char* ww_gx_observe_first_draw(WwHost* host);
