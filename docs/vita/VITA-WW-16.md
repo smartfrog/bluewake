@@ -2095,3 +2095,46 @@ warnings (**logs/ww16-deferred-empty-probe-arm.log**); audit/attribution/whitesp
 pass. No hardware, new visible pixels or FPS gain is claimed from these tests.
 Commit/rebuild and a fresh watched **MEM1 + PNG live + audio=deferred** trial
 follow, keeping video progress separate from any audio-processing dependency.
+
+## Unit 55: nonwaiting query passes; the next guard stops command-list intake
+
+Committed VI/O1 build **553ea1b**, watched live-PNG/MEM1/audio-deferred run
+**3e4f864272234ed9b3f69683480bc143**: the actual post-handshake query succeeds,
+returning the retained busy-clear mailbox at **80319080 / LR 8028E884**. The guest
+returns from its handler/callback path and reaches the ordinary command-list
+sender. New STOP: **00000005 to CC005002 at 803190B0**, caller **8028E9B8**,
+**`deferred DSP post-bootstrap task command not modeled; audio=deferred`**.
+
+Source **8028E9B0-8028EA20** sends the payload count, asserts the DSP's input
+attention bit, waits for the **CPU→DSP mailbox busy bit to clear**, and sends
+that many payload words. This first guard failure is at **input intake**, not
+an observed wait for PCM, mixing or an audio-DMA completion. Pinned
+**Zelda.cpp:163-167,194-202,376-411** sources a five-word setup packet (command
+01 plus four pointer words). Its real implementation initializes mixing tables;
+a declared no-op can accept/discard that bounded input without reading tables,
+mixing or claiming execution. First payload type still needs authentic
+confirmation. Unknown commands remain refusals; no processing ACK is assumed
+from this producer-count observation alone.
+
+Final **85,389,645 cycles / 1,035,977 edges**, +8,993 / +483 beyond Unit 53.
+Still **nine draws / eight presentations**, **8,963 decoded / 2,048 journal
+commands**, zero renderer skips/refusals/gaps. Eight actual PNG pairs, two actual
+MEM1 captures, eight presentation and ten retrace stamps verify, all labelled
+**audio=deferred**. All shown images remain uniform opaque black; the last was
+opened. Both guarded two-draw-prefix replays pass with these actual captures.
+
+Private evidence root:
+
+```text
+/home/fred/projects/zeldaWWHDRecomp/build-f5/ww05/vita3k-run-3e4f864272234ed9b3f69683480bc143
+```
+
+Latest image **`evidence/frames/frame-8.png`**; image/check/memory manifests
+**`evidence/live-images.json`**, **`evidence/live-capture-checks.json`**,
+**`evidence/mem1-capture.json`**; extracted fixtures
+**`evidence/gx-draw-prefix-snapshot{1,2}/`** and guarded replay provenance.
+Install **1.25 s**, guest **86.10 s**, closed report followed by known shutdown
+**133**, no inactive/timeout termination. No logo, gameplay, real audio,
+physical-Vita behavior or FPS improvement is claimed. Continue the declared
+no-op input protocol rather than the paused full DSP port; a real processing
+dependency will be reported only when the guest actually waits for one.
