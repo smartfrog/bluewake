@@ -2279,3 +2279,47 @@ only the prior DSP-init signedness warning remains. Audit, attribution and
 whitespace pass. No Windows CI, physical Vita, real sound, visible scene or FPS
 gain is claimed. Commit/rebuild, then a fresh continuously watched **MEM1 + PNG
 live + audio=deferred** trial must prove the actual callback releases the wait.
+
+## Unit 59: real setup callback consumes the ACK and releases the pending wait
+
+Committed VI/O1 build **4f5c074**, watched live-PNG/MEM1/audio-deferred run
+**1351063a0837427b87d242d99ace55ec**: the actual handler consumes synthetic
+**DCD10004** at **80319098 / LR 8028ED10**. The actual **80289130** request
+callback consumes synthetic **F3558100** at **80319098 / LR 8028914C**. Guest
+execution then advances to the next command-list sender, proving that the
+original setup-pending wait was released. The **8028E6A0** flag-clear path is
+inferred from the unchanged original code and progress, not a separately traced
+callback entry. No host write to the pending flag or skipped guest instruction.
+
+New STOP: **count 00000002 to CC005002 at 803190B0**, caller **8028E9B8**,
+**`deferred DSP post-bootstrap task command not modeled; audio=deferred`**.
+Original **8028E800-8028E838** constructs **8D00xxxx + one parameter**, registers
+**8028E7E0** as completion, and sends count **2**. The pinned command-0D handler
+**Zelda.cpp:469-480** either NOPs or reads/logs the one parameter, then sends
+the same standard ACK; it does not mix PCM. Only the count has been observed
+authentically so far: do not claim the actual packet is 0D until its next payload
+word is witnessed. A bounded no-op can accept count 2 after setup, require a real
+**8Dxxxxxx** first word, discard the parameter and declare an intake ACK. Other
+packet types remain refusals; no audio-rendering completion is assumed.
+
+Final **85,390,497 cycles / 1,036,079 edges**, +852 / +102 beyond Unit 55's
+closed report. **Nine draws / eight presentations**, **8,963 decoded / 2,048
+journal commands**, zero renderer skips/refusals/gaps. Eight live PNG pairs,
+two actual MEM1 images, eight presentation and ten retrace markers verify, all
+**audio=deferred**. All display images remain numerically uniform opaque black;
+last image opened. Both guarded captured two-draw-prefix replays pass. No game
+scene, real sound, physical-Vita test or FPS baseline is claimed.
+
+Private root:
+
+```text
+/home/fred/projects/zeldaWWHDRecomp/build-f5/ww05/vita3k-run-1351063a0837427b87d242d99ace55ec
+```
+
+Image **`evidence/frames/frame-8.png`**; **`evidence/live-images.json`**,
+**`evidence/live-capture-checks.json`**, **`evidence/mem1-capture.json`**; draw
+fixtures **`evidence/gx-draw-prefix-snapshot{1,2}/`** and guarded replay provenance.
+Install **1.26 s**, guest **95.97 s**, closed certified frontier report followed
+by known shutdown **133**; no inactivity/timeout termination. Preserve Unit 57's
+incomplete run as the genuine pre-ACK wait evidence. The real-DSP port stays
+paused; continue only the sourced, declared no-op command-0D intake/ACK seam.
