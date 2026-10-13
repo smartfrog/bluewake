@@ -9,6 +9,8 @@ at frame 11 (Unit 78). Gameplay and 30+ FPS are still unverified. The current
 capture handoff targets complete later-draw FIFO state and synchronized MEM1
 for lane 18 (Units 79-80), not another guessed renderer/audio fix. The first
 extra-draw interval is now captured and passes the guarded native loader.
+The latest CI attempt reaches 96 live images but not its requested draw-time
+RAM window; Unit 85 records that incomplete outcome without extending bounds.
 
 ## Unit 1: CP performance selector
 
@@ -3570,3 +3572,75 @@ attempt is replaced or promoted. Full earlier FIFO state and per-draw resource
 versions remain the delivery gate. No raise of bounds, borrowed initial/logo
 RAM, guessed TLUT/DSP/renderer fix, fake frames/completion, sound, gameplay,
 whole-game parity or 30+ FPS claim. No network or push.
+
+## Unit 85: contiguous records are authentic, but the CI handoff is still incomplete
+
+The committed **51c5668** rebuild passes all seven private builder stages,
+certified **VI / O1 / -j2**. Fresh watched attempt
+**1957a0b2c9ff4911b2fe17dd1a59db33** preserves **96 actual live raw/display PNG
+pairs / 104 actual retrace markers / 98,789 structurally verified complete
+commands / 665,200 exact FIFO bytes**. Its first **95,738 commands** are
+byte-identical to Unit 83's already-verified prefix. Every draw-layout witness
+is consumed by its matching whole command. The contiguous writer did not
+truncate, reorder, replace or invent captured bytes.
+
+All **frames 1-10 are RGB black; every frame 11-96 is nonblack**. Raw/display
+RGB is identical for all pairs. The opened frame 96 still shows the Nintendo
+logo, **26,422 nonblack RGB pixels**, PNG SHA
+**419041854b1f6a82bb046d378aef68ce46d53161079f441226043fe32df94464**.
+Frame 96 / command **97773** has **124 cumulative submitted draws / two
+programs / zero recorded skips, refusals or gaps**, **839,358,258 cycles**.
+Last observed progress is **847,398,697 cycles / 7,590,683 edges / 3,305,190
+turns**, PC **80307EF4**, exception **0**, resume **2784**. Those are actual
+observation instants, not unavailable final guest totals. The images do not
+establish an intervening return to black, a later scene or gameplay.
+
+**101854-102936** remains unreached. Exactly **zero CI snapshot binaries**
+exist; only the identity-bound window request files are present. The strict
+collector independently verifies **captured=0 / window_complete=false**.
+No initialization/logo RAM, alternate run's resource versions, synthesized END
+report or unobserved CI bytes are substituted. The original disposition stays
+**600.001 s timeout / SIGTERM / exit=-15 / waited=true / status 124 /
+INCOMPLETE / frontier UNAVAILABLE**, with no closed guest report. Independent
+post-run verification does not overwrite or promote that result.
+
+The continuous watcher preserves **594 guest samples**, actual whole-process
+CPU **99.53%-995.27%** over measured intervals, and process-written output
+growth. High aggregate CPU is not a main-thread progress or GPU-wait diagnosis;
+the low-CPU **AND** silence abort rule was never satisfied. No owned Vita3K
+survivor remains after reap. The actual measured live-image wall instants
+show **184.106528 s from frame 1 to frame 10**, including **145.707328 s from
+frame 8 to frame 9** (81,004,451 to 134,562,378 actual cycles), and
+**109.218110 s over the last 20 image intervals**. These are diagnostic wall
+observations, including capture/emulator/guest/rendering costs, **not fabricated
+guest time, an FPS baseline or attribution to a particular thread**.
+
+Private root:
+
+```text
+/home/fred/projects/zeldaWWHDRecomp/build-f5/ww05/vita3k-run-1957a0b2c9ff4911b2fe17dd1a59db33/
+```
+
+- **evidence/ci-window-incomplete-check.json**: exact identity, original failed
+  result/digest, complete prefix framing, memory absence, all 96 RGB counts,
+  matching PNGs, actual counters and byte-identical prior prefix.
+- **evidence/capture-wall-observations.json**: original per-image wall/cycle/
+  command differences, no synthetic timestamps or FPS claim.
+- **data/Vita3K/Vita3K/ux0/data/bluewake-ww-fixture/ww05.log**: unchanged journal
+  SHA **287dbe601877985d528779d9d3f973da6202e5b9c2c7f2d09f36dd6e1c987422**.
+- **evidence/frames/frame-96{,-rgba}.png / frame-96.json**, original
+  **result.json / guest-disposition.json / run-watch.jsonl**, and the copied
+  watcher source remain intact.
+
+Do not start another identical CI attempt solely hoping to pass the ceiling.
+The source-complete journal and draw-time snapshot implementation are checked,
+and the first logo/fade delivery is verified and independently GPU-replayed by
+lane 18. **The late CI delivery gate is not met.** The next justified step is a
+bounded measurement of the actual guest/main-thread/renderer waits behind the
+long diagnostic intervals, before choosing another capture-cost or performance
+change. The 600 s / 128 image / 960x544 bounds and **audio=deferred** remain;
+there is no newly proved DSP/PCM dependency, TLUT failure or renderer defect.
+No further rebuild or emulator is started at this checkpoint. The tested code
+remains **51c5668**; this unit records evidence only. Audit/attribution/whitespace
+pass on Linux AArch64; no Windows CI, physical Vita, gameplay, sound, whole-game
+parity or 30+ FPS is claimed. No network or push.
