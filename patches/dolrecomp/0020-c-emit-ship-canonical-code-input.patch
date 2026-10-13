@@ -1,0 +1,239 @@
+diff --git a/.gitignore b/.gitignore
+index 3c2f890..aa4fd17 100644
+--- a/.gitignore
++++ b/.gitignore
+@@ -52,6 +52,7 @@ tests/data/*.gcm
+ *.gcm
+ discs/
+ generated/
++*.ship-code-input
+ *_generated/
+ 
+ # Local database for title ids
+diff --git a/src/app/pipeline.c b/src/app/pipeline.c
+index 1c5b00e..7339432 100644
+--- a/src/app/pipeline.c
++++ b/src/app/pipeline.c
+@@ -1328,8 +1328,15 @@ int emit_code_sections_split(const LoadedCodeSection* sections,
+     function_list_free(&funcs);
+     fprintf(manifest, "\n// %u C files\n", file_count);
+ 
+-    fclose(header);
+-    fclose(manifest);
++    int write_ok = !ferror(header) && !ferror(manifest);
++    if (fclose(header) != 0)
++        write_ok = 0;
++    if (fclose(manifest) != 0)
++        write_ok = 0;
++    if (getenv("DOLRECOMP_SHIP_CODE_INPUT") && !write_ok) {
++        fprintf(stderr, "error: failed writing split output\n");
++        return 0;
++    }
+ 
+     printf("done!\n");
+     printf("  header: %s\n", header_path);
+@@ -1393,9 +1400,86 @@ int emit_rpx_split(const RPXFile* rpx, const char* output_path,
+                                     local_chunks_dir, NULL, options);
+ }
+ 
+-int emit_rel_split(const RELFile* rel, const char* output_path,
+-                          DolRecompCPU cpu, u32 jobs, int local_chunks_dir,
+-                          const CliOptions* options) {
++typedef struct {
++    u8* data;
++    size_t size;
++} ShipCodeInput;
++
++static int capture_ship_code_input(const RELFile* rel,
++                                   const LoadedCodeSection* sections,
++                                   u32 count, ShipCodeInput* capture) {
++    if (rel->module_id != 168u || !count || capture->data) {
++        fprintf(stderr, "error: expected one ship module with executable sections\n");
++        return 0;
++    }
++    size_t size = 12u;
++    for (u32 i = 0; i < count; i++) {
++        const LoadedCodeSection* section = &sections[i];
++        if (!section->data || !section->size || section->size % 4u ||
++            section->address % 4u || section->index >= rel->section_count ||
++            section->file_offset > rel->file_size ||
++            section->size > rel->file_size - section->file_offset ||
++            section->size - 1u > 0xFFFFFFFFu - section->address ||
++            size > SIZE_MAX - 16u || section->size > SIZE_MAX - size - 16u) {
++            fprintf(stderr, "error: invalid ship executable section\n");
++            return 0;
++        }
++        for (u32 j = 0; j < i; j++) {
++            if (sections[j].index == section->index) {
++                fprintf(stderr, "error: duplicate ship executable section\n");
++                return 0;
++            }
++        }
++        size += 16u + (size_t)section->size;
++    }
++    capture->data = (u8*)malloc(size);
++    if (!capture->data) {
++        fprintf(stderr, "error: out of memory capturing ship code input\n");
++        return 0;
++    }
++    capture->size = size;
++    memcpy(capture->data, "SHIP168", 8u);
++    write_be32(capture->data + 8u, count);
++    u8* cursor = capture->data + 12u;
++    for (u32 i = 0; i < count; i++) {
++        const LoadedCodeSection* section = &sections[i];
++        write_be32(cursor, section->index);
++        write_be32(cursor + 4u, section->file_offset);
++        write_be32(cursor + 8u, section->address);
++        write_be32(cursor + 12u, section->size);
++        memcpy(cursor + 16u, section->data, section->size);
++        cursor += 16u + section->size;
++    }
++    return 1;
++}
++
++static int publish_ship_code_input(const char* path,
++                                   const ShipCodeInput* capture) {
++    if (!capture->data) {
++        fprintf(stderr, "error: ship code input was not captured\n");
++        return 0;
++    }
++    FILE* file = fopen(path, "wbx");
++    if (!file) {
++        fprintf(stderr, "error: can't create ship code input '%s': %s\n",
++                path, strerror(errno));
++        return 0;
++    }
++    int ok = fwrite(capture->data, 1, capture->size, file) == capture->size;
++    if (fclose(file) != 0)
++        ok = 0;
++    if (!ok) {
++        fprintf(stderr, "error: failed writing ship code input '%s'\n", path);
++        if (remove(path) != 0)
++            fprintf(stderr, "error: can't remove incomplete ship code input '%s': %s\n",
++                    path, strerror(errno));
++    }
++    return ok;
++}
++
++static int emit_rel_split_impl(const RELFile* rel, const char* output_path,
++                           DolRecompCPU cpu, u32 jobs, int local_chunks_dir,
++                           const CliOptions* options, ShipCodeInput* capture) {
+     LoadedCodeSection* sections =
+         (LoadedCodeSection*)calloc(rel->section_count, sizeof(LoadedCodeSection));
+     if (!sections) {
+@@ -1406,6 +1490,12 @@ int emit_rel_split(const RELFile* rel, const char* output_path,
+     u32 section_count = 0;
+     for (u32 i = 0; i < rel->section_count; i++) {
+         const RELSection* rel_section = &rel->sections[i];
++        if (capture && rel_section->executable && rel_section->size &&
++            !rel_section->data) {
++            fprintf(stderr, "error: missing ship executable section data\n");
++            free(sections);
++            return 0;
++        }
+         if (!rel_section->executable || rel_section->size == 0 || !rel_section->data)
+             continue;
+ 
+@@ -1420,6 +1510,10 @@ int emit_rel_split(const RELFile* rel, const char* output_path,
+         section->embedded_data_mode = EMBEDDED_DATA_DOL;
+     }
+ 
++    if (capture && !capture_ship_code_input(rel, sections, section_count, capture)) {
++        free(sections);
++        return 0;
++    }
+     int ok = emit_code_sections_split(sections, section_count, output_path, cpu,
+                                       rel->entry_point, jobs, local_chunks_dir,
+                                       NULL, options);
+@@ -1427,6 +1521,17 @@ int emit_rel_split(const RELFile* rel, const char* output_path,
+     return ok;
+ }
+ 
++int emit_rel_split(const RELFile* rel, const char* output_path,
++                   DolRecompCPU cpu, u32 jobs, int local_chunks_dir,
++                   const CliOptions* options) {
++    if (getenv("DOLRECOMP_SHIP_CODE_INPUT")) {
++        fprintf(stderr, "error: ship code input requires C REL directory emission\n");
++        return 0;
++    }
++    return emit_rel_split_impl(rel, output_path, cpu, jobs, local_chunks_dir,
++                               options, NULL);
++}
++
+ typedef struct {
+     RELFile rel;
+ } RELBatchItem;
+@@ -1487,6 +1592,18 @@ int emit_rel_directory(const char* input_dir, const char* output_root,
+     char generated_root[1200];
+     int ok = 0;
+     u32 cursor = start_base;
++    const char* ship_path = getenv("DOLRECOMP_SHIP_CODE_INPUT");
++    ShipCodeInput ship_capture = {0};
++    if (ship_path) {
++        const char* suffix = ".ship-code-input";
++        size_t length = strlen(ship_path);
++        size_t suffix_length = strlen(suffix);
++        if (options->backend != DOLRECOMP_BACKEND_C || length <= suffix_length ||
++            strcmp(ship_path + length - suffix_length, suffix) != 0) {
++            fprintf(stderr, "error: ship code input requires C backend and .ship-code-input path\n");
++            goto done;
++        }
++    }
+ 
+     if (!collect_rel_paths(input_dir, &paths))
+         goto done;
+@@ -1522,6 +1639,15 @@ int emit_rel_directory(const char* input_dir, const char* output_root,
+     }
+ 
+     RELModuleMap map = { map_entries, paths.count };
++    if (ship_path) {
++        int found = 0;
++        for (u32 i = 0; i < paths.count; i++)
++            found |= items[i].rel.module_id == 168u;
++        if (!found) {
++            fprintf(stderr, "error: requested ship module 168 is missing\n");
++            goto done;
++        }
++    }
+     for (u32 i = 0; i < paths.count; i++) {
+         if (!rel_apply_relocations(&items[i].rel, &map))
+             goto done;
+@@ -1542,14 +1668,19 @@ int emit_rel_directory(const char* input_dir, const char* output_root,
+             goto done;
+         }
+         printf("\nwriting output to: %s\n", rel_output_path);
+-        if (!emit_rel_split(&items[i].rel, rel_output_path, cpu, jobs, 1,
+-                            options))
++        ShipCodeInput* capture = ship_path && items[i].rel.module_id == 168u
++                                     ? &ship_capture : NULL;
++        if (!emit_rel_split_impl(&items[i].rel, rel_output_path, cpu, jobs, 1,
++                                 options, capture))
+             goto done;
+     }
+ 
++    if (ship_path && !publish_ship_code_input(ship_path, &ship_capture))
++        goto done;
+     ok = 1;
+ 
+ done:
++    free(ship_capture.data);
+     free(map_entries);
+     rel_batch_free(items, paths.count);
+     path_list_free(&paths);
+diff --git a/src/backend/codegen.c b/src/backend/codegen.c
+index 7902117..0abefc2 100644
+--- a/src/backend/codegen.c
++++ b/src/backend/codegen.c
+@@ -46,7 +46,10 @@ int emit_chunk_file(const ChunkJob* job) {
+         return 0;
+     }
+ 
+-    if (fclose(chunk) != 0) {
++    int write_failed = getenv("DOLRECOMP_SHIP_CODE_INPUT") && ferror(chunk);
++    if (fclose(chunk) != 0)
++        write_failed = 1;
++    if (write_failed) {
+         fprintf(stderr, "error: failed writing '%s'\n", job->path);
+         return 0;
+     }

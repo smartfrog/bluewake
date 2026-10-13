@@ -23,6 +23,7 @@ game/
 *.bflim
 *.dol
 *.rel
+*.ship-code-input
 
 # Saves, captures, credentials, signing material
 __pycache__/
