@@ -65,6 +65,21 @@ class PlanTest(unittest.TestCase):
         self.assertEqual(plan['continue_gx'], 2048)
         self.assertIn('no guest execution cap', plan['continuation_policy'])
 
+    def test_memory_snapshot_request_is_explicit_bounded_and_requires_the_draw_journal(self):
+        import stage_plan
+        for count, journal in ((-1, 2048), (3, 2048), (1, 0), (2, 0)):
+            with self.subTest(count=count, journal=journal), self.assertRaises(ValueError):
+                stage_plan.make_plan(Path('/unused'), SimpleNamespace(timeout=120, continue_gx=journal, mem1_snapshots=count),
+                                     'a' * 40, 'b' * 64, 'c' * 32)
+
+    def test_requested_memory_captures_are_recorded_without_changing_the_default_baseline(self):
+        import stage_plan
+        args = SimpleNamespace(libraries=None, wayland_socket=None, timeout=120, continue_gx=2048, mem1_snapshots=2)
+        plan = stage_plan.make_plan(Path('/unused'), args, 'a' * 40, 'b' * 64, 'c' * 32)
+        self.assertEqual(plan['mem1_snapshots'], 2)
+        args.mem1_snapshots = 0
+        self.assertEqual(stage_plan.make_plan(Path('/unused'), args, 'a' * 40, 'b' * 64, 'c' * 32)['mem1_snapshots'], 0)
+
     def test_optional_disc_is_bound_read_only_at_the_existing_ww13_install_path(self):
         import stage_plan
         args = SimpleNamespace(libraries=None, wayland_socket=None, timeout=600, continue_gx=64,

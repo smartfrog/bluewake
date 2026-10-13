@@ -37,7 +37,7 @@ target_compile_options(gxruntime PRIVATE -ffp-contract=off -fno-fast-math -fstac
 
 add_library(ww05_services STATIC boot_host.c gx_checkpoint.c gx_stream.c fifo_gather.c fifo_consumer.c
     code_guard.c dsp_interface.c bat_contract.c disc_service.c rel_provider.c rel_service.c rel_link.c
-    scheduler_observation.c vi_clock.c gx_draw_observation.c gpu_finish.c frame_timing.c
+    scheduler_observation.c vi_clock.c gx_draw_observation.c gpu_finish.c frame_timing.c mem1_capture.c
     $<TARGET_OBJECTS:ww13_dvd_pin>
     "${BLUEWAKE_ROOT}/runtime/host/src/cycle_domain.c"
     "${BLUEWAKE_ROOT}/runtime/host/src/aram_dma.c"
@@ -50,6 +50,7 @@ add_library(ww05_services STATIC boot_host.c gx_checkpoint.c gx_stream.c fifo_ga
 target_include_directories(ww05_services PUBLIC "${CMAKE_CURRENT_SOURCE_DIR}"
     "${BLUEWAKE_ROOT}/runtime/host/src" "${BLUEWAKE_ROOT}/cmake/composite" "${ABI_DIR}"
     "${BLUEWAKE_ROOT}/apple/ios/src")
+target_include_directories(ww05_services PRIVATE "${BLUEWAKE_ROOT}/vita/feasibility/armv7")
 target_link_libraries(ww05_services PUBLIC ww13_dvd_io GXRuntime::runtime ww_renderer)
 target_compile_definitions(ww05_services PRIVATE WW05_ENABLE_VI_CLOCK=$<BOOL:${WW05_ENABLE_VI_CLOCK}>)
 target_compile_options(ww05_services PRIVATE -O2 -ffp-contract=off -fno-fast-math -fstack-usage
@@ -139,7 +140,8 @@ if(WW05_TESTS_ONLY)
     add_executable(gx_drain_probe gx_drain_probe.cpp)
     target_compile_options(gx_drain_probe PRIVATE -UNDEBUG)
     target_link_libraries(gx_drain_probe PRIVATE ww05_services)
-    target_link_options(gx_drain_probe PRIVATE -Wl,--wrap=clock_gettime -Wl,--wrap=fprintf)
+    target_link_options(gx_drain_probe PRIVATE -Wl,--wrap=clock_gettime -Wl,--wrap=fprintf
+        -Wl,--wrap=fwrite -Wl,--wrap=fflush -Wl,--wrap=fclose -Wl,--wrap=rename)
     add_executable(gpu_finish_probe gpu_finish_probe.cpp)
     target_compile_options(gpu_finish_probe PRIVATE -UNDEBUG)
     target_link_libraries(gpu_finish_probe PRIVATE ww05_services)

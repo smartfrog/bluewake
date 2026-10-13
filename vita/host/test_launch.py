@@ -255,6 +255,26 @@ class PrivateLaunchTest(unittest.TestCase):
         from fp_launch import REPORT_DIRECTORY
         launch.fresh_request(self.root, 'a' * 40, 'b' * 64)
         self.assertFalse((self.root / REPORT_DIRECTORY / 'ww05.continue').exists())
+        self.assertFalse((self.root / REPORT_DIRECTORY / 'ww05.mem1').exists())
+
+    def test_memory_capture_request_is_bound_to_the_same_fresh_guest_identity(self):
+        import launch
+        from fp_launch import REPORT_DIRECTORY
+        token = launch.fresh_request(self.root, 'a' * 40, 'b' * 64, 2048, 2)
+        directory = self.root / REPORT_DIRECTORY
+        self.assertEqual((directory / 'ww05.mem1').read_text(), f'{token} {"a" * 40} {"b" * 64} 2\n')
+
+    def test_preexisting_memory_capture_is_preserved_before_creating_any_new_request(self):
+        import launch
+        from fp_launch import REPORT_DIRECTORY
+        directory = self.root / REPORT_DIRECTORY
+        directory.mkdir(parents=True)
+        snapshot = directory / 'ww05.mem1-1.bin'
+        snapshot.write_bytes(b'preserve private evidence')
+        with self.assertRaisesRegex(ValueError, 'preexisting WW05'):
+            launch.fresh_request(self.root, 'a' * 40, 'b' * 64, 2048, 2)
+        self.assertEqual(snapshot.read_bytes(), b'preserve private evidence')
+        self.assertFalse((directory / 'ww05.request').exists())
 
     def test_optional_disc_is_read_only_inside_the_guest_sandbox_and_never_modified(self):
         from stage_plan import make_plan, sha256

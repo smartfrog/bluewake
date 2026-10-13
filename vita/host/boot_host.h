@@ -13,6 +13,7 @@
 #include "bat_contract.h"
 #include "trace_sampling.h"
 #include "frame_timing.h"
+#include "mem1_capture.h"
 #include "dvd_completion.h"
 #include "rel_service.h"
 #include "gxruntime/di.h"
@@ -21,6 +22,12 @@
 #include "gxruntime/si.h"
 #include "gxruntime/audio_dma.h"
 #include "gxruntime/vi_clock.h"
+
+#ifdef __vita__
+#define WW05_DIRECTORY "ux0:data/bluewake-ww-fixture/"
+#else
+#define WW05_DIRECTORY ""
+#endif
 
 typedef struct WwHost {
     CPUState cpu;
@@ -95,6 +102,7 @@ typedef struct WwHost {
     bool gpu_finish_committed;
     u64 gpu_finish_index;
     WwFrameTiming frame_timing;
+    WwMem1Capture mem1_capture;
 } WwHost;
 
 enum { WW_DVD_CALLBACK_DELAY_CYCLES = 486000u };
@@ -128,6 +136,7 @@ const char* ww_gx_observe_first_draw(WwHost* host);
 const char* ww_host_finish_gpu(WwHost* host);
 const char* ww_host_frame_present(WwHost* host, u64 presented);
 const char* ww_host_frame_retrace(WwHost* host);
+const char* ww_host_capture_mem1(WwHost* host);
 const char* ww_gx_stream_write(WwHost* host, u8 byte, const WwFifoOrigin* origin, u32 trailing);
 
 #endif

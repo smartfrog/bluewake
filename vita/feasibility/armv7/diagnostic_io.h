@@ -7,7 +7,7 @@
 #include <string.h>
 #include <sys/stat.h>
 
-static bool diagnostic_hex(const char* text, size_t length) {
+static inline bool diagnostic_hex(const char* text, size_t length) {
     if (strlen(text) != length)
         return false;
     for (size_t i = 0; i < length; ++i)
@@ -16,7 +16,7 @@ static bool diagnostic_hex(const char* text, size_t length) {
     return true;
 }
 
-static int diagnostic_request(const char* path, const char* identity,
+static inline int diagnostic_request(const char* path, const char* identity,
                               char* token, char* source, char* package) {
     struct stat info;
     if (lstat(path, &info) != 0 || !S_ISREG(info.st_mode))
@@ -34,8 +34,17 @@ static int diagnostic_request(const char* path, const char* identity,
            !diagnostic_hex(package, 64) || strcmp(source, identity) != 0;
 }
 
-static bool diagnostic_absent(const char* path) {
+static inline bool diagnostic_absent(const char* path) {
     struct stat info;
     return lstat(path, &info) < 0 && errno == ENOENT;
+}
+
+static inline int diagnostic_publish(FILE* stream, const char* partial, const char* complete) {
+    const int flushed = fflush(stream);
+    const int failed = ferror(stream);
+    const int closed = fclose(stream);
+    if (flushed != 0 || failed || closed != 0 || !diagnostic_absent(complete))
+        return 1;
+    return rename(partial, complete) != 0;
 }
 #endif

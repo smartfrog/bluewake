@@ -13,4 +13,6 @@ typedef struct WwFrameTiming {
     WwFrameStamp present;
 } WwFrameTiming;
 
+const char* ww_host_wall_us(u64* us);
+
 #endif

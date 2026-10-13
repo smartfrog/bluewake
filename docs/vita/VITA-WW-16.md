@@ -1328,3 +1328,55 @@ as the earlier run. Nine reported draws are not nine captured draws. Matching
 MEM1 is still required; the requested bounded memory capture follows, separate
 from this no-dump baseline. No opcode, timestamp, resource or presentation is
 invented, and no private artifact is committed or uploaded.
+
+## Unit 38: bounded, opt-in MEM1 evidence before the journal's actual draws
+
+Added **`--mem1-snapshots 1|2`** to the isolated WW05 launcher, off by default
+and valid only with the opt-in GX journal. Its identity-bound request is checked
+before guest execution. The first one/two complete, logged primitive commands
+capture the **actual raw 24 MiB physical MEM1 backing**, unchanged and without
+endian conversion, **before the renderer consumes that draw**. No snapshots are
+taken on an ordinary no-dump FPS profile, at shutdown, after the bound is met or
+for unlogged later commands. Guest RAM/registers/cycles/interrupts are unchanged.
+This is diagnostic I/O, not an optimization: its cost invalidates comparison with
+the no-dump baseline, and the snapshot profile is explicitly separate.
+
+Each guest capture writes **`ww05.mem1-N.bin`** and **`ww05.mem1-N.json`** in the
+private run's fixture directory, recording token/source/package, physical base
+**00000000**, cached guest base **80000000**, exact **25,165,824-byte** extent,
+command/opcode/PC/completion PC, executed cycles, real wall microseconds and
+preceding actual presentation count. Two captures can preserve changing resource
+versions; neither is claimed to cover every earlier or later resource version.
+External owned aliases and MEM2 are explicitly outside this raw-MEM1 capture.
+No reconstruction, zero filling, missing resource or GPU completion is invented.
+
+Binary and metadata are published from exclusive **`.partial`** files through
+the reused diagnostic flush/error/close/rename checks. Existing outputs block
+capture without replacement; a failed open/write/flush/close/publish is a STOP,
+with incomplete evidence retained rather than promoted. The launch watchdog
+includes binary/metadata/partial growth as activity alongside CPU and log growth.
+The host requires genuine 24 MiB backing and a valid, logged complete draw.
+
+Post-run verification ties the snapshot identity and writer PCs to the exact
+unchanged journal, checks the full extent and advancing time, and computes hashes.
+**`evidence/mem1-capture.json`** lists verified snapshots. Next to each binary,
+**`ww05.mem1-N.snapshot.json`** uses lane 18's current
+**`gx-mem1-snapshot-v1`** contract: adjacent binary filename, binary SHA-256,
+SHA-256 of concatenated logged command bytes, and the single physical region
+`{address:0, offset:0, size:25165824}`. Temporal producer annotations are retained.
+Use lane 18's explicit **`--snapshot PATH`**, not an automatic whole-run snapshot
+claim. The FIFO digest binds bytes, not resource-version correctness.
+
+Linux AArch64: **629 host tests**, **27 WW12**, **83 FP launcher**, **21 GX parser**
+tests and the four existing renderer executables pass. Request rejection was red
+before implementation (`logs/ww16-mem1-request-red.log`); lane 18 manifest fields
+were red before alignment (`logs/ww16-mem1-snapshot-contract-red.log`). Green:
+`logs/ww16-mem1-snapshot-contract-green.log`, `logs/ww16-mem1-{perf,gx,fp}-final.log`,
+`logs/ww16-mem1-renderer-regressions.log`. Actual ARM host links
+(`logs/ww16-mem1-arm-link.log`; only existing unrelated DSP/generated warnings).
+Audit, attribution and whitespace pass. Direct contract check with lane 18's
+current **read-only trunk `memory_snapshot.py`** accepts both synthetic snapshots
+and preserves every byte and the complete physical range
+(`logs/ww16-mem1-format-contract/contract.json`). Those injected tests do not prove
+authentic game resources; a fresh committed rebuild and watched capture trial
+follows. No network, push, private data upload or pin modification.

@@ -21,6 +21,7 @@ from fp_launch import REPORT_DIRECTORY, evidence_file, run_owned
 from fp_libraries import directory_fd, file_identity, library_identity
 from fp_profile import config_identity, read_profile_file, verify_firmware
 from activity import ProcessIdleObserver
+from memory_capture import MAX_CAPTURES, publish_replay_manifests, snapshot_outputs, validate_memory_captures, verify_snapshots
 
 PHASE_LOG_LIMIT = 64 * 1024 * 1024
 
@@ -86,8 +87,9 @@ def verify_installed(root, plan):
     return payload
 
 
-def fresh_request(root, source, package, continue_gx=0):
+def fresh_request(root, source, package, continue_gx=0, mem1_snapshots=0):
     validate_continuation(continue_gx)
+    validate_memory_captures(mem1_snapshots, continue_gx)
     directory = root
     for part in REPORT_DIRECTORY.parts:
         with directory_fd(directory) as parent:
@@ -100,7 +102,9 @@ def fresh_request(root, source, package, continue_gx=0):
     with directory_fd(directory) as parent:
         if os.fstat(parent).st_uid != os.getuid():
             raise ValueError('report directory must be privately owned')
-        if set(os.listdir(parent)) & {'ww05' + suffix for suffix in ('.request', '.partial', '.report', '.log', '.dispatch', '.continue')}:
+        existing = set(os.listdir(parent))
+        if (existing & {'ww05' + suffix for suffix in ('.request', '.partial', '.report', '.log', '.dispatch', '.continue', '.mem1')} or
+            any(name.startswith('ww05.mem1-') for name in existing)):
             raise ValueError('preexisting WW05 request/output; refusing to delete or reuse it')
         descriptor = os.open('ww05.request', os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW | os.O_CLOEXEC,
                              0o600, dir_fd=parent)
@@ -112,13 +116,20 @@ def fresh_request(root, source, package, continue_gx=0):
                                  0o600, dir_fd=parent)
         with os.fdopen(descriptor, 'w') as stream:
             stream.write(f'{token} {source} {package} {continue_gx}\n')
+    if mem1_snapshots:
+        with directory_fd(directory) as parent:
+            descriptor = os.open('ww05.mem1', os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW | os.O_CLOEXEC,
+                                 0o600, dir_fd=parent)
+        with os.fdopen(descriptor, 'w') as stream:
+            stream.write(f'{token} {source} {package} {mem1_snapshots}\n')
     return token
 
 
 def activity_observer(root, plan, phase, extra_outputs=()):
     outputs = (phase / 'evidence/process.log', root / 'cache/Vita3K/vita3k.log',
                *(root / REPORT_DIRECTORY / ('ww05' + suffix)
-                 for suffix in ('.log', '.partial', '.report', '.dispatch')),
+                  for suffix in ('.log', '.partial', '.report', '.dispatch')),
+               *snapshot_outputs(root / REPORT_DIRECTORY),
                *extra_outputs)
     return ProcessIdleObserver(plan.get('idle_timeout_seconds', 30), plan.get('cpu_threshold', 0.05), outputs)
 
@@ -146,7 +157,8 @@ def installer_observer(root, plan):
 def execute_run(root, plan):
     record = {'run': plan['run'], 'source': plan['source'], 'vpk_sha256': plan['vpk_sha256'],
               'launcher_source': plan.get('launcher_source', plan['source']),
-              'continue_gx': plan.get('continue_gx', 0),
+               'continue_gx': plan.get('continue_gx', 0),
+               'mem1_snapshots': plan.get('mem1_snapshots', 0),
               'completion': 'INCOMPLETE', 'reported_frontier': 'UNAVAILABLE',
               'frontier_verified': False, 'rendered': False}
     with evidence_file(root, 'execution.json') as stream:
@@ -178,7 +190,8 @@ def execute_run(root, plan):
         verify_inputs(root, plan)
         payload = verify_installed(root, plan)
         restore_config(root, canonical)
-        token = fresh_request(root, plan['source'], plan['vpk_sha256'], plan.get('continue_gx', 0))
+        token = fresh_request(root, plan['source'], plan['vpk_sha256'], plan.get('continue_gx', 0),
+                              plan.get('mem1_snapshots', 0))
         with evidence_file(phase, 'preparation.json') as stream:
             json.dump({'readiness': 'VERIFIED', 'payload': payload, 'guest_token': token}, stream, indent=2)
             stream.write('\n')
@@ -186,7 +199,7 @@ def execute_run(root, plan):
         phase = Path(guest['evidence_root'])
         with evidence_file(phase, 'request.json') as stream:
             json.dump({'token': token, 'source': plan['source'], 'vpk_sha256': plan['vpk_sha256'],
-                       'continue_gx': plan.get('continue_gx', 0)}, stream)
+                        'continue_gx': plan.get('continue_gx', 0), 'mem1_snapshots': plan.get('mem1_snapshots', 0)}, stream)
             stream.write('\n')
         print(f"RUN phase=guest evidence={phase}/evidence", flush=True)
         status = run_owned(guest['command'], root, guest['timeout_seconds'], evidence_root=phase,
@@ -209,6 +222,14 @@ def execute_run(root, plan):
             journal = read_profile_file(root / REPORT_DIRECTORY / 'ww05.log', 64 * 1024 * 1024, owned=True)
             logged = validate_commands(journal.decode('utf-8'), text, plan['continue_gx'])
             record.update(commands_verified=logged, log_sha256=hashlib.sha256(journal).hexdigest())
+        manifest = verify_snapshots(root / REPORT_DIRECTORY, token=token, source=plan['source'],
+                                    package=plan['vpk_sha256'], count=plan.get('mem1_snapshots', 0),
+                                    journal=journal.decode('utf-8') if plan.get('continue_gx') else '')
+        publish_replay_manifests(root / REPORT_DIRECTORY, manifest)
+        with evidence_file(root, 'mem1-capture.json') as stream:
+            json.dump(manifest, stream, indent=2)
+            stream.write('\n')
+        record.update(memory_captures_verified=manifest['captured'])
         record.update(reported_frontier=verdict, frontier_verified=verdict == 'PASS',
                       report_sha256=hashlib.sha256(content).hexdigest(), report_path=str(REPORT_DIRECTORY / 'ww05.report'),
                        completion='COMPLETE' if process['stop_reason'] == 'exit' else 'INCOMPLETE',
@@ -232,6 +253,8 @@ def main():
     parser.add_argument('--wayland-socket', type=Path, required=True)
     parser.add_argument('--continue-gx', type=int, default=0,
                         help=f'journal first N real commands, then keep executing (1..{MAX_JOURNAL_COMMANDS})')
+    parser.add_argument('--mem1-snapshots', type=int, choices=range(MAX_CAPTURES + 1), default=0,
+                        help='capture raw 24 MiB MEM1 before the first one or two logged draws; off for FPS baselines')
     parser.add_argument('--disc', type=Path, help='read-only bind of the already verified private image at the WW13 install path')
     parser.add_argument('--baseline-build', type=Path,
                         help='explicit preserved ancestor build receipt; guest and current launcher identities stay separate')

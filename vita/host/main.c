@@ -8,11 +8,9 @@
 #include <stdlib.h>
 
 #ifdef __vita__
-#define WW05_DIRECTORY "ux0:data/bluewake-ww-fixture/"
 #define WW05_PLATFORM "VITA"
 #define WW05_DOL_PATH "app0:main.dol"
 #elif defined(WW05_IO_TEST)
-#define WW05_DIRECTORY ""
 #define WW05_PLATFORM "HOST"
 #define WW05_DOL_PATH "synthetic.dol"
 WwRendererBackend* ww05_io_renderer_backend(void);
@@ -43,8 +41,8 @@ static int dispatch_marker(char marker) {
     return error;
 }
 
-static int continuation_limit(const char* token, const char* source, const char* package, u32* limit) {
-    const char* path = WW05_DIRECTORY "ww05.continue";
+static int requested_limit(const char* path, u32 maximum, const char* token, const char* source,
+                           const char* package, u32* limit) {
     *limit = 0u;
     if (diagnostic_absent(path))
         return 0;
@@ -60,7 +58,7 @@ static int continuation_limit(const char* token, const char* source, const char*
     error |= fclose(stream) != 0;
     unsigned count = 0u;
     if (error || strlen(content) != size || sscanf(content, "%*32s %*40s %*64s %u", &count) != 1 ||
-        count == 0u || count > WW_GX_MAX_JOURNAL_COMMANDS)
+        count == 0u || count > maximum)
         return 1;
     if (snprintf(expected, sizeof(expected), "%s %s %s %u\n", token, source, package, count) < 0 ||
         strcmp(content, expected) != 0)
@@ -73,10 +71,15 @@ int fixture_run(int argc, char** argv) {
     (void)argv;
     char token[33], source[41], package[65];
     u32 command_log_limit;
+    u32 memory_capture_limit;
     const char* partial = WW05_DIRECTORY "ww05.partial";
     const char* complete = WW05_DIRECTORY "ww05.report";
     if (argc > 1 || diagnostic_request(WW05_DIRECTORY "ww05.request", WW05_SOURCE, token, source, package) ||
-        continuation_limit(token, source, package, &command_log_limit) ||
+        requested_limit(WW05_DIRECTORY "ww05.continue", WW_GX_MAX_JOURNAL_COMMANDS,
+                        token, source, package, &command_log_limit) ||
+        requested_limit(WW05_DIRECTORY "ww05.mem1", WW_MEM1_MAX_CAPTURES,
+                        token, source, package, &memory_capture_limit) ||
+        (memory_capture_limit != 0u && command_log_limit == 0u) ||
         !diagnostic_absent(partial) || !diagnostic_absent(complete) ||
         !diagnostic_absent(WW05_DIRECTORY "ww05.log") ||
         !diagnostic_absent(WW05_DIRECTORY "ww05.dispatch"))
@@ -114,6 +117,8 @@ int fixture_run(int argc, char** argv) {
     bool initialized = !error && ww_host_init(host);
     host->stream.enabled = command_log_limit != 0u;
     host->stream.log_limit = command_log_limit;
+    host->mem1_capture = (WwMem1Capture){.limit = memory_capture_limit, .token = token,
+                                       .source = source, .package = package};
     if (initialized)
         error |= fprintf(stderr, "[vi-clock] enabled=%u period_cycles=%llu refresh_hz=%u\n",
                          host->vi_clock_enabled,

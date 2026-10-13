@@ -19,7 +19,7 @@ class MainIoTest(unittest.TestCase):
                     dispatch_trace=None, stale_dispatch=False, mmio_poll=False, aram_dma=False, dsp_init=False,
                     cpu_boundary=None, exi=False, cp_control=None, fifo=None, prior_aram_transfers=None,
                     cp_distance=None, cp_distance_high=None, cp_clear=None, consumer=False, wpar=None,
-                    continue_gx=None):
+                    continue_gx=None, memory_captures=None):
         with tempfile.TemporaryDirectory(dir=OUT, prefix='io-') as directory:
             root = Path(directory)
             data = bytearray(260)
@@ -34,6 +34,8 @@ class MainIoTest(unittest.TestCase):
             (root / 'ww05.request').write_text(f'{"c" * 32} {"a" * 40} {"b" * 64}\n')
             if continue_gx is not None:
                 (root / 'ww05.continue').write_text(f'{"c" * 32} {"a" * 40} {"b" * 64} {continue_gx}\n')
+            if memory_captures is not None:
+                (root / 'ww05.mem1').write_text(f'{"c" * 32} {"a" * 40} {"b" * 64} {memory_captures}\n')
             if stale:
                 (root / 'ww05.report').write_text('preserve me')
             if stale_dispatch:
@@ -206,6 +208,18 @@ class MainIoTest(unittest.TestCase):
         status, report = self.run_fixture(consumer=True, continue_gx=2048)
         self.assertEqual(status, 1)
         self.assertIn('GX_STREAM mode=continue decoded=28 logged=28 limit=2048 pending=0 read_bytes=32\n', report)
+
+    def test_invalid_memory_capture_request_stops_before_guest_execution_or_report_creation(self):
+        for limit in ('0', '3', '-1', '2 extra', '2\nextra'):
+            with self.subTest(limit=limit):
+                status, report = self.run_fixture(consumer=True, continue_gx=2048, memory_captures=limit)
+                self.assertNotEqual(status, 0)
+                self.assertIsNone(report)
+
+    def test_memory_capture_requires_the_opt_in_command_journal(self):
+        status, report = self.run_fixture(consumer=True, memory_captures=1)
+        self.assertNotEqual(status, 0)
+        self.assertIsNone(report)
 
     def test_observed_wpar_configuration_continues_through_the_synthetic_memory_fifo_path(self):
         status, report = self.run_fixture(wpar=0x0C008000, consumer=True)

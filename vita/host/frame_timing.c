@@ -7,7 +7,9 @@
 #include <time.h>
 #endif
 
-static const char* wall_us(u64* us) {
+const char* ww_host_wall_us(u64* us) {
+    if (us == NULL)
+        return "wall clock requires an output";
 #ifdef __vita__
     const SceInt64 now = sceKernelGetSystemTimeWide();
     if (now < 0)
@@ -31,7 +33,7 @@ static const char* stamp(WwFrameStamp* series, u64 index, const char* format) {
     if (index == 0u || series->index == UINT64_MAX || index != series->index + 1u)
         return "frame marker requires consecutive actual event indices";
     u64 us;
-    const char* error = wall_us(&us);
+    const char* error = ww_host_wall_us(&us);
     if (error != NULL)
         return error;
     if (series->index != 0u && us <= series->us)

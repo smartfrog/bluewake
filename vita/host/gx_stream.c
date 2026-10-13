@@ -46,6 +46,11 @@ const char* ww_gx_stream_write(WwHost* host, u8 byte, const WwFifoOrigin* origin
     }
     stream->decoded = index;
     ww_gx_remember_command(stream, command);
+    if (command->bytes[0] >= 0x80u && index <= stream->log_limit) {
+        const char* capture_error = ww_host_capture_mem1(host);
+        if (capture_error != NULL)
+            return capture_error;
+    }
     // VITA-WW-17: the same captured bytes the pinned trace observes go to the
     // renderer, in stream order. The present call shows a frame the game
     // finished (a display copy) and does nothing otherwise; when the march's

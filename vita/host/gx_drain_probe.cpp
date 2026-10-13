@@ -13,6 +13,48 @@ extern "C" {
 
 static const char* marker_scenario;
 static u64 marker_us = 1000000u;
+static const char* capture_scenario;
+
+extern "C" size_t __real_fwrite(const void* data, size_t size, size_t count, FILE* stream);
+extern "C" int __real_fflush(FILE* stream);
+extern "C" int __real_fclose(FILE* stream);
+extern "C" int __real_rename(const char* source, const char* destination);
+
+extern "C" size_t __wrap_fwrite(const void* data, size_t size, size_t count, FILE* stream) {
+    if (capture_scenario != nullptr && std::strcmp(capture_scenario, "capture-write-failure") == 0) {
+        errno = ENOSPC;
+        return 0u;
+    }
+    return __real_fwrite(data, size, count, stream);
+}
+
+extern "C" int __wrap_fflush(FILE* stream) {
+    if (capture_scenario != nullptr && std::strcmp(capture_scenario, "capture-flush-failure") == 0 &&
+        stream != stdout && stream != stderr) {
+        errno = EIO;
+        return EOF;
+    }
+    return __real_fflush(stream);
+}
+
+extern "C" int __wrap_fclose(FILE* stream) {
+    const int result = __real_fclose(stream);
+    if (capture_scenario != nullptr && std::strcmp(capture_scenario, "capture-close-failure") == 0) {
+        errno = EIO;
+        return EOF;
+    }
+    return result;
+}
+
+extern "C" int __wrap_rename(const char* source, const char* destination) {
+    if (capture_scenario != nullptr &&
+        (std::strcmp(capture_scenario, "capture-publish-failure") == 0 ||
+         (std::strcmp(capture_scenario, "capture-json-publish-failure") == 0 && std::strstr(source, ".json.partial") != nullptr))) {
+        errno = EIO;
+        return -1;
+    }
+    return __real_rename(source, destination);
+}
 
 extern "C" int __real_clock_gettime(clockid_t clock, struct timespec* stamp);
 
@@ -34,6 +76,11 @@ extern "C" int __wrap_clock_gettime(clockid_t clock, struct timespec* stamp) {
 }
 
 extern "C" int __wrap_fprintf(FILE* stream, const char* format, ...) {
+    if (capture_scenario != nullptr && std::strcmp(capture_scenario, "capture-json-write-failure") == 0 &&
+        std::strncmp(format, "{\"kind\":\"ww05-mem1-snapshot-v1\"", 31u) == 0) {
+        errno = ENOSPC;
+        return -1;
+    }
     if (marker_scenario != nullptr && std::strcmp(marker_scenario, "marker-write-failure") == 0 &&
         stream == stderr && std::strncmp(format, "[frame-present]", 15u) == 0) {
         errno = ENOSPC;
@@ -86,6 +133,9 @@ int main(int argc, char** argv) {
     const char* scenario = argv[1];
     const bool markers = std::strncmp(scenario, "marker-", 7u) == 0;
     marker_scenario = markers ? scenario : nullptr;
+    const bool captures = std::strncmp(scenario, "capture-", 8u) == 0;
+    const bool capture_success = std::strcmp(scenario, "capture-one") == 0 || std::strcmp(scenario, "capture-two") == 0;
+    capture_scenario = captures ? scenario : nullptr;
     WwHost* host = static_cast<WwHost*>(std::calloc(1u, sizeof(*host)));
     assert(host != nullptr && ww_host_init(host));
     gx_fixture::FixtureContext fixture;
@@ -101,9 +151,22 @@ int main(int argc, char** argv) {
     }
     host->stream.enabled = true;
     host->stream.log_limit = 64u;
+    if (captures) {
+        host->mem1_capture = {.limit = std::strcmp(scenario, "capture-one") == 0 ? 1u : 2u,
+            .token = "cccccccccccccccccccccccccccccccc",
+            .source = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            .package = "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"};
+        if (std::strcmp(scenario, "capture-bad-identity") == 0)
+            host->mem1_capture.source = "invalid";
+        if (std::strcmp(scenario, "capture-bad-ram") == 0)
+            --host->cpu.ram_size;
+    }
     const auto fifo = gx_fixture::build_textured_triangle();
     const char* error = feed(host, fifo.data(), fifo.size());
-    if (backend.fail_draw) {
+    if (captures && !capture_success) {
+        assert(error != nullptr && host->mem1_capture.captured == 0u && backend.draws == 0u);
+        assert(host->gx.trace_count != 0u && host->gx.fifo.size != 0u);
+    } else if (backend.fail_draw) {
         assert(error != nullptr && std::strstr(error, "synthetic drain draw failed") != nullptr);
         assert(host->gx.trace_count != 0u && host->gx.fifo.size != 0u && backend.draws == 0u);
     } else if (std::strcmp(scenario, "no-renderer") == 0) {
@@ -123,7 +186,17 @@ int main(int argc, char** argv) {
             assert(stats.fifo_bytes == fifo.size() + 300000u && stats.events > DOL_GX_RECOMP_MAX_TRACE_EVENTS);
             assert(host->stream.logged == 64u && host->gx.trace_count == 0u && host->gx.fifo.size == 0u);
         }
-        if (markers && !backend.fail_present) {
+        if (capture_success) {
+            assert(host->mem1_capture.captured == 1u && host->cpu.ram[gx_fixture::kTextureBase] != 0x55u);
+            host->cpu.ram[gx_fixture::kTextureBase] = 0x55u;
+            std::vector<u8> draw;
+            gx_fixture::push_triangle(draw);
+            assert(feed(host, draw.data(), draw.size()) == nullptr && backend.draws == 2u);
+            assert(host->mem1_capture.captured == host->mem1_capture.limit);
+            assert(feed(host, draw.data(), draw.size()) == nullptr && backend.draws == 3u);
+            assert(host->mem1_capture.captured == host->mem1_capture.limit);
+            assert(host->cpu.ram[gx_fixture::kTextureBase] == 0x55u);
+        } else if (markers && !backend.fail_present) {
             for (u32 frame = 1u; frame <= 2u; ++frame) {
                 if (frame == 2u) {
                     std::vector<u8> draw;
@@ -170,6 +243,8 @@ int main(int argc, char** argv) {
         std::free(state);
     }
     assert(host->cycles.absolute_cycles == 0u && host->cpu.pc == 0u && (backend.presents == 0u || markers));
+    if (std::strcmp(scenario, "capture-bad-ram") == 0)
+        ++host->cpu.ram_size;
     ww_host_shutdown(host);
     std::free(host);
     return 0;

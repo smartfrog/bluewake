@@ -15,6 +15,7 @@ import zipfile
 
 from game_build import OUTPUT, ROOT, STACK, PINS, COMPOSITE_DIGEST, checked_sources, sha256
 from report import MAX_JOURNAL_COMMANDS
+from memory_capture import validate_memory_captures
 
 sys.path.insert(0, str(ROOT / 'scripts/vita/armv7'))
 from fp_launch import create_run, evidence_file, reject_symlinks, sandbox_command, stage_runtime
@@ -67,9 +68,11 @@ def stage_disc(root, path, expected_sha256):
 def make_plan(root, args, source, package, run):
     validate_timeout(args.timeout)
     limit = getattr(args, 'continue_gx', 0)
+    memory_captures = getattr(args, 'mem1_snapshots', 0)
     idle_timeout = getattr(args, 'idle_timeout', 30)
     CpuIdleWindow(idle_timeout, 0.05)
     validate_continuation(limit)
+    validate_memory_captures(memory_captures, limit)
     commands = {'install': ['--console', '--backend-renderer', 'OpenGL', 'ww05.vpk'],
                 'guest': ['--backend-renderer', 'OpenGL', '--installed-path', 'BWWG00005']}
     phases = {name: {'command': sandbox_command(root, 'Vita3K', command, args.libraries, args.wayland_socket),
@@ -83,7 +86,8 @@ def make_plan(root, args, source, package, run):
             phase['command'][index:index] = ['--ro-bind', str(disc),
                 '/run/ww03/data/Vita3K/Vita3K/ux0/data/bluewake/GZLE01.iso']
     return {'ticket': 'VITA-WW-05', 'method': 'startup-gx-v1', 'title': 'BWWG00005',
-            'continue_gx': limit, 'idle_timeout_seconds': idle_timeout, 'cpu_threshold': 0.05,
+            'continue_gx': limit, 'mem1_snapshots': memory_captures,
+            'idle_timeout_seconds': idle_timeout, 'cpu_threshold': 0.05,
             'activity_policy': 'CPU >= 5% OR growing process/cache log, guest journal/report/dispatch, or installed payload; '
                                'exclude observer-written monitoring evidence; only silence AND low CPU can be inactive',
             'continuation_policy': 'opt-in; journal first N commands; no guest execution cap; '
@@ -168,6 +172,7 @@ def stage(args):
     validate_timeout(args.timeout)
     CpuIdleWindow(getattr(args, 'idle_timeout', 30), 0.05)
     validate_continuation(getattr(args, 'continue_gx', 0))
+    validate_memory_captures(getattr(args, 'mem1_snapshots', 0), getattr(args, 'continue_gx', 0))
     args.libraries = STACK / 'vita3k-env'
     launcher_source = subprocess.check_output(['git', 'rev-parse', 'HEAD'], cwd=ROOT, text=True).strip()
     if subprocess.check_output(['git', 'status', '--porcelain'], cwd=ROOT, text=True):
@@ -228,6 +233,7 @@ def main():
     parser.add_argument('--timeout', type=float, default=60)
     parser.add_argument('--wayland-socket', type=Path, required=True)
     parser.add_argument('--continue-gx', type=int, default=0)
+    parser.add_argument('--mem1-snapshots', type=int, choices=(0, 1, 2), default=0)
     parser.add_argument('--disc', type=Path)
     stage(parser.parse_args())
     print('STAGED ONLY — zero Vita3K processes; no guest request')
