@@ -11,8 +11,10 @@ typedef struct WwRelImage {
     uint32_t capacity;
     uint32_t module_id;
     bool linked;
+    char name[96];
 } WwRelImage;
 
+#define WW_REL_MAX_IMAGES 512u
 #define WW_REL_SCRATCH_BASE 0x81820000u
 #define WW_REL_SCRATCH_LIMIT 0x81F80000u
 

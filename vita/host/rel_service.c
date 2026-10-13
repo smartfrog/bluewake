@@ -2,9 +2,57 @@
 #include "rel_archive.h"
 #include "rel_scratch_allocator.h"
 #include "dvd_io.h"
+#include "rel_profile_list.h"
 #include <stdlib.h>
+#include <strings.h>
+
+WwRelImage* ww_host_rel_owned(WwHost* host, u32 owner) {
+    for (u32 index = 0u; index < WW_REL_MAX_IMAGES; ++index)
+        if (host->rel_images[index].guest != 0u && host->rel_images[index].owner == owner)
+            return &host->rel_images[index];
+    return NULL;
+}
+
+const StaticRecompRelModule* ww_host_rel_descriptor(WwHost* host, u32 module_id) {
+    for (u32 index = 0u; index < host->module->num_rel_modules; ++index)
+        if (host->module->rel_modules[index].module_id == module_id)
+            return &host->module->rel_modules[index];
+    return NULL;
+}
+
+bool ww_host_rel_linked(WwHost* host, u32 module_id) {
+    for (u32 index = 0u; index < WW_REL_MAX_IMAGES; ++index)
+        if (host->rel_images[index].module_id == module_id && host->rel_images[index].linked)
+            return true;
+    return false;
+}
+
+const char* ww_host_collect_rels(WwHost* host) {
+    for (u32 index = 0u; index < WW_REL_MAX_IMAGES; ++index) {
+        WwRelImage* slot = &host->rel_images[index];
+        if (slot->guest == 0u || !slot->linked)
+            continue;
+        const u32 published = mem_read32(&host->cpu, slot->owner + 0x10u);
+        if (published == slot->guest)
+            continue;
+        if (published != 0u)
+            return "REL owner changed to an unowned image";
+        if (slot->module_id == 1u && mem_read32(&host->cpu, BLUEWAKE_PROFILE_LIST_GLOBAL) != 0u)
+            return "REL profile owner was cleared without unlinking its global";
+        if (!ppc_guest_alias_remove(slot->guest, slot->capacity))
+            return "REL unloaded scratch mapping could not be removed";
+        host->alias_count--;
+        host->alias_bytes -= slot->capacity;
+        *slot = (WwRelImage){0};
+    }
+    while (host->rel_image_count != 0u && host->rel_images[host->rel_image_count - 1u].guest == 0u)
+        host->rel_image_count--;
+    return NULL;
+}
 
 static const char* validate_rel(WwHost* host, const u8* image, u32 bytes, u32* module_id) {
+    if (image == NULL || bytes < 0x4Cu || bytes > 0x100000u)
+        return "REL raw image size is invalid";
     const u32 id = bluewake_archive_be32(image);
     const u32 sections = bluewake_archive_be32(image + 0xCu);
     const u32 table = bluewake_archive_be32(image + 0x10u);
@@ -29,6 +77,11 @@ static const char* validate_rel(WwHost* host, const u8* image, u32 bytes, u32* m
             if (rel->file_size != bytes || rel->version != catalog_version_word || rel->section_count != sections ||
                 rel->section_info_offset != table)
                 return "REL raw image metadata disagrees with the compiled descriptor";
+            if (id != 1u) {
+                const char* error = ww_host_validate_rel_link(host, rel, image, bytes);
+                if (error != NULL)
+                    return error;
+            }
             *module_id = id;
             return NULL;
         }
@@ -38,8 +91,9 @@ static const char* validate_rel(WwHost* host, const u8* image, u32 bytes, u32* m
 
 static const char* scratch_address(WwHost* host, u32 bytes, u32* guest) {
     size_t count = host->module->num_code_ranges;
-    if (count > 16384u)
+    if (count > 16384u - WW_REL_MAX_IMAGES)
         return "REL descriptor occupied-range count exceeds its bound";
+    count += WW_REL_MAX_IMAGES;
     for (u32 index = 0u; index < host->module->num_rel_modules; ++index) {
         const u32 sections = host->module->rel_modules[index].num_sections;
         if (sections > 16384u || count > 16384u - sections)
@@ -50,6 +104,10 @@ static const char* scratch_address(WwHost* host, u32 bytes, u32* guest) {
     if (ranges == NULL)
         return "REL scratch range allocation failed";
     size_t at = 0u;
+    for (u32 index = 0u; index < WW_REL_MAX_IMAGES; ++index) {
+        const WwRelImage* slot = &host->rel_images[index];
+        ranges[at++] = (BlueWakeScratchRange){slot->guest, slot->capacity};
+    }
     for (u32 index = 0u; index < host->module->num_code_ranges; ++index) {
         const StaticRecompRange range = host->module->code_ranges[index];
         if (range.end < range.start) {
@@ -78,20 +136,37 @@ static const char* scratch_address(WwHost* host, u32 bytes, u32* guest) {
 const char* ww_host_materialize_rel(WwHost* host, u32 owner, const char* name) {
     if (host == NULL)
         return "REL materialization requires an owned host";
-    if (host->rel_image.guest != 0u)
-        return "REL image is already materialized; linking remains unsupported";
     if (host->module == NULL || host->module->rel_modules == NULL)
         return "REL materialization requires the compiled module catalog";
     if (name == NULL || name[0] == '\0' || strlen(name) > 95u || strspn(name,
         "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_") != strlen(name))
         return "REL materialization requires a bounded module identifier";
+    if ((owner & 3u) != 0u || owner < GC_RAM_BASE || (u64)owner + 0x20u > (u64)GC_RAM_BASE + host->cpu.ram_size ||
+        ww_host_linked_alias_overlaps(owner, 0x20u))
+        return "REL materialization requires a real MEM1 owner";
+    const char* error = ww_host_collect_rels(host);
+    if (error != NULL)
+        return error;
+    WwRelImage* slot = ww_host_rel_owned(host, owner);
+    if (slot != NULL)
+        return strcasecmp(slot->name, name) == 0 ? NULL : "REL owner requested a different module while still owned";
+    if (mem_read32(&host->cpu, owner + 0x10u) != 0u)
+        return "REL materialization would overwrite an unowned guest module";
+    for (u32 index = 0u; index < WW_REL_MAX_IMAGES && slot == NULL; ++index)
+        if (host->rel_images[index].guest == 0u)
+            slot = &host->rel_images[index];
+    if (slot == NULL)
+        return "REL owned image table is full";
     u8* image;
     u32 bytes;
-    const char* error = ww_host_rel_image(host, name, &image, &bytes);
+    error = ww_host_rel_image(host, name, &image, &bytes);
     if (error != NULL)
         return error;
     u32 module_id = 0u, guest = 0u;
     error = validate_rel(host, image, bytes, &module_id);
+    for (u32 index = 0u; error == NULL && index < WW_REL_MAX_IMAGES; ++index)
+        if (host->rel_images[index].guest != 0u && host->rel_images[index].module_id == module_id)
+            error = "REL module already belongs to another guest owner";
     const u32 capacity = (bytes + 31u) & ~31u;
     if (error == NULL)
         error = scratch_address(host, capacity, &guest);
@@ -113,7 +188,12 @@ const char* ww_host_materialize_rel(WwHost* host, u32 owner, const char* name) {
             if (!ppc_guest_alias_remove(guest, capacity))
                 ww_host_fail(host, "REL failed mapping could not be removed", guest, host->cpu.pc);
         } else {
-            host->rel_image = (WwRelImage){owner, guest, bytes, capacity, module_id, false};
+            *slot = (WwRelImage){.owner = owner, .guest = guest, .bytes = bytes, .capacity = capacity,
+                                 .module_id = module_id};
+            memcpy(slot->name, name, strlen(name) + 1u);
+            const u32 count = (u32)(slot - host->rel_images) + 1u;
+            if (host->rel_image_count < count)
+                host->rel_image_count = count;
             host->alias_count++;
             host->alias_bytes += capacity;
         }

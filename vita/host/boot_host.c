@@ -839,7 +839,7 @@ bool ww_host_edge(void* user, CPUState* cpu, u32 address) {
                                        observed_retrace_sleep || observed_draw_done_sleep || observed_async_draw_done) &&
                                          ww_host_module_contains_address(host->module, address);
     const bool desktop_edge = bluewake_edge_maybe_intercept(address);
-    if (address == 0x80307EF4u && host->rel_image.linked &&
+    if (address == 0x80307EF4u && ww_host_rel_linked(host, 1u) &&
         (!host->scheduler_idle_observed ||
          (host->dsp.audio_deferred && host->stream.enabled && host->card_probe_observed &&
           host->frame_timing.present.index >= 32u && !host->post_card_idle_observed))) {
@@ -985,7 +985,12 @@ int ww_host_dispatch(WwHost* host, u32 address) {
         }
         return 1;
     }
-    return host->module->dispatch(&host->cpu, address);
+    const u32 linked = ww_host_rel_address(host, address);
+    if (host->error != NULL)
+        return -1;
+    if (linked != address)
+        cpu->pc = linked;
+    return host->module->dispatch(&host->cpu, linked);
 }
 
 bool ww_host_init(WwHost* host) {
@@ -1060,7 +1065,8 @@ void ww_host_shutdown(WwHost* host) {
     ppc_guest_alias_clear();
     host->alias_bytes = 0u;
     host->alias_count = 0u;
-    memset(&host->rel_image, 0, sizeof(host->rel_image));
+    memset(host->rel_images, 0, sizeof(host->rel_images));
+    host->rel_image_count = 0u;
     dol_guest_memory_shutdown(&host->memory);
     BlueWakeModuleStorage storage = {.cpu = &host->cpu};
     bw_module_cpu_free(&storage);
