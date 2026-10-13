@@ -260,11 +260,15 @@ int fixture_run(int argc, char** argv) {
                              (unsigned long long)host->cycles.absolute_cycles, host->cpu.exception) < 0;
         error |= log_handler_boundary(host, "returned");
         if (host->cycles.absolute_cycles >= next_progress || (turns & 0xFFFFu) == 0u) {
-            error |= fprintf(stderr, "[progress] turns=%llu edges=%llu cycles=%llu pc=%08X msr=%08X srr0=%08X exception=%08X resume=%llu\n",
-                             (unsigned long long)turns, (unsigned long long)host->edges,
-                             (unsigned long long)host->cycles.absolute_cycles,
-                              host->cpu.pc, host->cpu.msr, host->cpu.srr0, host->cpu.exception,
-                              (unsigned long long)host->syscall_resumes) < 0;
+            u64 wall_us = 0u;
+            error |= ww_host_wall_us(&wall_us) != NULL;
+            if (!error)
+                error |= fprintf(stderr, "[progress] turns=%llu edges=%llu cycles=%llu pc=%08X msr=%08X srr0=%08X exception=%08X resume=%llu us=%llu\n",
+                                 (unsigned long long)turns, (unsigned long long)host->edges,
+                                 (unsigned long long)host->cycles.absolute_cycles,
+                                  host->cpu.pc, host->cpu.msr, host->cpu.srr0, host->cpu.exception,
+                                  (unsigned long long)host->syscall_resumes,
+                                  (unsigned long long)wall_us) < 0;
             next_progress = host->cycles.absolute_cycles + 65536u;
         }
         if (!dispatched)

@@ -46,22 +46,23 @@ def fps_verdict(metrics: dict | None, target_fps: int, floor_fps: int) -> str:
     return f"below the {floor_fps} fps floor"
 
 
-def _series_metrics(times_us: list, window_s: float, name: str) -> dict | None:
+def _series_metrics(times_us: list, window_s: float, name: str, end_us: int | None = None) -> dict | None:
     if not times_us:
         return None
     if len(times_us) < 2:
         raise FpsError(name + " has one stamp: the stream looks cut")
-    return frame_rate_summary(times_us, window_s)
+    return frame_rate_summary(times_us, window_s, end_us)
 
 
 def build_baseline(*, label: str, source: str, window_s: float, events=None,
                    boot: dict | None = None, target_fps: int = TARGET_FPS,
                    floor_fps: int = FLOOR_FPS, device: dict | None = None,
-                   scene: dict | None = None, notes: list | None = None) -> dict:
+                   scene: dict | None = None, notes: list | None = None,
+                   end_us: int | None = None) -> dict:
     presents = events.present_times_us() if events is not None else []
     retraces = events.retrace_times_us() if events is not None else []
-    metrics = _series_metrics(presents, window_s, "the presented-frame stream")
-    retrace_metrics = _series_metrics(retraces, window_s, "the retrace stream")
+    metrics = _series_metrics(presents, window_s, "the presented-frame stream", end_us)
+    retrace_metrics = _series_metrics(retraces, window_s, "the retrace stream", end_us)
     return {
         "ticket": TICKET,
         "kind": KIND,
@@ -72,6 +73,7 @@ def build_baseline(*, label: str, source: str, window_s: float, events=None,
         "target_fps": target_fps,
         "floor_fps": floor_fps,
         "window_seconds": window_s,
+        "observation_end_us": end_us,
         "device": device,
         "scene": scene,
         "metrics": metrics,

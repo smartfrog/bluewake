@@ -41,6 +41,8 @@ def main() -> int:
                         dest='reports', help='WW05 boot report (repeatable)')
     parser.add_argument('--window', type=float, default=10.0,
                         help='windowed-metrics window in seconds')
+    parser.add_argument('--end-us', type=int, default=None,
+                        help='observed end in monotonic microseconds (e.g. the supervisor kill time)')
     parser.add_argument('--target', type=int, default=TARGET_FPS)
     parser.add_argument('--floor', type=int, default=FLOOR_FPS)
     parser.add_argument('--source', default=None, help='build source (default: git HEAD)')
@@ -56,6 +58,7 @@ def main() -> int:
     baseline = build_baseline(
         label=args.label, source=args.source or git_source(), window_s=args.window,
         events=events, boot=boot, target_fps=args.target, floor_fps=args.floor,
+        end_us=args.end_us,
         notes=[f"events: {args.events}" if args.events else "no frame-event log",
                f"boot reports: {len(args.reports)}"])
     json_path, summary_path = write_baseline(args.out, baseline)

@@ -79,6 +79,23 @@ class RunTest(unittest.TestCase):
             self.assertIn('[frame-present]', result.stderr)
             self.assertFalse((out / 'baseline.json').exists())
 
+    def test_a_stalled_stream_with_an_observation_end_is_measured_not_refused(self):
+        with tempfile.TemporaryDirectory(dir=OUT) as directory:
+            root = Path(directory)
+            log = root / 'run.log'
+            log.write_text("\n".join(f"[frame-present] frame={index} us={index * 60833}"
+                                     for index in range(7)) + "\n")
+            out = root / 'evidence'
+            result = self.run_cli('--out', str(out), '--label', 'stalled',
+                                  '--events', str(log), '--window', '1',
+                                  '--end-us', '8052000', '--source', SOURCE)
+            self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+            baseline = json.loads((out / 'baseline.json').read_text())
+            self.assertTrue(baseline['measured'])
+            self.assertEqual(baseline['observation_end_us'], 8052000)
+            self.assertEqual(baseline['metrics']['min_window_fps'], 0.0)
+            self.assertIn('below the 30 fps floor', (out / 'summary.txt').read_text())
+
 
 if __name__ == '__main__':
     unittest.main()

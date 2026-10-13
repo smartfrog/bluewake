@@ -83,7 +83,11 @@ class MainIoTest(unittest.TestCase):
             self.assertGreaterEqual(result.returncode, 0, result.stderr.decode())
             report = (root / 'ww05.report').read_text() if (root / 'ww05.report').exists() else None
             if progress:
-                self.assertIn('[progress] turns=1', result.stderr.decode())
+                line = next(line for line in result.stderr.decode().splitlines()
+                            if line.startswith('[progress] turns=1 '))
+                self.assertRegex(line, r'^\[progress\] turns=1 edges=\d+ cycles=\d+ pc=[0-9A-F]{8} '
+                                       r'msr=[0-9A-F]{8} srr0=[0-9A-F]{8} exception=[0-9A-F]{8} '
+                                       r'resume=\d+ us=[1-9]\d*$')
             if cpu_boundary is not None:
                 pc = '80328F84' if cpu_boundary == 'restore' else '80303A50'
                 self.assertIn(f'[dispatch] stage=enter turn=2 pc={pc}', result.stderr.decode())

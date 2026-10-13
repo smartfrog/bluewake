@@ -4,9 +4,12 @@
 The input is presented-frame wall stamps in microseconds, in order. Windows are
 non-overlapping and anchored at the first stamp; a window's FPS is the frames
 inside it divided by its length. Only complete windows are reported, so the
-last, short tail of a run never drags the series down. The summary carries the
-median, p95 and minimum window FPS plus the p95 frame time, so one slow second
-cannot hide in an average. The percentile convention matches the desktop bench
+last, short tail of a run never drags the series down. An optional observation
+end extends the window count to it: windows after the last stamp are reported
+as 0 FPS instead of being skipped, so a stream that stalls while the process
+stays alive is measured rather than refused. The summary carries the median,
+p95 and minimum window FPS plus the p95 frame time, so one slow second cannot
+hide in an average. The percentile convention matches the desktop bench
 (scripts/bench_report.py): linear interpolation between neighbours.
 """
 
@@ -49,26 +52,29 @@ def percentile(values: list, fraction: float) -> float:
     return ordered[lower] + (ordered[upper] - ordered[lower]) * (index - lower)
 
 
-def windowed_fps(times_us: list, window_s: float) -> list:
+def windowed_fps(times_us: list, window_s: float, end_us: int | None = None) -> list:
     if window_s <= 0:
         raise FpsError("window must be positive")
     intervals_us(times_us)
-    first, last = times_us[0], times_us[-1]
+    first = times_us[0]
+    if end_us is not None and end_us <= times_us[-1]:
+        raise FpsError("observation end must follow the last frame stamp")
+    last = end_us if end_us is not None else times_us[-1]
     windows = int((last - first) / 1e6 / window_s)
     if windows < 1:
         raise FpsError("the stream is shorter than one window: nothing to report")
     series = []
     for index in range(windows):
         start_us = first + int(index * window_s * 1e6)
-        end_us = first + int((index + 1) * window_s * 1e6)
-        frames = sum(1 for stamp in times_us if start_us <= stamp < end_us)
+        window_end_us = first + int((index + 1) * window_s * 1e6)
+        frames = sum(1 for stamp in times_us if start_us <= stamp < window_end_us)
         series.append(WindowFps(index * window_s, frames / window_s))
     return series
 
 
-def frame_rate_summary(times_us: list, window_s: float) -> dict:
+def frame_rate_summary(times_us: list, window_s: float, end_us: int | None = None) -> dict:
     intervals = intervals_us(times_us)
-    series = windowed_fps(times_us, window_s)
+    series = windowed_fps(times_us, window_s, end_us)
     span_s = (times_us[-1] - times_us[0]) / 1e6
     frame_ms = [interval / 1000.0 for interval in intervals]
     window_fps = [window.fps for window in series]

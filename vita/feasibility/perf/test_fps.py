@@ -4,7 +4,9 @@ FPS is computed from presented-frame wall stamps in microseconds. Windows are
 non-overlapping and anchored at the first stamp; a window reports the frames
 inside it divided by its length. The summary carries the median, p95 and
 minimum window FPS plus the p95 frame time, so one slow second cannot hide in
-an average.
+an average. An observation end extends the windows past the last stamp, so a
+stream that stalls while the process stays alive reports zero-FPS windows
+instead of no measurement.
 """
 
 from pathlib import Path
@@ -57,6 +59,15 @@ class FpsTest(unittest.TestCase):
                                                 for index in range(5)]
         summary = frame_rate_summary(stamps, window_s=1.0)
         self.assertAlmostEqual(summary["p95_frame_ms"], 12.0, delta=0.01)
+
+    def test_a_stalled_tail_is_measured_as_zero_fps_windows(self):
+        stamps = evenly_spaced(0, 7, 60833)
+        series = windowed_fps(stamps, window_s=1.0, end_us=8052000)
+        self.assertEqual([round(window.fps) for window in series], [7, 0, 0, 0, 0, 0, 0, 0])
+        summary = frame_rate_summary(stamps, window_s=1.0, end_us=8052000)
+        self.assertEqual(summary["windows"], 8)
+        self.assertEqual(summary["median_window_fps"], 0.0)
+        self.assertEqual(summary["min_window_fps"], 0.0)
 
 
 if __name__ == '__main__':
