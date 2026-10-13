@@ -231,7 +231,7 @@ int main(int argc, char** argv) {
                 if (frame == 2u) {
                     std::vector<u8> draw;
                     if (std::strcmp(scenario, "image-refused") == 0 || std::strcmp(scenario, "image-refusal-trace-failure") == 0)
-                        draw = gx_fixture::build_indirect_triangle();
+                        draw = gx_fixture::build_dstalpha_triangle();
                     else
                         gx_fixture::push_triangle(draw);
                     assert(feed(host, draw.data(), draw.size()) == nullptr);

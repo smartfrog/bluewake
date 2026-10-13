@@ -173,7 +173,7 @@ class LiveFramesTest(unittest.TestCase):
             self.assertEqual(metadata['draws'], 1)
             self.assertEqual(metadata['renderer']['plans'], 2)
             self.assertEqual(metadata['renderer']['programs_refused'], 1)
-            self.assertIn('category=shader audio=strict reason=indirect TEV lookups not supported', log)
+            self.assertIn('category=shader audio=strict reason=destination alpha requires dual-source blending', log)
 
     def test_renderer_refusal_trace_failure_stops_and_preserves_the_actual_published_frame(self):
         with tempfile.TemporaryDirectory(dir='/tmp/opencode', prefix='ww16-live-') as directory:

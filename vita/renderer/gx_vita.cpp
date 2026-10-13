@@ -4,8 +4,10 @@
 #include "gx_vita.h"
 #include "gx_texgen.h"
 #include "gx_lighting.h"
+#include "gx_indirect.h"
 
 #include <cstring>
+#include <cmath>
 #include <utility>
 
 namespace gx_vita {
@@ -254,6 +256,59 @@ void translate_per_texmap_textures(const gxc::DrawPlan& plan,
   }
 }
 
+bool translate_indirect(const gxc::DrawPlan& plan, TranslatedDraw& out) {
+  const auto& key = plan.pipeline.shader;
+  out.skip_reason = indirect::key_reason(key);
+  if (out.skip_reason != nullptr)
+    return false;
+  if (!indirect::enabled(key))
+    return true;
+  const auto used = gxc::used_texmap_mask(key);
+  for (std::uint32_t slot = 0; slot < 8; ++slot) {
+    out.texture_dimensions[slot][0] = out.texture_dimensions[slot][1] = 1;
+    for (std::uint32_t axis = 0; axis < 2; ++axis) {
+      const auto scale = plan.pixel_constants.texdims[slot][axis + 2];
+      if (slot < key.num_tex_gens && (scale < 1 || scale > 65536)) {
+        out.skip_reason = "invalid indirect SU scale";
+        return false;
+      }
+      out.texture_dimensions[slot][axis + 2] = scale;
+    }
+    if ((used & (1u << slot)) == 0)
+      continue;
+    const auto& texture = out.texmap_mask ? out.textures[slot] : out.texture;
+    if (!texture.valid) {
+      out.skip_reason = "indirect texture resource unavailable";
+      return false;
+    }
+    out.texture_dimensions[slot][0] = texture.width;
+    out.texture_dimensions[slot][1] = texture.height;
+  }
+  for (std::uint32_t n = 0; n < key.num_tev_stages; ++n) {
+    const auto& stage = key.tev_stages[n];
+    if (!indirect::samples(key, stage) || !stage.ind_matrix_index)
+      continue;
+    const auto index = 2u * (stage.ind_matrix_index - 1u);
+    const auto shift = plan.pixel_constants.indtexmtx[index][3];
+    if (shift < -14 || shift > 17) {
+      out.skip_reason = "invalid indirect matrix scale";
+      return false;
+    }
+    for (std::uint32_t row = index; row < index + 2; ++row) {
+      for (std::uint32_t axis = 0; axis < 3; ++axis) {
+        const auto coefficient = plan.pixel_constants.indtexmtx[row][axis];
+        if (coefficient < -1024 || coefficient > 1023) {
+          out.skip_reason = "invalid indirect matrix coefficient";
+          return false;
+        }
+        out.indirect_matrices[row][axis] = coefficient;
+      }
+      out.indirect_matrices[row][3] = std::ldexp(1.f, -shift);
+    }
+  }
+  return true;
+}
+
 } // namespace
 
 TranslatedDraw translate(const gxc::DrawPlan& plan) {
@@ -295,6 +350,8 @@ TranslatedDraw translate(const gxc::DrawPlan& plan) {
       out.texture = TextureUpload{};
     }
   }
+  if (!translate_indirect(plan, out))
+    return out;
   out.ok = true;
   return out;
 }

@@ -46,6 +46,7 @@ def stop(process):
 
 
 def run_phase(root, stack, name, arguments, timeout, wayland_socket):
+    launch.validate_timeout(timeout)
     log = root / 'phases' / f'{name}.log'
     report = root / launch.UX0_DATA / 'report.txt'
     started = time.monotonic()

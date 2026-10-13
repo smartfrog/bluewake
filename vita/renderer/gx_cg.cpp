@@ -6,6 +6,7 @@
 #include "gx_ztexture.h"
 #include "gx_texgen.h"
 #include "gx_fog.h"
+#include "gx_indirect.h"
 
 namespace gx_vita {
 
@@ -21,7 +22,7 @@ bool texgen_coord(const gxc::ShaderKey& key, std::uint8_t texcoord,
     return false;
   }
   const gxc::TexGenKey& texgen = key.tex_gens[texcoord];
-  *reason = gx_vita::texgen::support_reason(key, texgen);
+  *reason = gx_vita::texgen::support_reason(key, texgen, texcoord);
   if (*reason != nullptr)
     return false;
   const std::string uv = "uv" + std::to_string(texcoord);
@@ -44,6 +45,10 @@ CgProgram generate_cg(const gxc::ShaderKey& key) {
   program.unsupported_reason = fog::key_reason(key);
   if (program.unsupported_reason != nullptr)
     return program;
+  program.unsupported_reason = indirect::key_reason(key);
+  if (program.unsupported_reason != nullptr)
+    return program;
+  const bool use_indirect = indirect::enabled(key);
   if (key.ztex_op > 2 || key.ztex_type > 2 ||
       (key.ztex_op != 0 && (key.tev_valid == 0 || key.textured == 0))) {
     program.unsupported_reason = "invalid ZTexture configuration";
@@ -67,20 +72,13 @@ CgProgram generate_cg(const gxc::ShaderKey& key) {
   if (key.tev_valid != 0u) {
     for (std::uint32_t n = 0; n < key.num_tev_stages; ++n) {
       const gxc::TevStageKey& stage = key.tev_stages[n];
-      // An active indirect lookup (indirect stage in range) is not generated:
-      // refusing is the only honest answer until the indirection path exists.
-      const bool samples_indirect =
-          stage.ind_matrix_index != 0u || stage.ind_bump_alpha != 0u;
-      if (samples_indirect && stage.ind_stage < key.num_ind_stages) {
-        program.unsupported_reason = "indirect TEV lookups not supported";
-        return program;
-      }
       if (!tev::valid_stage(stage)) {
         program.unsupported_reason = "invalid TEV stage fields";
         return program;
       }
-      if (stage.tevorders_enable != 0u) {
-        const std::uint8_t texcoord = stage.tevorders_texcoord;
+      if (stage.tevorders_enable != 0u || (use_indirect && key.num_tex_gens != 0)) {
+        const std::uint8_t texcoord = use_indirect
+            ? indirect::coord(key, stage.tevorders_texcoord) : stage.tevorders_texcoord;
         std::string coord;
         if (!texgen_coord(key, texcoord, &coord,
                           &program.unsupported_reason))
@@ -94,6 +92,13 @@ CgProgram generate_cg(const gxc::ShaderKey& key) {
       }
       need_color0 |= stage.tevorders_colorchan == 0;
       need_color1 |= stage.tevorders_colorchan == 1;
+      if (indirect::samples(key, stage)) {
+        const auto texcoord = indirect::coord(key, key.ind_stages[stage.ind_stage].texcoord);
+        std::string coord;
+        if (!texgen_coord(key, texcoord, &coord, &program.unsupported_reason))
+          return program;
+        need_uv[texcoord] = true;
+      }
     }
   }
   if (key.tev_valid == 0u && key.textured == 0u)
@@ -141,6 +146,8 @@ CgProgram generate_cg(const gxc::ShaderKey& key) {
   // --- Fragment program -----------------------------------------------------
   {
     std::string& out = program.fragment;
+    if (use_indirect)
+      indirect::emit_helpers(out);
     out += "float4 main(";
     bool first = true;
     auto param = [&](const std::string& text) {
@@ -168,6 +175,10 @@ CgProgram generate_cg(const gxc::ShaderKey& key) {
       param("uniform float4 konst_colors[4]");
       param("uniform float2 alpha_ref");
     }
+    if (use_indirect) {
+      param("uniform float4 texture_dimensions[8]");
+      param("uniform float4 indirect_matrices[6]");
+    }
     if (key.ztex_op != 0) {
       param("uniform float2 ztexture_bias");
       param("out float fragment_depth : DEPTH");
@@ -194,14 +205,61 @@ CgProgram generate_cg(const gxc::ShaderKey& key) {
              "  float4 tex, ras, konst, tevin_a, tevin_b, tevin_c, tevin_d;\n";
       if (key.ztex_op != 0)
         out += "  float4 rawtex = float4(0.0,0.0,0.0,0.0);\n";
+      if (use_indirect) {
+        out += "  float alphabump = 0.0;\n"
+               "  float2 tevcoord = float2(0.0,0.0);\n"
+               "  float2 previous_coord = tevcoord;\n";
+        if (key.num_tex_gens == 0)
+          out += "  float2 fixpoint0 = float2(0.0,0.0);\n";
+        for (std::uint32_t t = 0; t < key.num_tex_gens; ++t) {
+          if (!need_uv[t])
+            continue;
+          std::string coordinate;
+          const char* reason = nullptr;
+          (void)texgen_coord(key, t, &coordinate, &reason);
+          out += "  float2 indirect_coord" + std::to_string(t) + " = " + coordinate + ";\n";
+          out += "  float2 fixpoint" + std::to_string(t) + " = float2(";
+          for (int axis = 0; axis < 2; ++axis) {
+            if (axis) out += ",";
+            out += "gx_ind_trunc(indirect_coord" + std::to_string(t) + "." + "xy"[axis] +
+                   " * texture_dimensions[" + std::to_string(t) + "]." + "zw"[axis] + " * 128.0)";
+          }
+          out += ");\n";
+        }
+        for (std::uint32_t i = 0; i < key.num_ind_stages; ++i) {
+          bool used = false;
+          for (std::uint32_t n = 0; n < key.num_tev_stages; ++n)
+            used |= indirect::samples(key, key.tev_stages[n]) && key.tev_stages[n].ind_stage == i;
+          if (!used)
+            continue;
+          const auto& stage = key.ind_stages[i];
+          const auto base = "fixpoint" + std::to_string(indirect::coord(key, stage.texcoord));
+          const auto dimensions = "texture_dimensions[" + std::to_string(stage.texmap) + "]";
+          out += "  float2 indirect_uv" + std::to_string(i) + " = float2(";
+          for (int axis = 0; axis < 2; ++axis) {
+            if (axis) out += ",";
+            out += "floor(" + base + "." + "xy"[axis] + " / " +
+                   std::to_string(1u << (axis ? stage.scale_t : stage.scale_s)) + ".0) / (" +
+                   dimensions + "." + "xy"[axis] + " * 128.0)";
+          }
+          out += ");\n";
+          out += "  float3 ind_raw" + std::to_string(i) + " = floor(tex2D(tex" +
+                 std::to_string(stage.texmap) + ", indirect_uv" + std::to_string(i) +
+                 ").abg * 255.0 + 0.5);\n";
+        }
+      }
       for (std::uint32_t n = 0; n < key.num_tev_stages; ++n) {
         const gxc::TevStageKey& stage = key.tev_stages[n];
         std::string coord;
-        if (stage.tevorders_enable != 0u) {
+        if (use_indirect) {
+          indirect::emit_coordinate(out, key, stage, n);
+          coord = "float2(indirect_u" + std::to_string(n) + ",indirect_v" + std::to_string(n) + ")";
+        } else if (stage.tevorders_enable != 0u) {
           const char* reason = nullptr;
           (void)texgen_coord(key, stage.tevorders_texcoord, &coord, &reason);
         }
-        tev::emit_stage(out, stage, coord, key.ztex_op != 0);
+        tev::emit_stage(out, stage, coord, key.ztex_op != 0,
+                        use_indirect ? indirect::raster(stage) : std::string{});
       }
       const auto& last = key.tev_stages[key.num_tev_stages - 1];
       out += "  prev = float4(" + std::string(tev::destinations[last.cc_dest]) +

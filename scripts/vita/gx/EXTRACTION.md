@@ -36,6 +36,26 @@ local HTML viewer and SHA/source manifest are retained privately. See
 setting, explicit presentation-alpha handling and live-host integration limits.
 No image is synthesized when memory is missing.
 
+Lane 16 may deliver numbered snapshots taken **before renderer write at command
+N**. The producer command is timing provenance, **not necessarily the FIFO
+extent**: the real `33aa66c9...` manifests bind the full 2,048-command logged
+journal despite being captured before commands 990/1962. Replay the extent bound
+by `fifo_sha256` unchanged. Only when the manifest binds a shorter prefix, use:
+
+```sh
+WW02_BUILD=build-f6/ww18 python3 scripts/vita/gx/extract.py RUN/ww05.log \
+  --snapshot RUN/ww05.mem1-1.snapshot.json --through-command N \
+  --output build-f6/ww18/real-first-draw-NEW \
+  --image-output build-f6/ww18/images/real-first-draw-NEW
+```
+
+The selector copies **whole commands 1 through N** unchanged and validates the
+snapshot FIFO hash against that exact prefix. It retains the full journal/report
+source hashes and total journal extent, labels `selected-command-prefix`, and
+keeps the full report's pending tail separate from the selected whole-command
+prefix. It refuses N outside logged coverage. No source log is edited and no
+later resource versions are guessed from an earlier dump.
+
 The legacy explicit form still accepts a raw, contiguous memory image starting
 at physical address zero, without a manifest:
 
@@ -156,9 +176,38 @@ refused programs/copies or lost draw programs return failure, retaining the
 bridge text in `replay.txt`. `verdict=ran` proves translation, not GPU pixels.
 Existing fixture directories are never overwritten.
 
+## Exact journal contract for the capture lane
+
+The existing `--continue-gx 64` capture setting logs only the first 64 complete
+commands, not 64 draws. Raise that limit in the host/harness lane sufficiently
+to retain initialization through the desired draws; this renderer lane does
+not change that setting or the host. Extraction expects each complete command
+in this exact shape (uppercase hex, no truncation or ellipsis):
+
+```text
+[gx-command] index=1 opcode=61 bytes=5 pc=80325DAC completion_pc=80325DB8 sp=8040CEB0 hex=610F0000FF
+```
+
+Indices must be contiguous from 1 across the captured initialization/draw
+sequence; `bytes` counts the **entire** opcode + header + payload. Draw records
+must include all vertex bytes, not just their three-byte primitive header.
+Unknown gaps, reordered records, lowercase/truncated hex or a record starting
+at the draw's index rather than index 1 are refused. Other ordinary log lines
+may be interleaved. No synthetic state is prepended to a draw-only slice.
+
+The adjacent `ww05.report` supplies `GX_STREAM ... decoded=N logged=M ...
+pending=P ...` and `RENDER ... draws=D ...`. The tool verifies M against the
+journal count, retains unlogged/pending extent and does not equate D to logged
+draw records. Nonempty display lists may contain additional draws in memory;
+direct journal draw counts do not include those nested commands. Supply raw
+MEM1 starting at physical address zero for `--mem1`, matching that run/time.
+There is no journal-size cap in the extractor. The capture owner must avoid
+truncating long draw records and must retain matching texture/array/DL bytes.
+
 ## Checked on Linux
 
-- 44 Python tests pass, including snapshot format/hash/bounds validation,
+- The original 44-test snapshot baseline and the later 81-test Python check pass,
+  including snapshot format/hash/bounds validation,
   sparse coverage, fixture tampering and stale-bridge refusal, plus frame validation after a memory-dependent
   command, sequence gaps, metadata, pending tails, memory refusal, silent draw
   loss and nonzero feature gaps.
@@ -170,13 +219,29 @@ Existing fixture directories are never overwritten.
   Native tests check alias resolution, adjacent-region merging and clipped
   `available`; four host suites also pass with ASan/UBSan. These are synthetic
   memory-loader proofs, not a real game-frame replay.
+- Original LOD remains an explicit coverage gap; the updated refusal names
+  complete sampler state and captured mip levels. The full field inventory,
+  tested pinned-plan information loss and reference-model numerical checks
+  are in `vita/renderer/gx_original_lod.md`. Those checks do not turn an LOD
+  replay into `verdict=ran` or replace missing mip bytes with generated levels.
 - Real run `10c1b74cc7b647aab66bf18882e53a39` reports 1,171 decoded commands
   and one renderer draw, but only logs 64 commands/423 bytes and **zero captured
   draws**. Its extracted setup prefix replays successfully with zero plans.
-- The current read-only build-f5 scan finds no journal with two captured draws:
-  `verdict=no-captured-draw-sequence`. A full journal from initialization through
-  draws plus matching guest resources is still needed from the host/harness
-  lane. No host or WW05 harness changes were made here.
+- The first longer journal is now available: run
+  `5a4fb3b0ba4c46efa69ab545e225c8dd`, limit 2,048, two captured draws in
+  14,464 bytes. The report totals are four draws/4,249 decoded commands, so this
+  remains a command-prefix capture with five pending bytes.
+- Extraction succeeds and retains its provenance under
+  `build-f6/ww18/real-indirect-replay`; guarded replay reports
+  **`verdict=memory-required`**, not a successful real draw replay.
+  No MEM1 snapshot is adjacent to the capture. Even though both captured quads
+  have inline positions/colors, the frontend resolves an initialization texture
+  before them: command 294, BP 94, FIFO offset 1,904, guest address 0039D860.
+  A diagnostic replay against an entirely unmapped/empty address space refuses
+  that BP handler before any draw. This is not permission to fabricate resources
+  or delete unused-looking initialization commands.
+- Supply the same run's memory snapshot/resources to replay this exact prefix.
+  No host or WW05 harness changes were made here.
 
 Source-backed assumption: journal order/index/hex bytes are the capture contract
 in `capture.py`; renderer totals are not FIFO evidence. When that evidence

@@ -1,4 +1,5 @@
 import hashlib
+import errno
 import json
 from pathlib import Path
 import tempfile
@@ -75,6 +76,44 @@ class ImageOutputTests(unittest.TestCase):
             status = image.render_fixture(self.fixture, self.metadata, self.output, self.root)
         self.assertEqual(status, 2)
         self.assertEqual(json.loads((self.output / 'image.json').read_text())['verdict'], 'image-readback-blocked')
+
+    def test_readonly_staging_reuses_bytes_across_private_profiles(self):
+        source = self.root / 'firmware.bin'
+        source.write_bytes(b'local immutable firmware')
+        cache = self.root / 'readonly-cache'
+        first, second = self.root / 'profile1.bin', self.root / 'profile2.bin'
+        launch.copy_readonly(source, first, cache)
+        launch.copy_readonly(source, second, cache)
+        self.assertTrue(first.samefile(second))
+        self.assertFalse(first.samefile(source))
+        self.assertEqual(second.read_bytes(), source.read_bytes())
+
+    def test_readonly_staging_refuses_corrupted_cache(self):
+        source = self.root / 'firmware.bin'
+        source.write_bytes(b'firmware')
+        cache = self.root / 'readonly-cache'
+        launch.copy_readonly(source, self.root / 'first.bin', cache)
+        next(cache.iterdir()).write_bytes(b'corrupt')
+        with self.assertRaisesRegex(ValueError, 'readonly cache SHA-256'):
+            launch.copy_readonly(source, self.root / 'second.bin', cache)
+
+    def test_readonly_staging_handles_cross_device_destinations(self):
+        source = self.root / 'firmware.bin'
+        source.write_bytes(b'firmware')
+        destination = self.root / 'profile.bin'
+        with patch.object(launch.os, 'link', side_effect=OSError(errno.EXDEV, 'cross-device')):
+            launch.copy_readonly(source, destination, self.root / 'readonly-cache')
+        self.assertEqual(destination.read_bytes(), source.read_bytes())
+
+    def test_vpk_staging_is_not_shared_when_launcher_may_replace_it(self):
+        source = self.root / 'replay.vpk'
+        source.write_bytes(b'original app')
+        first, second = self.root / 'first.vpk', self.root / 'second.vpk'
+        launch.copy_readonly(source, first, self.root / 'readonly-cache')
+        launch.copy_readonly(source, second, self.root / 'readonly-cache')
+        first.write_bytes(b'replaced app')
+        self.assertEqual(second.read_bytes(), b'original app')
+        self.assertEqual(source.read_bytes(), b'original app')
 
 
 if __name__ == '__main__':

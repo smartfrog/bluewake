@@ -125,6 +125,8 @@ struct TranslatedDraw {
   float alpha_ref[2]{};
   float ztexture_bias[2]{}; // exact high-16/low-8 parts of BP F4
   fog::Uniforms fog;
+  float texture_dimensions[8][4]{}; // sampled image XY, per-texgen SU scale ZW
+  float indirect_matrices[6][4]{}; // signed rows XYZ, exact 2^-shift in W
   // Single texmap-0 case: the draw's one texture and sampler.
   TextureUpload texture;
   // Bit t set means textures[t] must be bound. Includes single nonzero texmaps;

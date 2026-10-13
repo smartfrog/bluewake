@@ -2987,3 +2987,89 @@ is staged in this synthetic profile. Its result must stay separate from WW05's
 explicit audio-deferred guest trials; the synthetic control has no audio/DSP
 workload, not a sound claim. Repository audit/attribution/whitespace pass;
 the existing **738 host tests** remain the last checked game-host baseline.
+
+## Integration checkpoint: full union with the October 13 trunk
+
+Resolved the pending merge of **508f611** into **vita-integration**, whose
+pre-merge head is **0a576a6**. All **12 conflicted files** were reviewed against
+both indexed parents, with original versions/diffs retained privately under
+**/tmp/opencode/ww16-trunk-merge-508f611/**. No side was accepted wholesale and
+no branch, pin, capture or player's data was discarded.
+
+The union keeps lane 18's TexGen sink, color-channel ordering/post-normalization,
+indirect/emboss and original-LOD checks; read-only staging deduplication and
+deadline validation; selected command-prefix/snapshot binding and honest
+coverage verdicts; live frame/readback callbacks, genuine GPU finish tests,
+WW05 timing/MEM1/explicit deferred-audio seams, and the trunk's residency,
+profile and hot-measurement protocol. Duplicate equivalent PNG/surface-sync
+helpers now reuse the shared implementations. Function/test inventories from
+both parents were checked after conflict resolution.
+
+The newer trunk supports the original indirect fixture, so old capture-refusal
+tests now use the existing **destination-alpha dual-source** refusal fixture
+instead. Positive indirect checks remain, along with the explicit refusal
+reason and fail-loud capture-publication checks. Cg smoke output also retains
+actual unsupported-state reasons. Real-evidence parsing checks the recorded
+frontier bytes/complete flag rather than assuming every historical report is
+empty. These are compatibility updates to tests, not renderer fallbacks or
+invented frames. Initial failures and reviewed/final logs remain preserved.
+
+Linux AArch64, **CC=gcc**, builds **-j2** maximum, isolated test output trees:
+
+- Requested **`python3 -m pytest vita/host/test_launch.py -q`**: **33 passed**.
+- Complete **vita/host** suite including DVD tests: **767 passed**.
+- **scripts/vita/gx** Python suite: **111 passed**.
+- Rebuilt native renderer/bridge/Cg fixtures, **vita/feasibility/gx** wrappers:
+  **75 passed** (the preliminary progress message's 76 was a counting error).
+- **vita/feasibility/perf**: **29 passed**.
+- **vita/feasibility/armv7/test_fp_*.py**: **83 passed**.
+- Repository audit, attribution and whitespace checks pass.
+
+No emulator/game trial was launched during the merge intervention. No Windows
+CI or physical Vita test was available; local contract-test success is not a
+gameplay or FPS claim. No network/push. The ww16 checkout and its pending
+synthetic pixel-control work remain preserved for resumption after this merge.
+
+## Unit 74: sync the verified renderer trunk before the next authentic scene trial
+
+The ww16 worktree merges verified integration **c3262c6**, preserving the
+separately committed Unit 73 record **7ba92e0**. Only the appended history
+conflicts; both histories are retained in full. **vita/** and **scripts/** match
+the integration tree exactly before this documentation entry. No pin, private
+attempt, player's data or other lane's build is discarded.
+
+The next rebuilt guest therefore receives the trunk's TexGen sink/matrix and
+color-channel ordering fixes, indirect/emboss support and explicit original-LOD
+refusal, rather than continuing on an older renderer. The genuine finish,
+frame-boundary callback, raw/display RGB preservation, live renderer counters
+and explicit **audio=deferred** protocol remain intact. This merge is not a
+claim that any previous black image now becomes a scene.
+
+Re-plan the pending synthetic control: lane 18 already has a positively colored
+authored checker under **/tmp/opencode/ww18/build-f6/ww18/images/
+synthetic-checker-visible/**. Read-only verification of the existing PNG gives
+the exact recorded SHA **97ed8bae1cf7694508b8d2ccb621e16f85a40cd8df4b4dce7712c97179320da8**,
+four colors / **130,560 pixels each**, raw/display RGB identical. Its original
+revision **e0b0993** and synthetic-no-game-assets source remain declared.
+**logs/ww16-existing-positive-control-check.json** records the check. It is
+historical synthetic evidence, not a new emulator trial, a game frame, pixel
+parity or a physical-Vita result. Do not repeat that control blindly or borrow
+its pixels for the game. The prepared, unbuilt private control project remains
+preserved; the immediate next step is the real guest on the synced renderer.
+
+Linux AArch64, **CC=gcc / builds -j2**: **767 host/DVD tests** pass in isolated
+**/tmp/opencode/ww16-sync-c3262c6/** outputs
+(**logs/ww16-trunk-sync-host.log**); the **111 GX Python tests** also pass
+(**logs/ww16-trunk-sync-gx-python.log**). Audit/attribution/whitespace pass.
+The integration's native renderer/Cg/bridge and perf/FP results remain the
+separate checks recorded above. No owned Vita3K remains before trial preparation.
+
+Commit the sync, then certified **VI/O1 -j2** rebuild and one fresh continuously
+watched **600 s maximum ceiling / journal 2048 / MEM1=2 + live PNG /
+audio=deferred** trial. Keep genuine presentation/retrace markers and the
+**128-presentation / 960×544** capture bounds. The target remains the first
+actual nonblack frame and scene content after the clears, not merely more draw
+counters. Capture timing is not an FPS baseline; keep the FPS watch's hot-run
+protocol separate. If it remains black or hits a refusal, source that actual
+wall before changing a seam. No fabricated GPU/audio completion, real DSP/PCM,
+guest-time alteration, logo/gameplay, physical Vita or 30+ FPS claim.

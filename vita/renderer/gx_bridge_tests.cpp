@@ -10,12 +10,16 @@
 // Checks are explicit (no assert): a release build must fail loudly too.
 
 #include "gx_bridge.h"
+#include "gx_vita.h"
 #include "gx_ztexture_fixture.h"
 #include "gx_fog_fixture.h"
+#include "gx_indirect_fixture.h"
+#include "gx_emboss_fixture.h"
 #include "gx_snapshot_memory.h"
 
 #include "../feasibility/gx/gx_fixture.hpp"
 
+#include <algorithm>
 #include <cstdint>
 #include <chrono>
 #include <cstdlib>
@@ -130,6 +134,94 @@ int snapshot_coverage_reader_rejects_bad_bounds() {
   return 0;
 }
 
+std::vector<std::uint8_t> original_lod_fifo(std::uint32_t mode0) {
+  auto fifo = gx_indirect_fixture::quad();
+  constexpr auto draw_size = 3 + 4 * 5 * sizeof(float);
+  const std::vector<std::uint8_t> draw(fifo.end() - draw_size, fifo.end());
+  fifo.resize(fifo.size() - draw_size);
+  gx_fixture::push_bp(fifo, 0x80, mode0);
+  gx_fixture::push_bp(fifo, 0x84, 0x4000);
+  gx_fixture::push_bp(fifo, 0x10, 1u << 19);
+  fifo.insert(fifo.end(), draw.begin(), draw.end());
+  return fifo;
+}
+
+struct SamplerCapture {
+  gx_fixture::gxc::PlanSampler sampler;
+  gx_fixture::gxc::ShaderKey shader;
+  gx_fixture::gxc::PixelShaderConstants constants;
+  unsigned count = 0;
+};
+
+void capture_sampler(const gx_fixture::gxc::DrawPlan& plan, void* user) {
+  auto& capture = *static_cast<SamplerCapture*>(user);
+  capture.sampler = plan.samplers[0];
+  capture.shader = plan.pipeline.shader;
+  capture.constants = plan.pixel_constants;
+  ++capture.count;
+}
+
+bool replay_sampler(std::uint32_t mode0, SamplerCapture& capture) {
+  gx_fixture::FixtureContext memory;
+  gx_fixture::fill_texture_zones(memory);
+  DolGuestAddressResolver resolver;
+  dol_guest_address_resolver_init_callback(&resolver, gx_fixture::resolve_mem1, &memory);
+  gx_fixture::ar::RetailGxFrontend frontend;
+  frontend.reset(&resolver);
+  frontend.set_packet_drain_enabled(true);
+  gx_fixture::gxc::GxCoreSink sink;
+  sink.set_guest_resolver(&frontend.state().resolver);
+  sink.set_plan_observer(capture_sampler, &capture);
+  if (!frontend.replay_fifo(original_lod_fifo(mode0), &sink))
+    return false;
+  sink.flush_frame();
+  return true;
+}
+
+int pinned_plan_discards_original_lod_sampler_fields() {
+  SamplerCapture baseline;
+  CHECK(replay_sampler(1u << 5, baseline));
+  CHECK(baseline.count == 1);
+  for (std::uint32_t delta : {1u << 8, 32u << 9, 1u << 21}) {
+    SamplerCapture different;
+    CHECK(replay_sampler((1u << 5) | delta, different));
+    CHECK(different.count == 1);
+    CHECK(std::memcmp(&baseline.sampler, &different.sampler, sizeof baseline.sampler) == 0);
+    CHECK(std::memcmp(&baseline.constants, &different.constants, sizeof baseline.constants) == 0);
+    CHECK(std::memcmp(&baseline.shader, &different.shader, sizeof baseline.shader) == 0);
+    CHECK(gx_vita::shader_key_hash(baseline.shader) == gx_vita::shader_key_hash(different.shader));
+    std::printf("pinned original LOD sampler loss delta=0x%06X same_sampler=1 same_constants=1 same_shader=1\n", delta);
+  }
+  return 0;
+}
+
+int original_lod_refusal_reports_the_plan_contract_limit() {
+  gx_bridge::Result result;
+  CHECK(run_stream(original_lod_fifo(1u << 5), result));
+  CHECK(result.counts.plans == 1 && result.counts.plans_skipped == 1);
+  CHECK(result.counts.programs == 0 && result.counts.plans_ok == 0);
+  CHECK(result.plan_skips.size() == 1);
+  CHECK(result.plan_skips[0] == "original indirect LOD requires complete sampler state and captured mip levels");
+  CHECK(find_gap(result, "indirect_ignored") != nullptr);
+  return 0;
+}
+
+int captured_mip_colors_cannot_be_rebuilt_from_the_base_image() {
+  std::vector<std::uint8_t> first(192, 16);
+  std::vector<std::uint8_t> second = first;
+  std::fill(first.begin() + 64, first.end(), 128);
+  std::fill(second.begin() + 64, second.end(), 240);
+  const auto base_first = gx_fixture::gxc::decode_texture(6, 4, 4, first.data(), first.size());
+  const auto base_second = gx_fixture::gxc::decode_texture(6, 4, 4, second.data(), second.size());
+  CHECK(base_first == base_second);
+  const auto lower_first = gx_fixture::gxc::decode_texture(6, 2, 2, first.data() + 64, 64);
+  const auto lower_second = gx_fixture::gxc::decode_texture(6, 2, 2, second.data() + 64, 64);
+  CHECK(lower_first == std::vector<std::uint8_t>(16, 128));
+  CHECK(lower_second == std::vector<std::uint8_t>(16, 240));
+  CHECK(lower_first != lower_second);
+  return 0;
+}
+
 int display_copy_is_a_frame_boundary_not_a_refused_texture_copy() {
   auto fifo = gx_ztexture_fixture::clear_quad(0, 0);
   gx_fixture::push_bp(fifo, 0x52, 1u << 14);
@@ -145,13 +237,61 @@ int display_copy_is_a_frame_boundary_not_a_refused_texture_copy() {
   return 0;
 }
 
+int normalized_post_matrix_is_refused_with_a_gap() {
+  gx_bridge::Result result;
+  CHECK(run_stream(gx_ztexture_fixture::post_matrix_quad(true), result));
+  CHECK(result.counts.plans == 1 && result.counts.plans_skipped == 1);
+  CHECK(result.counts.plans_ok == 0 && result.counts.programs == 0);
+  CHECK(result.plan_skips.size() == 1);
+  CHECK(result.plan_skips[0] == "post-normalized texture matrix not supported");
+  const auto* gap = find_gap(result, "unsupported_texgen");
+  CHECK(gap != nullptr && gap->value == 1);
+  return 0;
+}
+
+int post_normalization_stays_paired_with_deferred_draws() {
+  auto fifo = gx_ztexture_fixture::post_matrix_quad();
+  for (bool normalized : {true, false}) {
+    const auto next = gx_ztexture_fixture::post_matrix_quad(normalized);
+    fifo.insert(fifo.end(), next.begin(), next.end());
+  }
+  gx_bridge::Result result;
+  CHECK(run_stream(fifo, result));
+  CHECK(result.counts.plans == 3 && result.counts.plans_skipped == 1);
+  CHECK(result.counts.plans_ok == 2 && result.counts.programs == 2);
+  CHECK(result.plan_skips.size() == 1);
+  CHECK(result.plan_skips[0] == "post-normalized texture matrix not supported");
+  const auto* gap = find_gap(result, "unsupported_texgen");
+  CHECK(gap != nullptr && gap->value == 1);
+  return 0;
+}
+
+int disabled_post_transform_does_not_refuse_normalization() {
+  auto fifo = gx_ztexture_fixture::post_matrix_quad(true);
+  constexpr auto draw_size = 3 + 4 * 5 * sizeof(float);
+  const std::vector<std::uint8_t> draw(fifo.end() - draw_size, fifo.end());
+  fifo.resize(fifo.size() - draw_size);
+  gx_fixture::push_xf_block(fifo, 0x1012, {0});
+  fifo.insert(fifo.end(), draw.begin(), draw.end());
+  gx_bridge::Result result;
+  CHECK(run_stream(fifo, result));
+  CHECK(result.counts.plans_ok == 1 && result.counts.programs == 1);
+  CHECK(result.counts.plans_skipped == 0 && result.plan_skips.empty());
+  CHECK(result.gaps.empty());
+  return 0;
+}
+
 } // namespace
 
 int main(int argc, char** argv) {
   if (argc == 3 && (std::string(argv[1]) == "--write-ztexture-fixture" ||
                     std::string(argv[1]) == "--write-matrix-fixture" ||
+                    std::string(argv[1]) == "--write-post-matrix-fixture" ||
+                    std::string(argv[1]) == "--write-post-normalized-fixture" ||
                     std::string(argv[1]) == "--write-light-fixture" ||
                     std::string(argv[1]) == "--write-fog-fixture" ||
+                    std::string(argv[1]) == "--write-indirect-fixture" ||
+                    std::string(argv[1]) == "--write-emboss-fixture" ||
                     std::string(argv[1]) == "--write-image-fixture")) {
     const std::filesystem::path directory(argv[2]);
     std::filesystem::create_directories(directory);
@@ -160,10 +300,20 @@ int main(int argc, char** argv) {
     auto fifo = gx_ztexture_fixture::clear_quad();
     if (std::string(argv[1]) == "--write-matrix-fixture")
       fifo = gx_ztexture_fixture::matrix_quad(true, true);
+    else if (std::string(argv[1]) == "--write-post-matrix-fixture")
+      fifo = gx_ztexture_fixture::post_matrix_quad();
+    else if (std::string(argv[1]) == "--write-post-normalized-fixture")
+      fifo = gx_ztexture_fixture::post_matrix_quad(true);
     else if (std::string(argv[1]) == "--write-light-fixture")
       fifo = gx_ztexture_fixture::lighting_quad(7);
     else if (std::string(argv[1]) == "--write-fog-fixture")
       fifo = gx_fog_fixture::quad(4, false, true);
+    else if (std::string(argv[1]) == "--write-indirect-fixture") {
+      gx_fixture::fill_texture_zones(memory);
+      fifo = gx_indirect_fixture::quad(2, 1, 3, 7);
+    }
+    else if (std::string(argv[1]) == "--write-emboss-fixture")
+      fifo = gx_emboss_fixture::quad(true, true, 7);
     else if (std::string(argv[1]) == "--write-image-fixture") {
       fifo = gx_ztexture_fixture::clear_quad(0, 0);
       constexpr auto draw_size = 3 + 4 * 5 * sizeof(float);
@@ -200,7 +350,30 @@ int main(int argc, char** argv) {
   CHECK(snapshot_resolver_refuses_crossing_coverage() == 0);
   CHECK(snapshot_coverage_reader_merges_adjacent_ranges() == 0);
   CHECK(snapshot_coverage_reader_rejects_bad_bounds() == 0);
+  CHECK(pinned_plan_discards_original_lod_sampler_fields() == 0);
+  CHECK(original_lod_refusal_reports_the_plan_contract_limit() == 0);
+  CHECK(captured_mip_colors_cannot_be_rebuilt_from_the_base_image() == 0);
   CHECK(display_copy_is_a_frame_boundary_not_a_refused_texture_copy() == 0);
+  CHECK(normalized_post_matrix_is_refused_with_a_gap() == 0);
+  CHECK(post_normalization_stays_paired_with_deferred_draws() == 0);
+  CHECK(disabled_post_transform_does_not_refuse_normalization() == 0);
+  for (bool indexed : {false, true}) {
+    for (bool chained : {false, true}) {
+      gx_bridge::Result result;
+      CHECK(run_stream(gx_emboss_fixture::quad(indexed, chained, 7), result));
+      CHECK(result.counts.plans_ok == 1 && result.counts.programs == 1);
+      CHECK(result.counts.programs_refused == 0 && result.gaps.empty());
+    }
+  }
+  for (std::uint8_t matrix : {0, 1, 2}) {
+    for (std::uint8_t format : {0, 1, 2, 3}) {
+      gx_bridge::Result result;
+      CHECK(run_stream(gx_indirect_fixture::quad(matrix, format, 3, 7), result));
+      CHECK(result.counts.plans_ok == 1 && result.counts.programs == 1);
+      CHECK(result.counts.programs_refused == 0 && result.plan_skips.empty());
+      CHECK(result.gaps.empty());
+    }
+  }
   for (std::uint8_t mode : {2, 4, 5, 6, 7}) {
     for (bool orthographic : {false, true}) {
       for (bool range : {false, true}) {
@@ -217,6 +390,15 @@ int main(int argc, char** argv) {
     CHECK(run_stream(gx_ztexture_fixture::lighting_quad(light), result));
     CHECK(result.counts.plans_ok == 1 && result.counts.programs == 1);
     CHECK(result.counts.programs_refused == 0 && result.plan_skips.empty());
+  }
+  for (std::uint8_t channels : {0, 1, 2}) {
+    for (std::uint8_t channel : {0, 1}) {
+      gx_bridge::Result result;
+      CHECK(run_stream(gx_ztexture_fixture::lighting_quad(0, channels, channel), result));
+      CHECK(result.counts.plans_ok == 1 && result.counts.programs == 1);
+      CHECK(result.counts.programs_refused == 0 && result.plan_skips.empty());
+      CHECK(result.gaps.empty());
+    }
   }
   for (bool indexed : {false, true}) {
     for (bool projected : {false, true}) {
@@ -280,17 +462,23 @@ int main(int argc, char** argv) {
   }
 
   {
-    // An active indirect lookup translates but the bounded Cg generator
-    // refuses it: the refusal keeps its reason instead of vanishing.
+    // The original indirect lookup remains a valid single-texmap path.
     gx_bridge::Result result;
     CHECK(run_stream(gx_fixture::build_indirect_triangle(), result));
     CHECK(result.ok);
     CHECK(result.counts.plans_ok == 1u);
-    CHECK(result.counts.programs == 0u && result.counts.programs_refused == 1u);
-    CHECK(result.program_refusals.size() == 1u);
-    CHECK(result.program_refusals[0] == "indirect TEV lookups not supported");
-    std::printf("bridge indirect refused: %s\n",
-                result.program_refusals[0].c_str());
+    CHECK(result.counts.programs == 1u && result.counts.programs_refused == 0u);
+    CHECK(result.program_refusals.empty());
+    std::printf("bridge indirect single-texmap generated\n");
+  }
+
+  {
+    gx_bridge::Result result;
+    CHECK(run_stream(gx_fixture::build_dstalpha_triangle(), result));
+    CHECK(result.counts.plans == 1u && result.counts.programs_refused == 1u);
+    CHECK(result.counts.programs == 0u && result.program_refusals.size() == 1u);
+    CHECK(result.program_refusals[0] == "destination alpha requires dual-source blending");
+    std::printf("bridge destination alpha refused: %s\n", result.program_refusals[0].c_str());
   }
 
   {

@@ -69,33 +69,35 @@ inline std::vector<std::uint8_t> matrix_quad(bool indexed = false, bool projecte
   return fifo;
 }
 
-inline std::vector<std::uint8_t> post_matrix_quad() {
+inline std::vector<std::uint8_t> post_matrix_quad(bool normalize = false) {
   auto fifo = matrix_quad();
   const auto draw_size = 3 + 4 * 5 * sizeof(float);
   const std::vector<std::uint8_t> draw(fifo.end() - draw_size, fifo.end());
   fifo.resize(fifo.size() - draw_size);
   gx_fixture::push_xf_block(fifo, 0x1012, {1});
   gx_fixture::push_xf_f32(fifo, 0x500, {1, 0, 0, 10, 0, 1, 0, 20, 0, 0, 1, 0});
-  gx_fixture::push_xf_block(fifo, 0x1050, {0});
+  gx_fixture::push_xf_block(fifo, 0x1050, {normalize ? 1u << 8 : 0u});
   fifo.insert(fifo.end(), draw.begin(), draw.end());
   return fifo;
 }
 
-inline std::vector<std::uint8_t> lighting_quad(std::uint8_t light = 0) {
+inline std::vector<std::uint8_t> lighting_quad(std::uint8_t light = 0,
+                                             std::uint8_t color_channels = 1,
+                                             std::uint8_t texgen_color_channel = 0) {
   auto fifo = clear_quad();
   fifo.resize(fifo.size() - (3 + 4 * 5 * sizeof(float)));
   gx_fixture::push_cp(fifo, 0x50, (1u << 9) | (1u << 11));
   gx_fixture::push_cp(fifo, 0x70, 1u | (4u << 1) | (4u << 10) |
                                 (1u << 21) | (4u << 22));
   gx_fixture::push_xf_f32(fifo, 0x400, {1, 0, 0, 0, 1, 0, 0, 0, 1});
-  gx_fixture::push_xf_block(fifo, 0x1009, {1});
+  gx_fixture::push_xf_block(fifo, 0x1009, {color_channels});
   gx_fixture::push_xf_block(fifo, 0x100A, {0});
   gx_fixture::push_xf_block(fifo, 0x100C, {0xFFFFFFFF});
   const std::uint32_t mask = 1u << light;
   gx_fixture::push_xf_block(fifo, 0x100E, {2u | ((mask & 15u) << 2) |
                                                ((mask >> 4) << 11) | (2u << 7)});
   gx_fixture::push_xf_block(fifo, 0x1010, {1});
-  gx_fixture::push_xf_block(fifo, 0x1040, {2u << 4});
+  gx_fixture::push_xf_block(fifo, 0x1040, {(2u + texgen_color_channel) << 4});
   gx_fixture::push_xf_block(fifo, 0x600 + 16 * light,
                           {0, 0, 0, 0x4080C0FF, gx_fixture::f32_bits(1), 0, 0,
                            gx_fixture::f32_bits(1), 0, 0, 0, 0,

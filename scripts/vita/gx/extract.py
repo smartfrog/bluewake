@@ -59,13 +59,18 @@ def report_fields(text, prefix):
     return dict(item.split('=', 1) for item in lines[0].split()[1:]) if lines else {}
 
 
-def extract_fixture(journal, output, *, mem1=None, report=None, snapshot=None):
+def extract_fixture(journal, output, *, mem1=None, report=None, snapshot=None, through_command=None):
     if mem1 is not None and snapshot is not None:
         raise ValueError('provide only one memory input: raw MEM1 or snapshot manifest')
     source = journal.read_bytes()
     commands = capture.journal_commands(source.decode())
     if not commands:
         raise ValueError('capture has no command journal')
+    journal_commands = len(commands)
+    if through_command is not None:
+        if type(through_command) is not int or not 1 <= through_command <= journal_commands:
+            raise ValueError('through-command must select an existing logged command from 1')
+        commands = commands[:through_command]
     memory_needed = requires_memory(commands)
     fifo = b''.join(commands)
     memory = mem1.read_bytes() if mem1 is not None else None
@@ -90,7 +95,7 @@ def extract_fixture(journal, output, *, mem1=None, report=None, snapshot=None):
             result['reported_draws'] = int(renderer['draws'])
         if 'logged' in stream and 'decoded' in stream:
             logged, decoded = int(stream['logged']), int(stream['decoded'])
-            if logged != len(commands) or decoded < logged:
+            if logged != journal_commands or decoded < logged:
                 raise ValueError('report/journal command count mismatch')
             result['decoded_commands'] = decoded
             result['coverage'] = 'all-reported-commands' if decoded == logged else 'logged-command-prefix-only'
@@ -98,6 +103,14 @@ def extract_fixture(journal, output, *, mem1=None, report=None, snapshot=None):
             result['pending_bytes'] = int(stream['pending'])
             if result['coverage'] == 'all-reported-commands' and result['pending_bytes']:
                 result['coverage'] = 'all-reported-commands-partial-tail'
+    if through_command is not None:
+        result['selected_through_command'] = through_command
+        result['journal_commands'] = journal_commands
+        if through_command < journal_commands:
+            result['journal_coverage'] = result['coverage']
+            result['coverage'] = 'selected-command-prefix'
+            result['reported_pending_bytes'] = result.get('pending_bytes', 0)
+            result['pending_bytes'] = 0
     output.mkdir(parents=True, exist_ok=False)
     (output / 'stream.fifo').write_bytes(fifo)
     if loaded is not None:
@@ -139,14 +152,7 @@ def replay_fixture(directory, metadata, *, binary=None):
         output, refusal = bridge.run_stream(binary or bridge.find_binary(), (directory / 'stream.fifo').read_bytes(), memory)
     if refusal is not None:
         return f'bridge ok=0 reason={refusal}\nverdict=rejected\n', 1
-    summary = re.search(r'^bridge .*$', output, re.MULTILINE)
-    if summary is None:
-        raise ValueError('bridge did not report counters')
-    counters = dict(item.split('=', 1) for item in summary[0].split()[1:])
-    gaps = any(int(counters[name]) for name in ('plans_skipped', 'programs_refused', 'copies_refused'))
-    gaps |= int(counters['programs']) < metadata['captured_draws']
-    gaps |= re.search(r'^gap .*=[1-9]\d*$', output, re.MULTILINE) is not None
-    return output + ('verdict=ran-with-coverage-gaps\n' if gaps else 'verdict=ran\n'), int(gaps)
+    return bridge.replay_result(output, captured_draws=metadata['captured_draws'])
 
 
 def main():
@@ -161,6 +167,7 @@ def main():
     memory_args.add_argument('--snapshot', type=Path, help='versioned MEM1 binary/region manifest')
     parser.add_argument('--replay', action='store_true')
     parser.add_argument('--image-output', type=Path, help='render through vitaGL into a new private PNG directory')
+    parser.add_argument('--through-command', type=int, help='select whole commands 1 through N for a per-draw snapshot')
     args = parser.parse_args()
     if (args.journal is None) == (args.latest is None) or args.min_draws < 1:
         parser.error('provide one journal or --latest; --min-draws must be positive')
@@ -178,7 +185,8 @@ def main():
         adjacent = journal.with_suffix('.mem1.json')
         if args.mem1 is None and snapshot is None and adjacent.exists():
             snapshot = adjacent
-        result = extract_fixture(journal, args.output, mem1=args.mem1, report=report, snapshot=snapshot)
+        result = extract_fixture(journal, args.output, mem1=args.mem1, report=report, snapshot=snapshot,
+                                 through_command=args.through_command)
         print(json.dumps(result, sort_keys=True))
         if args.image_output is not None:
             import image

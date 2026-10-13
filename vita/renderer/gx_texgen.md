@@ -24,10 +24,36 @@ Supported here:
 - Non-normalized static post transforms already folded into DrawPlan constants.
 - Bounds errors refuse translation explicitly; no out-of-range matrix access.
 
-Not implied: emboss, regular color/binormal sources, post normalization, or
+Not implied: regular color/binormal sources, post normalization, or
 per-vertex post matrices not represented separately by this pinned DrawPlan.
-Raster lighting is the next unit; Color texgens currently consume translated
-vertex colors. BP SU-scale/texture-dimension mismatches remain separate work.
+Emboss and raster lighting have separate delivered coverage; Color texgens
+consume translated vertex colors. BP SU-scale/texture-dimension mismatches
+remain separate work.
+
+Post normalization is now explicitly refused, not silently passed through.
+The frontend's draw snapshot retains `post_tex_mask` and `post_tex_normalize`
+(`retail_gx_frontend.cpp:298–337`), but `DrawPlan` loses them and the pin only
+folds a post matrix when normalization is disabled (`gxcore.cpp:1694–1709`).
+The shared `gx_texgen_sink.h` adapter retains the snapshot's support reason
+until that draw's plan callback. It forwards a new Draw packet before replacing
+the reason: the core can flush the previous draw during that call. No final XF
+state is substituted for an earlier draw, and the pin remains unchanged.
+
+Both the bridge and streaming renderer skip a normalized post-matrix plan with
+`post-normalized texture matrix not supported` and count `unsupported_texgen`.
+No shader or backend draw is submitted for that plan. `bridge.py` and
+`extract.py` share the existing coverage verdict calculation: such a FIFO is
+`verdict=ran-with-coverage-gaps` (exit 1), never plain `verdict=ran`.
+Unnormalized folded matrices and disabled dual transforms remain legal.
+
+The review regression tests failed first in both C++ consumers and the Python
+verdict entry points. They now cover a refused FIFO, legal/refused/legal deferred
+draw ordering, disabled dual transforms and zero backend submissions. Actual
+authored FIFO replay through both Python entry points is recorded privately in
+`build-f6/ww18/review-fixes/post-fifo-verdicts.json`: folded post matrix `ran`,
+normalized post matrix `ran-with-coverage-gaps`. All four Linux host suites pass
+normally and with ASan/UBSan; 108 Python tests pass. No new GPU or physical-Vita
+run was used for this refusal fix.
 
 Tests were red for missing generated coordinate output and wrong Cg varyings.
 Four static/per-vertex × ST/STQ cases now pass through the renderer's real FIFO

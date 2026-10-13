@@ -52,7 +52,8 @@ def run_replay(fixture, build):
     vpk = build_replay(build)
     result = subprocess.run([sys.executable, str(ROOT / 'scripts/vita/gx/launch.py'),
                              '--output', str(build), '--vpk', str(vpk), '--fixture', str(fixture),
-                             '--watched', '--surface-sync', '--timeout', '120'], text=True, capture_output=True)
+                             '--watched', '--surface-sync', '--share-readonly-stack', '--timeout', '120'],
+                            text=True, capture_output=True)
     if not result.stdout.strip():
         raise ValueError(f'image launcher failed: {result.stderr}')
     launched = json.loads(result.stdout)

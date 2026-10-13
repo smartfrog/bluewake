@@ -18,6 +18,7 @@
 #include "gx_bridge.h"
 #include "gx_cg.h"
 #include "gx_vita.h"
+#include "gx_texgen_sink.h"
 #include "gx_frame_capture.h"
 
 #include "gxruntime/aurora_recomp/retail_gx_frontend.hpp"
@@ -34,7 +35,7 @@ namespace gxc = gxruntime::gxcore;
 
 struct WwRenderer {
   ar::RetailGxFrontend frontend;
-  gxc::GxCoreSink sink;
+  gx_vita::TexGenSink sink;
   WwRendererBackend* backend = nullptr;
   WwRendererStats stats{};
   std::set<std::uint64_t> program_keys;

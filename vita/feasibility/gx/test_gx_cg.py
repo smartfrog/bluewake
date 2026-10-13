@@ -55,7 +55,7 @@ class CgGenerationTest(unittest.TestCase):
 
     def test_each_shape_checked(self):
         for marker in ("cel ok", "passthrough ok", "untextured ok",
-                       "unsupported ok", "determinism ok"):
+                       "indirect generated ok", "unsupported ok", "determinism ok"):
             with self.subTest(marker=marker):
                 self.assertIn(marker, self.output)
 
