@@ -35,7 +35,8 @@ int main(int argc, char** argv) {
                       0x3Fu, 0x80u, 0x00u, 0x00u, 0x40u, 0x00u, 0x00u, 0x00u};
     const char* scenario = argv[1];
     const bool failing = strcmp(scenario, "unknown") == 0 || strcmp(scenario, "trace-first") == 0 ||
-                         strcmp(scenario, "trace-second") == 0 || strcmp(scenario, "counter") == 0;
+                         strcmp(scenario, "trace-second") == 0 || strcmp(scenario, "counter") == 0 ||
+                         strcmp(scenario, "byte-budget") == 0;
     if (strcmp(scenario, "unknown") == 0)
         bytes[5] = 0xFFu;
     else if (strcmp(scenario, "trace-first") == 0)
@@ -44,6 +45,8 @@ int main(int argc, char** argv) {
         fail_command = 2u;
     else if (strcmp(scenario, "counter") == 0)
         host->stream.decoded = UINT64_MAX;
+    else if (strcmp(scenario, "byte-budget") == 0)
+        host->stream.logged_bytes = WW_GX_MAX_JOURNAL_BYTES;
     else if (strcmp(scenario, "split-wrap") == 0) {
         memset(bytes + 5u, 0, sizeof(bytes) - 5u);
         bytes[5] = 0x10u;

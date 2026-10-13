@@ -67,7 +67,7 @@ class PlanTest(unittest.TestCase):
 
     def test_continuation_log_limit_is_bounded(self):
         import stage_plan
-        for limit in (-1, 2049):
+        for limit in (-1, 196609):
             with self.subTest(limit=limit), self.assertRaises(ValueError):
                 stage_plan.make_plan(Path('/unused'), SimpleNamespace(timeout=600, continue_gx=limit),
                                      'a' * 40, 'b' * 64, 'c' * 32)
@@ -79,9 +79,30 @@ class PlanTest(unittest.TestCase):
         self.assertEqual(plan['continue_gx'], 2048)
         self.assertIn('no guest execution cap', plan['continuation_policy'])
 
+    def test_late_scene_prefix_can_keep_all_133260_commands(self):
+        import stage_plan
+        args = SimpleNamespace(libraries=None, wayland_socket=None, timeout=600, continue_gx=133260)
+        plan = stage_plan.make_plan(Path('/unused'), args, 'a' * 40, 'b' * 64, 'c' * 32)
+        self.assertEqual(plan['continue_gx'], 133260)
+
+    def test_scene_memory_window_is_explicit_and_keeps_the_earlier_state_prefix(self):
+        import stage_plan
+        args = SimpleNamespace(libraries=None, wayland_socket=None, timeout=600, continue_gx=133260,
+                               mem1_snapshots=8, mem1_command_window=[101854, 102936])
+        plan = stage_plan.make_plan(Path('/unused'), args, 'a' * 40, 'b' * 64, 'c' * 32)
+        self.assertEqual(plan['mem1_command_window'], [101854, 102936])
+        self.assertEqual(plan['continue_gx'], 133260)
+
+    def test_memory_window_cannot_select_unlogged_or_invalid_commands(self):
+        import stage_plan
+        for window in ([0, 10], [20, 10], [1, 133261], [True, 10], [1], [1, 2, 3]):
+            with self.subTest(window=window), self.assertRaises(ValueError):
+                stage_plan.make_plan(Path('/unused'), SimpleNamespace(timeout=600, continue_gx=133260,
+                                     mem1_snapshots=2, mem1_command_window=window), 'a' * 40, 'b' * 64, 'c' * 32)
+
     def test_memory_snapshot_request_is_explicit_bounded_and_requires_the_draw_journal(self):
         import stage_plan
-        for count, journal in ((-1, 2048), (3, 2048), (1, 0), (2, 0)):
+        for count, journal in ((-1, 2048), (9, 2048), (1, 0), (2, 0)):
             with self.subTest(count=count, journal=journal), self.assertRaises(ValueError):
                 stage_plan.make_plan(Path('/unused'), SimpleNamespace(timeout=120, continue_gx=journal, mem1_snapshots=count),
                                      'a' * 40, 'b' * 64, 'c' * 32)

@@ -22,6 +22,9 @@ const char* ww_gx_stream_write(WwHost* host, u8 byte, const WwFifoOrigin* origin
         return "pinned GX command trace reached capacity before renderer acceptance";
     const u64 index = stream->decoded + 1u;
     if (stream->logged < stream->log_limit) {
+        if (stream->logged_bytes > WW_GX_MAX_JOURNAL_BYTES ||
+            command->size > WW_GX_MAX_JOURNAL_BYTES - stream->logged_bytes)
+            return "GX command journal exhausted its byte budget";
         if (command->bytes[0] >= 0x80u &&
             fprintf(stderr, "[gx-command-layout] index=%llu format=%u vertices=%u stride=%u bytes=%u\n",
                     (unsigned long long)index, command->bytes[0] & 7u,
@@ -39,6 +42,7 @@ const char* ww_gx_stream_write(WwHost* host, u8 byte, const WwFifoOrigin* origin
         if (fprintf(stderr, "\n") < 0)
             return "GX command journal closure failed";
         stream->logged++;
+        stream->logged_bytes += command->size;
     }
     if (!host->frontier.complete) {
         host->frontier = *command;
@@ -80,5 +84,7 @@ const char* ww_gx_stream_write(WwHost* host, u8 byte, const WwFifoOrigin* origin
         host->gx.trace_count = 0u;
     }
     *command = (WwGxCheckpoint){0};
+    if (host->mem1_capture.end_command != 0u && index == host->mem1_capture.end_command)
+        return "scene MEM1 draw window capture complete";
     return NULL;
 }

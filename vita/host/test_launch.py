@@ -14,6 +14,23 @@ sys.path.insert(0, str(ROOT / 'scripts/vita/armv7'))
 
 
 class PrivateLaunchTest(unittest.TestCase):
+    def test_scene_window_request_binds_both_endpoints_to_the_same_private_identity(self):
+        from launch import fresh_request
+        from fp_launch import REPORT_DIRECTORY
+        token = fresh_request(self.root, 'a' * 40, 'b' * 64, continue_gx=133260,
+                               mem1_snapshots=8, mem1_command_window=[101854, 102936])
+        for suffix, command in (('start', 101854), ('end', 102936)):
+            with self.subTest(suffix=suffix):
+                self.assertEqual((self.root / REPORT_DIRECTORY / ('ww05.mem1-' + suffix)).read_text(),
+                                 f'{token} {"a" * 40} {"b" * 64} {command}\n')
+
+    def test_scene_window_outside_the_journal_is_rejected_before_any_request_is_written(self):
+        from launch import fresh_request
+        with self.assertRaisesRegex(ValueError, 'command window'):
+            fresh_request(self.root, 'a' * 40, 'b' * 64, continue_gx=2048,
+                          mem1_snapshots=8, mem1_command_window=[9976, 11004])
+        self.assertFalse(list(self.root.rglob('ww05.request')))
+
     def test_deferred_audio_request_is_bound_to_the_new_run_identity_and_never_reuses_stale_mode_files(self):
         from launch import fresh_request
         from fp_launch import REPORT_DIRECTORY

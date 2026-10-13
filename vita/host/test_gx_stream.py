@@ -48,3 +48,7 @@ class GxStreamTest(unittest.TestCase):
 
     def test_decoded_command_counter_cannot_wrap(self):
         self.run_probe('counter')
+
+    def test_fifo_byte_budget_fails_before_claiming_an_unlogged_command(self):
+        result = self.run_probe('byte-budget')
+        self.assertNotIn('[gx-command]', result.stderr)

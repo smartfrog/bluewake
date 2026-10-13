@@ -88,6 +88,36 @@ class Mem1CaptureTest(unittest.TestCase):
             self.probe(root, 'state')
             self.assertEqual(list(root.iterdir()), [])
 
+    def test_selected_draw_window_ignores_initial_ram_and_binds_each_snapshot_to_its_draw_prefix(self):
+        from gx.capture import journal_commands
+        with tempfile.TemporaryDirectory(dir='/tmp/opencode', prefix='ww16-scene-') as directory:
+            root = Path(directory)
+            log = self.probe(root, 'capture-window')
+            manifest = verify_snapshots(root, token='c' * 32, source='a' * 40, package='b' * 64,
+                                        count=2, journal=log, command_window=[15, 16])
+            self.assertEqual([s['command'] for s in manifest['snapshots']], [15, 16])
+            commands = journal_commands(log)
+            for snapshot, value in zip(manifest['snapshots'], (0x55, 0xAA)):
+                with self.subTest(command=snapshot['command']):
+                    self.assertEqual((root / snapshot['file']).read_bytes()[0x1000], value)
+                    self.assertEqual(snapshot['replay_manifest']['fifo_sha256'],
+                                     hashlib.sha256(b''.join(commands[:snapshot['command']])).hexdigest())
+
+    def test_scene_window_refuses_more_draws_than_its_snapshot_budget(self):
+        with tempfile.TemporaryDirectory(dir='/tmp/opencode', prefix='ww16-scene-') as directory:
+            root = Path(directory)
+            log = self.probe(root, 'capture-window-limit')
+            self.assertIn('scene MEM1 draw window exhausted its snapshot budget', log)
+            self.assertEqual(len(list(root.glob('ww05.mem1-*.bin'))), 1)
+
+    def test_scene_window_cannot_relabel_initial_snapshots_without_its_native_witness(self):
+        with tempfile.TemporaryDirectory(dir='/tmp/opencode', prefix='ww16-scene-') as directory:
+            root = Path(directory)
+            log = self.probe(root, 'capture-two')
+            with self.assertRaisesRegex(ValueError, 'window witness'):
+                verify_snapshots(root, token='c' * 32, source='a' * 40, package='b' * 64,
+                                 count=2, journal=log, command_window=[14, 15])
+
     def test_invalid_identity_or_non_mem1_ram_fails_before_opening_any_file(self):
         for scenario in ('capture-bad-identity', 'capture-bad-ram'):
             with self.subTest(scenario=scenario), tempfile.TemporaryDirectory(dir='/tmp/opencode', prefix='ww16-mem1-') as directory:

@@ -19,7 +19,7 @@ class MainIoTest(unittest.TestCase):
                     dispatch_trace=None, stale_dispatch=False, mmio_poll=False, aram_dma=False, dsp_init=False,
                     cpu_boundary=None, exi=False, cp_control=None, fifo=None, prior_aram_transfers=None,
                     cp_distance=None, cp_distance_high=None, cp_clear=None, consumer=False, wpar=None,
-                    continue_gx=None, memory_captures=None, defer_audio=None):
+                    continue_gx=None, memory_captures=None, defer_audio=None, memory_start=None, memory_end=None):
         with tempfile.TemporaryDirectory(dir=OUT, prefix='io-') as directory:
             root = Path(directory)
             data = bytearray(260)
@@ -36,6 +36,9 @@ class MainIoTest(unittest.TestCase):
                 (root / 'ww05.continue').write_text(f'{"c" * 32} {"a" * 40} {"b" * 64} {continue_gx}\n')
             if memory_captures is not None:
                 (root / 'ww05.mem1').write_text(f'{"c" * 32} {"a" * 40} {"b" * 64} {memory_captures}\n')
+            for suffix, value in (('start', memory_start), ('end', memory_end)):
+                if value is not None:
+                    (root / ('ww05.mem1-' + suffix)).write_text(f'{"c" * 32} {"a" * 40} {"b" * 64} {value}\n')
             if defer_audio is not None:
                 (root / 'ww05.audio').write_text(f'{"c" * 32} {"a" * 40} {"b" * 64} {defer_audio}\n')
             if stale:
@@ -200,7 +203,7 @@ class MainIoTest(unittest.TestCase):
         self.assertTrue(report.endswith('END frontier=PASS live=0 rendered=0\n'))
 
     def test_invalid_continuation_request_never_executes_or_publishes_a_report(self):
-        for limit in ('0', '2049', '-1', '64 extra', '64\nextra'):
+        for limit in ('0', '196609', '-1', '64 extra', '64\nextra'):
             with self.subTest(limit=limit):
                 status, report = self.run_fixture(consumer=True, continue_gx=limit)
                 self.assertNotEqual(status, 0)
@@ -224,7 +227,7 @@ class MainIoTest(unittest.TestCase):
                 self.assertIsNone(report)
 
     def test_invalid_memory_capture_request_stops_before_guest_execution_or_report_creation(self):
-        for limit in ('0', '3', '-1', '2 extra', '2\nextra'):
+        for limit in ('0', '9', '-1', '2 extra', '2\nextra'):
             with self.subTest(limit=limit):
                 status, report = self.run_fixture(consumer=True, continue_gx=2048, memory_captures=limit)
                 self.assertNotEqual(status, 0)
@@ -234,6 +237,21 @@ class MainIoTest(unittest.TestCase):
         status, report = self.run_fixture(consumer=True, memory_captures=1)
         self.assertNotEqual(status, 0)
         self.assertIsNone(report)
+
+    def test_scene_window_ends_the_diagnostic_at_its_actual_completed_command(self):
+        status, report = self.run_fixture(consumer=True, continue_gx=133260, memory_captures=8,
+                                          memory_start=2, memory_end=3)
+        self.assertEqual(status, 1)
+        self.assertIn('GX_STREAM mode=continue decoded=3 logged=3 limit=133260 pending=0', report)
+        self.assertIn('STOP reason=scene MEM1 draw window capture complete', report)
+
+    def test_invalid_scene_window_is_rejected_before_guest_execution(self):
+        for start, end in ((None, 10), (10, None), (20, 10), (1, 65), (0, 10)):
+            with self.subTest(start=start, end=end):
+                status, report = self.run_fixture(consumer=True, continue_gx=64, memory_captures=8,
+                                                  memory_start=start, memory_end=end)
+                self.assertNotEqual(status, 0)
+                self.assertIsNone(report)
 
     def test_observed_wpar_configuration_continues_through_the_synthetic_memory_fifo_path(self):
         status, report = self.run_fixture(wpar=0x0C008000, consumer=True)

@@ -88,9 +88,9 @@ def verify_installed(root, plan):
     return payload
 
 
-def fresh_request(root, source, package, continue_gx=0, mem1_snapshots=0, defer_audio=False):
+def fresh_request(root, source, package, continue_gx=0, mem1_snapshots=0, defer_audio=False, mem1_command_window=None):
     validate_continuation(continue_gx)
-    validate_memory_captures(mem1_snapshots, continue_gx)
+    validate_memory_captures(mem1_snapshots, continue_gx, mem1_command_window)
     if type(defer_audio) is not bool or (defer_audio and not continue_gx):
         raise ValueError('audio deferral requires the explicit continuation profile')
     directory = root
@@ -106,7 +106,7 @@ def fresh_request(root, source, package, continue_gx=0, mem1_snapshots=0, defer_
         if os.fstat(parent).st_uid != os.getuid():
             raise ValueError('report directory must be privately owned')
         existing = set(os.listdir(parent))
-        if ('frames' in existing or existing & {'ww05' + suffix for suffix in ('.request', '.partial', '.report', '.log', '.dispatch', '.continue', '.mem1', '.audio')} or
+        if ('frames' in existing or existing & {'ww05' + suffix for suffix in ('.request', '.partial', '.report', '.log', '.dispatch', '.continue', '.mem1', '.mem1-start', '.mem1-end', '.audio')} or
             any(name.startswith('ww05.mem1-') for name in existing)):
             raise ValueError('preexisting WW05 request/output; refusing to delete or reuse it')
         descriptor = os.open('ww05.request', os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW | os.O_CLOEXEC,
@@ -129,6 +129,13 @@ def fresh_request(root, source, package, continue_gx=0, mem1_snapshots=0, defer_
                                  0o600, dir_fd=parent)
         with os.fdopen(descriptor, 'w') as stream:
             stream.write(f'{token} {source} {package} {mem1_snapshots}\n')
+    if mem1_command_window is not None:
+        for suffix, value in zip(('start', 'end'), mem1_command_window):
+            with directory_fd(directory) as parent:
+                descriptor = os.open('ww05.mem1-' + suffix, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW | os.O_CLOEXEC,
+                                     0o600, dir_fd=parent)
+            with os.fdopen(descriptor, 'w') as stream:
+                stream.write(f'{token} {source} {package} {value}\n')
     if defer_audio:
         with directory_fd(directory) as parent:
             descriptor = os.open('ww05.audio', os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW | os.O_CLOEXEC,
@@ -173,6 +180,7 @@ def execute_run(root, plan):
               'launcher_source': plan.get('launcher_source', plan['source']),
                'continue_gx': plan.get('continue_gx', 0),
                'mem1_snapshots': plan.get('mem1_snapshots', 0),
+               'mem1_command_window': plan.get('mem1_command_window'),
                'audio': 'deferred' if plan.get('defer_audio', False) else 'strict',
               'completion': 'INCOMPLETE', 'reported_frontier': 'UNAVAILABLE',
               'frontier_verified': False, 'rendered': False}
@@ -208,7 +216,7 @@ def execute_run(root, plan):
         payload = verify_installed(root, plan)
         restore_config(root, canonical, surface_sync=surface_sync)
         token = fresh_request(root, plan['source'], plan['vpk_sha256'], plan.get('continue_gx', 0),
-                              plan.get('mem1_snapshots', 0), plan.get('defer_audio', False))
+                              plan.get('mem1_snapshots', 0), plan.get('defer_audio', False), plan.get('mem1_command_window'))
         with evidence_file(phase, 'preparation.json') as stream:
             json.dump({'readiness': 'VERIFIED', 'payload': payload, 'guest_token': token, 'audio': record['audio']}, stream, indent=2)
             stream.write('\n')
@@ -216,7 +224,8 @@ def execute_run(root, plan):
         phase = Path(guest['evidence_root'])
         with evidence_file(phase, 'request.json') as stream:
             json.dump({'token': token, 'source': plan['source'], 'vpk_sha256': plan['vpk_sha256'],
-                       'audio': record['audio'],
+                        'audio': record['audio'],
+                         'mem1_command_window': plan.get('mem1_command_window'),
                         'continue_gx': plan.get('continue_gx', 0), 'mem1_snapshots': plan.get('mem1_snapshots', 0)}, stream)
             stream.write('\n')
         print(f"RUN phase=guest evidence={phase}/evidence", flush=True)
@@ -250,7 +259,8 @@ def execute_run(root, plan):
             record.update(commands_verified=logged, log_sha256=hashlib.sha256(journal).hexdigest())
         manifest = verify_snapshots(root / REPORT_DIRECTORY, token=token, source=plan['source'],
                                     package=plan['vpk_sha256'], count=plan.get('mem1_snapshots', 0),
-                                    audio=record['audio'],
+                                     audio=record['audio'],
+                                     command_window=plan.get('mem1_command_window'),
                                     journal=journal.decode('utf-8') if plan.get('continue_gx') else '')
         publish_replay_manifests(root / REPORT_DIRECTORY, manifest)
         with evidence_file(root, 'mem1-capture.json') as stream:
@@ -288,7 +298,9 @@ def main():
     parser.add_argument('--continue-gx', type=int, default=0,
                         help=f'journal first N real commands, then keep executing (1..{MAX_JOURNAL_COMMANDS})')
     parser.add_argument('--mem1-snapshots', type=int, choices=range(MAX_CAPTURES + 1), default=0,
-                        help='capture raw 24 MiB MEM1 before the first one or two logged draws; off for FPS baselines')
+                         help='capture raw 24 MiB MEM1 before logged draws, at most eight; off for FPS baselines')
+    parser.add_argument('--mem1-command-window', type=int, nargs=2, metavar=('START', 'END'),
+                         help='snapshot every draw within this inclusive command window; retain all earlier FIFO state')
     parser.add_argument('--defer-audio', action='store_true',
                         help='explicit no-op DSP bootstrap with declared synthetic mails/IRQ; reports audio=deferred; no PCM output')
     parser.add_argument('--disc', type=Path, help='read-only bind of the already verified private image at the WW13 install path')

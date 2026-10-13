@@ -2,7 +2,8 @@
 
 import re
 
-MAX_JOURNAL_COMMANDS = 2048
+MAX_JOURNAL_COMMANDS = 196608
+MAX_JOURNAL_BYTES = 8 * 1024 * 1024
 
 
 def matched(pattern, line):
@@ -141,6 +142,6 @@ def validate_commands(content, report, limit):
         if index == 1 and (f'opcode={opcode} bytes={size} pc={pc} completion_pc={finish} sp={sp} ' not in lines[5] or
                            not lines[5].endswith(' hex=' + raw)):
             raise ValueError('WW05 first journal command differs from its frontier')
-    if layouts or captured_bytes > read:
+    if layouts or captured_bytes > read or captured_bytes > MAX_JOURNAL_BYTES:
         raise ValueError('WW05 journal has orphaned layout witnesses or more bytes than the actual FIFO reads')
     return logged

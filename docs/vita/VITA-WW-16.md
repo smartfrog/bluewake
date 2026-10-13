@@ -4,6 +4,11 @@ The objective is the game running at 30+ FPS. Boot progress, command decoding an
 a black pre-logo window do not meet it. Every unsupported operation remains an
 explicit STOP; no guest instruction, FIFO data, GPU completion or frame is invented.
 
+October 13 checkpoint: **the authentic Nintendo boot logo is visible**, first
+at frame 11 (Unit 78). Gameplay and 30+ FPS are still unverified. The current
+capture handoff targets complete later-draw FIFO state and synchronized MEM1
+for lane 18 (Unit 79), not another guessed renderer/audio fix.
+
 ## Unit 1: CP performance selector
 
 The authentic WW05 continuation stops at `CC000006`, halfword zero, PC `803202C4`
@@ -3239,3 +3244,103 @@ the real trial. CPU-or-process-output growth monitoring and the 30 s
 low-CPU-plus-silence abort remain unchanged. Native ptrace sampling is not
 needed to retest this sourced pixel seam. Full DSP/PCM stays paused; no network,
 push, player data change, game scene or 30+ FPS claim.
+
+## Unit 78: first authentic nonblack frame, the Nintendo boot logo
+
+Certified **98c99e1 / VI / O1 / -j2** run
+**b0f643a2cf6f4ad5916c791df6b87365** verifies the matrix fix on actual game output:
+frames **1-10** retain the exact opaque-black hash, then **frame 11 / command
+11004 / 150,764,580 cycles** shows the real **Nintendo boot logo**. Its PNG has
+**25,616 nonblack RGB pixels**, first visible red values up to 15, SHA
+**0411aab11be85ba3df03fd4cf62c1640f010774c10378cef6800c60308d9cda6**.
+Frames **38 and 93** show the clear red logo, each **26,422 nonblack pixels**;
+frame 93 PNG SHA is
+**686603975980849d2b6e60b5605fb16f009655beaa6946e95cbdce2043af1f2e**.
+All three PNGs are opened and visually inspected; every preserved raw/display
+pair has identical RGB, not synthetic replacement pixels or a replay image.
+
+**93 genuine live PNG pairs / 101 retrace markers / two initial MEM1 images**
+are independently verified in **evidence/postrun-image-memory-check.json**;
+**first-visible-logo-check.json** records exact first/logo-frame pixel counts
+and identity. Frame 93's actual counters are **121 cumulative submitted draws /
+two programs / zero recorded skips, refusals or gaps**, command **94722**,
+**815,055,002 cycles**. This is not a 121-draw scene or a whole-run final total.
+The last bounded image is a logo, not gameplay.
+
+The authoritative runner disposition remains **600.001 s timeout / SIGTERM /
+exit=-15 / waited=true / status 124 / INCOMPLETE / frontier UNAVAILABLE**, with
+no closed guest report or final guest counters. The owner-directed capture
+handoff also led to a controller TERM request near this run's end; its separate
+record does **not** override or explain the runner's measured timeout. Cleanup
+finds no survivor requiring KILL. The logo observation is real even though the
+attempt is incomplete. The private root and every prior attempt remain intact.
+No physical Vita, Windows CI, gameplay, sound, parity or FPS claim.
+
+## Unit 79: complete state prefix and draw-time MEM1 in an explicit scene window
+
+Read lane 18's **gx_black_frame_audit.md** from its worktree at delivery
+**2cef9ce** (the local integration checkout does not yet contain that file).
+Its **b8e2048** diagnosis is accurate: only 2048/133260 commands and init-time
+MEM1 cannot replay later work. Its first extra-draw interval is **9976-11004**;
+the first CI interval is **101854-102936**. The new logo result above is a
+different, rebuilt source; it does not retroactively change the audited inputs.
+
+The capture seam now accepts up to **196,608 complete commands**, streamed to
+the private journal rather than accumulated in guest RAM, with a separate
+hard **8 MiB raw-FIFO-byte budget**. Exhaustion fails before certifying another
+command; the existing **64 MiB text-log read bound** remains. A native test
+really feeds/logs **133,260 commands**, reuses drained native buffers, and
+continues decoding command 133261 without falsely logging it. The 2048-prefix
+option still works; these bounds do not invent unobserved command bytes.
+
+New opt-in **--mem1-command-window START END**, with **--mem1-snapshots 1..8**,
+takes the actual full **24 MiB MEM1 immediately before every draw** in that
+inclusive interval. Earlier draw snapshots are skipped, but every preceding
+CP/BP/XF/FIFO command is retained from command 1. A missing/inverted/unlogged
+endpoint or endpoint without snapshots is rejected before guest execution.
+Identity-bound **ww05.mem1-start / ww05.mem1-end** reuse the existing strict
+request reader. Eight full files bound disk cost to **192 MiB**; capture writes
+the existing MEM1 in **64 KiB chunks**, with no shadow MEM1 allocation or dirty-
+write tracker. Incremental snapshots are unnecessary for this bounded first
+delivery. More selected draws than the requested snapshot budget explicitly
+STOP instead of silently losing a resource version.
+
+Each selected snapshot has its original token/source/package/command/PC/frame/
+cycle/time provenance and a native command-window witness. Its lane 18
+**gx-mem1-snapshot-v1** manifest binds the exact FIFO **prefix through that
+specific draw**, not future commands or an init-time digest. Use **extract.py
+--through-command DRAW --snapshot ww05.mem1-N.snapshot.json**. The collector
+labels earlier resource versions and external aliases/MEM2 **uncertified**;
+neither old RAM nor zero padding supplies missing late resources. Every selected
+draw in the interval gets its own resource version. No claim that late MEM1
+certifies the resources of all earlier draws.
+
+The explicit window ends the diagnostic only **after the actual completed end
+command and its renderer/presentation processing**, with a declared
+**STOP reason=scene MEM1 draw window capture complete**. This produces a real
+closed guest report rather than waiting through an unrelated remainder of the
+600 s ceiling. It is off by default; ordinary continuation still has no guest
+execution cap. The 128-live-image / 960x544 bounds, real VI clock/guest handlers,
+CPU-or-output activity watch and **audio=deferred** semantics are unchanged.
+
+The acceptance tests were red on the old 2048 ceiling before implementation.
+Linux AArch64 **-j2**: **779 host/DVD tests / 1911 subtests**, including streamed
+large prefix, raw-byte exhaustion, late RAM mutations, per-draw digest binding,
+snapshot-budget failure, identity-bound endpoints and strict main-loop window
+termination; **111 GX Python tests / 78 subtests** pass. Initial focused suite:
+**159 tests**, then the added request/window guards pass in the full suite
+(**logs/ww16-scene-capture-focused.log / ww16-scene-capture-host-final.log**).
+The **75 GX native-wrapper / 111 GX Python** checks are also rerun together:
+**186 tests / 109 subtests** pass. Snapshot verification stores provenance only
+for the selected at-most-eight draws and hashes FIFO prefixes incrementally,
+instead of retaining a per-command provenance dictionary for the large prefix.
+Audit/attribution/whitespace pass. No renderer, audio, pin or production default
+is changed by this capture unit; no Windows CI or physical Vita available.
+
+Commit/rebuild **VI/O1 -j2**, then fresh watched capture of **9976-11004** with
+the complete prefix through 11004 and at most eight scene-time snapshots.
+Validate the real artifacts before the separate CI-window trial through
+**102936**. Lane 18 receives the unchanged private journal, each matching
+binary/manifest and actual live PNG/report identities; no public game resources
+or push. Nintendo visibility is established; scene replay and 30+ FPS still
+need their own evidence.
