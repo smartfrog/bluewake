@@ -53,7 +53,7 @@ class GxStreamTest(unittest.TestCase):
         result = self.run_probe('byte-budget')
         self.assertNotIn('[gx-command]', result.stderr)
 
-    def test_each_complete_command_is_emitted_as_one_bounded_formatted_record(self):
+    def test_each_complete_command_is_emitted_as_one_bounded_record(self):
         result = self.run_probe('single-record')
         self.assertIn('journal commands=11 record_calls=11', result.stdout)
 
@@ -62,3 +62,10 @@ class GxStreamTest(unittest.TestCase):
         record = next(line for line in result.stderr.splitlines() if line.startswith('[gx-command] index=2 '))
         raw = bytes.fromhex(record.split('hex=', 1)[1])
         self.assertEqual(raw, bytes.fromhex('1000FE0000') + bytes(1020))
+
+    def test_each_complete_command_reaches_stdio_as_one_contiguous_record(self):
+        result = self.run_probe('contiguous-record')
+        self.assertIn('journal commands=11 contiguous_writes=11', result.stdout)
+
+    def test_short_contiguous_record_write_does_not_certify_any_command_bytes(self):
+        self.run_probe('short-record')

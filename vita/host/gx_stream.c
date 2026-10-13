@@ -4,15 +4,20 @@ static const char* journal_command(const WwGxCheckpoint* command, u64 index) {
     if (command->size == 0u || command->size > WW_GX_MAX_COMMAND_BYTES)
         return "GX command journal requires bounded complete bytes";
     static const char digits[] = "0123456789ABCDEF";
-    char hex[WW_GX_MAX_COMMAND_BYTES * 2u + 1u];
+    char record[WW_GX_MAX_COMMAND_BYTES * 2u + 160u];
+    const int header = snprintf(record, sizeof(record),
+                                "[gx-command] index=%llu opcode=%02X bytes=%u pc=%08X completion_pc=%08X sp=%08X hex=",
+                                (unsigned long long)index, command->bytes[0], command->size,
+                                command->pc, command->completion_pc, command->sp);
+    if (header < 0 || (size_t)header > sizeof(record) - command->size * 2u - 1u)
+        return "GX command journal record formatting failed";
+    size_t length = (size_t)header;
     for (u32 offset = 0u; offset < command->size; ++offset) {
-        hex[offset * 2u] = digits[command->bytes[offset] >> 4u];
-        hex[offset * 2u + 1u] = digits[command->bytes[offset] & 15u];
+        record[length++] = digits[command->bytes[offset] >> 4u];
+        record[length++] = digits[command->bytes[offset] & 15u];
     }
-    hex[command->size * 2u] = '\0';
-    if (fprintf(stderr, "[gx-command] index=%llu opcode=%02X bytes=%u pc=%08X completion_pc=%08X sp=%08X hex=%s\n",
-                (unsigned long long)index, command->bytes[0], command->size,
-                command->pc, command->completion_pc, command->sp, hex) < 0)
+    record[length++] = '\n';
+    if (fwrite(record, 1u, length, stderr) != length)
         return "GX command journal write failed";
     return NULL;
 }

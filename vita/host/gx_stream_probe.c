@@ -1,32 +1,22 @@
 #include "probe_support.h"
 #include <errno.h>
-#include <stdarg.h>
 #include <stdlib.h>
 
 static u32 fail_command;
-static u32 trace_calls;
 static u32 record_calls;
-static bool record_open;
+static bool short_write;
 
-int __wrap_fprintf(FILE* stream, const char* format, ...) {
-    if (stream == stderr && strncmp(format, "[gx-command]", 12u) == 0 && ++trace_calls == fail_command) {
-        errno = ENOSPC;
-        return -1;
-    }
-    if (stream == stderr) {
-        if (strncmp(format, "[gx-command]", 12u) == 0)
-            record_open = true;
-        if (record_open) {
-            ++record_calls;
-            if (format[strlen(format) - 1u] == '\n')
-                record_open = false;
+size_t __real_fwrite(const void* data, size_t size, size_t count, FILE* stream);
+
+size_t __wrap_fwrite(const void* data, size_t size, size_t count, FILE* stream) {
+    if (stream == stderr && size == 1u && count >= 12u && memcmp(data, "[gx-command]", 12u) == 0) {
+        ++record_calls;
+        if (record_calls == fail_command || short_write) {
+            errno = ENOSPC;
+            return short_write ? count - 1u : 0u;
         }
     }
-    va_list arguments;
-    va_start(arguments, format);
-    const int result = vfprintf(stream, format, arguments);
-    va_end(arguments);
-    return result;
+    return __real_fwrite(data, size, count, stream);
 }
 
 int main(int argc, char** argv) {
@@ -48,7 +38,8 @@ int main(int argc, char** argv) {
     const char* scenario = argv[1];
     const bool failing = strcmp(scenario, "unknown") == 0 || strcmp(scenario, "trace-first") == 0 ||
                          strcmp(scenario, "trace-second") == 0 || strcmp(scenario, "counter") == 0 ||
-                         strcmp(scenario, "byte-budget") == 0;
+                         strcmp(scenario, "byte-budget") == 0 || strcmp(scenario, "short-record") == 0;
+    short_write = strcmp(scenario, "short-record") == 0;
     if (strcmp(scenario, "unknown") == 0)
         bytes[5] = 0xFFu;
     else if (strcmp(scenario, "trace-first") == 0)
@@ -72,6 +63,10 @@ int main(int argc, char** argv) {
     ww_probe_gather_bytes(host, bytes, 0u, 32u, 1u);
     if (failing) {
         assert(host->error != NULL);
+        if (short_write) {
+            assert(strcmp(host->error, "GX command journal write failed") == 0);
+            assert(host->stream.decoded == 0u && host->stream.logged == 0u && host->stream.logged_bytes == 0u);
+        }
         assert(host->cp_fifo_read_pointer == 0x1020u && host->cp_fifo_distance == 0u);
         if (strcmp(scenario, "unknown") == 0 || strcmp(scenario, "trace-second") == 0)
             assert(host->frontier.complete && host->stream.decoded == 1u);
@@ -118,6 +113,8 @@ int main(int argc, char** argv) {
     }
     if (strcmp(scenario, "single-record") == 0)
         printf("journal commands=%u record_calls=%u\n", host->stream.logged, record_calls);
+    if (strcmp(scenario, "contiguous-record") == 0)
+        printf("journal commands=%u contiguous_writes=%u\n", host->stream.logged, record_calls);
     ww_host_shutdown(host);
     free(host);
     return 0;

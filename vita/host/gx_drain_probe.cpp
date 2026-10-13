@@ -21,8 +21,9 @@ extern "C" int __real_fclose(FILE* stream);
 extern "C" int __real_rename(const char* source, const char* destination);
 
 extern "C" size_t __wrap_fwrite(const void* data, size_t size, size_t count, FILE* stream) {
-    if (capture_scenario != nullptr && (std::strcmp(capture_scenario, "capture-write-failure") == 0 ||
-                                       std::strcmp(capture_scenario, "image-png-write-failure") == 0)) {
+    if (stream != stdout && stream != stderr && capture_scenario != nullptr &&
+        (std::strcmp(capture_scenario, "capture-write-failure") == 0 ||
+         std::strcmp(capture_scenario, "image-png-write-failure") == 0)) {
         errno = ENOSPC;
         return 0u;
     }

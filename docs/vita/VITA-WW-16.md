@@ -3483,3 +3483,90 @@ bytes, **not yet a measured gain on the game diagnostic**. Commit, certified
 133260-command capacity / eight-snapshot budget / 600 s maximum / 128 live
 images / audio=deferred**. Preserve any failure; no guessed renderer/DSP seam,
 fake completion, Windows/physical-Vita check, gameplay, parity or FPS claim.
+
+## Unit 83: reduced formatter reaches 93 images but still misses the CI window
+
+Certified **54f1a6e / VI / O1 / -j2**, watched run
+**4cf8acd00eef494c806b5347c3497e88**, reaches **93 actual live PNG pairs /
+101 real retrace markers / 95,738 structurally verified commands / 644,797 raw
+FIFO bytes**. The first **87,529 commands** are byte-identical to the preceding
+CI attempt's FIFO. This is more retained diagnostic output at the same ceiling,
+not a controlled formatter-only speed attribution or game FPS measurement.
+
+All **frames 1-10 have zero RGB; every frame 11-93 is nonblack**. The opened
+last PNG still shows the Nintendo logo and has **26,422 nonblack RGB pixels**,
+SHA **686603975980849d2b6e60b5605fb16f009655beaa6946e95cbdce2043af1f2e**.
+Frame 93 / command **94722** records **121 cumulative submissions / two
+programs / zero recorded skips, refusals or gaps**, **815,055,002 cycles**.
+Last observed progress is **823,140,517 cycles / 7,446,716 edges / 3,210,741
+turns**, PC **80307EF4**, exception **0**; these are not final guest counters.
+
+The requested **101854-102936** window is still unreached. Exactly **zero MEM1
+binaries** exist, with **captured=0 / window_complete=false**. The unchanged
+**600.001 s timeout / SIGTERM / exit=-15 / waited=true / status 124 /
+INCOMPLETE / frontier UNAVAILABLE**, missing guest report, and per-second
+CPU-or-output watch remain preserved. There is no low-CPU-and-silent hang,
+closed-report stop or post-logo black scene established here. No owned Vita3K
+survivor remains. Read-only verification and all original evidence live under:
+
+```text
+/home/fred/projects/zeldaWWHDRecomp/build-f5/ww05/vita3k-run-4cf8acd00eef494c806b5347c3497e88/
+  evidence/ci-window-incomplete-check.json
+```
+
+Read lane 18's follow-up **vita/renderer/gx_logo_replay.md**, delivery
+**0bcbf4d**, without editing that worktree. It independently GPU-replays Unit
+80's exact selected prefixes: draw **10716** is the textured Nintendo quad;
+**10767** is its captured black fade overlay, alpha **238/255**, yielding
+**RGB_before × 17/255**. The resulting raw and display PNGs match the actual
+live frame 11 byte-for-byte, with zero RGB-channel error. That lane explicitly
+labels the selected-prefix final preview **not a guest GX presentation**.
+This is strong parity for this one logo/fade image, not scene or whole-game
+parity. Its former black audit remains a valid record of the old **b8e2048**
+inputs; neither missing CI RAM nor a later black transition is inferred.
+
+## Unit 84: deliver each complete journal record to stdio contiguously
+
+Unit 82 removed the per-byte **fprintf** loop, but its final **fprintf** still
+formats directly into unbuffered **stderr**. One formatted call is not a
+guarantee about the library's underlying I/O. Refine only this diagnostic seam:
+format the original header into a fixed **2,210-byte record**, append the exact
+uppercase hex and newline in that same buffer, then call **fwrite** once for
+the complete record. There is no full-prefix buffering or delayed flush.
+The existing explicit **_IONBF** mode stays; a short write immediately fails
+before **decoded/logged/logged_bytes/frontier** certify that command.
+Header and framed-command extents are checked before writing the buffer.
+The layout witness, snapshot timing, guest cycles/handlers, renderer and real
+GPU/VI completion behavior are unchanged. This is not proof of one kernel
+write internally or of game FPS improvement.
+
+The new contiguous-write/short-write cases are red on the previous formatter
+(**logs/ww16-contiguous-journal-red.log**). The new writer emits **11 whole
+records in 11 stdio writes** for the short mixed CP/BP/XF fixture. Existing
+first/second-record write failures remain fail-loud, and an injected short
+write leaves all command-certification counters at zero. The old per-byte
+writer's saved stderr remains **byte-identical** for the short fixture,
+maximum **1,025-byte XF** command and **2048-command prefix**; exact checks are
+preserved in **logs/ww16-journal-record-byte-check/contiguous-final.json**, with
+the matching synthetic proof executable retained separately from later builds.
+
+The first full suite caught two overly broad test-only **fwrite** injections:
+the MEM1/PNG failure scenarios also intercepted the new journal write before
+reaching their intended capture surface. Scope those existing injections to
+non-stdout/stderr capture files, as their flush test already does; do not hide
+or ignore either failure. The full rerun is green: Linux AArch64, **-j2**,
+**783 host/DVD tests / 1911 subtests**, **75 GX native-wrapper + 111 GX Python
+tests / 109 subtests**. Logs: **ww16-contiguous-journal-host-final.log**;
+audit/attribution/whitespace also pass. No Windows CI or physical Vita available.
+
+After removing obsolete probe-only formatted-call bookkeeping, the final
+stream/drain suite is rerun: **21 tests / two subtests** pass, including every
+record failure and the actual 133260-command native prefix.
+
+Commit and certify a fresh **VI/O1 -j2** rebuild, then retry the **same
+101854-102936 window / 133260-command capacity / eight draw-time MEM1 maximum /
+600 s ceiling / 128 actual live images / audio=deferred**. Neither failed CI
+attempt is replaced or promoted. Full earlier FIFO state and per-draw resource
+versions remain the delivery gate. No raise of bounds, borrowed initial/logo
+RAM, guessed TLUT/DSP/renderer fix, fake frames/completion, sound, gameplay,
+whole-game parity or 30+ FPS claim. No network or push.
