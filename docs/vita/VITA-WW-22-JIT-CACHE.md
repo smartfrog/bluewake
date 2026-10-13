@@ -7,10 +7,11 @@ based on `8e1535c` (trunk).
 **Headline.** The pinned emulator cannot do this today, and there is no switch to turn
 on: **Dynarmic has no persisted or serializable code cache, and Vita3K never writes
 compiled blocks anywhere.** The A32 JIT's code cache is an anonymous, process-private,
-read–write–execute `mmap` that dies with the process and is indexed by in-memory maps;
-its only public cache operations are `ClearCache()` and `InvalidateCacheRange()`
-(`interface/A32/a32.h:37–48`) — there is no save, load or export operation. The only
-"cache" options in Vita3K are the *texture* and *shader* caches
+read–write–execute `mmap` that dies with the process and is indexed by in-memory maps.
+The public A32 JIT interface (`interface/A32/a32.h:20–106`) has exactly two cache
+operations, `ClearCache()` and `InvalidateCacheRange()` (`:37–48`); it has **no save,
+load or export** operation. The only "cache"
+options in Vita3K are the *texture* and *shader* caches
 (`vita3k/config/include/config/config.h:154,197`). Making the cache reusable is a
 Dynarmic-fork project (a save/restore format for emitted code **plus** its relocations,
 block metadata and invalidation bookkeeping) or a process-level checkpoint — not a
@@ -36,7 +37,7 @@ locations above, as recorded by [VITA-WW-20](VITA-WW-20-CPU-BACKEND.md).
 
 | Claim | Source |
 | --- | --- |
-| The only public cache operations are `ClearCache()` and `InvalidateCacheRange()`; there is **no save, load or export** operation for compiled code. | `external/dynarmic/src/dynarmic/interface/A32/a32.h:37–48` |
+| The complete public A32 JIT interface is `external/dynarmic/src/dynarmic/interface/A32/a32.h:20–106`; within it, the only cache operations are `ClearCache()` and `InvalidateCacheRange()` (`:37–48`). That interface contains **no save, load or export** operation for compiled code. | `external/dynarmic/src/dynarmic/interface/A32/a32.h:20–106`, cache operations at `:37–48` |
 | `UserConfig` has no persistence option. The one cache-related knob is `code_cache_size = 128 * 1024 * 1024` bytes by default (max ~128 MiB on arm64 hosts). | `interface/A32/config.h:122–239` (line 239) |
 | Vita3K never overrides that size and never constructs a cache file: no `code_cache_size` appears anywhere in `vita3k/`. | `grep -rn code_cache_size vita3k/` → none |
 | The code cache is `mmap(nullptr, size, PROT_READ|PROT_WRITE|PROT_EXEC, MAP_ANON|MAP_PRIVATE)` and `munmap`-ed on destruction. Nothing file-backed, nothing named, nothing persisted. | `externals/oaknut/include/oaknut/code_block.hpp:44,59` |
@@ -156,19 +157,20 @@ Four limits on this arithmetic, all important:
 
 ## 6. Alternatives: availability, evidence and authorization
 
-Nothing in this table has been executed in this lane. **CRIU, `fork()`,
-pre-translation and compile-cost work are not validated and not authorized inside
+Nothing in this table has been executed or authorized in this lane. **CRIU, `fork()`,
+pre-translation and compile-cost work (A–D) are not validated and not authorized inside
 WW22**; any execution or code modification needs a separate ticket with its own scope
-and evidence gates.
+and evidence gates. F is technically available but also **not authorized by WW22**: the
+60–75 min run needs the owner's explicit opening (WW21:181–183).
 
 | Alternative | Available today | Evidence in this lane | Authorization |
 | --- | --- | --- | --- |
-| A. Process checkpoint/restore (e.g. CRIU `dump`/`restore`) | No tooling installed or validated here; would need the same host/kernel and explicit policies for the external sockets (Wayland, SDL audio) and the private disc bind | None — no checkpoint was taken | **No** — separate ticket |
+| A. Process checkpoint/restore (e.g. CRIU `dump`/`restore`) | Tool present on this host (`/usr/bin/criu`, `/usr/sbin/criu`); permissions, stack compatibility (external sockets, multi-threaded process) and the checkpoint workflow are unvalidated | None — no checkpoint was taken | **No** — separate ticket |
 | B. `fork()` warm-start ("zygote") hook | No such design in the emulator; a `fork()` keeps only the calling thread, so the kernel/renderer/guest threads would need a deliberate re-creation design | None | **No** — separate ticket |
 | C. Background/pre-translation of blocks | Not present in the pinned Vita3K/Dynarmic; would modify the emulator or the runtime | None; the 82.25 % share is early-boot user samples of one thread | **No** — separate ticket (runtime change) |
 | D. Lower per-block compile cost (assertions/IR verification) | No release switch exists; source change only | WW20's small ceilings (1.06× combined, itself idealized) | **No** — separate ticket |
 | E. Native ARMv7 on a physical Vita | Hardware availability not established ([VITA-WW-01](VITA-WW-01.md)) | None; no physical-Vita result exists | **No** — out of this lane |
-| F. Longer capture window (≥ 60–75 min, ≥ 8 GiB free) | **Existing operational option** (WW21 §7) | WW21 projection plus the measured RAM stops; RSS plateau 3.78–4.12 GiB against the 2.5 GiB floor | Operational, no code change |
+| F. Longer capture window (≥ 60–75 min, ≥ 8 GiB free) | Technically possible, no code change (WW21 §7) | WW21 projection plus the measured RAM stops; RSS plateau 3.78–4.12 GiB against the 2.5 GiB floor | **No** — requires the owner's explicit opening for a 60–75 min run (WW21:181–183) |
 
 Notes on the table:
 
@@ -176,9 +178,10 @@ Notes on the table:
   guest RAM, threads and kernel/service state together. It is not a fresh boot served
   from a cache file, and the result would be a warm resumption, not a validated
   boot-time comparison.
-- F is the only option available without new tooling or code, but it is **RAM-bound,
-  not a gain**: the measured RSS plateau is 3.78–4.12 GiB and the post-CI attempts
-  stopped on host RAM at 70 s, 158 s and 263 s (`VITA-WW-21-CI-PROJECTION.md`:172–176).
+- F needs no new code, but it is **RAM-bound, not a gain** and **not authorized by
+  WW22**: the measured RSS plateau is 3.78–4.12 GiB, the post-CI attempts stopped on
+  host RAM at 70 s, 158 s and 263 s, and a 60–75 min run needs the owner's explicit
+  opening (WW21:172–176,181–183).
 - The llvmpipe presentation work runs on the same 10-CPU host as the emulator during
   these runs; no idle-capacity budget is assumed here.
 
@@ -193,7 +196,8 @@ Notes on the table:
    (C, background/pre-translation), gated on WW20's stated next measurement (a warmed
    mid/late-boot profile with guest-PC attribution). No speed-up is claimed here.
 4. Until such work is approved and validated, the ≥ 60–75 min window with ≥ 8 GiB free
-   (F) is the existing operational option — and it stays RAM-blocked as WW21 reports.
+   (F) remains the only no-code route, but it is RAM-blocked and needs the owner's
+   explicit approval (WW21:181–183); WW22 does not authorize it.
 
 ## 8. What was not done / limits
 
@@ -206,7 +210,8 @@ gain is established by this document.**
 
 ## 9. Evidence pointers
 
-- Dynarmic `interface/A32/a32.h:37–48`, `interface/A32/config.h:122–239`,
+- Dynarmic `interface/A32/a32.h:20–106` (cache operations at `:37–48`),
+  `interface/A32/config.h:122–239`,
   `backend/arm64/address_space.h:78–81`, `backend/arm64/address_space.cpp:38–121,134–330`,
   `backend/arm64/a32_address_space.cpp:23–153,164–186,223–333`,
   `backend/arm64/fastmem.h:34–53`, `backend/block_range_information.h:19–23`,
