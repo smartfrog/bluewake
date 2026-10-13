@@ -2547,3 +2547,53 @@ This observation is needed before guessing a guest loop/JIT/render cause or
 adding further audio behavior. Commit/rebuild and one fresh continuously watched
 **O1 -j2 / MEM1 + live PNG / audio=deferred** trial follow, with no owned Vita3K
 survivor before launch. Other lanes' O2 work remains untouched.
+
+## Unit 65: timeout record survives; CPU activity belongs to software raster workers
+
+Committed VI/O1 **fd552de**, **-j2**, fresh watched diagnostic run
+**eaaf26a456a341bea856c169a5ccefde**: both the early disposition and final
+launcher result survive. Actual status **124 / timeout / exit -15 / waited=true**,
+guest **180.00 s**. Still no closed guest report; the run remains **INCOMPLETE /
+frontier UNAVAILABLE**. The launcher evidence-publication correction is verified
+authentically, not a game-boot fix. No surviving Vita3K remains after termination.
+
+Actual native snapshot **1** takes **25 ms**, after **20.07 s** silence at the
+last observed **134,504,761 cycles / PC 80328B30**. Ten **llvmpipe-0..9** threads
+are running and account for the high aggregate CPU. Four sampled worker PCs
+execute the same anonymous executable mapping, with actual native LR addresses
+inside **`/usr/lib64/libgallium-26.2.3.so`**. Both native **ww-fixture** threads
+are sleeping in **futex_do_wait**. Thus aggregate CPU is **software rendering
+activity**, not evidence that the guest is spinning on DSP/PCM. Neither a stuck
+shader nor the exact guest blocking call is proved yet: the first sampler chose
+hot workers and did not capture ww-fixture registers/call chains.
+
+The DMA no-op is witnessed and guest resource work advances as in Unit 63.
+Last observed counts match that earlier trial, but are **not final state**. Eight
+actual PNG pairs/presentation markers, two actual MEM1 images and **16 retrace
+markers** verify post-timeout, all **audio=deferred**; display images remain
+numerically opaque black. No logo, gameplay, sound, physical-Vita result or FPS
+baseline is claimed. The input snapshots/log/frames remain available to lane 18.
+
+Private root:
+
+```text
+/home/fred/projects/zeldaWWHDRecomp/build-f5/ww05/vita3k-run-eaaf26a456a341bea856c169a5ccefde
+```
+
+**`evidence/guest-disposition.json`**, **`evidence/result.json`**,
+**`evidence/native-silent-snapshot-1.json`**, **`evidence/native-run-diagnosis.json`**,
+**`evidence/live-images-post-timeout.json`**, **`evidence/mem1-post-timeout.json`**;
+original native maps/register/instruction bytes and watch samples are retained.
+
+Next observation prioritizes the **actual ww-fixture native threads**, plus
+raster/renderer threads, and reads at most **12 native frame-pointer entries**
+within each thread's mapped stack. No guessed return address or guest PC is
+invented; unwind failure stays explicit. The private sampler's synthetic actual
+stack-read/detach check passes (**logs/ww16-native-frame-chain-check.json**).
+One fresh **O1 -j2 / MEM1 + live PNG / audio=deferred** diagnostic uses a **300 s
+phase ceiling**, within the existing bounded 600 s contract, because much of
+the 180 s attempt was spent on earlier CPU-active rendering and left only a
+short observation at the new frontier. CPU/output are still watched continuously,
+low CPU **AND** silence still aborts at 30 s, and extra time is **not** treated
+as a fix or proof of healthy progress. Do not add an audio wakeup or fake GPU
+finish to hide this software-render wait. Other O2 work remains untouched.
