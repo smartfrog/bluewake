@@ -339,6 +339,104 @@ bool ww_host_rel_sections_match(const WwRelImage* slot) {
     return true;
 }
 
+static bool owned_executable(WwHost* host, const WwRelImage* image, u32 address) {
+    if ((address & 3u) != 0u || !translated_section(host, address, 4u))
+        return false;
+    for (u32 at = 0u; at < image->section_count; ++at) {
+        const WwRelSection* section = &image->sections[at];
+        if ((section->flags & 1u) != 0u && address >= section->linked_start &&
+            (u64)address + 4u <= (u64)section->linked_start + section->size)
+            return true;
+    }
+    return false;
+}
+
+const char* ww_host_rel_constructor_boundary(WwHost* host, u32 address) {
+    CPUState* cpu = &host->cpu;
+    if (host->rel_constructor_owner != 0u) {
+        const WwRelImage* image = ww_host_rel_owned(host, host->rel_constructor_owner);
+        if (image == NULL || ww_host_rel_live(host, image->module_id) != image)
+            return "REL constructor continuation requires its live owner";
+        if (!ww_host_rel_sections_match(image) || !ww_host_rel_raw_unchanged(image))
+            return "REL constructor raw image changed after validation";
+        const u8* table = get_ram_ptr(cpu, host->rel_constructor_table, host->rel_constructor_size, NULL);
+        if (table == NULL || memcmp(table, host->rel_constructor_bytes, host->rel_constructor_size) != 0)
+            return "REL constructor table changed during its owned walk";
+        if ((address & ~0x40000000u) == (host->rel_constructor_return & ~0x40000000u)) {
+            host->rel_constructor_owner = 0u;
+            host->rel_constructor_return = 0u;
+            host->rel_constructor_table = 0u;
+            host->rel_constructor_size = 0u;
+            host->rel_constructor_bytes = NULL;
+        }
+    }
+    if ((address & ~0x40000000u) != 0x80241178u)
+        return NULL;
+    const u32 caller = ww_host_rel_address(host, cpu->lr);
+    WwRelImage* image = NULL;
+    for (u32 at = 0u; at < host->rel_image_count; ++at) {
+        WwRelImage* candidate = &host->rel_images[at];
+        if (candidate->linked && ww_host_rel_live(host, candidate->module_id) == candidate &&
+            owned_executable(host, candidate, caller)) {
+            if (image != NULL)
+                return "REL constructor caller ownership is ambiguous";
+            image = candidate;
+        }
+    }
+    if (image == NULL)
+        return "REL constructor table requires its caller's live owner";
+    if (!ww_host_rel_sections_match(image) || !ww_host_rel_raw_unchanged(image))
+        return "REL constructor raw image changed after validation";
+    if (host->rel_constructor_owner != 0u &&
+        (host->rel_constructor_owner != image->owner || host->rel_constructor_return != caller))
+        return "REL nested constructor walk requires an unsupported call contract";
+    const u32 input = cpu->gpr[3];
+    const BlueWakeRelData* table = NULL;
+    u32 offset = 0u;
+    for (u32 at = 0u; at < image->section_count; ++at) {
+        const WwRelSection* section = &image->sections[at];
+        if ((section->flags & 1u) != 0u || (section->flags & ~1u) == 0u)
+            continue;
+        u32 start = section->linked_start;
+        if (input < start || (u64)input + 4u > (u64)start + section->size) {
+            start = image->guest + (section->flags & ~1u);
+            const u32 raw_input = input & ~0x40000000u;
+            if (raw_input < start || (u64)raw_input + 4u > (u64)start + section->size)
+                continue;
+            offset = raw_input - start;
+        } else {
+            offset = input - start;
+        }
+        table = rel_data(host, image->module_id, at);
+        if (table == NULL || table->bytes == NULL || table->linked_start != section->linked_start ||
+            table->size != section->size || ((table->linked_start + offset) & 3u) != 0u)
+            return "REL constructor table requires its exact mapped data section";
+        break;
+    }
+    if (table == NULL)
+        return "REL constructor table is outside its caller's owned data sections";
+    const u8* mapped = get_ram_ptr(cpu, table->linked_start, table->size, NULL);
+    if (mapped == NULL)
+        return "REL constructor table storage is unavailable";
+    for (u32 at = offset; (u64)at + 4u <= table->size; at += 4u) {
+        const u32 target = bluewake_archive_be32(mapped + at);
+        if (target != 0u && !owned_executable(host, image, ww_host_rel_address(host, target)))
+            return "REL constructor target requires translated code owned by its caller";
+        if (memcmp(mapped + at, table->bytes + at, 4u) != 0)
+            return "REL constructor table changed from its prelinked export";
+        if (target == 0u) {
+            cpu->gpr[3] = table->linked_start + offset;
+            host->rel_constructor_owner = image->owner;
+            host->rel_constructor_return = caller;
+            host->rel_constructor_table = table->linked_start + offset;
+            host->rel_constructor_size = at + 4u - offset;
+            host->rel_constructor_bytes = table->bytes + offset;
+            return NULL;
+        }
+    }
+    return "REL constructor table has no terminator within its owned section";
+}
+
 u32 ww_host_rel_address(WwHost* host, u32 address) {
     const u32 canonical = address & ~0x40000000u;
     if (canonical < WW_REL_SCRATCH_BASE || canonical >= WW_REL_SCRATCH_LIMIT)

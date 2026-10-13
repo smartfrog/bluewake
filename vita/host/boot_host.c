@@ -302,6 +302,11 @@ static bool rel_execution_blocked(WwHost* host, u32 address, u32* linked) {
     *linked = ww_host_rel_address(host, address);
     if (host->error != NULL)
         return true;
+    const char* constructor_error = ww_host_rel_constructor_boundary(host, *linked);
+    if (constructor_error != NULL) {
+        ww_host_fail(host, constructor_error, address, host->cpu.pc);
+        return true;
+    }
     if (!ww_host_rel_code_owned(host, *linked)) {
         ww_host_fail(host, "REL dispatch requires live linked ownership", *linked, host->cpu.pc);
         return true;
@@ -1101,6 +1106,11 @@ void ww_host_shutdown(WwHost* host) {
     host->alias_count = 0u;
     memset(host->rel_images, 0, sizeof(host->rel_images));
     host->rel_image_count = 0u;
+    host->rel_constructor_owner = 0u;
+    host->rel_constructor_return = 0u;
+    host->rel_constructor_table = 0u;
+    host->rel_constructor_size = 0u;
+    host->rel_constructor_bytes = NULL;
     dol_guest_memory_shutdown(&host->memory);
     BlueWakeModuleStorage storage = {.cpu = &host->cpu};
     bw_module_cpu_free(&storage);

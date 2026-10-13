@@ -55,6 +55,11 @@ typedef struct WwHost {
     BluewakeDvdCompletions dvd_completions;
     WwRelImage rel_images[WW_REL_MAX_IMAGES];
     u32 rel_image_count;
+    u32 rel_constructor_owner;
+    u32 rel_constructor_return;
+    u32 rel_constructor_table;
+    u32 rel_constructor_size;
+    const u8* rel_constructor_bytes;
     WwDspInterface dsp;
     WwBatContract bat;
     const StaticRecompModuleDesc* module;

@@ -6,6 +6,24 @@
 #include <stdlib.h>
 #include <strings.h>
 
+static u64 raw_hash(const u8* bytes, u32 size) {
+    u64 hash = 14695981039346656037ull;
+    for (u32 at = 0u; at < size; ++at) {
+        hash ^= bytes[at];
+        hash *= 1099511628211ull;
+    }
+    return hash;
+}
+
+bool ww_host_rel_raw_unchanged(const WwRelImage* image) {
+    // Scratch integrity is not producer identity or canonical relocation certification.
+    if (image == NULL || image->bytes > image->capacity)
+        return false;
+    u8* raw = NULL;
+    return ppc_guest_alias_get_storage(image->guest, image->capacity, &raw) &&
+        raw_hash(raw, image->bytes) == image->raw_hash;
+}
+
 WwRelImage* ww_host_rel_owned(WwHost* host, u32 owner) {
     for (u32 index = 0u; index < WW_REL_MAX_IMAGES; ++index)
         if (host->rel_images[index].guest != 0u && host->rel_images[index].owner == owner)
@@ -273,7 +291,8 @@ const char* ww_host_materialize_rel(WwHost* host, u32 owner, const char* name) {
                 ww_host_fail(host, "REL failed mapping could not be removed", guest, host->cpu.pc);
         } else {
             *slot = (WwRelImage){.owner = owner, .guest = guest, .bytes = bytes, .capacity = capacity,
-                                 .module_id = module_id, .sections = sections, .section_count = section_count,
+                                 .module_id = module_id, .raw_hash = raw_hash(image, bytes),
+                                 .sections = sections, .section_count = section_count,
                                  .section_table = section_table};
             sections = NULL;
             memcpy(slot->name, name, strlen(name) + 1u);

@@ -18,6 +18,7 @@ typedef struct WwRelImage {
     uint32_t bytes;
     uint32_t capacity;
     uint32_t module_id;
+    uint64_t raw_hash;
     WwRelSection* sections;
     uint32_t section_count;
     uint32_t section_table;
@@ -31,5 +32,9 @@ typedef struct WwRelImage {
 #define WW_REL_MAX_IMAGES 512u
 #define WW_REL_SCRATCH_BASE 0x81820000u
 #define WW_REL_SCRATCH_LIMIT 0x81F80000u
+
+struct WwHost;
+bool ww_host_rel_raw_unchanged(const WwRelImage* image);
+const char* ww_host_rel_constructor_boundary(struct WwHost* host, uint32_t address);
 
 #endif

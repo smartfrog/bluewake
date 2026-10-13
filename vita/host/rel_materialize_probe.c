@@ -18,6 +18,115 @@ static u32 loop_successor;
 static u32 loop_dispatches;
 static u32 loop_instructions;
 static bool loop_live;
+static const char* constructor_scenario;
+static u32 constructor_calls;
+static u32 constructor_leaf_calls;
+
+static int constructor_chunk(CPUState* cpu, u32 address) {
+    if (address == 0x80001004u)
+        return 0;
+    if (cpu->host_call && ppc_host_call(cpu, address))
+        return 1;
+    cpu->downcount--;
+    switch (address) {
+    case 0xC09900F4u:
+        mem_write32(cpu, cpu->gpr[1] - 16u, cpu->gpr[1]);
+        cpu->gpr[1] -= 16u;
+        mem_write32(cpu, cpu->gpr[1] + 20u, cpu->lr);
+        cpu->gpr[3] = strcmp(constructor_scenario, "second-ctor-raw") == 0 ?
+            mem_read32(cpu, 0x80002110u) + 0xB0u : 0xC0997710u;
+        if (strcmp(constructor_scenario, "second-ctor-outside") == 0)
+            cpu->gpr[3] += 16u;
+        cpu->lr = strcmp(constructor_scenario, "second-ctor-wrong-owner") == 0 ? 0xC1B100F8u : 0xC09900F8u;
+        if (strcmp(constructor_scenario, "second-ctor-raw") == 0)
+            cpu->lr = mem_read32(cpu, 0x80002110u) + 0x84u;
+        cpu->pc = 0xC0241178u;
+        return 1;
+    case 0xC0241178u:
+        mem_write32(cpu, cpu->gpr[1] - 16u, cpu->gpr[1]);
+        cpu->gpr[1] -= 16u;
+        mem_write32(cpu, cpu->gpr[1] + 20u, cpu->lr);
+        mem_write32(cpu, cpu->gpr[1] + 12u, cpu->gpr[31]);
+        cpu->gpr[31] = cpu->gpr[3];
+        cpu->pc = 0xC02411D8u;
+        return 1;
+    case 0xC02411D4u:
+        cpu->gpr[31] += 4u;
+        cpu->pc = 0xC02411D8u;
+        return 1;
+    case 0xC02411D8u:
+        cpu->gpr[12] = mem_read32(cpu, cpu->gpr[31]);
+        if (cpu->gpr[12] != 0u) {
+            cpu->ctr = cpu->gpr[12];
+            cpu->lr = 0xC02411D4u;
+            cpu->pc = cpu->ctr & ~3u;
+        } else {
+            cpu->gpr[31] = mem_read32(cpu, cpu->gpr[1] + 12u);
+            cpu->lr = mem_read32(cpu, cpu->gpr[1] + 20u);
+            cpu->gpr[1] += 16u;
+            cpu->pc = cpu->lr;
+        }
+        return 1;
+    case 0xC09900FCu:
+    case 0xC0990100u:
+        assert(address == (constructor_calls == 0u ? 0xC09900FCu : 0xC0990100u));
+        constructor_calls++;
+        assert(cpu->gpr[13] == 0x80400000u && cpu->gpr[2] == 0x80300000u);
+        assert(cpu->lr == 0xC02411D4u && cpu->gpr[1] == 0x80003FE0u);
+        if (strcmp(constructor_scenario, "second-ctor-stale") == 0)
+            assert(ww_host_unlink_rel(cpu->external_user_data, 0x80002100u) == NULL);
+        if (strcmp(constructor_scenario, "second-ctor-changed-table") == 0)
+            mem_write32(cpu, 0xC0997714u, 0xC1B100F4u);
+        if (address == 0xC09900FCu && strcmp(constructor_scenario, "second-ctor-leaf") == 0) {
+            mem_write32(cpu, cpu->gpr[1] - 16u, cpu->gpr[1]);
+            cpu->gpr[1] -= 16u;
+            mem_write32(cpu, cpu->gpr[1] + 20u, cpu->lr);
+            cpu->lr = 0xC0990104u;
+            cpu->pc = 0xC0990108u;
+            return 1;
+        }
+        cpu->pc = cpu->lr;
+        return 1;
+    case 0xC0990104u:
+        cpu->lr = 0xC099010Cu;
+        cpu->pc = 0xC0990108u;
+        return 1;
+    case 0xC0990108u:
+        assert(cpu->gpr[1] == 0x80003FD0u);
+        assert(cpu->lr == (constructor_leaf_calls == 0u ? 0xC0990104u : 0xC099010Cu));
+        constructor_leaf_calls++;
+        for (u32 offset = 0u; offset < 12u; offset += 4u)
+            assert(ppc_stfs_op(cpu, 1u, 0xC0997700u + offset, address));
+        cpu->pc = cpu->lr;
+        return 1;
+    case 0xC099010Cu:
+        cpu->lr = mem_read32(cpu, cpu->gpr[1] + 20u);
+        cpu->gpr[1] += 16u;
+        cpu->pc = cpu->lr;
+        return 1;
+    case 0xC09900F8u:
+        assert(cpu->lr == (strcmp(constructor_scenario, "second-ctor-raw") == 0 ?
+            mem_read32(cpu, 0x80002110u) + 0x84u : 0xC09900F8u));
+        cpu->lr = 0xC0990110u;
+        cpu->pc = 0xC02410B4u;
+        return 1;
+    case 0xC02410B4u:
+        cpu->pc = cpu->lr;
+        return 1;
+    case 0xC0990110u:
+        cpu->lr = mem_read32(cpu, cpu->gpr[1] + 20u);
+        cpu->gpr[1] += 16u;
+        cpu->pc = cpu->lr;
+        return 1;
+    default:
+        assert(false);
+        return 0;
+    }
+}
+
+static int constructor_dispatch(CPUState* cpu, u32 address) {
+    return bluewake_chassis_dispatch_loop(cpu, address, constructor_chunk, ww_host_edge, cpu->external_user_data);
+}
 
 static int loop_chunk_dispatch(CPUState* cpu, u32 address) {
     loop_dispatches++;
@@ -113,7 +222,7 @@ static void request_rel(WwHost* host, u32 object, u32 text, const char* name) {
     assert(ww_host_edge(host, cpu, cpu->pc));
 }
 
-static void second_module_case(WwHost* host, const char* scenario) {
+static void second_module_case(WwHost* host, const char* scenario, StaticRecompRange* ranges) {
     CPUState* cpu = &host->cpu;
     const bool rejected = strstr(scenario, "bad-") != NULL || strstr(scenario, "reloc-") != NULL ||
                           strstr(scenario, "branch-") != NULL || strstr(scenario, "lifecycle-") != NULL ||
@@ -123,10 +232,12 @@ static void second_module_case(WwHost* host, const char* scenario) {
                           strcmp(scenario, "second-no-code") == 0 || strcmp(scenario, "second-missing-bss") == 0;
     const WwRelImage profile = host->rel_images[0];
     const bool dependency_live = strcmp(scenario, "second-dependency-live") == 0;
-    if (dependency_live || strcmp(scenario, "second-dependency-unloaded") == 0) {
+    const bool other_constructor_owner = strcmp(scenario, "second-ctor-wrong-owner") == 0 ||
+        strcmp(scenario, "second-ctor-changed-table") == 0;
+    if (dependency_live || other_constructor_owner || strcmp(scenario, "second-dependency-unloaded") == 0) {
         request_rel(host, 0x80002200u, 0x80003200u, "ww34_fixture_b");
         assert(host->error == NULL && mem_read32(cpu, 0x80002210u) != 0u);
-        if (!dependency_live) {
+        if (!dependency_live && !other_constructor_owner) {
             assert(ww_host_unlink_rel(host, 0x80002200u) == NULL);
             assert(ww_host_collect_rels(host) == NULL && host->alias_count == 1u);
         }
@@ -169,11 +280,13 @@ static void second_module_case(WwHost* host, const char* scenario) {
     }
     assert(host->error == NULL && cpu->pc == cpu->lr && cpu->gpr[3] == 1u);
     const u32 actor = mem_read32(cpu, 0x80002110u);
-    assert(actor != 0u && actor != profile.guest && host->alias_count == (dependency_live ? 3u : 2u));
-    assert(host->alias_bytes == (dependency_live ? 768u : 512u));
+    assert(actor != 0u && actor != profile.guest && host->alias_count == (dependency_live || other_constructor_owner ? 3u : 2u));
+    assert(host->alias_bytes == (dependency_live || other_constructor_owner ? 768u : 512u));
     for (u32 offset = 0u; offset < 16u; ++offset)
         assert(mem_read8(cpu, 0xC0997700u + offset) == 0u);
-    assert(mem_read32(cpu, 0xC0997710u) == (dependency_live ? 0xC1B224D0u : 0x80001000u));
+    assert(mem_read32(cpu, 0xC0997710u) == (strncmp(scenario, "second-ctor-", 12u) == 0 ?
+        (strcmp(scenario, "second-ctor-empty") == 0 ? 0u : 0xC09900FCu) :
+        dependency_live ? 0xC1B224D0u : 0x80001000u));
     assert(ww_host_rel_address(host, actor + 0x80u) == 0xC09900F4u);
     assert(ww_host_rel_address(host, (actor + 0x84u) | 0x40000000u) == 0xC09900F8u);
     mem_write8(cpu, 0xC0997700u, 0xBBu);
@@ -218,6 +331,42 @@ static void second_module_case(WwHost* host, const char* scenario) {
         assert(mem_read32(cpu, 0x80002210u) == other && host->rel_images[2].sections == other_sections);
         assert(mem_read8(cpu, 0xC1B224D0u) == 0xCCu && mem_read8(cpu, 0xC0997700u) == 0u);
         assert(live_section_allocations == 3u && mem_read32(cpu, 0x80002010u) == profile.guest);
+    } else if (strncmp(scenario, "second-ctor-", 12u) == 0) {
+        constructor_scenario = scenario;
+        if (strcmp(scenario, "second-ctor-untranslated") == 0)
+            ranges[1].end = 0xC09900FCu;
+        if (strcmp(scenario, "second-ctor-changed-raw") == 0)
+            mem_write32(cpu, actor + 0xB4u, 1u);
+        cpu->gpr[1] = 0x80004000u;
+        cpu->gpr[2] = 0x80300000u;
+        cpu->gpr[13] = 0x80400000u;
+        cpu->gpr[31] = 0x12345678u;
+        cpu->fpr[1] = 1.5;
+        cpu->lr = 0x80001004u;
+        cpu->pc = actor + 0x80u;
+        cpu->downcount = 0;
+        cpu->cycle_budget = 200;
+        for (u32 turn = 0u; turn < 32u && cpu->pc != 0x80001004u && host->error == NULL; ++turn)
+            assert(ww_host_dispatch(host, cpu->pc) != 0);
+        const bool success = strcmp(scenario, "second-ctor-order") == 0 ||
+            strcmp(scenario, "second-ctor-raw") == 0 || strcmp(scenario, "second-ctor-empty") == 0 ||
+            strcmp(scenario, "second-ctor-leaf") == 0;
+        if (success) {
+            assert(host->error == NULL && cpu->pc == 0x80001004u && cpu->lr == cpu->pc);
+            assert(constructor_calls == (strcmp(scenario, "second-ctor-empty") == 0 ? 0u : 2u));
+            assert(cpu->gpr[1] == 0x80004000u && cpu->gpr[31] == 0x12345678u);
+            assert(cpu->gpr[2] == 0x80300000u && cpu->gpr[13] == 0x80400000u);
+            if (strcmp(scenario, "second-ctor-leaf") == 0) {
+                assert(constructor_leaf_calls == 2u && cpu->fpr[1] == 1.5);
+                for (u32 offset = 0u; offset < 12u; offset += 4u)
+                    assert(mem_read32(cpu, 0xC0997700u + offset) == 0x3FC00000u);
+            }
+        } else {
+            assert(host->error != NULL && cpu->pc != 0x80001004u);
+            assert(constructor_calls == (strcmp(scenario, "second-ctor-stale") == 0 ||
+                strcmp(scenario, "second-ctor-changed-table") == 0 ? 1u : 0u));
+            assert(strstr(host->error, "REL constructor") != NULL);
+        }
     } else if (strcmp(scenario, "second-repeat") == 0) {
         BwDvdIoStats before, after;
         bw_dvd_io_stats(&before);
@@ -332,8 +481,10 @@ int main(int argc, char** argv) {
     WwHost* host = calloc(1u, sizeof(*host));
     assert(host != NULL && ww_host_init(host));
     track_sections = true;
-    const StaticRecompRange ranges[] = {{0x80240744u, 0x80240748u}, {0xC09900F4u, 0xC0990114u},
-                                      {0xC1B100F4u, 0xC1B10114u}};
+    const bool constructors = strncmp(scenario, "second-ctor-", 12u) == 0;
+    StaticRecompRange ranges[] = {{0x80240744u, 0x80240748u}, {0xC09900F4u, 0xC0990114u},
+                                 {0xC1B100F4u, 0xC1B10114u}, {0x80241178u, 0x802411F8u},
+                                 {0x802410B4u, 0x802410B8u}};
     const StaticRecompRange chunks[] = {{0xC09900F4u, 0xC0990114u}, {0xC1B100F4u, 0xC1B10114u}};
     const u64 hashes[] = {actor_code_hash(scenario), actor_code_hash("")};
     const StaticRecompRelSection sections[] = {
@@ -353,10 +504,11 @@ int main(int argc, char** argv) {
                                          {.module_id = 168u, .section_count = 4u, .section_info_offset = 0x4Cu,
                                           .file_size = 256u, .sections = ship_sections, .num_sections = 3u}};
     const StaticRecompModuleDesc module = {.code_ranges = ranges,
-                                          .num_code_ranges = second && strcmp(scenario, "second-no-code") != 0 ? 3u : 1u,
+                                          .num_code_ranges = constructors ? 5u : second && strcmp(scenario, "second-no-code") != 0 ? 3u : 1u,
                                           .rel_modules = rels, .num_rel_modules = second ? 3u : 1u,
                                           .chunk_ranges = chunks, .num_chunk_ranges = 2u, .chunk_hashes = hashes,
-                                          .dispatch = strncmp(scenario, "second-loop-", 12u) == 0 ? composite_dispatch : rel_dispatch};
+                                          .dispatch = constructors ? constructor_dispatch :
+                                              strncmp(scenario, "second-loop-", 12u) == 0 ? composite_dispatch : rel_dispatch};
     host->module = &module;
     const u8 profile_bytes[16] = {0x80u, 1u, 2u, 3u, 4u, 5u, 6u, 7u, 8u, 9u, 10u, 11u, 12u, 13u, 14u, 15u};
     const BlueWakeRelData profile = {1u, 4u, 0xC1F80178u, sizeof(profile_bytes), profile_bytes};
@@ -364,7 +516,10 @@ int main(int argc, char** argv) {
     const bool dependency_case = strncmp(scenario, "second-dependency-", 18u) == 0;
     const u8 actor_data[16] = {dependency_case ? 0xC1u : 0x80u, dependency_case ? 0xB2u : 0u,
                               dependency_case ? 0x24u : 0x10u, dependency_case ? 0xD0u : 0u};
-    const BlueWakeRelData both_data[] = {profile, {139u, 3u, 0xC0997710u, 16u, actor_data},
+    const u8 constructor_data[16] = {0xC0u, 0x99u, 0u, 0xFCu, 0xC0u, 0x99u, 1u, 0u};
+    const u8 empty_data[16] = {0};
+    const BlueWakeRelData both_data[] = {profile, {139u, 3u, 0xC0997710u, 16u,
+                                        constructors ? (strcmp(scenario, "second-ctor-empty") == 0 ? empty_data : constructor_data) : actor_data},
                                        {139u, 2u, 0xC0997700u, 16u, NULL},
                                        {168u, 3u, 0xC1B224E0u, 16u, dol_data}, {168u, 2u, 0xC1B224D0u, 16u, NULL}};
     if (second) {
@@ -431,14 +586,15 @@ int main(int argc, char** argv) {
                 assert(after.total_read_bytes == before.total_read_bytes && host->alias_count == 1u);
             }
             if (second) {
-                second_module_case(host, scenario);
+                second_module_case(host, scenario, ranges);
             }
         } else {
             assert(host->error != NULL && host->edge_stopped && !host->rel_images[0].linked);
             assert(cpu->pc == 0x80240744u && mem_read32(cpu, 0x803F6A68u) == global_before);
             assert(memcmp(object_before, cpu->ram + 0x2000u, sizeof(object_before)) == 0);
         }
-        assert(cpu->ram_size == 0x01800000u && host->cycles.absolute_cycles == 0u);
+        assert(cpu->ram_size == 0x01800000u);
+        assert(constructors ? host->cycles.absolute_cycles <= 200u : host->cycles.absolute_cycles == 0u);
         ww_host_shutdown(host);
         assert(live_section_allocations == 0u);
         assert(host->alias_count == 0u && host->alias_bytes == 0u);

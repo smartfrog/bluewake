@@ -70,6 +70,13 @@ def rel_archive(scenario):
     archive.extend(member)
     if scenario.startswith('second'):
         actor = actor_rel(139)
+        if scenario.startswith('second-ctor-'):
+            struct.pack_into('>I', actor, 0xA0, 139)
+            struct.pack_into('>HBBI', actor, 0xC8, 0, 1, 1, 8)
+            struct.pack_into('>HBBI', actor, 0xD0, 4, 1, 1, 12)
+            struct.pack_into('>HBBI', actor, 0xD8, 0, 203, 0, 0)
+            if scenario == 'second-ctor-empty':
+                struct.pack_into('>HBBI', actor, 0xC8, 0, 203, 0, 0)
         if scenario == 'second-bad-id':
             struct.pack_into('>I', actor, 0, 999)
         if scenario == 'second-bad-section':
@@ -126,7 +133,7 @@ def rel_archive(scenario):
             actor[0x31] = 1
             struct.pack_into('>I', actor, 0x38, 4)
         members = [(b'f_pc_profile_lst.rel', member), (b'ww34_fixture_a.rel', actor)]
-        if scenario in ('second-independent', 'second-hole-reuse') or scenario.startswith('second-dependency-'):
+        if scenario in ('second-independent', 'second-hole-reuse', 'second-ctor-wrong-owner', 'second-ctor-changed-table') or scenario.startswith('second-dependency-'):
             members.append((b'ww34_fixture_b.rel', actor_rel(168)))
         archive = bytearray(0x100)
         archive[:4] = b'RARC'
@@ -177,6 +184,36 @@ class RelMaterializeTest(unittest.TestCase):
 
     def test_raw_requested_rel_is_read_from_iso_and_mapped_without_claiming_link_success(self):
         self.run_probe('raw')
+
+    def test_owned_constructor_order_and_guest_return(self):
+        self.run_probe('second-ctor-order')
+
+    def test_constructor_nested_leaf_calls_and_fp_stores_preserve_inherited_registers(self):
+        self.run_probe('second-ctor-leaf')
+
+    def test_owned_raw_constructor_table_maps_to_its_exact_prelinked_section(self):
+        self.run_probe('second-ctor-raw')
+
+    def test_empty_constructor_table_returns_without_a_call(self):
+        self.run_probe('second-ctor-empty')
+
+    def test_constructor_table_requires_its_callers_owner(self):
+        self.run_probe('second-ctor-wrong-owner')
+
+    def test_constructor_table_exclusive_section_end_is_not_mapped(self):
+        self.run_probe('second-ctor-outside')
+
+    def test_constructor_target_requires_translated_owned_code(self):
+        self.run_probe('second-ctor-untranslated')
+
+    def test_changed_raw_constructor_image_stops_before_dispatch(self):
+        self.run_probe('second-ctor-changed-raw')
+
+    def test_constructor_table_mutation_cannot_dispatch_another_live_owner(self):
+        self.run_probe('second-ctor-changed-table')
+
+    def test_constructor_continuation_after_unlink_stops_before_dispatch(self):
+        self.run_probe('second-ctor-stale')
 
     def test_yaz0_member_is_decoded_before_materialization(self):
         self.run_probe('compressed')
