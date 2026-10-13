@@ -8,10 +8,16 @@
 static bool fail_trace;
 static bool fail_alias;
 static bool fail_link_trace;
+static bool fail_sections;
+static bool track_sections;
+static void* section_allocations[WW_REL_MAX_IMAGES];
+static u32 live_section_allocations;
+static u32 total_section_allocations;
 static u32 dispatched_address;
 static u32 loop_successor;
 static u32 loop_dispatches;
 static u32 loop_instructions;
+static bool loop_live;
 
 static int loop_chunk_dispatch(CPUState* cpu, u32 address) {
     loop_dispatches++;
@@ -19,7 +25,7 @@ static int loop_chunk_dispatch(CPUState* cpu, u32 address) {
         return 1;
     loop_instructions++;
     cpu->downcount--;
-    cpu->pc = loop_successor;
+    cpu->pc = loop_live && address == 0xC09900F4u ? cpu->lr : loop_successor;
     return 1;
 }
 
@@ -54,11 +60,35 @@ static int rel_dispatch(CPUState* cpu, u32 address) {
 }
 
 void* __real_calloc(size_t count, size_t size);
+void __real_free(void* pointer);
 
 void* __wrap_calloc(size_t count, size_t size) {
     if (fail_alias && count == 1u && size == 256u)
         return NULL;
-    return __real_calloc(count, size);
+    if (fail_sections && count == 4u && size == sizeof(WwRelSection))
+        return NULL;
+    void* result = __real_calloc(count, size);
+    if (track_sections && result != NULL && count >= 2u && count <= 256u && size == sizeof(WwRelSection)) {
+        u32 at = 0u;
+        while (at < WW_REL_MAX_IMAGES && section_allocations[at] != NULL)
+            at++;
+        assert(at < WW_REL_MAX_IMAGES);
+        section_allocations[at] = result;
+        live_section_allocations++;
+        total_section_allocations++;
+    }
+    return result;
+}
+
+void __wrap_free(void* pointer) {
+    if (pointer != NULL)
+        for (u32 at = 0u; at < WW_REL_MAX_IMAGES; ++at)
+            if (section_allocations[at] == pointer) {
+                section_allocations[at] = NULL;
+                live_section_allocations--;
+                break;
+            }
+    __real_free(pointer);
 }
 
 int __wrap_fprintf(FILE* stream, const char* format, ...) {
@@ -87,6 +117,7 @@ static void second_module_case(WwHost* host, const char* scenario) {
     CPUState* cpu = &host->cpu;
     const bool rejected = strstr(scenario, "bad-") != NULL || strstr(scenario, "reloc-") != NULL ||
                           strstr(scenario, "branch-") != NULL || strstr(scenario, "lifecycle-") != NULL ||
+                          strstr(scenario, "materialize-") != NULL ||
                           strcmp(scenario, "second-dependency-unlinked") == 0 ||
                           strcmp(scenario, "second-dependency-unloaded") == 0 ||
                           strcmp(scenario, "second-no-code") == 0 || strcmp(scenario, "second-missing-bss") == 0;
@@ -100,6 +131,9 @@ static void second_module_case(WwHost* host, const char* scenario) {
             assert(ww_host_collect_rels(host) == NULL && host->alias_count == 1u);
         }
     }
+    fail_sections = strcmp(scenario, "second-materialize-sections") == 0;
+    fail_alias = strcmp(scenario, "second-materialize-alias") == 0;
+    fail_trace = strcmp(scenario, "second-materialize-trace") == 0;
     request_rel(host, 0x80002100u, 0x80003100u, "ww34_fixture_a");
     assert(memcmp(&profile, &host->rel_images[0], sizeof(profile)) == 0);
     assert(mem_read32(cpu, 0x80002010u) == profile.guest);
@@ -129,6 +163,8 @@ static void second_module_case(WwHost* host, const char* scenario) {
         assert(mem_read32(cpu, 0x80002110u) == 0u && host->alias_count == 1u && host->alias_bytes == 256u);
         assert(ww_host_rel_owned(host, 0x80002100u) == NULL);
         assert(mem_read8(cpu, 0xC0997700u) == 0xAAu && mem_read8(cpu, 0xC0997710u) == 0xAAu);
+        assert(live_section_allocations == 1u);
+        assert(get_ram_ptr(cpu, WW_REL_SCRATCH_BASE + 0x200u, 256u, NULL) == NULL);
         return;
     }
     assert(host->error == NULL && cpu->pc == cpu->lr && cpu->gpr[3] == 1u);
@@ -141,7 +177,48 @@ static void second_module_case(WwHost* host, const char* scenario) {
     assert(ww_host_rel_address(host, actor + 0x80u) == 0xC09900F4u);
     assert(ww_host_rel_address(host, (actor + 0x84u) | 0x40000000u) == 0xC09900F8u);
     mem_write8(cpu, 0xC0997700u, 0xBBu);
-    if (strcmp(scenario, "second-repeat") == 0) {
+    if (strcmp(scenario, "second-loop-live") == 0 || strcmp(scenario, "second-indirect-live") == 0) {
+        const bool indirect = strcmp(scenario, "second-indirect-live") == 0;
+        const u32 allocations_before = total_section_allocations;
+        BwDvdIoStats before, after;
+        bw_dvd_io_stats(&before);
+        loop_live = true;
+        loop_successor = actor + 0x80u;
+        cpu->pc = indirect ? loop_successor : 0x80240744u;
+        cpu->cycle_budget = indirect ? 1 : 2;
+        cpu->downcount = 0;
+        if (indirect)
+            assert(loop_chunk_dispatch(cpu, cpu->pc) == 1);
+        else
+            assert(ww_host_dispatch(host, cpu->pc) == 1);
+        assert(host->error == NULL && cpu->pc == 0xC09900F4u);
+        assert(loop_dispatches == 1u && loop_instructions == (indirect ? 0u : 1u));
+        if (indirect)
+            assert(loop_chunk_dispatch(cpu, cpu->pc) == 1);
+        else
+            assert(ww_host_dispatch(host, cpu->pc) == 1);
+        assert(host->error == NULL && cpu->pc == cpu->lr && !host->edge_stopped);
+        assert(loop_dispatches == 2u && loop_instructions == (indirect ? 1u : 2u));
+        bw_dvd_io_stats(&after);
+        assert(after.total_read_bytes == before.total_read_bytes && host->alias_count == 2u);
+        assert(live_section_allocations == 2u && mem_read8(cpu, 0xC0997700u) == 0xBBu);
+        assert(total_section_allocations == allocations_before);
+    } else if (strcmp(scenario, "second-hole-reuse") == 0) {
+        request_rel(host, 0x80002200u, 0x80003200u, "ww34_fixture_b");
+        assert(host->error == NULL && host->alias_count == 3u && host->rel_image_count == 3u);
+        const u32 other = mem_read32(cpu, 0x80002210u);
+        const WwRelSection* other_sections = host->rel_images[2].sections;
+        mem_write8(cpu, 0xC1B224D0u, 0xCCu);
+        assert(ww_host_unlink_rel(host, 0x80002100u) == NULL);
+        assert(ww_host_collect_rels(host) == NULL && live_section_allocations == 2u);
+        assert(host->rel_images[1].guest == 0u && host->rel_image_count == 3u);
+        request_rel(host, 0x80002100u, 0x80003100u, "ww34_fixture_a");
+        assert(host->error == NULL && mem_read32(cpu, 0x80002110u) == actor);
+        assert(host->rel_images[1].guest == actor && host->alias_count == 3u && host->alias_bytes == 768u);
+        assert(mem_read32(cpu, 0x80002210u) == other && host->rel_images[2].sections == other_sections);
+        assert(mem_read8(cpu, 0xC1B224D0u) == 0xCCu && mem_read8(cpu, 0xC0997700u) == 0u);
+        assert(live_section_allocations == 3u && mem_read32(cpu, 0x80002010u) == profile.guest);
+    } else if (strcmp(scenario, "second-repeat") == 0) {
         BwDvdIoStats before, after;
         bw_dvd_io_stats(&before);
         request_rel(host, 0x80002100u, 0x80003100u, "ww34_fixture_a");
@@ -254,6 +331,7 @@ int main(int argc, char** argv) {
     const bool link_success = strcmp(scenario, "link") == 0 || strcmp(scenario, "link-repeat") == 0 || second;
     WwHost* host = calloc(1u, sizeof(*host));
     assert(host != NULL && ww_host_init(host));
+    track_sections = true;
     const StaticRecompRange ranges[] = {{0x80240744u, 0x80240748u}, {0xC09900F4u, 0xC0990114u},
                                       {0xC1B100F4u, 0xC1B10114u}};
     const StaticRecompRange chunks[] = {{0xC09900F4u, 0xC0990114u}, {0xC1B100F4u, 0xC1B10114u}};
@@ -362,6 +440,7 @@ int main(int argc, char** argv) {
         }
         assert(cpu->ram_size == 0x01800000u && host->cycles.absolute_cycles == 0u);
         ww_host_shutdown(host);
+        assert(live_section_allocations == 0u);
         assert(host->alias_count == 0u && host->alias_bytes == 0u);
         for (u32 at = 0u; at < WW_REL_MAX_IMAGES; ++at)
             assert(host->rel_images[at].guest == 0u);
@@ -388,6 +467,7 @@ int main(int argc, char** argv) {
             assert(get_ram_ptr(cpu, WW_REL_SCRATCH_BASE + 0x100u, 256u, NULL) == NULL);
     }
     ww_host_shutdown(host);
+    assert(live_section_allocations == 0u);
     assert(host->alias_count == 0u && host->alias_bytes == 0u && host->rel_images[0].guest == 0u);
     free(host);
     return 0;

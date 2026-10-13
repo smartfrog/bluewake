@@ -60,13 +60,6 @@ static bool raw_code_matches(WwHost* host, const StaticRecompRelSection* section
     return cursor == end;
 }
 
-static void write_be32(u8* bytes, u32 value) {
-    bytes[0] = (u8)(value >> 24u);
-    bytes[1] = (u8)(value >> 16u);
-    bytes[2] = (u8)(value >> 8u);
-    bytes[3] = (u8)value;
-}
-
 static const char* validate_relocations(WwHost* host, const StaticRecompRelModule* rel, const u8* raw,
                                        u32 bytes, u8* relocated) {
     const u32 imports = bluewake_archive_be32(raw + 0x28u);
