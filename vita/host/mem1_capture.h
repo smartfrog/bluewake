@@ -3,7 +3,7 @@
 
 #include "core/types.h"
 
-enum { WW_MEM1_CAPTURE_BYTES = 24u * 1024u * 1024u, WW_MEM1_MAX_CAPTURES = 8u };
+enum { WW_MEM1_CAPTURE_BYTES = 24u * 1024u * 1024u, WW_MEM1_MAX_CAPTURES = 16u };
 
 typedef struct WwMem1Capture {
     u32 limit;

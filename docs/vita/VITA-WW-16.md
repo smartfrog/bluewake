@@ -13,9 +13,10 @@ The earlier attempts remain preserved. The requested CI window is now captured
 through command 102936 with three synchronized late MEM1 versions (Unit 89).
 Frame 101 still shows the Nintendo logo, not a verified title screen. Unit 90
 closes the RAM guard's one-second sampling gap found in the measured profile.
-The requested post-102936 retry uses that fast guard but stops for actual host
-RAM pressure before the late window (Units 91-92). No post-boundary FIFO or later
-guest wall is captured; the earlier successful CI handoff stays intact.
+The fast-guard retries preserve the RAM stops in Units 91-92. The next retry
+captures post-102936 FIFO and eight synchronized MEM1 versions (Unit 93), then
+hits the diagnostic snapshot budget, not a game wall. The last live image is
+still Nintendo; no title-screen, gameplay or FPS result is established.
 
 ## Unit 1: CP performance selector
 
@@ -4249,3 +4250,224 @@ Linux AArch64: **87 focused activity/launch/plan tests / 39 subtests** pass
 whitespace pass. No production-code, renderer, guest-clock, runtime-pin or
 audio change, new GPU replay, Windows CI, physical Vita, title/gameplay or FPS
 claim. No network, push, user-app termination or fabricated evidence.
+
+## Unit 93: post-102936 FIFO delivered, with eight MEM1 versions and an honest budget stop
+
+The owner explicitly authorizes one more immediate attempt and asks for duration,
+command gain against **31583**, and whether memory observations prove user-app
+oscillation. Actual preflight inspection finds **6.281204 GiB available**, no
+compiler/emulator survivor. Fast-forward the clean lane to local documentation-only
+trunk **a0f47cb**, then launch immediately **without rebuilding**. The same
+immutable **2170346 / VI/O1 -j2** package is retained, VPK SHA
+**f2a8b4673b6d8f944cceba1ed7ac3c6006f13fc2b008dd6ce15d5e6f4783888b**;
+launcher source **a0f47cb8c7374949f0601b19aa90b7b34f7bcf89** is recorded separately.
+Request remains **102937-196608 / 1200 s / eight full disk-streamed MEM1
+versions / 128 images / audio=deferred / ~50 ms 2.5 GiB guard / 30 s
+CPU-OR-output watchdog**. Fresh ISO-backed run:
+**26495d04517c4b43a7d72502c7dfb888**.
+
+**490.253754 s**, versus **263.339781 s** previously: **+226.913973 s**.
+The actual journal contains **105948 complete commands / 714495 FIFO bytes**,
+versus **31583 / 214745**: **+74365 commands / +499750 bytes**. The first
+**31583 command bytes match the prior attempt exactly**, not a replayed or
+invented continuation. This run authentically executes boot again and adds
+the captured suffix. **3012 commands are after 102936**. There are **103 actual
+PNG pairs / 110 genuine retrace markers**, **73 more PNG pairs** than previously.
+
+The stop is **scene MEM1 draw window exhausted its snapshot budget** on the
+**ninth selected draw, command 105948**, before its renderer write. It is
+**not RAM pressure, timeout or an unsupported guest-code wall**. The closed
+report has **105948 decoded/logged commands / 67 pending bytes / 140 accepted
+draws/plans/programs / three distinct programs / 103 presentations**, zero
+skipped/refused plans/programs/copies and the retained **one CI-usage gap category**.
+The renderer accepted **714428 FIFO bytes**; the final logged **67-byte draw**
+is not rendered or RAM-snapshotted. Reported state: **896097405 cycles /
+7881575 edges / PC 802CD548 / exception 00000001**.
+
+Preserve the actual outcome: **process exit=133 / waited=true / stop_reason=exit**,
+then **launcher status 2 / INCOMPLETE / frontier UNAVAILABLE** when the strict
+full-window MEM1 validator rejects that ninth unsnapshotted draw. The observer
+validates the actual closed report's **frontier-only PASS**, signals only the
+owned emulator and retains the original record. That frontier result is **not
+a successful whole-window capture or clean normal game exit**. STOP receipt:
+**2026-10-13 18:27:12.168161 (CEST, GMT+2; machine-local zone)**, after cleanup;
+the phase duration includes that cleanup, not a fabricated guest timestamp.
+Original result/error/traceback and every raw journal/resource/image stay intact.
+
+### Independent partial-resource handoff, not a rewritten failed run
+
+Eight actual **24 MiB** MEM1 versions (**192 MiB of disk payload**) precede
+their respective renderer writes:
+
+| Snapshot | Draw command | Actual cycles | Prior presentations | Exact FIFO prefix bytes |
+| ---: | ---: | ---: | ---: | ---: |
+| 1 | 103677 | 879889375 | 101 | 698278 |
+| 2 | 103731 | 879891715 | 101 | 698761 |
+| 3 | 103782 | 879895352 | 101 | 699473 |
+| 4 | 104760 | 887990308 | 102 | 705789 |
+| 5 | 104814 | 887992612 | 102 | 706272 |
+| 6 | 104865 | 887999507 | 102 | 706984 |
+| 7 | 105843 | 896091415 | 103 | 713300 |
+| 8 | 105897 | 896093742 | 103 | 713783 |
+
+Reproduce the original strict rejection against the **unchanged full journal**.
+Then independently verify the byte-exact **chronological prefix through the
+eighth original mem1-snapshot marker**, ending at **105897**, using the existing
+strict collector and original **102937-196608** request identity. Store this
+derived view as **mem1-verification-prefix-through-105897.log**, with its source,
+extent and hash explicitly declared. It is **not a replacement journal**.
+The partial manifest says **captured=8 / window_complete=false** and preserves
+the original full-extent refusal. No ninth RAM version, padding, alternate
+request identity or completion is fabricated.
+
+Publish each real binary's adjacent replay manifest with its own exact FIFO
+digest. The guarded loader accepts all eight complete physical MEM1 images,
+byte-identical to the originals, and refuses the later **105948** digest for
+each. Extraction uses the **full original journal/report plus --through-command
+103677 / 103731 / 103782 / 104760 / 104814 / 104865 / 105843 / 105897**.
+Eight native guarded replays accept **133-140 plans/programs**, without skipped
+or refused work. All retain **status 1 / ran-with-coverage-gaps**, with original
+**tlut_texture=2 / 3 / 4 / 4 / 5 / 6 / 6 / 7** counts. These valid CI-usage
+counters are not cleared or converted to palette failures or gap-free parity.
+No new GPU replay is run. Earlier resource versions, external aliases/MEM2 and
+GPU/title/gameplay parity remain uncertified by these selected snapshots.
+
+All **103 live raw/display RGB pairs** pass the strict image collector. The
+first **202 PNG files (frames 1-101)** equal the Unit 89 originals byte-for-byte.
+The opened final **frame 103** is still the **red Nintendo logo**, with the same
+**26422-pixel mask**, no green/blue or pixels outside it. Maximum red is
+**205 / 198 / 191** at frames **101 / 102 / 103**, continuing the fade-out,
+not a visible notice or title scene. Final display SHA
+**c28c2bf1ac7b3c7ea442ff7c6d771555dc84dd640716dd5dd174ccdb92e3db02**.
+Frame 103 has six prior snapshots; snapshots 7-8 belong to the following
+**unpresented** frame. Do not invent a frame 104 presentation or PNG.
+
+Lane 18's private read-only handoff:
+
+```text
+/home/fred/projects/zeldaWWHDRecomp/build-f5/ww05/vita3k-run-26495d04517c4b43a7d72502c7dfb888/evidence/lane18-post-boundary-handoff.json
+```
+
+Sibling **post-boundary-eight-MEM1-verified.json**, eight original adjacent
+**ww05.mem1-N.snapshot.json**, **post-boundary-draw-snapshotN/** fixtures,
+**post-boundary-guarded-native-checks.json** and
+**post-boundary-live-images-verified.json** retain resource/FIFO/PNG hashes and
+original native outcomes. The full original journal and original status 2
+remain authoritative for the failed complete-window request.
+
+### Memory and the requested comparison
+
+Guest RAM preflight is **6.379822 GiB**. There is **no RAM-guard stop**; minimum
+external sampled available RAM is **3099443200 bytes / 2.886581 GiB**, above
+the unchanged floor. Maximum **observed** RSS is **3906404352 bytes /
+3.638123 GiB**, versus **4.117889 GiB** on the prior attempt with the **same
+package**. All sampled guest VmSwap values are zero. This difference in the
+emulator's own footprint is another reason not to assign progress solely to
+user-app closures. Peak residency/source attribution is not established by
+VmRSS alone. There is no resident snapshot array; captures still stream in
+64 KiB chunks.
+
+| Observed minute | Last sample (s) | Endpoint RSS (GiB) | Endpoint change (MiB) | Minimum sampled available (GiB) |
+| ---: | ---: | ---: | ---: | ---: |
+| 1 | 59.312 | 3.359558 | — | 3.080353 |
+| 2 | 119.616 | 3.359558 | 0.000000 | 3.010773 |
+| 3 | 179.864 | 3.635269 | +282.328125 | 2.886581 |
+| 4 | 239.245 | 3.636978 | +1.750000 | 2.896988 |
+| 5 | 299.897 | 3.637314 | +0.343750 | 2.930511 |
+| 6 | 359.645 | 3.637604 | +0.296875 | 2.984909 |
+| 7 | 419.426 | 3.637985 | +0.390625 | 2.996964 |
+| 8 | 479.093 | 3.608490 | -30.203125 | 2.921753 |
+| 9 (partial, includes shutdown) | 489.243 | 2.766373 | -862.328125 | 2.897476 |
+
+Offsets start at the first actually observed guest emulator sample. The last
+row includes closed-report deallocation/cleanup; its RSS decline is **not a
+healthy live-boot plateau**. The original one-second memory/CPU/output samples
+and clocks remain in **run-watch.jsonl** alongside the active ~50 ms guard.
+
+Host fluctuations are again real at fixed emulator RSS: availability rises
+**189.921875 MiB at 18:21:21.824630**, **149.296875 MiB at 18:23:48.862963**,
+and **128.671875 MiB at 18:22:35.205706** (**2026-10-13, CEST/GMT+2**), with
+corresponding MemFree rises **190.9375 / 149.296875 / 128.84375 MiB**.
+**This confirms fluctuations outside the observed emulator RSS, not which user
+app closed or that app closures caused the longer run.** No per-application
+lifecycle trace exists; cache/kernel/process releases remain alternatives.
+The durations **70→157→263→490 s** are observations, **not a guarantee that
+identical retries always advance**. The earlier command prefixes repeat on
+each fresh boot; only this verified suffix is additional captured extent.
+
+Measured comparison and all per-minute/global-memory records:
+
+```text
+/home/fred/projects/zeldaWWHDRecomp/build-f5/ww05/vita3k-run-26495d04517c4b43a7d72502c7dfb888/evidence/post-boundary-memory-and-progress.json
+```
+
+**Do not repeat the identical eight-snapshot window automatically**: it now
+stops deterministically on its own budget, not a RAM opening. The next selected
+window can begin at the unsnapshotted **105948** draw with its complete earlier
+state prefix, or the owner can explicitly approve another bounded disk-capture
+policy. The 128-image limit also remains a diagnostic ceiling, not a game wall.
+No capture bound, guest instruction, clock, completion or DSP/PCM policy is
+silently changed to get further.
+
+Linux AArch64: **87 focused activity/launch/plan tests / 39 subtests**, plus
+**203 GX tests / 109 subtests**, pass in **10.89 / 3.09 s**; logs
+**ww16-post-boundary-a0f47cb-focused.log / ww16-post-boundary-a0f47cb-gx-tests.log**.
+Audit/attribution/whitespace pass. All original result/report/journal/MEM1/PNG
+hashes are rechecked unchanged and no emulator/compiler survivor remains.
+No production-code change, rebuild, new GPU/physical-Vita/Windows CI result,
+title/gameplay/whole-game parity, sound or FPS claim. No network, push,
+user-app termination, discarded failure or fabricated evidence.
+
+## Unit 94: owner-authorized sixteen-version budget, still streamed and bounded
+
+The owner reads the Unit 93 budget stop and asks to increase snapshots and retry.
+Its original request, eight binary/metadata pairs and markers prove the old
+limit was **8**, not **3**; three describes the earlier Unit 89 captures. Double
+the **actual** bounded capacity/request to **16**, not six (which would reduce
+this run's budget). This is a first enlarged capture budget, **not a guarantee
+that sixteen draws cover the entire logo-to-title interval**. The remaining
+distance has not been measured here; keep that uncertainty and the separate
+128-image ceiling explicit rather than claiming a title screen in advance.
+
+Change only the native **WW_MEM1_MAX_CAPTURES** and Python **MAX_CAPTURES**
+limits, both to **16**. Both staging and launch CLI choices reuse the Python
+constant; the error/help text reports the same actual bound. The native bound
+still protects request parsing, live capture and frame-capture enablement.
+Default remains **zero/off**; count **17** is rejected, strict window exhaustion
+still fails loudly, and resource identity/temporal witnesses stay required.
+No renderer, guest execution, clock, completion, audio or RAM-size change.
+
+### Snapshot footprint, without treating disk payload as resident clones
+
+Each binary is exactly **24 MiB**: **6 = 144 MiB, 8 = 192 MiB, 16 = 384 MiB**
+of disk payload. The unchanged **mem1_capture.c** writes directly from the
+existing **host->cpu.ram** in **64 KiB spans**, through one FILE, then publishes
+the binary/metadata atomically. It allocates **no new MEM1 image**, keeps no
+snapshot array and retains only scalar capture count/time/identity fields.
+Increasing the constant does not add host backing arrays or change the struct.
+Thus the sixteen-version request is **not 384 MiB of extra resident guest RAM**.
+Stdio buffers, filesystem/page cache, PNG readbacks and emulator allocations
+still have real costs; the unchanged live MemAvailable guard remains necessary.
+Do not call their combined memory pressure zero or infer an exact per-snapshot
+Vita3K RSS cost from asynchronous one-second samples.
+
+Test-first: plan/request acceptance at **16**, a native sixteen-draw window
+with a different actual RAM byte before each draw, and sixteenth partial/final
+output monitoring all fail on the old bound. Preserve **ww16-sixteen-snapshots-red.log**.
+Reuse the existing native window fixture rather than a second capture path;
+the strict collector verifies sixteen genuine full versions and matching
+markers. The first full regression pass also catches an obsolete I/O negative
+test that still calls **9** invalid; preserve **ww16-sixteen-snapshots-host.log**
+and update that boundary to **17**, adding positive two-digit native request
+parsing coverage. Do not weaken real input validation to conceal the failure.
+
+Linux AArch64 **-j2**: **800 host/DVD tests / 1934 subtests** pass in **59.93 s**
+(**ww16-sixteen-snapshots-host-green.log** and watched CPU/output journal).
+**203 GX tests / 109 subtests** pass in **1.88 s**, retained in
+**ww16-sixteen-snapshots-gx-tests.log**.
+Commit the tested source, then rebuild that exact commit **VI/O1 -j2** and
+launch a fresh **1200 s / FIFO 196608 / MEM1=16 / window 102937-196608 /
+audio=deferred** diagnostic, with RAM rechecked before build/install/guest and
+guarded every owned phase callback (~50 ms). Do not use the old eight-capacity
+binary under a sixteen request or relabel the old immutable receipt. No
+physical-Vita/Windows CI or title/gameplay/FPS claim; nothing is pushed.

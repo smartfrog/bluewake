@@ -110,6 +110,26 @@ class Mem1CaptureTest(unittest.TestCase):
             self.assertIn('scene MEM1 draw window exhausted its snapshot budget', log)
             self.assertEqual(len(list(root.glob('ww05.mem1-*.bin'))), 1)
 
+    def test_sixteen_disk_streamed_snapshots_preserve_each_actual_ram_version(self):
+        with tempfile.TemporaryDirectory(dir='/tmp/opencode', prefix='ww16-sixteen-') as directory:
+            root = Path(directory)
+            log = self.probe(root, 'capture-window-sixteen')
+            manifest = verify_snapshots(root, token='c' * 32, source='a' * 40, package='b' * 64,
+                                        count=16, journal=log, command_window=[15, 30])
+            self.assertEqual(manifest['captured'], 16)
+            for item in manifest['snapshots']:
+                with self.subTest(snapshot=item['snapshot']):
+                    with (root / item['file']).open('rb') as stream:
+                        stream.seek(0x1000)
+                        self.assertEqual(stream.read(1), bytes([item['command']]))
+
+    def test_snapshot_monitor_includes_the_sixteenth_partial_and_final_files(self):
+        from memory_capture import snapshot_outputs
+        paths = snapshot_outputs(Path('/unused'))
+        self.assertIn(Path('/unused/ww05.mem1-16.bin.partial'), paths)
+        self.assertIn(Path('/unused/ww05.mem1-16.json'), paths)
+        self.assertNotIn(Path('/unused/ww05.mem1-17.bin'), paths)
+
     def test_scene_window_cannot_relabel_initial_snapshots_without_its_native_witness(self):
         with tempfile.TemporaryDirectory(dir='/tmp/opencode', prefix='ww16-scene-') as directory:
             root = Path(directory)

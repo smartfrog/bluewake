@@ -15,7 +15,7 @@ import zipfile
 
 from game_build import OUTPUT, ROOT, STACK, PINS, COMPOSITE_DIGEST, checked_sources, sha256
 from report import MAX_JOURNAL_COMMANDS, MAX_JOURNAL_BYTES
-from memory_capture import validate_memory_captures
+from memory_capture import MAX_CAPTURES, validate_memory_captures
 
 sys.path.insert(0, str(ROOT / 'scripts/vita/armv7'))
 from fp_launch import create_run, evidence_file, reject_symlinks, sandbox_command, stage_runtime
@@ -257,7 +257,7 @@ def main():
     parser.add_argument('--timeout', type=float, default=60)
     parser.add_argument('--wayland-socket', type=Path, required=True)
     parser.add_argument('--continue-gx', type=int, default=0)
-    parser.add_argument('--mem1-snapshots', type=int, choices=range(9), default=0)
+    parser.add_argument('--mem1-snapshots', type=int, choices=range(MAX_CAPTURES + 1), default=0)
     parser.add_argument('--mem1-command-window', type=int, nargs=2, metavar=('START', 'END'))
     parser.add_argument('--defer-audio', action='store_true')
     parser.add_argument('--disc', type=Path)

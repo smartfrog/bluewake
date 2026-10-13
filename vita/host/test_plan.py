@@ -93,6 +93,15 @@ class PlanTest(unittest.TestCase):
         self.assertEqual(plan['mem1_command_window'], [101854, 102936])
         self.assertEqual(plan['continue_gx'], 133260)
 
+    def test_sixteen_late_snapshots_keep_the_extended_guard_and_image_bounds(self):
+        import stage_plan
+        args = SimpleNamespace(libraries=None, wayland_socket=None, timeout=1200, continue_gx=196608,
+                               mem1_snapshots=16, mem1_command_window=[102937, 196608])
+        plan = stage_plan.make_plan(Path('/unused'), args, 'a' * 40, 'b' * 64, 'c' * 32)
+        self.assertEqual(plan['mem1_snapshots'], 16)
+        self.assertEqual(plan['frame_capture_limit'], 128)
+        self.assertEqual(plan['minimum_available_memory_bytes'], 5 * 1024 ** 3 // 2)
+
     def test_memory_window_cannot_select_unlogged_or_invalid_commands(self):
         import stage_plan
         for window in ([0, 10], [20, 10], [1, 133261], [True, 10], [1], [1, 2, 3]):
@@ -135,7 +144,7 @@ class PlanTest(unittest.TestCase):
 
     def test_memory_snapshot_request_is_explicit_bounded_and_requires_the_draw_journal(self):
         import stage_plan
-        for count, journal in ((-1, 2048), (9, 2048), (1, 0), (2, 0)):
+        for count, journal in ((-1, 2048), (17, 2048), (1, 0), (2, 0)):
             with self.subTest(count=count, journal=journal), self.assertRaises(ValueError):
                 stage_plan.make_plan(Path('/unused'), SimpleNamespace(timeout=120, continue_gx=journal, mem1_snapshots=count),
                                      'a' * 40, 'b' * 64, 'c' * 32)
