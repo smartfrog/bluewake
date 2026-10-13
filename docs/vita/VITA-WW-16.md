@@ -1703,3 +1703,35 @@ manifest **`evidence/mem1-capture.json`**; draw fixtures
 known post-report shutdown **133**, no inactive/timeout termination. Next source
 work is stopped audio-DMA register configuration only; DMA enable, PCM transfer
 or audio completion cannot be invented to cross that frontier.
+
+## Unit 46: retain sourced audio-DMA setup while both audio engines are stopped
+
+The observed **80316950 halfword read of CC005030** begins the actual SDK source
+address setup: high read/write at **5030**, low read/write at **5032**, then
+length/control at **5036**. Pinned Dolphin `DSP.cpp:63-66,141,200-203,314-347`
+defines zero reset, GameCube source-high **03FF** / aligned source-low **FFE0**
+masks and the separate enable bit. The host now reuses the pinned
+**dol_audio_dma_dsp_mmio_read/write** register file and source-address latching
+for these three halfword configuration registers; there is no duplicate DMA
+engine or new sample-data representation.
+
+Writes require AIS and audio DMA both stopped. Source halves retain the sourced
+masks; disabled control retains only its **7FFF** length bits. **Any DMA enable,
+active-engine change or unobserved access width is an explicit STOP before
+mutation**, because the enable path would require actual PCM transfer and AID
+interrupt handling. No source memory is read, transfer consumed, time advanced,
+completion published or interrupt asserted by this register-only setup. ARAM
+DMA remains its separate existing implementation. Other unsupported registers
+and audio execution remain refusals.
+
+Linux AArch64: **662 host tests pass**, including eight added parameterized
+register-family scenarios: zero reset, exact masks, coupled source halves,
+disabled length, enable refusal, active-engine refusal, wrong-width refusal and
+only executed-cycle credit. The reused probe checks the full audio state against
+the permitted pinned register/latch delta, and preserves FIFO/frontier/trace,
+interrupts and budget. Reset reads were red before implementation
+(`logs/ww16-idle-aid-red.log`); green in `logs/ww16-idle-aid-green.log`. Actual
+ARM host links without new warnings (`logs/ww16-idle-aid-arm-link.log`);
+audit/attribution/whitespace pass. No runtime pin, desktop default or rendering
+change. Fresh committed VI/O1 rebuild and watched MEM1/live-PNG trial follows;
+configuring an idle source does not prove playing audio or game progress.

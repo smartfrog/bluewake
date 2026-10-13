@@ -444,6 +444,10 @@ static bool fifo_has_input(const WwHost* host) {
     return host->frontier.size != 0u || host->gather.size != 0u || host->gather.transfers != 0u;
 }
 
+static bool audio_dma_config_register(u32 address, u8 size) {
+    return size == 2u && (address == 0xCC005030u || address == 0xCC005032u || address == 0xCC005036u);
+}
+
 static u16* pe_config_register(WwHost* host, u32 address, u8 size) {
     if (size != 2u || address < 0xCC001000u || address > 0xCC001008u || (address & 1u) != 0u)
         return NULL;
@@ -494,6 +498,8 @@ static u64 mmio_read(CPUState* cpu, u32 address, u8 size) {
         value = 0u; // Cold boot only; reset writes still require a drive-reset backend.
     else if ((address == 0xCC006C00u || address == 0xCC006C04u || address == 0xCC006C0Cu) && size == 4u)
         dol_audio_dma_ai_mmio_read(&host->audio, address - 0xCC006C00u, size, &value);
+    else if (audio_dma_config_register(address, size))
+        dol_audio_dma_dsp_mmio_read(&host->audio, address - 0xCC005000u, size, &value);
     else if (interrupt_register(address, size, false))
         value = dol_interrupts_mmio_read(&host->interrupts, address, size);
     else if (size == 4u && (address & 3u) == 0u && in_range(address, size, DOL_DI_BASE, DOL_DI_REGISTER_BYTES))
@@ -649,6 +655,15 @@ static void mmio_write(CPUState* cpu, u32 address, u64 value, u8 size) {
             return;
         }
         dol_audio_dma_ai_mmio_write(&host->audio, address - 0xCC006C00u, size, value);
+    } else if (audio_dma_config_register(address, size)) {
+        if ((read_be32(host->audio.ai_regs) & DOL_AUDIO_DMA_AI_PSTAT_BIT) != 0u ||
+            (dol_audio_dma_read_control(&host->audio) & DOL_AUDIO_DMA_ENABLE) != 0u ||
+            (address == 0xCC005036u && (value & DOL_AUDIO_DMA_ENABLE) != 0u)) {
+            fail_mmio_write(host, "audio DMA configuration requires stopped engines; enable/transfer needs a PCM backend", address, value, size);
+            return;
+        }
+        const u16 mask = address == 0xCC005030u ? 0x03FFu : address == 0xCC005032u ? 0xFFE0u : 0x7FFFu;
+        dol_audio_dma_dsp_mmio_write(&host->audio, address - 0xCC005000u, size, value & mask);
     } else if (interrupt_register(address, size, true))
         dol_interrupts_mmio_write(&host->interrupts, address, size, value);
     else if (size == 4u && (address & 3u) == 0u && in_range(address, size, DOL_DI_BASE, DOL_DI_REGISTER_BYTES))

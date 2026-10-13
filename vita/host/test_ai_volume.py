@@ -70,3 +70,43 @@ class AiVolumeTest(unittest.TestCase):
 
     def test_active_audio_dma_timing_reset_is_not_silently_accepted_without_a_backend(self):
         self.probe('audio-dma-running', '0xCC006C0C')
+
+    def test_idle_audio_dma_configuration_registers_read_the_sourced_zero_reset(self):
+        for address in ('0xCC005030', '0xCC005032', '0xCC005036'):
+            with self.subTest(address=address):
+                self.probe('reset', address)
+
+    def test_idle_audio_dma_source_halves_retain_only_the_sourced_GameCube_masks(self):
+        for address in ('0xCC005030', '0xCC005032'):
+            for value in (0, 0x1234, 0xFFFF):
+                with self.subTest(address=address, value=value):
+                    self.probe(f'value-{value}', address)
+
+    def test_idle_audio_dma_source_halves_latch_one_address_without_transferring_or_completing(self):
+        self.probe('independent', '0xCC005030')
+
+    def test_disabled_audio_dma_length_is_retained_without_starting_a_transfer(self):
+        for value in (0, 1, 16, 0x7FFF):
+            with self.subTest(value=value):
+                self.probe(f'value-{value}', '0xCC005036')
+
+    def test_audio_dma_enable_requires_an_actual_PCM_backend_before_mutation_or_interrupt(self):
+        for value in (0x8000, 0x8001, 0xFFFF):
+            with self.subTest(value=value):
+                self.probe(f'value-{value}', '0xCC005036')
+
+    def test_audio_dma_configuration_changes_are_refused_while_an_audio_engine_is_active(self):
+        for address in ('0xCC005030', '0xCC005032', '0xCC005036'):
+            for scenario in ('audio-running', 'audio-dma-running'):
+                with self.subTest(address=address, scenario=scenario):
+                    self.probe(scenario, address)
+
+    def test_audio_dma_configuration_requires_the_observed_halfword_width(self):
+        for address in ('0xCC005030', '0xCC005032', '0xCC005036'):
+            for operation in ('read', 'write'):
+                for width in (1, 3, 4, 8):
+                    with self.subTest(address=address, operation=operation, width=width):
+                        self.probe(f'{operation}-width-{width}', address)
+
+    def test_idle_audio_dma_configuration_credits_only_executed_cycles_without_clock_or_budget_invention(self):
+        self.probe('credit', '0xCC005030')
