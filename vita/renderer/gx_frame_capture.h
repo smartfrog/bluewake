@@ -4,6 +4,7 @@
 #include "ww_renderer.h"
 #include <cstddef>
 #include <cstdint>
+#include <cstdio>
 
 namespace gx_capture {
 
@@ -14,5 +15,6 @@ inline bool valid(const WwRendererFrame& frame) {
 }
 
 const char* write_png(const WwRendererFrame& frame, const char* path, bool display_opaque = false);
+const char* write_png(const WwRendererFrame& frame, FILE* output, bool display_opaque = false);
 
 }

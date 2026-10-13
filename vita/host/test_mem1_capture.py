@@ -164,6 +164,28 @@ class Mem1CaptureTest(unittest.TestCase):
                 self.assertFalse((root / 'ww05.mem1-1.json').exists())
                 self.assertNotIn('[mem1-snapshot]', log)
 
+    def test_concurrent_binary_or_metadata_publication_preserves_final_and_actual_partial(self):
+        for artifact, name in (('bin', 'ww05.mem1-1.bin'), ('json', 'ww05.mem1-1.json')):
+            for kind in ('file', 'symlink'):
+                with self.subTest(artifact=artifact, kind=kind), tempfile.TemporaryDirectory(dir='/tmp/opencode', prefix='ww25-mem1-') as directory:
+                    root = Path(directory)
+                    target = root / 'race-target'
+                    target.write_bytes(b'preserved target')
+                    log = self.probe(root, f'capture-race-{artifact}-{kind}')
+                    self.assertIn('[race-injected]', log)
+                    self.assertEqual(target.read_bytes(), b'preserved target')
+                    final = root / name
+                    self.assertEqual(final.is_symlink(), kind == 'symlink')
+                    self.assertEqual(final.read_bytes(), b'preserved target' if kind == 'symlink' else b'concurrent evidence')
+                    partial = final.with_name(final.name + '.partial')
+                    if artifact == 'bin':
+                        self.assertEqual(partial.stat().st_size, 25165824)
+                        self.assertFalse((root / 'ww05.mem1-1.json').exists())
+                    else:
+                        self.assertEqual(json.loads(partial.read_text())['command'], 14)
+                        self.assertEqual((root / 'ww05.mem1-1.bin').stat().st_size, 25165824)
+                    self.assertNotIn('[mem1-snapshot]', log)
+
     def test_metadata_write_or_publish_failure_cannot_claim_a_complete_snapshot(self):
         for stage in ('write', 'publish'):
             with self.subTest(stage=stage), tempfile.TemporaryDirectory(dir='/tmp/opencode', prefix='ww16-mem1-') as directory:

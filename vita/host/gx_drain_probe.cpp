@@ -10,15 +10,63 @@ extern "C" {
 #include <ctime>
 #include <cstdarg>
 #include <cerrno>
+#include <unistd.h>
 
 static const char* marker_scenario;
 static u64 marker_us = 1000000u;
 static const char* capture_scenario;
+static bool race_injected;
 
 extern "C" size_t __real_fwrite(const void* data, size_t size, size_t count, FILE* stream);
 extern "C" int __real_fflush(FILE* stream);
 extern "C" int __real_fclose(FILE* stream);
-extern "C" int __real_rename(const char* source, const char* destination);
+extern "C" int __real_link(const char* source, const char* destination);
+extern "C" FILE* __real_fopen(const char* path, const char* mode);
+
+static void inject_capture_race(const char* path) {
+    assert(!race_injected);
+    race_injected = true;
+    if (std::strstr(capture_scenario, "-symlink") != nullptr) {
+        char target[1024];
+        assert(getcwd(target, sizeof(target)) != nullptr);
+        assert(std::strlen(target) + sizeof("/race-target") <= sizeof(target));
+        std::strcat(target, "/race-target");
+        assert(symlink(target, path) == 0);
+    } else {
+        FILE* existing = __real_fopen(path, "wbx");
+        assert(existing != nullptr);
+        const char bytes[] = "concurrent evidence";
+        assert(__real_fwrite(bytes, 1u, sizeof(bytes) - 1u, existing) == sizeof(bytes) - 1u);
+        assert(__real_fclose(existing) == 0);
+    }
+    std::fprintf(stderr, "[race-injected] path=%s\n", path);
+}
+
+extern "C" FILE* __wrap_fopen(const char* path, const char* mode) {
+    if (!race_injected && capture_scenario != nullptr &&
+        std::strncmp(capture_scenario, "image-race-open-", 16u) == 0 &&
+        std::strcmp(path, "frames/frame-1-rgba.png.partial") == 0)
+        inject_capture_race(path);
+    return __real_fopen(path, mode);
+}
+
+static bool capture_publish_failure(const char* source, const char* destination) {
+    if (capture_scenario == nullptr)
+        return false;
+    if (!race_injected &&
+        ((std::strncmp(capture_scenario, "image-race-png-", 15u) == 0 &&
+          std::strcmp(destination, "frames/frame-1-rgba.png") == 0) ||
+         (std::strncmp(capture_scenario, "image-race-json-", 16u) == 0 &&
+          std::strcmp(destination, "frames/frame-1.json") == 0) ||
+         (std::strncmp(capture_scenario, "capture-race-bin-", 17u) == 0 &&
+          std::strcmp(destination, "ww05.mem1-1.bin") == 0) ||
+         (std::strncmp(capture_scenario, "capture-race-json-", 18u) == 0 &&
+          std::strcmp(destination, "ww05.mem1-1.json") == 0)))
+        inject_capture_race(destination);
+    return std::strcmp(capture_scenario, "capture-publish-failure") == 0 ||
+        (std::strcmp(capture_scenario, "capture-json-publish-failure") == 0 &&
+         std::strstr(source, ".json.partial") != nullptr);
+}
 
 extern "C" size_t __wrap_fwrite(const void* data, size_t size, size_t count, FILE* stream) {
     if (stream != stdout && stream != stderr && capture_scenario != nullptr &&
@@ -48,14 +96,12 @@ extern "C" int __wrap_fclose(FILE* stream) {
     return result;
 }
 
-extern "C" int __wrap_rename(const char* source, const char* destination) {
-    if (capture_scenario != nullptr &&
-        (std::strcmp(capture_scenario, "capture-publish-failure") == 0 ||
-         (std::strcmp(capture_scenario, "capture-json-publish-failure") == 0 && std::strstr(source, ".json.partial") != nullptr))) {
+extern "C" int __wrap_link(const char* source, const char* destination) {
+    if (capture_publish_failure(source, destination)) {
         errno = EIO;
         return -1;
     }
-    return __real_rename(source, destination);
+    return __real_link(source, destination);
 }
 
 extern "C" int __real_clock_gettime(clockid_t clock, struct timespec* stamp);
@@ -266,8 +312,10 @@ int main(int argc, char** argv) {
                     assert(error != nullptr && backend.presents == 0u && backend.readbacks == 0u);
                     break;
                 }
-                if (backend.fail_readback || backend.invalid_readback || std::strcmp(scenario, "image-png-write-failure") == 0) {
+                if (backend.fail_readback || backend.invalid_readback || std::strcmp(scenario, "image-png-write-failure") == 0 ||
+                    std::strncmp(scenario, "image-race-", 11u) == 0) {
                     assert(error != nullptr && backend.presents == 1u && backend.readbacks == 1u);
+                    std::fprintf(stderr, "capture stopped: %s\n", error);
                     break;
                 }
                 if (frame == 2u && std::strcmp(scenario, "image-refusal-trace-failure") == 0) {

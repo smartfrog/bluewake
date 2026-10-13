@@ -441,13 +441,13 @@ int __wrap_fclose(FILE* stream) {
     return fail ? EOF : result;
 }
 
-int __real_rename(const char* from, const char* to);
-int __wrap_rename(const char* from, const char* to) {
+int __real_link(const char* from, const char* to);
+int __wrap_link(const char* from, const char* to) {
     if (failure("rename")) {
         errno = EIO;
         return -1;
     }
-    return __real_rename(from, to);
+    return __real_link(from, to);
 }
 
 int __real_fixture_log_close(void);

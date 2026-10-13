@@ -83,6 +83,41 @@ class LiveFramesTest(unittest.TestCase):
             self.assertTrue((root / 'frames/frame-1-rgba.png.partial').exists())
             self.assertFalse((root / 'frames/frame-1.json').exists())
 
+    def test_concurrent_png_open_file_or_symlink_is_refused_without_overwriting_evidence(self):
+        for kind in ('file', 'symlink'):
+            with self.subTest(kind=kind), tempfile.TemporaryDirectory(dir='/tmp/opencode', prefix='ww25-open-') as directory:
+                root = Path(directory)
+                target = root / 'race-target'
+                target.write_bytes(b'preserved target')
+                log = self.probe(root, f'image-race-open-{kind}')
+                self.assertIn('[race-injected]', log)
+                self.assertEqual(target.read_bytes(), b'preserved target')
+                partial = root / 'frames/frame-1-rgba.png.partial'
+                self.assertEqual(partial.is_symlink(), kind == 'symlink')
+                self.assertEqual(partial.read_bytes(), b'preserved target' if kind == 'symlink' else b'concurrent evidence')
+                self.assertFalse((root / 'frames/frame-1-rgba.png').exists())
+                self.assertFalse((root / 'frames/frame-1.json').exists())
+
+    def test_concurrent_png_or_metadata_publication_preserves_final_and_completed_partial(self):
+        for artifact, name in (('png', 'frame-1-rgba.png'), ('json', 'frame-1.json')):
+            for kind in ('file', 'symlink'):
+                with self.subTest(artifact=artifact, kind=kind), tempfile.TemporaryDirectory(dir='/tmp/opencode', prefix='ww25-publish-') as directory:
+                    root = Path(directory)
+                    target = root / 'race-target'
+                    target.write_bytes(b'preserved target')
+                    log = self.probe(root, f'image-race-{artifact}-{kind}')
+                    self.assertIn('[race-injected]', log)
+                    self.assertEqual(target.read_bytes(), b'preserved target')
+                    final = root / 'frames' / name
+                    self.assertEqual(final.is_symlink(), kind == 'symlink')
+                    self.assertEqual(final.read_bytes(), b'preserved target' if kind == 'symlink' else b'concurrent evidence')
+                    partial = final.with_name(final.name + '.partial')
+                    if artifact == 'png':
+                        self.assertEqual(parse_png(partial)[-1], bytes([70, 80, 90, 255, 100, 110, 120, 0, 10, 20, 30, 0, 40, 50, 60, 128]))
+                    else:
+                        self.assertEqual(json.loads(partial.read_text())['frame'], 1)
+                    self.assertNotIn('[frame-capture]', log)
+
     def test_live_collector_keeps_both_pngs_in_private_evidence_and_records_exact_pixel_statistics(self):
         from frame_capture import collect_frames
         with tempfile.TemporaryDirectory(dir='/tmp/opencode', prefix='ww16-live-') as directory:

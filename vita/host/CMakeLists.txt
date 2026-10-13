@@ -146,7 +146,8 @@ if(WW05_TESTS_ONLY)
     target_compile_options(gx_drain_probe PRIVATE -UNDEBUG)
     target_link_libraries(gx_drain_probe PRIVATE ww05_services)
     target_link_options(gx_drain_probe PRIVATE -Wl,--wrap=clock_gettime -Wl,--wrap=fprintf
-        -Wl,--wrap=fwrite -Wl,--wrap=fflush -Wl,--wrap=fclose -Wl,--wrap=rename)
+        -Wl,--wrap=fwrite -Wl,--wrap=fflush -Wl,--wrap=fclose
+        -Wl,--wrap=fopen -Wl,--wrap=link)
     add_executable(gpu_finish_probe gpu_finish_probe.cpp)
     target_compile_options(gpu_finish_probe PRIVATE -UNDEBUG)
     target_link_libraries(gpu_finish_probe PRIVATE ww05_services)
@@ -165,7 +166,7 @@ if(WW05_TESTS_ONLY)
     target_compile_options(io_probe PRIVATE -fno-builtin)
     target_link_libraries(io_probe PRIVATE ww05_services)
     target_link_options(io_probe PRIVATE -Wl,--wrap=fopen -Wl,--wrap=fprintf -Wl,--wrap=fflush
-        -Wl,--wrap=fclose -Wl,--wrap=rename -Wl,--wrap=fixture_log_close -Wl,--wrap=setvbuf)
+        -Wl,--wrap=fclose -Wl,--wrap=link -Wl,--wrap=fixture_log_close -Wl,--wrap=setvbuf)
 else()
     if(NOT VITA)
         message(FATAL_ERROR "The real game target is Vita-only; host execution is not authorized")

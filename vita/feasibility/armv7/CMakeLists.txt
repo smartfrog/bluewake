@@ -77,7 +77,7 @@ if(WW_IO_PROBE)
     target_compile_definitions(ww_fixture PRIVATE DIAGNOSTIC_PREFIX="arm" DIAGNOSTIC_IO_ENV="ARM_IO_FAILURE")
     target_compile_options(ww_fixture PRIVATE -fno-builtin)
     target_link_options(ww_fixture PRIVATE -Wl,--wrap=fopen -Wl,--wrap=fprintf -Wl,--wrap=fflush
-        -Wl,--wrap=fclose -Wl,--wrap=rename -Wl,--wrap=arm_vfp_available -Wl,--wrap=arm_vfp_read
+        -Wl,--wrap=fclose -Wl,--wrap=link -Wl,--wrap=arm_vfp_available -Wl,--wrap=arm_vfp_read
         -Wl,--wrap=arm_vfp_write -Wl,--wrap=arm_vfp_operation)
 endif()
 

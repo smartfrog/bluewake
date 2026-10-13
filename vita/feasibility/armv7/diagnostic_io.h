@@ -6,6 +6,11 @@
 #include <stdio.h>
 #include <string.h>
 #include <sys/stat.h>
+#ifdef __vita__
+#include <psp2/io/fcntl.h>
+#else
+#include <unistd.h>
+#endif
 
 static inline bool diagnostic_hex(const char* text, size_t length) {
     if (strlen(text) != length)
@@ -39,12 +44,34 @@ static inline bool diagnostic_absent(const char* path) {
     return lstat(path, &info) < 0 && errno == ENOENT;
 }
 
+static inline int diagnostic_publish_error(const char* stage, const char* partial,
+                                          const char* complete, int status, int cause) {
+    const int logged = fprintf(stderr, "[diagnostic-publish-error] stage=%s partial=%s complete=%s status=%d errno=%d\n",
+                               stage, partial, complete, status, cause);
+    errno = cause;
+    return logged < 0 ? -1 : status;
+}
+
 static inline int diagnostic_publish(FILE* stream, const char* partial, const char* complete) {
     const int flushed = fflush(stream);
+    const int flush_errno = errno;
     const int failed = ferror(stream);
     const int closed = fclose(stream);
-    if (flushed != 0 || failed || closed != 0 || !diagnostic_absent(complete))
-        return 1;
-    return rename(partial, complete) != 0;
+    if (flushed != 0 || failed || closed != 0) {
+        const int cause = flushed != 0 || failed ? flush_errno : errno;
+        return diagnostic_publish_error(flushed != 0 || failed ? "flush" : "close", partial, complete,
+                                        -1, cause != 0 ? cause : EIO);
+    }
+#ifdef __vita__
+    // Newlib rename removes the destination first; the native rename refuses an existing entry.
+    const int result = sceIoRename(partial, complete);
+    return result != 0 ? diagnostic_publish_error("sceIoRename", partial, complete, result, 0) : 0;
+#else
+    if (link(partial, complete) != 0)
+        return diagnostic_publish_error("link", partial, complete, -1, errno);
+    if (unlink(partial) != 0)
+        return diagnostic_publish_error("unlink", partial, complete, -1, errno);
+    return 0;
+#endif
 }
 #endif

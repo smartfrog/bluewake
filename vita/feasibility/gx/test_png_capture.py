@@ -87,6 +87,26 @@ class PngCaptureTest(unittest.TestCase):
             self.assertEqual((depth, colour), (8, 6))
             self.assertEqual(pixels, PATTERN)
 
+    def test_existing_png_bytes_are_preserved(self):
+        with tempfile.TemporaryDirectory(dir='/tmp/opencode') as directory:
+            output = Path(directory) / 'capture.png'
+            output.write_bytes(b'existing evidence')
+            result = subprocess.run([str(find_tests()), str(output)], capture_output=True)
+            self.assertNotEqual(result.returncode, 0)
+            self.assertEqual(output.read_bytes(), b'existing evidence')
+
+    def test_existing_symlink_is_not_followed_or_replaced(self):
+        with tempfile.TemporaryDirectory(dir='/tmp/opencode') as directory:
+            root = Path(directory)
+            target = root / 'target'
+            target.write_bytes(b'preserved target')
+            output = root / 'capture.png'
+            output.symlink_to(target)
+            result = subprocess.run([str(find_tests()), str(output)], capture_output=True)
+            self.assertNotEqual(result.returncode, 0)
+            self.assertTrue(output.is_symlink())
+            self.assertEqual(target.read_bytes(), b'preserved target')
+
 
 if __name__ == "__main__":
     unittest.main()

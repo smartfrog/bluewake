@@ -65,10 +65,15 @@ static const char* capture_frame(const WwRendererFrame* frame, void* user) try {
         if (snprintf(partial, sizeof(partial), "%s.partial", path) < 0 ||
             !diagnostic_absent(path) || !diagnostic_absent(partial))
             return "live frame evidence refuses preexisting PNG output";
-        error = gx_capture::write_png(*frame, partial, path == display);
-        if (error != nullptr)
-            return error;
-        if (!diagnostic_absent(path) || rename(partial, path) != 0)
+        FILE* stream = fopen(partial, "wbx");
+        if (stream == nullptr)
+            return "live frame evidence PNG exclusive open failed";
+        error = gx_capture::write_png(*frame, stream, path == display);
+        if (error != nullptr) {
+            const int closed = fclose(stream);
+            return closed != 0 ? "live frame PNG write and close failed" : error;
+        }
+        if (diagnostic_publish(stream, partial, path) != 0)
             return "live frame evidence PNG publish failed";
     }
     char partial[136];

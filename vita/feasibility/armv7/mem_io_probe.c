@@ -13,7 +13,7 @@
 FILE* __real_fopen(const char* path, const char* mode);
 int __real_fflush(FILE* stream);
 int __real_fclose(FILE* stream);
-int __real_rename(const char* source, const char* destination);
+int __real_link(const char* source, const char* destination);
 static FILE* report;
 
 static int fails(const char* operation) {
@@ -54,6 +54,6 @@ int __wrap_fclose(FILE* stream) {
     return failed ? -1 : result;
 }
 
-int __wrap_rename(const char* source, const char* destination) {
-    return fails("rename") ? -1 : __real_rename(source, destination);
+int __wrap_link(const char* source, const char* destination) {
+    return fails("rename") ? -1 : __real_link(source, destination);
 }

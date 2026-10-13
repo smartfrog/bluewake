@@ -94,9 +94,9 @@ static uint8_t* build_zlib_stored(const uint8_t* raw, size_t raw_size,
   return out;
 }
 
-bool png_write_rgba8(const char* path, const uint8_t* pixels, uint32_t width,
-                     uint32_t height) {
-  if (path == nullptr || pixels == nullptr || width == 0u || height == 0u)
+bool png_write_rgba8_stream(FILE* f, const uint8_t* pixels, uint32_t width,
+                            uint32_t height) {
+  if (f == nullptr || pixels == nullptr || width == 0u || height == 0u)
     return false;
 
   const size_t row_bytes = (size_t)width * 4u;
@@ -115,11 +115,6 @@ bool png_write_rgba8(const char* path, const uint8_t* pixels, uint32_t width,
   if (stream == nullptr)
     return false;
 
-  FILE* f = fopen(path, "wb");
-  if (f == nullptr) {
-    free(stream);
-    return false;
-  }
   static const uint8_t signature[8] = {0x89u, 'P', 'N', 'G', 0x0Du,
                                        0x0Au, 0x1Au, 0x0Au};
   bool ok = fwrite(signature, 1, sizeof signature, f) == sizeof signature;
@@ -141,7 +136,17 @@ bool png_write_rgba8(const char* path, const uint8_t* pixels, uint32_t width,
   ok = ok && write_chunk(f, "IDAT", stream, stream_size);
   ok = ok && write_chunk(f, "IEND", nullptr, 0u);
   free(stream);
-  if (fclose(f) != 0)
-    ok = false;
   return ok;
+}
+
+bool png_write_rgba8(const char* path, const uint8_t* pixels, uint32_t width,
+                     uint32_t height) {
+  if (path == nullptr || pixels == nullptr || width == 0u || height == 0u)
+    return false;
+  FILE* output = fopen(path, "wbx");
+  if (output == nullptr)
+    return false;
+  const bool written = png_write_rgba8_stream(output, pixels, width, height);
+  const int closed = fclose(output);
+  return written && closed == 0;
 }

@@ -19,7 +19,7 @@ class MemoryIoTest(unittest.TestCase):
         cls.binary = output / "mem_io_probe"
         compile_probe(cls.binary, ["mem_main.c", "mem_io_probe.c", "abi.c", "platform.c"],
                       ["-I", str(output), "-fno-builtin", "-Wl,--wrap=fopen", "-Wl,--wrap=fprintf",
-                       "-Wl,--wrap=fflush", "-Wl,--wrap=fclose", "-Wl,--wrap=rename"])
+                       "-Wl,--wrap=fflush", "-Wl,--wrap=fclose", "-Wl,--wrap=link"])
 
     def setUp(self):
         self.temporary = tempfile.TemporaryDirectory(dir=self.binary.parent)
