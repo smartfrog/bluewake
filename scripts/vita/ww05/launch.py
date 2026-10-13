@@ -317,7 +317,7 @@ def main():
     parser.add_argument('--continue-gx', type=int, default=0,
                         help=f'journal first N real commands, then keep executing (1..{MAX_JOURNAL_COMMANDS})')
     parser.add_argument('--mem1-snapshots', type=int, choices=range(MAX_CAPTURES + 1), default=0,
-                         help='capture raw 24 MiB MEM1 before logged draws, at most eight; off for FPS baselines')
+                         help=f'capture raw 24 MiB MEM1 before logged draws, at most {MAX_CAPTURES}; off for FPS baselines')
     parser.add_argument('--mem1-command-window', type=int, nargs=2, metavar=('START', 'END'),
                          help='snapshot every draw within this inclusive command window; retain all earlier FIFO state')
     parser.add_argument('--defer-audio', action='store_true',

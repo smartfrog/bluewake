@@ -14,6 +14,14 @@ sys.path.insert(0, str(ROOT / 'scripts/vita/armv7'))
 
 
 class PrivateLaunchTest(unittest.TestCase):
+    def test_sixteen_snapshot_request_is_bound_to_the_original_private_identity(self):
+        from launch import fresh_request
+        from fp_launch import REPORT_DIRECTORY
+        token = fresh_request(self.root, 'a' * 40, 'b' * 64, continue_gx=196608,
+                              mem1_snapshots=16, mem1_command_window=[102937, 196608])
+        self.assertEqual((self.root / REPORT_DIRECTORY / 'ww05.mem1').read_text(),
+                         f'{token} {"a" * 40} {"b" * 64} 16\n')
+
     def test_scene_window_request_binds_both_endpoints_to_the_same_private_identity(self):
         from launch import fresh_request
         from fp_launch import REPORT_DIRECTORY

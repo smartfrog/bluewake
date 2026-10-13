@@ -157,7 +157,8 @@ int main(int argc, char** argv) {
     const bool captures = std::strncmp(scenario, "capture-", 8u) == 0;
     const bool images = std::strncmp(scenario, "image-", 6u) == 0;
     const bool capture_window = std::strcmp(scenario, "capture-window") == 0 ||
-                                std::strcmp(scenario, "capture-window-limit") == 0;
+                                std::strcmp(scenario, "capture-window-limit") == 0 ||
+                                std::strcmp(scenario, "capture-window-sixteen") == 0;
     const bool capture_success = std::strcmp(scenario, "capture-one") == 0 || std::strcmp(scenario, "capture-two") == 0 || capture_window;
     capture_scenario = captures || images ? scenario : nullptr;
     WwHost* host = static_cast<WwHost*>(std::calloc(1u, sizeof(*host)));
@@ -190,6 +191,10 @@ int main(int argc, char** argv) {
             host->mem1_capture.end_command = 16u;
             if (std::strcmp(scenario, "capture-window-limit") == 0)
                 host->mem1_capture.limit = 1u;
+            if (std::strcmp(scenario, "capture-window-sixteen") == 0) {
+                host->mem1_capture.limit = 16u;
+                host->mem1_capture.end_command = 30u;
+            }
         }
         if (std::strcmp(scenario, "capture-bad-identity") == 0)
             host->mem1_capture.source = "invalid";
@@ -275,8 +280,9 @@ int main(int argc, char** argv) {
             }
         } else if (capture_window) {
             assert(host->mem1_capture.captured == 0u);
-            for (u32 command = 15u; command <= 17u; ++command) {
-                host->cpu.ram[gx_fixture::kTextureBase] = command == 15u ? 0x55u : 0xAAu;
+            for (u32 command = host->mem1_capture.start_command; command <= host->mem1_capture.end_command; ++command) {
+                host->cpu.ram[gx_fixture::kTextureBase] = std::strcmp(scenario, "capture-window-sixteen") == 0
+                    ? command : command == 15u ? 0x55u : 0xAAu;
                 std::vector<u8> draw;
                 gx_fixture::push_triangle(draw);
                 error = feed(host, draw.data(), draw.size());
@@ -286,13 +292,13 @@ int main(int argc, char** argv) {
                     std::fprintf(stderr, "%s\n", error);
                     break;
                 }
-                if (command == 16u) {
+                if (command == host->mem1_capture.end_command) {
                     assert(error != nullptr && std::strcmp(error, "scene MEM1 draw window capture complete") == 0);
-                    assert(host->mem1_capture.captured == 2u && host->stream.decoded == 16u);
+                    assert(host->mem1_capture.captured == host->mem1_capture.limit && host->stream.decoded == command);
                     std::fprintf(stderr, "%s\n", error);
                     break;
                 }
-                assert(error == nullptr && host->mem1_capture.captured == (command == 15u ? 1u : 2u));
+                assert(error == nullptr && host->mem1_capture.captured == command - host->mem1_capture.start_command + 1u);
             }
         } else if (capture_success) {
             assert(host->mem1_capture.captured == 1u && host->cpu.ram[gx_fixture::kTextureBase] != 0x55u);
