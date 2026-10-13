@@ -127,6 +127,20 @@ int fixture_run(int argc, char** argv) {
     const BlueWakeRelData* data = staticrecomp_get_rel_data(&count);
     error |= fprintf(stderr, "[host] stage=initialize\n") < 0;
     bool initialized = !error && ww_host_init(host);
+#if defined(__vita__) && WW05_ENABLE_PAD_INPUT
+    if (initialized && ww_pad_vita_enable(host) < 0) {
+        const int formatted = snprintf(host->pad_error, sizeof(host->pad_error),
+                                       "controller analog initialization failed: result=%08X",
+                                       (unsigned)host->pad_source_result);
+        ww_host_fail(host, formatted < 0 ? "controller init error formatting failed" : host->pad_error,
+                     0u, host->cpu.pc);
+        initialized = false;
+    }
+#endif
+    error |= fprintf(stderr, "[pad-input] build_opt_in=%u active=%u source=%s sampling=guest-SI-only init_result=%08X\n",
+                     WW05_ENABLE_PAD_INPUT, host->pad_read != NULL,
+                     host->pad_read != NULL ? "sceCtrlPeekBufferPositive" : "empty-legacy",
+                     (unsigned)host->pad_source_result) < 0;
     host->dsp.audio_deferred = deferred_audio != 0u;
     error |= fprintf(stderr, "[audio-policy] audio=%s pcm_output=none deferred_task_body=no-op synthetic_mail=%s\n",
                      deferred_audio ? "deferred" : "strict", deferred_audio ? "explicit-opt-in-bootstrap-setup-control" : "disabled") < 0;

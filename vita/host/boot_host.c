@@ -724,14 +724,10 @@ static void mmio_write(CPUState* cpu, u32 address, u64 value, u8 size) {
             bluewake_ipl_sram_write(&host->sram, address, (u32)value, sram_read8, sram_write8, host);
         dol_exi_mmio_write(&host->exi, cpu, address, size, value);
     } else if (size == 4u && (address & 3u) == 0u && in_range(address, size, DOL_SI_BASE, DOL_SI_REGISTER_BYTES)) {
-        dol_si_mmio_write(&host->si, address, size, value);
-        if (address == DOL_SI_BASE + DOL_SI_COMCSR_OFF && ((u32)value & DOL_SI_TSTART)) {
-            const u32 channel = ((u32)value >> 1u) & 3u;
-            u8* status = host->si.regs + DOL_SI_STATUS_OFF;
-            u8* control = host->si.regs + DOL_SI_COMCSR_OFF;
-            // An empty port completes with COMERR/NOREP, leaving the receive buffer untouched.
-            write_be32(status, read_be32(status) | (0x08000000u >> (channel * 8u)));
-            write_be32(control, read_be32(control) | 0x20000000u);
+        const char* error = ww_pad_si_write(host, address, (u32)value);
+        if (error != NULL) {
+            fail_mmio_write(host, error, address, value, size);
+            return;
         }
     } else {
         fail_mmio_write(host, "unsupported MMIO write", address, value, size);

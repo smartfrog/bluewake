@@ -5,6 +5,9 @@ set(CMAKE_C_STANDARD_REQUIRED ON)
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 option(WW05_TESTS_ONLY "Build game-free host contract tests only" OFF)
 option(WW05_ENABLE_VI_CLOCK "Experimental guest-cycle VI clock for private boot trials" OFF)
+option(WW05_ENABLE_PAD_INPUT "Experimental Vita controls sampled only by guest SI requests" OFF)
+file(GENERATE OUTPUT "${CMAKE_CURRENT_BINARY_DIR}/ww05_pad_input.json"
+    CONTENT "{\"option\":\"WW05_ENABLE_PAD_INPUT\",\"enabled\":$<IF:$<BOOL:${WW05_ENABLE_PAD_INPUT}>,true,false>,\"source\":\"$<IF:$<BOOL:${WW05_ENABLE_PAD_INPUT}>,sceCtrlPeekBufferPositive,empty-legacy>\",\"sampling\":\"guest-SI-only\"}\n")
 get_filename_component(BLUEWAKE_ROOT "../.." ABSOLUTE BASE_DIR "${CMAKE_CURRENT_SOURCE_DIR}")
 set(GXRUNTIME_DIR "${RECOMPCORE_DIR}/GXRuntime" CACHE PATH "Pinned runtime" FORCE)
 set(ABI_DIR "${RECOMPCORE_DIR}/Source/Core/Core/PowerPC/StaticRecomp" CACHE PATH "Pinned module ABI" FORCE)
@@ -41,12 +44,13 @@ target_compile_options(gxruntime PRIVATE -ffp-contract=off -fno-fast-math -fstac
 add_library(ww05_services STATIC boot_host.c gx_checkpoint.c gx_stream.c fifo_gather.c fifo_consumer.c
     code_guard.c dsp_interface.c bat_contract.c disc_service.c rel_provider.c rel_service.c rel_link.c
     scheduler_observation.c vi_clock.c gx_draw_observation.c gpu_finish.c frame_timing.c mem1_capture.c frame_capture.cpp
-    dsp_rom_mail.c dsp_deferred.c
+    dsp_rom_mail.c dsp_deferred.c pad_input.c
     $<TARGET_OBJECTS:ww13_dvd_pin>
     "${BLUEWAKE_ROOT}/runtime/host/src/cycle_domain.c"
     "${BLUEWAKE_ROOT}/runtime/host/src/aram_dma.c"
     "${BLUEWAKE_ROOT}/runtime/host/src/external_memory.c"
     "${BLUEWAKE_ROOT}/runtime/host/src/ipl_sram.c"
+    "${BLUEWAKE_ROOT}/runtime/host/src/pad_wire.c"
     "${BLUEWAKE_ROOT}/runtime/host/src/callback_delivery.c"
     "${BLUEWAKE_ROOT}/runtime/host/src/scheduler_contract.c"
     "${BLUEWAKE_ROOT}/runtime/host/src/rel_scratch_allocator.c"
@@ -57,11 +61,33 @@ target_include_directories(ww05_services PUBLIC "${CMAKE_CURRENT_SOURCE_DIR}"
 target_include_directories(ww05_services PRIVATE "${BLUEWAKE_ROOT}/vita/feasibility/armv7")
 target_link_libraries(ww05_services PUBLIC ww13_dvd_io GXRuntime::runtime ww_renderer)
 target_compile_definitions(ww05_services PRIVATE WW05_ENABLE_VI_CLOCK=$<BOOL:${WW05_ENABLE_VI_CLOCK}>)
+target_compile_definitions(ww05_services PUBLIC WW05_ENABLE_PAD_INPUT=$<BOOL:${WW05_ENABLE_PAD_INPUT}>)
+if(VITA AND WW05_ENABLE_PAD_INPUT)
+    target_sources(ww05_services PRIVATE pad_vita.c)
+    target_link_libraries(ww05_services PUBLIC SceCtrl_stub)
+endif()
 target_compile_options(ww05_services PRIVATE -O2 -ffp-contract=off -fno-fast-math -fstack-usage
     -Wall -Wextra $<$<COMPILE_LANGUAGE:C>:-Werror=implicit-function-declaration>)
 
 if(WW05_TESTS_ONLY)
     enable_testing()
+    add_executable(pad_input_probe pad_input_probe.c)
+    target_compile_options(pad_input_probe PRIVATE -UNDEBUG)
+    target_link_libraries(pad_input_probe PRIVATE ww05_services)
+    add_executable(pad_wire_test "${BLUEWAKE_ROOT}/tests/pad_wire_test.c")
+    target_link_libraries(pad_wire_test PRIVATE ww05_services)
+    add_test(NAME pad-wire COMMAND pad_wire_test)
+    foreach(scenario mapping live status reset origin recalibrate empty-1 empty-2 empty-3
+                     consume-high consume-low poll-0 poll-80 poll-40 poll-20 poll-10 poll-f0
+                     release release-poll absent-transfer absent-poll error-transfer error-poll
+                     unknown unknown-short invalid-count legacy-poll credit-transfer credit-poll reconnect)
+        add_test(NAME pad-input-${scenario} COMMAND pad_input_probe ${scenario})
+        set_tests_properties(pad-input-${scenario} PROPERTIES LABELS "synthetic;pad")
+    endforeach()
+    foreach(channel RANGE 0 3)
+        add_test(NAME pad-input-legacy-transfer-${channel} COMMAND host_probe si-empty-${channel})
+    endforeach()
+    add_test(NAME pad-input-legacy-ack COMMAND host_probe si-empty-ack)
     set(synthetic_init_bytes "")
     foreach(value RANGE 0 127)
         string(APPEND synthetic_init_bytes "${value},")

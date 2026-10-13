@@ -1,5 +1,41 @@
 #include "pad_wire.h"
 
+BluewakePadReply bluewake_pad_wire_reply_kind(u32 command, u32 input_length) {
+    if (input_length == 0u)
+        return BLUEWAKE_PAD_REPLY_UNSUPPORTED;
+    const u32 opcode = command >> 24u;
+    if ((opcode == 0x00u || opcode == 0xFFu) && input_length < 8u)
+        return BLUEWAKE_PAD_REPLY_ID;
+    if (input_length >= 8u) {
+        if (command == 0x41000000u || command == 0x42000000u)
+            return BLUEWAKE_PAD_REPLY_ORIGIN;
+        if (opcode == 0x40u)
+            return BLUEWAKE_PAD_REPLY_LIVE;
+    }
+    return BLUEWAKE_PAD_REPLY_UNSUPPORTED;
+}
+
+bool bluewake_pad_wire_reply(BluewakePadReply kind, const DolPadState* pad, u16 buttons,
+                             u32* data0_out, u32* data1_out) {
+    if (kind == BLUEWAKE_PAD_REPLY_ID) {
+        *data0_out = 0x09000000u;
+        *data1_out = 0u;
+    } else if (kind == BLUEWAKE_PAD_REPLY_ORIGIN) {
+        *data0_out = 0x09008080u;
+        *data1_out = 0x80800000u;
+    } else if (kind == BLUEWAKE_PAD_REPLY_LIVE && pad != NULL) {
+        bluewake_pad_wire_encode(pad, buttons, data0_out, data1_out);
+    } else {
+        return false;
+    }
+    return true;
+}
+
+u32 bluewake_pad_wire_poll_mask(u32 poll) {
+    return ((poll >> 7u) & 1u) | (((poll >> 6u) & 1u) << 1u) |
+           (((poll >> 5u) & 1u) << 2u) | (((poll >> 4u) & 1u) << 3u);
+}
+
 static s8 dominant_axis(s8 configured, s8 live) {
     const int configured_magnitude = configured < 0 ? -(int)configured
                                                     : (int)configured;

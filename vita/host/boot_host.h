@@ -16,6 +16,7 @@
 #include "mem1_capture.h"
 #include "dvd_completion.h"
 #include "rel_service.h"
+#include "pad_input.h"
 #include "gxruntime/di.h"
 #include "gxruntime/exi.h"
 #include "gxruntime/interrupts.h"
@@ -46,6 +47,10 @@ typedef struct WwHost {
     DolExi exi;
     BluewakeIplSram sram;
     DolSiDevice si;
+    WwPadRead pad_read;
+    void* pad_user;
+    int pad_source_result;
+    char pad_error[80];
     DolAudioDma audio;
     BluewakeDvdCompletions dvd_completions;
     WwRelImage rel_image;

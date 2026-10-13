@@ -4264,19 +4264,14 @@ static void host_si_complete_pad_transfer(u32 control) {
     const DolPadState* pad = &effective_pad;
     const u16 buttons = host_pad_buttons(channel, pad->button);
     host_pad_trace(channel, pad, buttons);
-    u32 data0 = 0x09000000u; // SI_GC_CONTROLLER
-    u32 data1 = 0u;
-    if (input_length >= 8u) {
-        const u32 command = si_load_be32(g_si.regs, DOL_SI_IO_BUFFER_OFF);
-        if (command == 0x41000000u || command == 0x42000000u) {
-            // PADRead's origin/calibration transaction must not capture the
-            // configured gameplay stick as the neutral origin.
-            data0 = 0x09008080u;
-            data1 = 0x80800000u;
-        } else {
-            bluewake_pad_wire_encode(pad, buttons, &data0, &data1);
-        }
-    }
+    const u32 command = si_load_be32(g_si.regs, DOL_SI_IO_BUFFER_OFF);
+    BluewakePadReply reply = bluewake_pad_wire_reply_kind(command, input_length);
+    // Keep the desktop's legacy length heuristic for other commands.
+    if (reply == BLUEWAKE_PAD_REPLY_UNSUPPORTED)
+        reply = input_length < 8u ? BLUEWAKE_PAD_REPLY_ID : BLUEWAKE_PAD_REPLY_LIVE;
+    u32 data0, data1;
+    if (!bluewake_pad_wire_reply(reply, pad, buttons, &data0, &data1))
+        abort();
 
     const u32 response = 0x04u + channel * 0x0Cu;
     si_store_be32(g_si.regs, response, data0);
@@ -4335,10 +4330,7 @@ static void host_si_latch_pad_poll(void) {
     // SI stores the channel-enable nibble in bits 7..4 of the low byte in
     // hardware channel order (0x80 is channel 0); the runtime API and pad
     // array use ascending channel bits.
-    const u32 channel_mask = ((poll >> 7) & 1u) |
-                             (((poll >> 6) & 1u) << 1) |
-                             (((poll >> 5) & 1u) << 2) |
-                             (((poll >> 4) & 1u) << 3);
+    const u32 channel_mask = bluewake_pad_wire_poll_mask(poll);
     if (g_pad_trace && g_pad_poll_reports < 8u) {
         const u32 comcsr = ((u32)g_si.regs[DOL_SI_COMCSR_OFF] << 24) |
                            ((u32)g_si.regs[DOL_SI_COMCSR_OFF + 1u] << 16) |
