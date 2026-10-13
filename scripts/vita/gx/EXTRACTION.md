@@ -179,7 +179,7 @@ truncating long draw records and must retain matching texture/array/DL bytes.
 
 ## Checked on Linux
 
-- 44 Python tests pass, including snapshot format/hash/bounds validation,
+- 70 Python tests pass, including snapshot format/hash/bounds validation,
   sparse coverage, fixture tampering and stale-bridge refusal, plus frame validation after a memory-dependent
   command, sequence gaps, metadata, pending tails, memory refusal, silent draw
   loss and nonzero feature gaps.
@@ -191,6 +191,11 @@ truncating long draw records and must retain matching texture/array/DL bytes.
   Native tests check alias resolution, adjacent-region merging and clipped
   `available`; four host suites also pass with ASan/UBSan. These are synthetic
   memory-loader proofs, not a real game-frame replay.
+- Original LOD remains an explicit coverage gap; the updated refusal names
+  complete sampler state and captured mip levels. The full field inventory,
+  tested pinned-plan information loss and reference-model numerical checks
+  are in `vita/renderer/gx_original_lod.md`. Those checks do not turn an LOD
+  replay into `verdict=ran` or replace missing mip bytes with generated levels.
 - Real run `10c1b74cc7b647aab66bf18882e53a39` reports 1,171 decoded commands
   and one renderer draw, but only logs 64 commands/423 bytes and **zero captured
   draws**. Its extracted setup prefix replays successfully with zero plans.

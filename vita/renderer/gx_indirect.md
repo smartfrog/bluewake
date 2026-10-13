@@ -53,6 +53,10 @@ than sampling vitaGL's fallback white texture.
 it `indirect_ignored` and does not emit it; this backend also does not upload a
 mip chain. Reserved matrix ID 3 and malformed fields/scales are refused. Passing
 indirect coordinate coverage does not establish mip/LOD or filtered pixel parity.
+The current diagnostic names the missing complete sampler state/captured levels,
+not a blanket Cg limitation. [gx_original_lod.md](gx_original_lod.md) records the
+full BP inventory, executable DrawPlan information-loss proof and reference/hardware
+limits. Its numerical model is not an enabled rendering path.
 
 ## Evidence on Linux and Vita3K
 

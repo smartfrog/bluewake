@@ -340,7 +340,7 @@ int indirect_rejects_original_lod() {
   key.num_ind_stages = 1;
   key.tev_stages[0].ind_use_original_lod = 1;
   const auto cg = gx_vita::generate_cg(key);
-  CHECK(!cg.ok && std::string(cg.unsupported_reason) == "original indirect LOD not supported by Vita Cg");
+  CHECK(!cg.ok && std::string(cg.unsupported_reason) == "original indirect LOD requires complete sampler state and captured mip levels");
   return 0;
 }
 
