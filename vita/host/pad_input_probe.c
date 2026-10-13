@@ -56,13 +56,13 @@ static void test_mapping(void) {
     }
 }
 
-static void test_live(WwHost* host, SyntheticSource* source) {
-    transfer(host, 0x40000300u, 8u, 0u);
+static void test_live(WwHost* host, SyntheticSource* source, u32 length) {
+    transfer(host, 0x40000300u, length, 0u);
     assert(host->error == NULL && source->reads == 1u);
     assert(read_si(host, DOL_SI_IO_BUFFER_OFF) == 0x1300FF01u);
     assert(read_si(host, DOL_SI_IO_BUFFER_OFF + 4u) == 0x007F0000u);
     assert(read_si(host, DOL_SI_STATUS_OFF) == 0x20000000u);
-    assert(read_si(host, DOL_SI_COMCSR_OFF) == 0xD8010800u);
+    assert(read_si(host, DOL_SI_COMCSR_OFF) == (0xD8010000u | (length << 8u)));
     assert(host->interrupts.pi_cause == (DOL_PI_CAUSE_RST_BUTTON | DOL_PI_CAUSE_SI));
 }
 
@@ -83,9 +83,11 @@ static void test_origin(WwHost* host, SyntheticSource* source, u32 command) {
 }
 
 static void test_empty_port(WwHost* host, SyntheticSource* source, u32 channel) {
+    write_si(host, DOL_SI_IO_BUFFER_OFF + 4u, 0x89ABCDEFu);
     transfer(host, 0x40000300u, 8u, channel);
     assert(host->error == NULL && source->reads == 0u);
     assert(read_si(host, DOL_SI_IO_BUFFER_OFF) == 0x40000300u);
+    assert(read_si(host, DOL_SI_IO_BUFFER_OFF + 4u) == 0x89ABCDEFu);
     assert(read_si(host, DOL_SI_STATUS_OFF) == (0x08000000u >> (channel * 8u)));
     assert(read_si(host, DOL_SI_COMCSR_OFF) == (0xE8010800u | (channel << 1u)));
 }
@@ -145,6 +147,8 @@ static void test_absent(WwHost* host, SyntheticSource* source, bool poll) {
     assert(host->error == NULL && source->reads == 2u);
     assert(read_si(host, DOL_SI_STATUS_OFF) == 0x08000000u);
     assert(read_si(host, 4u) == 0u && read_si(host, 8u) == 0u);
+    assert(read_si(host, DOL_SI_IO_BUFFER_OFF) == 0u);
+    assert(read_si(host, DOL_SI_IO_BUFFER_OFF + 4u) == 0u);
     assert((read_si(host, DOL_SI_COMCSR_OFF) & DOL_SI_RDSTINT) == 0u);
 }
 
@@ -174,13 +178,28 @@ static void test_refused(WwHost* host, SyntheticSource* source, bool poll, bool 
 static void test_legacy_poll(WwHost* host, SyntheticSource* source) {
     host->pad_read = NULL;
     write_si(host, 4u, 0xDEADBEEFu);
+    write_si(host, DOL_SI_IO_BUFFER_OFF, 0xC0ADC0DEu);
+    write_si(host, DOL_SI_IO_BUFFER_OFF + 4u, 0xABCDEF12u);
     write_si(host, DOL_SI_COMCSR_OFF, DOL_SI_RDSTINTMSK);
     write_si(host, DOL_SI_POLL_OFF, 0xF0u);
     assert(host->error == NULL && source->reads == 0u);
     assert(read_si(host, DOL_SI_STATUS_OFF) == 0u);
     assert(read_si(host, DOL_SI_COMCSR_OFF) == DOL_SI_RDSTINTMSK);
     assert(read_si(host, 4u) == 0xDEADBEEFu);
+    assert(read_si(host, DOL_SI_IO_BUFFER_OFF) == 0xC0ADC0DEu);
+    assert(read_si(host, DOL_SI_IO_BUFFER_OFF + 4u) == 0xABCDEF12u);
     assert(host->interrupts.pi_cause == DOL_PI_CAUSE_RST_BUTTON);
+}
+
+static void test_legacy_transfer_buffer(WwHost* host, SyntheticSource* source, u32 length) {
+    host->pad_read = NULL;
+    write_si(host, DOL_SI_IO_BUFFER_OFF + 4u, 0x89ABCDEFu);
+    transfer(host, 0x40000300u, length, 0u);
+    assert(host->error == NULL && source->reads == 0u);
+    assert(read_si(host, DOL_SI_IO_BUFFER_OFF) == 0x40000300u);
+    assert(read_si(host, DOL_SI_IO_BUFFER_OFF + 4u) == 0x89ABCDEFu);
+    assert(read_si(host, DOL_SI_STATUS_OFF) == 0x08000000u);
+    assert(read_si(host, DOL_SI_COMCSR_OFF) == (0xE8010000u | (length << 8u)));
 }
 
 static void test_credit(WwHost* host, SyntheticSource* source, bool poll) {
@@ -221,11 +240,14 @@ int main(int argc, char** argv) {
     assert(host->pad_read == NULL);
     host->pad_read = synthetic_read;
     host->pad_user = &source;
-    if (strcmp(argv[1], "live") == 0) test_live(host, &source);
+    if (strcmp(argv[1], "live") == 0) test_live(host, &source, 8u);
+    else if (strcmp(argv[1], "live-128") == 0) test_live(host, &source, 0u);
     else if (strcmp(argv[1], "status") == 0) test_id(host, &source, 0x00000000u);
     else if (strcmp(argv[1], "reset") == 0) test_id(host, &source, 0xFF000000u);
     else if (strcmp(argv[1], "origin") == 0) test_origin(host, &source, 0x41000000u);
     else if (strcmp(argv[1], "recalibrate") == 0) test_origin(host, &source, 0x42000000u);
+    else if (strcmp(argv[1], "origin-padded") == 0) test_origin(host, &source, 0x41AABBCCu);
+    else if (strcmp(argv[1], "recalibrate-padded") == 0) test_origin(host, &source, 0x42AABBCCu);
     else if (strncmp(argv[1], "empty-", 6u) == 0) test_empty_port(host, &source, (u32)strtoul(argv[1] + 6u, NULL, 10));
     else if (strcmp(argv[1], "consume-high") == 0) test_consume(host, &source, 4u);
     else if (strcmp(argv[1], "consume-low") == 0) test_consume(host, &source, 8u);
@@ -240,6 +262,8 @@ int main(int argc, char** argv) {
     else if (strcmp(argv[1], "unknown-short") == 0) test_refused(host, &source, false, true, 3u);
     else if (strcmp(argv[1], "invalid-count") == 0) { source.result = 2; test_refused(host, &source, false, false, 8u); }
     else if (strcmp(argv[1], "legacy-poll") == 0) test_legacy_poll(host, &source);
+    else if (strcmp(argv[1], "legacy-buffer-zero") == 0) test_legacy_transfer_buffer(host, &source, 0u);
+    else if (strcmp(argv[1], "legacy-buffer-eight") == 0) test_legacy_transfer_buffer(host, &source, 8u);
     else if (strcmp(argv[1], "credit-transfer") == 0) test_credit(host, &source, false);
     else if (strcmp(argv[1], "credit-poll") == 0) test_credit(host, &source, true);
     else if (strcmp(argv[1], "reconnect") == 0) test_reconnect(host, &source);

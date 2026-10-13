@@ -77,7 +77,8 @@ if(WW05_TESTS_ONLY)
     add_executable(pad_wire_test "${BLUEWAKE_ROOT}/tests/pad_wire_test.c")
     target_link_libraries(pad_wire_test PRIVATE ww05_services)
     add_test(NAME pad-wire COMMAND pad_wire_test)
-    foreach(scenario mapping live status reset origin recalibrate empty-1 empty-2 empty-3
+    foreach(scenario mapping live live-128 status reset origin recalibrate origin-padded recalibrate-padded
+                     empty-1 empty-2 empty-3 legacy-buffer-zero legacy-buffer-eight
                      consume-high consume-low poll-0 poll-80 poll-40 poll-20 poll-10 poll-f0
                      release release-poll absent-transfer absent-poll error-transfer error-poll
                      unknown unknown-short invalid-count legacy-poll credit-transfer credit-poll reconnect)

@@ -48,6 +48,8 @@ static void si_pad_response(WwHost* host, u32 channel, u32 data0, u32 data1) {
 static void si_pad_absent(WwHost* host) {
     write_be32(host->si.regs + 4u, 0u);
     write_be32(host->si.regs + 8u, 0u);
+    write_be32(host->si.regs + DOL_SI_IO_BUFFER_OFF, 0u);
+    write_be32(host->si.regs + DOL_SI_IO_BUFFER_OFF + 4u, 0u);
     host->si.regs[DOL_SI_STATUS_OFF] = (host->si.regs[DOL_SI_STATUS_OFF] & 0xD0u) | 8u;
     dol_si_latch_poll(&host->si, 0u);
 }
@@ -62,8 +64,12 @@ const char* ww_pad_si_write(WwHost* host, u32 address, u32 value) {
     DolPadState pad = {0};
     bool present = true;
     if (connected_transfer) {
-        const u32 command = read_be32(host->si.regs + DOL_SI_IO_BUFFER_OFF);
-        reply = bluewake_pad_wire_reply_kind(command, (value >> 8u) & 0x7Fu);
+        u32 command = read_be32(host->si.regs + DOL_SI_IO_BUFFER_OFF);
+        if (((value >> 16u) & 0x7Fu) == 1u)
+            command &= 0xFF000000u;
+        const u32 raw_input_length = (value >> 8u) & 0x7Fu;
+        const u32 input_length = raw_input_length != 0u ? raw_input_length : 128u;
+        reply = bluewake_pad_wire_reply_kind(command, input_length);
         if (reply == BLUEWAKE_PAD_REPLY_UNSUPPORTED)
             return "unsupported controller SI command or input length";
     }
@@ -91,7 +97,7 @@ const char* ww_pad_si_write(WwHost* host, u32 address, u32 value) {
             si_pad_absent(host);
         u8* status = host->si.regs + DOL_SI_STATUS_OFF;
         u8* control = host->si.regs + DOL_SI_COMCSR_OFF;
-        // An empty port completes with COMERR/NOREP, leaving the receive buffer untouched.
+        // Legacy empty ports leave the receive buffer untouched.
         write_be32(status, read_be32(status) | (0x08000000u >> (channel * 8u)));
         write_be32(control, read_be32(control) | 0x20000000u);
     } else if (poll) {
