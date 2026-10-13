@@ -1900,3 +1900,45 @@ Audit, attribution and whitespace pass. No runtime pin or desktop behavior is
 changed. Windows CI and physical Vita are not tested here. Clean committed VI/O1
 rebuild and watched **MEM1 + live-PNG** trial follow; host tests alone do not
 certify authentic protocol progress, task execution or visible gameplay.
+
+## Unit 51: the authentic ROM sequence reaches the real task launch request
+
+Committed VI/O1 build **8824a11**, watched MEM1/live-PNG run
+**5befd4ad675848c2bf257377f60116c8**: **nine actual accepted ROM mails** reach the
+final start-PC parameter. The complete four received parameter fields are
+**source 00399420 / 7,456 bytes / data length zero / IRAM destination 0000**;
+requested task entry **0000**, field-presence mask **0F**. Source, destination,
+length and entry are producer observations, not inferred from a known CRC.
+The last parameter is refused at **CC005002 / 803190B0**, word-low value
+**0000**, with **`DSP ROM task launch requires a DSP task backend; transfer and
+execution not implemented`**. Nothing reports a code transfer, task execution,
+Zelda handshake, DSP interrupt or fabricated completion.
+
+Still **nine draws / eight presentations**, **8,963 decoded / 2,048 journal
+commands**, zero skips/refusals/gaps. Two actual MEM1 captures, eight actual live
+PNG pairs, eight presentation stamps and ten retrace stamps verify. All display
+PNGs are uniform opaque black; the last was opened. Both contemporaneous guarded
+two-draw-prefix replays remain clean. The final precharged guest cycle/edge
+totals remain **85,380,253 / 1,035,459**; no added-time or FPS claim is inferred
+from the newly accepted input sequence. Owned host state grows by the actual
+**16-byte** ROM parameter record; memory/GPU residency remains explicitly unknown.
+
+Private hand-off root:
+
+```text
+/home/fred/projects/zeldaWWHDRecomp/build-f5/ww05/vita3k-run-5befd4ad675848c2bf257377f60116c8
+```
+
+Latest actual image **`evidence/frames/frame-8.png`**; image/check/memory manifests
+**`evidence/live-images.json`**, **`evidence/live-capture-checks.json`**,
+**`evidence/mem1-capture.json`**; extracted fixtures
+**`evidence/gx-draw-prefix-snapshot{1,2}/`** and exact bridge provenance in
+**`evidence/guarded-mem1-replays.json`**. Original ROM request/parameters remain
+in the private guest log. Install **1.25 s**, guest **92.20 s**, closed report
+followed by known exit **133**, not timeout/inactivity. This is not a no-dump FPS
+baseline, visible gameplay, physical-Vita measurement or whole-run GPU replay.
+
+The next dependency is an executable sourced DSP task backend. The existing
+shared adapter and pinned interpreter/HLE are being checked for ARM source
+reuse; their desktop build does not establish Vita support. The launch STOP
+stays intact until a real transfer/execution path is proved.
