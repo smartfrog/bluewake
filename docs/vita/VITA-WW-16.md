@@ -1813,3 +1813,44 @@ It is not linked or silently substituted here. Commit/rebuild and a watched
 MEM1/live-PNG diagnostic trial follow. The last healthy capture run needed
 **116.38 s**, so the next explicit phase ceiling is **180 s**, still with the
 same 30-second low-CPU **AND** silence abort and continuous live monitoring.
+
+## Unit 49: authentic guarded DSP task body reaches the ROM upload command
+
+Committed VI/O1 build **90fc919**, watched MEM1/live-PNG run
+**1ff459b86c894d90938921c617ce2d26**: original registered task entry, descriptor
+and stack checks pass. The actual guest body consumes the existing reset-selected
+ROM ready mail and reaches **80F3A001**, the sourced ROM source-address command.
+STOP is **`running ROM mail protocol not implemented`**, halfword store
+**A001 to CC005002 at 803190B0**. No desktop reply arming or guest-body skip.
+
+One actual task observation is retained privately: descriptor **803EAF60**,
+LR **8028EC7C**, SP **803EA4D8**, control **0950**, reset-selected ROM pending,
+loaded init already finished. Final **85,380,253 cycles / 1,035,459 edges**;
+248 guest cycles beyond Unit 47. No extra presentation: still **nine draws /
+eight presentations**, **8,963 decoded / 2,048 journal commands**, zero renderer
+skips/refusals/gaps. **Eight live PNG pairs, two real MEM1 images, eight actual
+presentation stamps and ten retrace stamps verify**. All shown PNGs remain
+uniform opaque black; the last was opened. Both guarded two-draw-prefix replays
+pass with the actual contemporaneous snapshots. No FPS baseline, logo/gameplay
+or physical-Vita result is claimed.
+
+Private evidence root:
+
+```text
+/home/fred/projects/zeldaWWHDRecomp/build-f5/ww05/vita3k-run-1ff459b86c894d90938921c617ce2d26
+```
+
+Latest image **`evidence/frames/frame-8.png`**; image/check/memory manifests
+**`evidence/live-images.json`**, **`evidence/live-capture-checks.json`**,
+**`evidence/mem1-capture.json`**; fixtures
+**`evidence/gx-draw-prefix-snapshot{1,2}/`** and guarded replay provenance
+**`evidence/guarded-mem1-replays.json`**. Install **1.34 s**, guest **105.12 s**;
+closed report followed by known shutdown **133**, not timeout or inactivity.
+
+Next source seam: pinned **DSPHLE/UCodes/ROM.cpp:40-113** and free ROM
+**docs/DSP/free_dsp_rom/dsp_rom.ds:13-59** agree on the five command/parameter
+pairs. **DSPHLE.cpp:179-186** consumes a low-word mail through HandleMail before
+clearing the CPU busy flag. Receiving these actual parameters can be implemented
+without an outgoing reply or simulated DSP instruction time. The final task
+launch requires an executable peer and must remain an explicit STOP until one
+exists; no Zelda init/interrupt mail is permitted merely because the guest asks.
