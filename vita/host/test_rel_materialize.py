@@ -126,7 +126,7 @@ def rel_archive(scenario):
             actor[0x31] = 1
             struct.pack_into('>I', actor, 0x38, 4)
         members = [(b'f_pc_profile_lst.rel', member), (b'ww34_fixture_a.rel', actor)]
-        if scenario == 'second-independent' or scenario.startswith('second-dependency-'):
+        if scenario in ('second-independent', 'second-hole-reuse') or scenario.startswith('second-dependency-'):
             members.append((b'ww34_fixture_b.rel', actor_rel(168)))
         archive = bytearray(0x100)
         archive[:4] = b'RARC'
@@ -289,6 +289,20 @@ class RelMaterializeTest(unittest.TestCase):
         for scenario in ('second-loop-unowned', 'second-loop-unlink'):
             with self.subTest(scenario=scenario):
                 self.run_probe(scenario)
+
+    def test_live_raw_entry_redirects_through_the_composite_loop_without_reallocating(self):
+        self.run_probe('second-loop-live')
+
+    def test_live_raw_entry_redirects_through_generated_indirect_dispatch_without_reallocating(self):
+        self.run_probe('second-indirect-live')
+
+    def test_second_materialization_failure_preserves_the_profile_and_releases_metadata(self):
+        for scenario in ('second-materialize-sections', 'second-materialize-alias', 'second-materialize-trace'):
+            with self.subTest(scenario=scenario):
+                self.run_probe(scenario)
+
+    def test_reusing_a_collected_hole_preserves_other_live_owners_and_shutdown_frees_metadata(self):
+        self.run_probe('second-hole-reuse')
 
     def test_generated_indirect_host_call_is_checked_before_its_first_instruction(self):
         for scenario in ('second-indirect-unowned', 'second-indirect-unlink'):
