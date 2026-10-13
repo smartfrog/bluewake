@@ -8,10 +8,12 @@ int main(int argc, char** argv) {
     ww_probe_fifo_setup(host, true);
     const u32 address = argc == 3 ? (u32)strtoul(argv[2], NULL, 0) : 0xCC000006u;
     const bool volume = address == 0xCC006C04u;
-    host->cpu.pc = volume ? 0x80316E00u : 0x803202C4u;
-    assert(volume || address == 0xCC000006u || (address >= 0xCC001000u && address <= 0xCC001008u && !(address & 1u)));
-    const u8 register_width = volume ? 4u : 2u;
-    const u32 mask = volume ? UINT32_MAX : address == 0xCC000006u ? 7u : UINT16_MAX;
+    const bool timing = address == 0xCC006C0Cu;
+    const bool word = volume || timing;
+    host->cpu.pc = timing ? 0x80316E24u : volume ? 0x80316E00u : 0x803202C4u;
+    assert(word || address == 0xCC000006u || (address >= 0xCC001000u && address <= 0xCC001008u && !(address & 1u)));
+    const u8 register_width = word ? 4u : 2u;
+    const u32 mask = word ? UINT32_MAX : address == 0xCC000006u ? 7u : UINT16_MAX;
     const char* scenario = argv[1];
     const bool bad_read = strncmp(scenario, "read-width-", 11u) == 0;
     const bool bad_write = strncmp(scenario, "write-width-", 12u) == 0;
@@ -20,6 +22,7 @@ int main(int argc, char** argv) {
     const u8 width = bad_read ? (u8)strtoul(scenario + 11u, NULL, 0) :
                      bad_write ? (u8)strtoul(scenario + 12u, NULL, 0) : register_width;
     const u32 value = strncmp(scenario, "value-", 6u) == 0 ? (u32)strtoul(scenario + 6u, NULL, 0) : 0u;
+    const bool refused_timing = timing && value != 0u;
     const bool running = strcmp(scenario, "audio-running") == 0;
     const bool dma_running = strcmp(scenario, "audio-dma-running") == 0;
     if (running)
@@ -36,7 +39,7 @@ int main(int argc, char** argv) {
         dol_interrupts_set_source(&host->interrupts, DOL_PI_CAUSE_CP, true);
     }
     const WwHost before = *host;
-    assert((volume ? mem_read32(&host->cpu, address) : mem_read16(&host->cpu, address)) == 0u);
+    assert((timing ? read_be32(host->audio.ai_regs + 12u) : volume ? mem_read32(&host->cpu, address) : mem_read16(&host->cpu, address)) == 0u);
     if (credit) {
         bluewake_cycle_domain_begin_turn(&host->cycles, &host->cpu);
         bluewake_cycle_domain_prepare_dispatch(&host->cycles, &host->cpu);
@@ -46,13 +49,13 @@ int main(int argc, char** argv) {
         host->cpu.external_read(&host->cpu, address, width);
     else
         host->cpu.external_write(&host->cpu, address, value, width);
-    if (bad_read || bad_write || running || dma_running) {
+    if (bad_read || bad_write || running || dma_running || refused_timing) {
         assert(host->error != NULL && host->error_address == address && host->error_pc == before.cpu.pc);
         if (!bad_read)
             assert(host->error_width == width && host->error_value == value);
     } else {
         assert(host->error == NULL && host->cpu.exception == 0u);
-        assert((volume ? mem_read32(&host->cpu, address) : mem_read16(&host->cpu, address)) == (value & mask));
+        assert((word ? mem_read32(&host->cpu, address) : mem_read16(&host->cpu, address)) == (value & mask));
         if (strcmp(scenario, "independent") == 0) {
             if (volume) {
                 mem_write32(&host->cpu, address, 0xA55AFF34u);

@@ -1641,3 +1641,31 @@ watchdog hang. This snapshot/readback/PNG-write profile is **not an FPS baseline
 Unit 41's no-dump numbers are retained separately. No physical-Vita performance,
 visible gameplay or FPS gain is claimed. Next: the sourced stopped-AI zero
 interrupt-timing initialization, with active audio/timing still explicit STOPs.
+
+## Unit 44: sourced stopped-AI zero interrupt-timing initialization
+
+The actual **80316E24 word store of zero to CC006C0C** initializes Dolphin's
+AI interrupt-timing register. Pinned `AudioInterface.cpp:61,199-200,306-315`
+defines zero reset and retained word access. Its scheduled update and sample
+increment explicitly do nothing while **PSTAT is clear** (`110-111,140-143`);
+accepting this stopped initialization does not require invented samples, elapsed
+audio time, completion or an interrupt. The host reuses the pinned AI register
+file at **+0C**, sharing the existing stopped-engine gate with volume writes.
+
+Only the observed **zero word store** is accepted, with AIS playback and audio
+DMA both stopped. Nonzero timing, active audio or invalid width fails before
+register mutation. Word reads return actual retained state. Playback, sample
+clock/counter access and other unsupported audio behavior remain STOPs; no timer
+callback, PCM output or PI source is synthesized. GPU/capture behavior, pins and
+player defaults are unchanged.
+
+Linux AArch64: **654 host tests pass**, including seven timing scenarios reusing
+the retained-register probe: zero initialization, only executed-cycle credit,
+nonzero refusal, read/write width refusal, active AIS and active AID refusal.
+The full audio state, FIFO/frontier/trace, interrupts and budget remain checked
+against their permitted deltas. The actual zero-store contract was red before
+implementation (`logs/ww16-ai-timing-red.log`); green in
+`logs/ww16-ai-timing-green.log`. Actual ARM host links without new warnings
+(`logs/ww16-ai-timing-arm-link.log`); audit/attribution/whitespace pass. A clean
+committed VI/O1 rebuild and watched **MEM1 + live-PNG** trial follows, retaining
+actual images/counts and the next real STOP separately from no-dump FPS evidence.

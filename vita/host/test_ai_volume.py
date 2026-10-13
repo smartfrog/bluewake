@@ -9,8 +9,8 @@ class AiVolumeTest(unittest.TestCase):
     def setUpClass(cls):
         test_host.StartupHostTest.setUpClass()
 
-    def probe(self, scenario):
-        result = subprocess.run([str(test_host.OUT / 'retained_register_probe'), scenario, '0xCC006C04'],
+    def probe(self, scenario, address='0xCC006C04'):
+        result = subprocess.run([str(test_host.OUT / 'retained_register_probe'), scenario, address],
                                 capture_output=True, text=True)
         self.assertEqual(result.returncode, 0, result.stderr)
 
@@ -43,3 +43,30 @@ class AiVolumeTest(unittest.TestCase):
 
     def test_active_audio_dma_volume_change_is_not_silently_accepted_without_a_backend(self):
         self.probe('audio-dma-running')
+
+    def test_observed_stopped_zero_timing_store_is_retained_without_audio_clock_or_interrupt_activity(self):
+        self.probe('value-0', '0xCC006C0C')
+
+    def test_stopped_timing_store_credits_only_executed_guest_cycles(self):
+        self.probe('credit', '0xCC006C0C')
+
+    def test_nonzero_timing_requires_an_audio_clock_backend_before_register_mutation(self):
+        for value in (1, 48000, 0xFFFFFFFF):
+            with self.subTest(value=value):
+                self.probe(f'value-{value}', '0xCC006C0C')
+
+    def test_timing_read_rejects_widths_other_than_the_sourced_word(self):
+        for width in (1, 2, 3, 8):
+            with self.subTest(width=width):
+                self.probe(f'read-width-{width}', '0xCC006C0C')
+
+    def test_timing_write_rejects_widths_other_than_the_observed_word(self):
+        for width in (1, 2, 3, 8):
+            with self.subTest(width=width):
+                self.probe(f'write-width-{width}', '0xCC006C0C')
+
+    def test_active_stream_timing_reset_is_not_accepted_without_its_audio_clock(self):
+        self.probe('audio-running', '0xCC006C0C')
+
+    def test_active_audio_dma_timing_reset_is_not_silently_accepted_without_a_backend(self):
+        self.probe('audio-dma-running', '0xCC006C0C')

@@ -492,7 +492,7 @@ static u64 mmio_read(CPUState* cpu, u32 address, u8 size) {
         value = host->mi_protection;
     else if (address == 0xCC003024u && size == 4u)
         value = 0u; // Cold boot only; reset writes still require a drive-reset backend.
-    else if ((address == 0xCC006C00u || address == 0xCC006C04u) && size == 4u)
+    else if ((address == 0xCC006C00u || address == 0xCC006C04u || address == 0xCC006C0Cu) && size == 4u)
         dol_audio_dma_ai_mmio_read(&host->audio, address - 0xCC006C00u, size, &value);
     else if (interrupt_register(address, size, false))
         value = dol_interrupts_mmio_read(&host->interrupts, address, size);
@@ -637,13 +637,18 @@ static void mmio_write(CPUState* cpu, u32 address, u64 value, u8 size) {
             return;
         }
         dol_audio_dma_ai_mmio_write(&host->audio, DOL_AUDIO_DMA_AI_CONTROL_OFF, size, value & ~8ull);
-    } else if (address == 0xCC006C04u && size == 4u) {
-        if ((read_be32(host->audio.ai_regs) & DOL_AUDIO_DMA_AI_PSTAT_BIT) != 0u ||
-            (dol_audio_dma_read_control(&host->audio) & DOL_AUDIO_DMA_ENABLE) != 0u) {
-            fail_mmio_write(host, "active AI volume change requires an audio backend", address, value, size);
+    } else if ((address == 0xCC006C04u || address == 0xCC006C0Cu) && size == 4u) {
+        if (address == 0xCC006C0Cu && value != 0u) {
+            fail_mmio_write(host, "AI interrupt timing requires stopped zero initialization; audio clock backend not implemented", address, value, size);
             return;
         }
-        dol_audio_dma_ai_mmio_write(&host->audio, 4u, size, value);
+        if ((read_be32(host->audio.ai_regs) & DOL_AUDIO_DMA_AI_PSTAT_BIT) != 0u ||
+            (dol_audio_dma_read_control(&host->audio) & DOL_AUDIO_DMA_ENABLE) != 0u) {
+            fail_mmio_write(host, address == 0xCC006C04u ? "active AI volume change requires an audio backend" :
+                            "active AI interrupt timing change requires an audio clock backend", address, value, size);
+            return;
+        }
+        dol_audio_dma_ai_mmio_write(&host->audio, address - 0xCC006C00u, size, value);
     } else if (interrupt_register(address, size, true))
         dol_interrupts_mmio_write(&host->interrupts, address, size, value);
     else if (size == 4u && (address & 3u) == 0u && in_range(address, size, DOL_DI_BASE, DOL_DI_REGISTER_BYTES))
