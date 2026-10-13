@@ -1,7 +1,10 @@
+from contextlib import redirect_stdout
 import hashlib
+import io
 import json
 import os
 from pathlib import Path
+import sys
 import tempfile
 import time
 import unittest
@@ -9,6 +12,7 @@ from unittest.mock import patch
 
 import gallery
 from test_capture import command
+from test_novelty import write_rgba_png
 
 
 class GalleryTests(unittest.TestCase):
@@ -25,6 +29,8 @@ class GalleryTests(unittest.TestCase):
         self.report = self.data / 'ww05.report'
         self.snapshot = self.data / 'ww05.mem1.json'
         self.payload = self.data / 'mem1.bin'
+        self.logo = self.root / 'logo.png'
+        write_rgba_png(self.logo, 2, 1, bytes([0, 0, 0, 255, 220, 0, 0, 255]))
         self.write_run(1)
 
     def tearDown(self):
@@ -55,6 +61,16 @@ class GalleryTests(unittest.TestCase):
     def scan(self):
         return list(gallery.scan_once(self.source, self.output, self.build, recent_hours=24,
                                       code_revision='d' * 40))
+
+    def blocked_render(self, fixture, metadata, output, build):
+        self.fake_render(fixture, metadata, output, build)
+        write_rgba_png(output / 'capture.png', 2, 1, bytes([0, 0, 0, 0, 220, 0, 0, 0]))
+        path = output / 'image.json'
+        manifest = json.loads(path.read_text())
+        manifest['verdict'] = 'image-readback-blocked'
+        manifest['image'] = gallery.image.png_metadata(output / 'capture.png')
+        path.write_text(json.dumps(manifest))
+        return 2
 
     def test_discovers_standard_manifest_in_recent_run(self):
         self.assertEqual(gallery.discover(self.source, 24, time.time()), [self.report])
@@ -229,17 +245,32 @@ class GalleryTests(unittest.TestCase):
         self.assertFalse(target.exists())
 
     def test_blocked_readback_does_not_signal_nonblack(self):
-        def render(*arguments):
-            self.fake_render(*arguments)
-            path = arguments[2] / 'image.json'
-            manifest = json.loads(path.read_text())
-            manifest['verdict'] = 'image-readback-blocked'
-            manifest['image'].update(distinct_rgba=4, alpha_nonzero=0)
-            path.write_text(json.dumps(manifest))
-            return 2
-        with patch.object(gallery.image, 'render_fixture', side_effect=render):
-            event = self.scan()[0]
+        reference = gallery.novelty.load_logo(self.logo)
+        with patch.object(gallery.image, 'render_fixture', side_effect=self.blocked_render):
+            event = list(gallery.scan_once(self.source, self.output, self.build,
+                                          code_revision='d' * 40, known_logo=reference))[0]
         self.assertFalse(event['nonblack'])
+        self.assertFalse(event['new_visual_content'])
+        self.assertEqual(event['event'], 'gallery-failed')
+        self.assertEqual(event['status'], 2)
+        self.assertEqual(event['verdict'], 'image-readback-blocked')
+        self.assertTrue(gallery.notification_required(event, new_content_only=True))
+        self.assertEqual(json.loads((self.output / event['entry_path']).read_text()), event)
+        self.assertEqual(json.loads((self.output / 'GALLERY.json').read_text())['entries'], [event])
+
+    def test_known_logo_notify_exits_nonzero_for_blocked_readback(self):
+        arguments = ['gallery.py', '--source', str(self.source), '--build', str(self.build),
+                     '--output', str(self.output), '--known-logo', str(self.logo), '--notify']
+        with patch.object(sys, 'argv', arguments), \
+                patch.object(gallery.image, 'render_fixture', side_effect=self.blocked_render), \
+                redirect_stdout(io.StringIO()) as output:
+            status = gallery.main()
+        self.assertNotEqual(status, 0)
+        event = json.loads(output.getvalue())
+        self.assertEqual(event['event'], 'gallery-failed')
+        self.assertEqual(event['status'], 2)
+        self.assertEqual(event['verdict'], 'image-readback-blocked')
+        self.assertEqual(json.loads((self.output / 'UPDATE.json').read_text()), event)
 
     def test_unchanged_renderer_failure_is_not_replayed_forever(self):
         with patch.object(gallery.image, 'render_fixture', side_effect=ValueError('renderer refusal')) as renderer:

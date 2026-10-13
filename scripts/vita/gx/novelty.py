@@ -3,6 +3,7 @@
 from pathlib import Path
 
 import image
+from image_metadata import parse_png
 
 
 def validate_pixels(width, height, pixels):
@@ -20,7 +21,7 @@ def logo_reference(width, height, pixels):
 
 
 def read_pixels(path):
-    width, height, depth, color, pixels = image.parse_png(path)
+    width, height, depth, color, pixels = parse_png(path)
     if (depth, color) != (8, 6):
         raise ValueError('visual comparison requires complete RGBA8 pixels')
     validate_pixels(width, height, pixels)
