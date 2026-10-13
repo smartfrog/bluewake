@@ -185,6 +185,82 @@ class RelMaterializeTest(unittest.TestCase):
     def test_raw_requested_rel_is_read_from_iso_and_mapped_without_claiming_link_success(self):
         self.run_probe('raw')
 
+    def run_branch_validation(self, patch, target, relocation, word, exported, result='ok', owner='dol'):
+        probe = test_host.OUT / 'rel_materialize_probe'
+        completed = subprocess.run([str(probe), 'branch-validation', hex(patch), hex(target),
+                                    str(relocation), hex(word), hex(exported), result, owner],
+                                   capture_output=True, text=True)
+        self.assertEqual(completed.returncode, 0, completed.stderr)
+
+    def test_branch_validation_matches_prelinked_dol_and_self_targets_in_both_namespaces(self):
+        for relocation, word, mask in ((10, 0x48000001, 0x03FFFFFC),
+                                       (11, 0x41820001, 0x0000FFFC)):
+            for tag in (0, 0x40000000):
+                for owner in ('dol', 'self'):
+                    with self.subTest(relocation=relocation, tag=tag, owner=owner):
+                        patch = 0x80800000 | tag
+                        target = 0x80800004 | (tag if owner == 'self' else 0)
+                        self.run_branch_validation(patch, target, relocation, word, word | (4 & mask), owner=owner)
+
+    def test_branch_validation_preserves_opcode_condition_and_link_bits(self):
+        for relocation, word, exported in ((10, 0x48000000, 0x48000004),
+                                           (10, 0x4BFFFFFD, 0x48000005),
+                                           (11, 0x41820000, 0x41820004),
+                                           (11, 0x4182FFFD, 0x41820005)):
+            with self.subTest(relocation=relocation, word=word):
+                self.run_branch_validation(0xC0800000, 0x80800004, relocation, word, exported)
+
+    def test_branch_validation_tags_an_untagged_self_target_only_for_a_tagged_patch(self):
+        for relocation, word in ((10, 0x48000001), (11, 0x41820001)):
+            for patch, target, result in ((0xC0800000, 0x80800004, 'ok'),
+                                          (0x80800000, 0xC0800004, 'displacement')):
+                with self.subTest(relocation=relocation, patch=patch, target=target):
+                    self.run_branch_validation(patch, target, relocation, word, word | 4, result, 'self')
+
+    def test_branch_validation_rejects_a_mismatching_prelinked_displacement(self):
+        for relocation, word in ((10, 0x48000001), (11, 0x41820001)):
+            with self.subTest(relocation=relocation):
+                self.run_branch_validation(0xC0800000, 0x80800004, relocation, word,
+                                           word | 8, 'prelinked export')
+
+    def test_branch_validation_signed_displacement_limits(self):
+        for relocation, word, mask, minimum, maximum in (
+                (10, 0x48000001, 0x03FFFFFC, -0x02000000, 0x01FFFFFC),
+                (11, 0x41820001, 0x0000FFFC, -0x8000, 0x7FFC)):
+            for delta in (minimum - 4, minimum, maximum, maximum + 4):
+                with self.subTest(relocation=relocation, delta=delta):
+                    target = 0xC2800000
+                    patch = target - delta
+                    self.run_branch_validation(patch, target, relocation, word,
+                                               word | (delta & mask),
+                                               'ok' if minimum <= delta <= maximum else 'displacement', 'self')
+
+    def test_branch_validation_rejects_absolute_or_wrong_opcode_instructions(self):
+        for relocation, word in ((10, 0x48000002), (11, 0x41820002),
+                                 (10, 0x41820000), (11, 0x48000000)):
+            with self.subTest(relocation=relocation, word=word):
+                self.run_branch_validation(0xC0800000, 0x80800004, relocation, word, 0, 'instruction')
+
+    def test_branch_validation_rejects_misaligned_dol_targets(self):
+        for relocation, word in ((10, 0x48000000), (11, 0x41820000)):
+            with self.subTest(relocation=relocation):
+                self.run_branch_validation(0xC0800000, 0x80800002, relocation, word, 0, 'executable coverage')
+
+    def test_branch_validation_rejects_exclusive_mem1_end(self):
+        for relocation, word in ((10, 0x48000000), (11, 0x41820000)):
+            with self.subTest(relocation=relocation):
+                self.run_branch_validation(0xC1800000, 0x81800000, relocation, word, 0, 'outside MEM1')
+
+    def test_branch_validation_does_not_admit_tagged_raw_dol_symbols(self):
+        for relocation, word in ((10, 0x48000000), (11, 0x41820000)):
+            with self.subTest(relocation=relocation):
+                self.run_branch_validation(0xC0800000, 0xC0800004, relocation, word, 0, 'outside MEM1')
+
+    def test_branch_validation_rejects_a_misaligned_patch_displacement(self):
+        for relocation, word in ((10, 0x48000000), (11, 0x41820000)):
+            with self.subTest(relocation=relocation):
+                self.run_branch_validation(0xC0800002, 0x80800004, relocation, word, 0, 'displacement')
+
     def test_owned_constructor_order_and_guest_return(self):
         self.run_probe('second-ctor-order')
 

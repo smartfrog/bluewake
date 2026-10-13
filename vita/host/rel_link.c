@@ -132,7 +132,9 @@ static const char* validate_relocations(WwHost* host, const StaticRecompRelModul
                     (destination != NULL && (rel_data(host, target_id, section) != NULL ||
                                              (u64)symbol + 4u > destination->size)))
                     return "REL branch target requires aligned translated executable coverage";
-                const s64 displacement = (s64)address - ((s64)patch->linked_start + (s64)offset);
+                const u32 patch_address = patch->linked_start + (u32)offset;
+                const u32 branch_address = address | (patch_address & 0x40000000u);
+                const s64 displacement = (s64)(s32)(branch_address - patch_address);
                 const s64 minimum = type == 10u ? -0x02000000ll : -0x8000ll;
                 const s64 maximum = type == 10u ? 0x01FFFFFCll : 0x7FFCLL;
                 if (displacement < minimum || displacement > maximum || (displacement & 3ll) != 0ll ||

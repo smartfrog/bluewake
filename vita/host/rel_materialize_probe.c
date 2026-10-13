@@ -472,7 +472,74 @@ static void second_module_case(WwHost* host, const char* scenario, StaticRecompR
     }
 }
 
+static int branch_validation_case(int argc, char** argv) {
+    assert(argc == 9);
+    const u32 patch_address = (u32)strtoul(argv[2], NULL, 0);
+    const u32 target_address = (u32)strtoul(argv[3], NULL, 0);
+    const u32 type = (u32)strtoul(argv[4], NULL, 0);
+    const u32 word = (u32)strtoul(argv[5], NULL, 0);
+    const u32 expected = (u32)strtoul(argv[6], NULL, 0);
+    const bool self = strcmp(argv[8], "self") == 0;
+    WwHost* host = calloc(1u, sizeof(*host));
+    assert(host != NULL && ww_host_init(host));
+    u8 raw[256] = {0};
+    write_be32(raw, 139u);
+    write_be32(raw + 0xCu, 3u);
+    write_be32(raw + 0x10u, 0x4Cu);
+    write_be32(raw + 0x28u, 0xA0u);
+    write_be32(raw + 0x2Cu, 8u);
+    write_be32(raw + 0x54u, 0x80u);
+    write_be32(raw + 0x58u, 4u);
+    write_be32(raw + 0x80u, word);
+    write_be32(raw + 0xA0u, self ? 139u : 0u);
+    write_be32(raw + 0xA4u, 0xA8u);
+    raw[0xAAu] = 202u;
+    raw[0xABu] = 1u;
+    raw[0xB2u] = (u8)type;
+    raw[0xB3u] = self ? 2u : 0u;
+    write_be32(raw + 0xB4u, self ? 0u : target_address);
+    raw[0xBAu] = 203u;
+    const StaticRecompRelSection sections[] = {
+        {139u, 1u, patch_address, 4u}, {139u, 2u, target_address, 4u}};
+    const StaticRecompRelModule rel = {.module_id = 139u, .section_count = 3u,
+        .section_info_offset = 0x4Cu, .sections = sections, .num_sections = self ? 2u : 1u};
+    const StaticRecompRange range = {target_address & ~3u, (target_address & ~3u) + 4u};
+    u64 hash = 14695981039346656037ull;
+    for (u32 at = 0u; at < 4u; ++at)
+        hash *= 1099511628211ull;
+    const StaticRecompModuleDesc module = {.code_ranges = &range, .num_code_ranges = 1u,
+        .chunk_ranges = &range, .num_chunk_ranges = 1u, .chunk_hashes = &hash,
+        .rel_modules = &rel, .num_rel_modules = 1u};
+    if (self) {
+        write_be32(raw + 0x5Cu, 0x85u);
+        write_be32(raw + 0x60u, 4u);
+    }
+    u8 exported[4];
+    write_be32(exported, expected);
+    const BlueWakeRelData data = {139u, 1u, patch_address, 4u, exported};
+    host->module = &module;
+    host->rel_data = &data;
+    host->rel_data_count = 1u;
+    assert(ppc_guest_alias_add(patch_address, 4u, exported));
+    const char* error = ww_host_validate_rel_link(host, &rel, raw, sizeof(raw));
+    if (strcmp(argv[7], "ok") == 0) {
+        if (error != NULL)
+            fprintf(stderr, "%s\n", error);
+        assert(error == NULL);
+    } else {
+        assert(error != NULL);
+        if (strstr(error, argv[7]) == NULL)
+            fprintf(stderr, "%s\n", error);
+        assert(strstr(error, argv[7]) != NULL);
+    }
+    ww_host_shutdown(host);
+    free(host);
+    return 0;
+}
+
 int main(int argc, char** argv) {
+    if (argc > 1 && strcmp(argv[1], "branch-validation") == 0)
+        return branch_validation_case(argc, argv);
     assert(argc == 2);
     const char* scenario = argv[1];
     const bool second = strncmp(scenario, "second", 6u) == 0;
@@ -482,10 +549,11 @@ int main(int argc, char** argv) {
     assert(host != NULL && ww_host_init(host));
     track_sections = true;
     const bool constructors = strncmp(scenario, "second-ctor-", 12u) == 0;
-    StaticRecompRange ranges[] = {{0x80240744u, 0x80240748u}, {0xC09900F4u, 0xC0990114u},
+    const u32 actor_code = strcmp(scenario, "second-branch-displacement") == 0 ? 0xC39900F4u : 0xC09900F4u;
+    StaticRecompRange ranges[] = {{0x80240744u, 0x80240748u}, {actor_code, actor_code + 32u},
                                  {0xC1B100F4u, 0xC1B10114u}, {0x80241178u, 0x802411F8u},
                                  {0x802410B4u, 0x802410B8u}};
-    const StaticRecompRange chunks[] = {{0xC09900F4u, 0xC0990114u}, {0xC1B100F4u, 0xC1B10114u}};
+    const StaticRecompRange chunks[] = {{actor_code, actor_code + 32u}, {0xC1B100F4u, 0xC1B10114u}};
     const u64 hashes[] = {actor_code_hash(scenario), actor_code_hash("")};
     const StaticRecompRelSection sections[] = {
         {.module_id = 1u, .section_index = 1u, .linked_start = WW_REL_SCRATCH_BASE,
@@ -493,7 +561,7 @@ int main(int argc, char** argv) {
         {.module_id = 1u, .section_index = 4u, .linked_start = 0xC1F80178u, .size = 16u},
     };
     const StaticRecompRelSection actor_sections[] = {
-        {139u, 1u, 0xC09900F4u, 32u}, {139u, 2u, 0xC0997700u, 16u}, {139u, 3u, 0xC0997710u, 16u}};
+        {139u, 1u, actor_code, 32u}, {139u, 2u, 0xC0997700u, 16u}, {139u, 3u, 0xC0997710u, 16u}};
     const StaticRecompRelSection ship_sections[] = {
         {168u, 1u, 0xC1B100F4u, 32u}, {168u, 2u, 0xC1B224D0u, 16u}, {168u, 3u, 0xC1B224E0u, 16u}};
     const StaticRecompRelModule rels[] = {{.module_id = 1u, .version = 0u, .section_count = link_case ? 5u : 2u,
