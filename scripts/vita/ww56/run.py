@@ -106,6 +106,48 @@ def properties(unit):
     return parse_properties(output)
 
 
+INVOCATION_LINE = re.compile(r'Running as unit: (\S+); invocation ID: ([0-9a-f]+)')
+
+
+def wrapper_invocation(phase_root, unit):
+    if phase_root is None:
+        return None
+    path = Path(phase_root) / 'evidence/process.log'
+    try:
+        head = path.read_bytes()[:4096].decode('utf-8', errors='replace')
+    except FileNotFoundError:
+        return None
+    for match in INVOCATION_LINE.finditer(head):
+        if match.group(1) == unit:
+            return match.group(2)
+    return None
+
+
+def require_fresh_unit(unit):
+    current = properties(unit)
+    if current.get('LoadState') != 'not-found':
+        raise ValueError('unit already exists; refusing to reuse or stop it: ' + unit +
+                         ' (LoadState=' + str(current.get('LoadState')) + ')')
+    return current
+
+
+def stop_owned_unit(unit, state):
+    current = properties(unit)
+    recorded = state.get('invocation_id') or wrapper_invocation(state.get('phase_root'), unit)
+    if current.get('ControlGroup'):
+        if recorded is None or current.get('InvocationID') != recorded:
+            state['foreign_unit_untouched'] = {'unit': unit, 'recorded_invocation': recorded,
+                                               'current': current}
+            raise ValueError('refusing to stop ' + unit + ': its invocation is not the one this run created')
+        subprocess.run(['systemctl', '--user', 'stop', unit], check=True, timeout=5)
+    return current
+
+
+def cleanup_phase_unit(unit, state):
+    state['properties_before_cleanup'] = stop_owned_unit(unit, state)
+    return state['properties_before_cleanup']
+
+
 def verify_uncapped_supervisor(unit):
     relative = Path('/proc/self/cgroup').read_text().strip().split('::', 1)[1]
     if not relative.endswith('/app.slice/' + unit):
@@ -201,6 +243,13 @@ def check_mode(args):
     return 0 if checks['ok'] else 2
 
 
+def plan_input(path, expected_sha256, label):
+    identity = file_identity(path)
+    if identity['sha256'] != expected_sha256:
+        raise ValueError(label + ' does not match its supplied SHA-256')
+    return {'source': str(path), 'identity': identity, 'sha256': expected_sha256}
+
+
 def stage_trial(args):
     runroot = reject_symlinks(Path(args.run_root_base)) / ('ww56-' + args.run_id)
     receipts = Path(args.receipts_root) / ('ww56-' + args.run_id)
@@ -210,6 +259,8 @@ def stage_trial(args):
         raise ValueError('receipt directory already exists; preserve the old run: ' + str(receipts))
     receipts.mkdir(mode=0o700, parents=True)
     create_run(runroot)
+    vpk = plan_input(args.vpk, args.vpk_sha256, 'candidate package')
+    runtime = plan_input(args.runtime, args.runtime_sha256, 'runtime')
     assets = stage_runtime(runroot, args.runtime, args.runtime_sha256)
     shutil.copyfile(args.vpk, runroot / 'runtime/ww05.vpk')
     if sha256(runroot / 'runtime/ww05.vpk') != args.vpk_sha256:
@@ -224,8 +275,8 @@ def stage_trial(args):
         'kind': 'ww56-bounded-normalboot-trial-v1',
         'run_id': args.run_id, 'runroot': str(runroot), 'receipts': str(receipts),
         'launcher_source': args.expected_head, 'guest_source': args.guest_source,
-        'vpk': {'source': str(args.vpk), 'identity': file_identity(args.vpk), 'sha256': args.vpk_sha256},
-        'runtime': {'source': str(args.runtime), 'sha256': args.runtime_sha256},
+        'vpk': vpk, 'vpk_sha256': vpk['sha256'],
+        'runtime': runtime, 'runtime_sha256': runtime['sha256'],
         'staged_runtime': library_identity(runroot / 'runtime', allow_symlinks=False),
         'runtime_inputs': runtime_inputs(args.runtime), 'runtime_assets': assets,
         'runtime_libraries': libraries, 'firmware': firmware, 'shader_compiler': shader, 'disc': disc,
@@ -274,8 +325,33 @@ def verify_trial_inputs(runroot, plan, args):
     link = runroot / plan['disc']['install_path']
     if not link.is_symlink() or os.readlink(link) != str(args.disc):
         raise ValueError('private disc link changed')
-    if config_identity(runroot, surface_sync=False, pref_path=runroot / FIRMWARE_DIRECTORY) != plan['private_config']:
-        raise ValueError('private configuration changed')
+
+
+def verify_private_config(runroot, plan):
+    if config_identity(runroot, surface_sync=False,
+                       pref_path=runroot / FIRMWARE_DIRECTORY) != plan['private_config']:
+        raise ValueError('private configuration is not the canonical private profile')
+
+
+def installation_gates(runroot, plan, args, phase):
+    canonical = emitted_config(runroot, phase, surface_sync=False,
+                               pref_path=runroot / FIRMWARE_DIRECTORY)
+    verify_phase_logs(runroot, phase, PHASE_LOG_LIMIT)
+    verify_trial_inputs(runroot, plan, args)
+    payload = verify_installed(runroot, plan)
+    restore_config(runroot, canonical, surface_sync=False, pref_path=runroot / FIRMWARE_DIRECTORY)
+    verify_private_config(runroot, plan)
+    return payload
+
+
+def guest_gates(runroot, plan, args, phase):
+    canonical = emitted_config(runroot, phase, surface_sync=False,
+                               pref_path=runroot / FIRMWARE_DIRECTORY)
+    verify_trial_inputs(runroot, plan, args)
+    verify_installed(runroot, plan)
+    verify_phase_logs(runroot, phase, PHASE_LOG_LIMIT)
+    restore_config(runroot, canonical, surface_sync=False, pref_path=runroot / FIRMWARE_DIRECTORY)
+    verify_private_config(runroot, plan)
 
 
 def install_ready_probe(runroot):
@@ -321,6 +397,7 @@ class PhaseWatch:
         self.failure_lines = []
         self.new_lines = 0
         self.next_record = 0
+        self.drained = False
 
     def _log_paths(self):
         return (self.phase_root / 'evidence/process.log', self.runroot / 'cache/Vita3K/vita3k.log',
@@ -361,7 +438,8 @@ class PhaseWatch:
                    'guest_cgroup': identity['cgroup'], 'message': message})
             raise PreconditionBlocked(message)
         self.state.update(pid=identity['pid'], cgroup=identity['cgroup'], released=True,
-                          properties_before_exec=props)
+                          properties_before_exec=props,
+                          invocation_id=props.get('InvocationID') or None)
         (self.receipts / (self.name + '-permit')).touch(exist_ok=False)
         print('RELEASE ' + self.name + ' isolated kernel cap verified', flush=True)
         return None
@@ -375,7 +453,7 @@ class PhaseWatch:
                 journal.extend(new)
         return lines, journal
 
-    def _observe_frontier(self, now, pid, lines, journal):
+    def _ingest(self, now, lines, journal):
         events = parse_frame_events(journal).presents
         if events:
             if self.state['presentations']:
@@ -392,7 +470,12 @@ class PhaseWatch:
         failures = [line for line in lines if is_failure(line)]
         if failures:
             self.failure_lines.extend(failures)
-        for trigger in self.scanner.feed(journal):
+        pid = self.state.get('pid')
+        for trigger in self.scanner.feed(lines):
+            if pid is None:
+                self.state['snapshots'].append({'event': trigger.kind, 'missed': 'process never released'})
+                print('SNAPSHOT-MISSED ' + trigger.kind + ' process never released', flush=True)
+                continue
             directory = self.receipts / ('snapshot-' + trigger.kind)
             try:
                 summary = capture_snapshot(Path('/proc', str(pid)), self.state['cgroup'], directory,
@@ -405,10 +488,36 @@ class PhaseWatch:
                                             'totals': summary['totals'],
                                             'duration_seconds': summary['duration_seconds']})
             print('SNAPSHOT ' + trigger.kind + ' ' + json.dumps(summary['totals']), flush=True)
+
+    def _observe_frontier(self, now, lines, journal):
+        self._ingest(now, lines, journal)
         stop = evaluate_stop(self.stop_state, now=now, failure_lines=self.failure_lines)
         if stop is None and self.ready_probe is not None and self.ready_probe():
             stop = {'stop_reason': 'installed_payload', 'payload': verify_installed(self.runroot, self.plan)}
         return stop
+
+    def final_drain(self, reason):
+        if self.drained:
+            return
+        self.drained = True
+        now = time.monotonic()
+        lines, journal = self._read_logs()
+        self.new_lines += len(lines)
+        self._ingest(now, lines, journal)
+        self.state['terminal_drain'] = {
+            'reason': reason, 'new_lines': self.new_lines,
+            'presentations': len(self.state['presentations']),
+            'last_present': self.state['presentations'][-1] if self.state['presentations'] else None,
+            'first_rel': self.state.get('first_rel'),
+            'failure_lines': list(self.failure_lines),
+            'snapshots': [entry['event'] for entry in self.state['snapshots']]}
+        record = {'phase': self.name, 'monotonic': now, 'terminal_drain': reason,
+                  'new_lines': self.new_lines, 'presentations': len(self.state['presentations']),
+                  'snapshots': self.state['terminal_drain']['snapshots']}
+        with (self.receipts / 'cpu-log-watch.jsonl').open('a') as stream:
+            stream.write(json.dumps(record) + '\n')
+        print('DRAIN ' + self.name + ' ' + json.dumps(record), flush=True)
+        self.new_lines = 0
 
     def __call__(self, _wrapper_pid):
         now = time.monotonic()
@@ -416,15 +525,15 @@ class PhaseWatch:
             return self._release()
         pid = self.state['pid']
         if not Path('/proc', str(pid)).exists():
-            self.state['properties_at_exit'] = properties(self.unit)
-            subprocess.run(['systemctl', '--user', 'stop', self.unit], check=True, timeout=5)
+            self.final_drain('managed-native-exit')
+            self.state['properties_at_exit'] = stop_owned_unit(self.unit, self.state)
             return {'stop_reason': 'managed-native-exit',
                     'native_properties': self.state['properties_at_exit']}
         if self.probe:
             return None
         lines, journal = self._read_logs()
         self.new_lines += len(lines)
-        stop = self._observe_frontier(now, pid, lines, journal)
+        stop = self._observe_frontier(now, lines, journal)
         if stop is None:
             observation = self.idle(pid)
             if observation is not None:
@@ -454,6 +563,11 @@ def run_phase(name, args, runroot, receipts, plan, record, *, budget, headroom, 
     entry = plan['phases'][name]
     phase_root = Path(entry['evidence_root'])
     unit = 'ww56-' + args.run_id + '-' + name + '.service'
+    state = {'unit': unit, 'budget_bytes': budget, 'headroom_required_bytes': headroom,
+             'deadline_seconds': deadline, 'pid': None, 'snapshots': [], 'presentations': [],
+             'released': False, 'phase_root': str(phase_root), 'invocation_id': None}
+    record['phases'][name] = state
+    state['properties_before_creation'] = require_fresh_unit(unit)
     spec = {'command': entry['command'], 'environment': entry['environment'], 'cwd': entry['cwd'],
             'budget_bytes': budget, 'unit': unit, 'permit_timeout_seconds': PERMIT_TIMEOUT_SECONDS}
     write(receipts, name + '-exec.json', spec)
@@ -463,20 +577,29 @@ def run_phase(name, args, runroot, receipts, plan, record, *, budget, headroom, 
                '--property=TimeoutStopSec=2s', '--property=RemainAfterExit=yes',
                '--property=RuntimeMaxSec=' + str(int(deadline + 15)),
                '/usr/bin/python3', '-B', str(SCRIPT_DIRECTORY / 'exec_gate.py'), str(receipts), name]
-    state = {'unit': unit, 'budget_bytes': budget, 'headroom_required_bytes': headroom,
-             'deadline_seconds': deadline, 'pid': None, 'snapshots': [], 'presentations': [],
-             'released': False}
-    record['phases'][name] = state
     watch = PhaseWatch(name, args, runroot, receipts, plan, entry, unit, budget, headroom, deadline, state,
                        probe=probe, ready_probe=ready_probe)
+    failure = None
     try:
         state['run_owned_status'] = run_owned(command, runroot, deadline + 10, evidence_root=phase_root,
                                               phase_observer=watch, environment=dict(os.environ),
                                               cwd=ROOT)
+    except BaseException as error:
+        failure = error
+        raise
     finally:
-        state['properties_before_cleanup'] = properties(unit)
-        if state['properties_before_cleanup'].get('ControlGroup'):
-            subprocess.run(['systemctl', '--user', 'stop', unit], check=True, timeout=5)
+        late_error = None
+        try:
+            watch.final_drain('wrapper-exit')
+        except BaseException as error:
+            state['drain_error'] = str(error)
+            print('DRAIN-ERROR ' + str(error), flush=True)
+            late_error = error
+        try:
+            state['properties_before_cleanup'] = stop_owned_unit(unit, state)
+        except BaseException as error:
+            state['cleanup_error'] = str(error)
+            late_error = late_error or error
         state['properties_after_cleanup'] = properties(unit)
         try:
             state['wrapper'] = json.loads((phase_root / 'evidence/process.json').read_text())
@@ -485,9 +608,11 @@ def run_phase(name, args, runroot, receipts, plan, record, *, budget, headroom, 
         state['native_pid_absent_after_cleanup'] = (state['pid'] is None or
                                                     not Path('/proc', str(state['pid'])).exists())
         if state['pid'] is not None and not state['native_pid_absent_after_cleanup']:
-            raise ValueError('phase native process was not reaped: ' + name)
+            late_error = late_error or ValueError('phase native process was not reaped: ' + name)
         write(receipts, name + '-disposition.json', state)
-        print('STOP ' + name + ' ' + json.dumps(state['properties_before_cleanup']), flush=True)
+        print('STOP ' + name + ' ' + json.dumps(state.get('properties_before_cleanup', {})), flush=True)
+        if failure is None and late_error is not None:
+            raise late_error
     return state
 
 
@@ -500,7 +625,7 @@ def run_probe(args, runroot, receipts, record):
     state = run_phase('probe', args, runroot, receipts, {'phases': {'probe': entry}}, record,
                       budget=args.install_budget_bytes, headroom=args.install_headroom_bytes,
                       deadline=INSTALL_DEADLINE_SECONDS, probe=True)
-    props = state.get('properties_at_exit', state['properties_before_cleanup'])
+    props = state.get('properties_at_exit') or state.get('properties_before_cleanup') or {}
     if props.get('ExecMainCode') != '1' or props.get('ExecMainStatus') != '0':
         raise ValueError('isolation probe disposition unexpected: ' + json.dumps(props))
     record['isolation_probe_passed'] = True
@@ -526,8 +651,9 @@ def run_trial(args):
         record['identities_before'] = record_identities(args)
         runroot, receipts, plan = stage_trial(args)
         record.update(runroot=str(runroot), receipts=str(receipts), guest_source=plan['guest_source'],
-                      vpk_sha256=plan['vpk_sha256'], runtime_sha256=plan['runtime']['sha256'])
+                      vpk_sha256=plan['vpk_sha256'], runtime_sha256=plan['runtime_sha256'])
         verify_trial_inputs(runroot, plan, args)
+        verify_private_config(runroot, plan)
         run_probe(args, runroot, receipts, record)
         install_entry = plan['phases']['install']
         install = run_phase('install', args, runroot, receipts, plan, record,
@@ -538,12 +664,7 @@ def run_trial(args):
         if stop.get('stop_reason') != 'installed_payload':
             raise ValueError('installer did not report the installed payload: ' + json.dumps(stop))
         phase = Path(install_entry['evidence_root'])
-        canonical = emitted_config(runroot, phase, surface_sync=False,
-                                   pref_path=runroot / FIRMWARE_DIRECTORY)
-        verify_phase_logs(runroot, phase, PHASE_LOG_LIMIT)
-        verify_trial_inputs(runroot, plan, args)
-        payload = verify_installed(runroot, plan)
-        restore_config(runroot, canonical, surface_sync=False, pref_path=runroot / FIRMWARE_DIRECTORY)
+        payload = installation_gates(runroot, plan, args, phase)
         token = fresh_request(runroot, plan['guest_source'], plan['vpk_sha256'], args.continue_gx, 0,
                               args.audio == 'deferred', None)
         write(receipts, 'guest-request.json',
@@ -553,10 +674,8 @@ def run_trial(args):
         guest = run_phase('guest', args, runroot, receipts, plan, record,
                           budget=args.guest_budget_bytes, headroom=args.guest_headroom_bytes,
                           deadline=args.guest_ceiling_seconds)
-        record['guest_stop'] = guest.get('requested_stop', guest['properties_before_cleanup'].get('Result'))
-        verify_trial_inputs(runroot, plan, args)
-        verify_installed(runroot, plan)
-        verify_phase_logs(runroot, Path(plan['phases']['guest']['evidence_root']), PHASE_LOG_LIMIT)
+        record['guest_stop'] = guest.get('requested_stop') or guest.get('properties_before_cleanup', {}).get('Result')
+        guest_gates(runroot, plan, args, Path(plan['phases']['guest']['evidence_root']))
         record['postflight_input_and_payload_gates'] = 'PASS'
     except PreconditionBlocked as error:
         record.update(completion='BLOCKED', error=str(error), blocked=True)

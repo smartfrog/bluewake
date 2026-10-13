@@ -80,10 +80,13 @@ released, and no other application is touched.
 python3 -B -m unittest discover -s scripts/vita/ww56 -p 'test_*.py' -v
 ```
 
-51 tests cover the one-shot trigger scanner, the headroom gate, the static
+73 tests cover the one-shot trigger scanner, the headroom gate, the static
 budget property/kernel verification, the incremental journal tail, the smaps
-summary and the early-stop rules. The suite is pure Python; any native host
-test build for the reviewed SHA stays `-j1` per repo convention.
+summary, the early-stop rules, phase-unit ownership (a foreign unit is never
+stopped), the staged plan schema, the config-gate ordering (the permitted
+`user-id: 00` mutation is validated, restored, then re-checked) and the
+exit-race drain. The suite is pure Python; any native host test build for the
+reviewed SHA stays `-j1` per repo convention.
 
 ## Step 1: read-only preflight
 
@@ -201,13 +204,19 @@ Two one-shot, event-driven triggers, then never again:
 1. `[create]: GPU =` -> `snapshot-gpu-context-created/`
 2. first `[frame-present]` -> `snapshot-first-actual-frame-present/`
 
+The GPU marker arrives on the guest runtime/process logs; the present stamp
+arrives in the guest journal. The watcher reads every log continuously (about
+every 50 ms through the phase observer) and feeds each newly read line to one
+single-fire scanner, so each trigger fires once from wherever its line
+appears. When the owned process exits, the watcher drains the logs once more
+before returning and records the terminal frontier (`terminal_drain` in the
+disposition and watch record): a presentation that landed just before exit is
+counted, and its snapshot is recorded as `SNAPSHOT-MISSED` rather than lost.
+
 Each trigger does exactly one `/proc/<pid>/smaps`, `status`, `maps`, thread
-list and one cgroup `memory.stat`/`memory.current`/`memory.events` read. The
-journal tail is read continuously (about every 50 ms through the phase
-observer), so a trigger fires within the same observation window even if the
-process dies immediately afterwards; if the process is already gone, the
-receipts record `SNAPSHOT-MISSED <trigger>` honestly instead of inventing a
-replacement.
+list and one cgroup `memory.stat`/`memory.current`/`memory.events` read. If the
+process is already gone when a trigger fires, the receipts record
+`SNAPSHOT-MISSED <trigger>` honestly instead of inventing a replacement.
 
 There is no RAM polling loop, no RSS threshold and no memory-threshold kill.
 The user-disabled MemWatcher stays disabled. The one-shot `MemAvailable` gate
@@ -217,13 +226,12 @@ is the only other memory read, and it only decides whether to release a phase.
 
 | Path | Contents |
 | --- | --- |
-| `/tmp/opencode/ww56-<id>/result.json` | Final record: completion, phases, stops, snapshots, identities, errors |
+| `/tmp/opencode/ww56-<id>/result.json` | Final record: completion, phases, stops, snapshots, `identities_before` / `identities_after` / `identity_before_equals_after`, errors |
 | `/tmp/opencode/ww56-<id>/effective-plan.json` | Staged plan: commands, environment, hashes, phases |
-| `/tmp/opencode/ww56-<id>/identities-{before,after}.json` | Launcher, pins, VPK, runtime, driver stack, shader compiler, firmware, disc |
-| `/tmp/opencode/ww56-<id>/<phase>-{exec,ready,verified-preexec,disposition}.json` | Per-phase command spec, gate pid/cgroup, pre-exec property/kernel/headroom proof, final state |
+| `/tmp/opencode/ww56-<id>/<phase>-{exec,ready,verified-preexec,disposition}.json` | Per-phase command spec, gate pid/cgroup, pre-exec property/kernel/headroom proof, unit ownership (`properties_before_creation`, `invocation_id`), `terminal_drain`, final state |
 | `/tmp/opencode/ww56-<id>/<phase>-blocked.json` | Present only when a headroom gate blocked the phase |
-| `/tmp/opencode/ww56-<id>/cpu-log-watch.jsonl` | One line per ~1 s per phase: pid, cpu_fraction, new log bytes, tail, presentations, snapshots, stop |
-| `/tmp/opencode/ww56-<id>/snapshot-*/` | One-shot memory evidence per trigger; raw addresses stay local, no memory bytes read |
+| `/tmp/opencode/ww56-<id>/cpu-log-watch.jsonl` | One line per ~1 s per phase: pid, cpu_fraction, new log bytes, tail, presentations, snapshots, stop; a final `terminal_drain` line per phase |
+| `/tmp/opencode/ww56-<id>/snapshot-*/` | One-shot memory evidence per trigger; raw addresses stay local, no memory bytes read; a trigger that arrives after exit is recorded as `SNAPSHOT-MISSED`, never invented |
 | `/tmp/opencode/ww56-<id>-supervisor.log` | Supervisor console: RELEASE/WATCH/SNAPSHOT/STOP/RESULT lines |
 | `build-f5/ww56-<id>/` | Fresh private profile: staged inputs, phases, installed payload, guest journal and reports |
 | `build-f5/ww56-<id>/phases/<name>/evidence/process.{log,json}` | Owned wrapper log and disposition (waited, exit, duration) |
@@ -251,6 +259,11 @@ separate, read-only step and is never a run gate:
 - Every phase unit is stopped and reaped by the supervisor (`systemctl --user
   stop`, then owned-group TERM/KILL through `run_owned`), and the disposition
   proves the native pid is absent afterwards.
+- A phase unit that already exists is refused before spawning (`require_fresh_unit`,
+  `LoadState` check), and cleanup stops only the unit invocation this run
+  created: the recorded `InvocationID` (or the wrapper's own `Running as unit:
+  ...; invocation ID: ...` line) must match, otherwise the unit is left
+  untouched and the refusal is recorded as `foreign_unit_untouched`.
 - On any error the receipts already written stay; the supervisor never deletes
   evidence. Re-running requires a fresh run id.
 - A WW56 run is a bounded observation, not a product result. Say what ran on

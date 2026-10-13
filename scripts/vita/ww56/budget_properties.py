@@ -9,7 +9,7 @@ mismatch is a hard error: the guest command is never released.
 from __future__ import annotations
 
 PROPERTIES = ('ControlGroup', 'MainPID', 'MemoryMax', 'EffectiveMemoryMax', 'MemorySwapMax',
-              'OOMPolicy', 'ActiveState', 'SubState', 'Result',
+              'OOMPolicy', 'ActiveState', 'SubState', 'Result', 'LoadState', 'InvocationID',
               'ExecMainCode', 'ExecMainStatus', 'CPUUsageNSec', 'MemoryPeak')
 
 
