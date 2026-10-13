@@ -1854,3 +1854,49 @@ clearing the CPU busy flag. Receiving these actual parameters can be implemented
 without an outgoing reply or simulated DSP instruction time. The final task
 launch requires an executable peer and must remain an explicit STOP until one
 exists; no Zelda init/interrupt mail is permitted merely because the guest asks.
+
+## Unit 50: receive sourced ROM upload parameters, with task execution still refused
+
+The actual **80F3A001** request now reaches a bounded source-backed ROM receiver
+in **vita/host/dsp_rom_mail.c**, not a desktop interception or reply script.
+Pinned **ROM.cpp:40-113**, corroborated by **free_dsp_rom/dsp_rom.ds:13-59**, defines
+the source-address, instruction-length, data-length, instruction-destination
+and start-PC command pairs. The receiver retains the actual source word and
+only the documented low 16 bits of scalar parameters. A small owned record is
+cleared only by a successful verified reset/init transition. It does not read
+source memory, transfer code or allocate IRAM.
+
+Explicit assumption: parameter intake uses the pinned **DSPHLE.cpp:167-186**
+ABI, retaining the written high word in the running selected-ROM path and
+consuming the completed low-word mail through the native receiver before
+clearing the CPU busy flag. This is **HLE-style ROM input handling**, not proof
+of DSP instruction execution or instruction-accurate time. The existing halted
+LLE mailbox behavior remains unchanged. No outgoing reply, DSP/AI interrupt,
+elapsed time, sample counter or callback is manufactured by receiving a word.
+
+Only running reset-selected ROM with its prior outgoing mail already consumed
+is admitted. Unselected execution, unknown commands, unexpected receiver state
+and failed trace writes stop without consuming the failed low word or changing
+the prior parameter record. Trace output names every accepted actual mail and
+its retained fields. The final **D001 start-PC parameter** records the real task
+request and explicitly refuses with **`DSP ROM task launch requires a DSP task
+backend; transfer and execution not implemented`**. It never emits Zelda init
+mail or pretends a task was downloaded. Nonzero data length is retained input,
+not a silently completed transfer. All unsupported audio/DMA execution remains
+an explicit refusal.
+
+Linux AArch64: **681 host tests pass**, nine ROM scenarios reusing the existing
+DSP init probe: actual command/parameter retention and masks, unsupported task
+launch, reset clearing, unconsumed ready-mail refusal, non-ROM refusal, unknown
+command refusal, command/parameter trace failures, and preservation across a
+refused init transfer. RAM, complete DSP state outside the permitted input
+record/latch/error, audio state, cycles/timebase, interrupts and GX frontier stay
+unchanged. Test-first intake failure in **logs/ww16-dsp-rom-red.log**; an additional
+red regression caught early metadata clearing on a refused init transfer
+(**logs/ww16-dsp-rom-refused-init-red.log**), fixed before commit. Final suite
+**logs/ww16-dsp-rom-verified-host.log**. ARM host links
+(**logs/ww16-dsp-rom-verified-arm.log**, only the existing DSP signedness warning).
+Audit, attribution and whitespace pass. No runtime pin or desktop behavior is
+changed. Windows CI and physical Vita are not tested here. Clean committed VI/O1
+rebuild and watched **MEM1 + live-PNG** trial follow; host tests alone do not
+certify authentic protocol progress, task execution or visible gameplay.

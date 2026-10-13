@@ -1,6 +1,22 @@
 #include "probe_support.h"
 #include <stdlib.h>
 #include <string.h>
+#include <errno.h>
+#include <stdarg.h>
+
+static bool fail_rom_trace;
+
+int __wrap_fprintf(FILE* stream, const char* format, ...) {
+    if (fail_rom_trace && stream == stderr && strncmp(format, "[dsp-rom-", 9u) == 0) {
+        errno = ENOSPC;
+        return -1;
+    }
+    va_list arguments;
+    va_start(arguments, format);
+    const int result = vfprintf(stream, format, arguments);
+    va_end(arguments);
+    return result;
+}
 
 static u64 read_register(WwHost* host, u32 address) {
     return host->cpu.external_read(&host->cpu, address, 2u);
@@ -8,6 +24,97 @@ static u64 read_register(WwHost* host, u32 address) {
 
 static void control_write(WwHost* host, u16 value) {
     host->cpu.external_write(&host->cpu, WW_DSP_CONTROL, value, 2u);
+}
+
+static void rom_send(WwHost* host, u32 mail) {
+    host->cpu.external_write(&host->cpu, 0xCC005000u, mail >> 16u, 2u);
+    host->cpu.external_write(&host->cpu, 0xCC005002u, mail & 0xFFFFu, 2u);
+}
+
+static void rom_probe(WwHost* host, const char* scenario) {
+    control_write(host, 0x0800u);
+    assert(host->error == NULL && read_register(host, 0xCC005004u) == 0x8071u);
+    if (strcmp(scenario, "rom-unconsumed-ready") != 0)
+        assert(read_register(host, 0xCC005006u) == 0xFEEDu);
+    if (strcmp(scenario, "rom-unselected") == 0)
+        host->dsp.rom_selected = false;
+    u8* memory = malloc(host->cpu.ram_size);
+    assert(memory != NULL);
+    memcpy(memory, host->cpu.ram, host->cpu.ram_size);
+    const u64 cycles = host->cycles.absolute_cycles;
+    const DolAudioDma audio = host->audio;
+    const WwDspInterface dsp_before = host->dsp;
+    WwDspInterface expected_dsp;
+    const u32 dsp_mail = host->dsp.dsp_mailbox;
+    const bool refusal = strcmp(scenario, "rom-unconsumed-ready") == 0 ||
+                         strcmp(scenario, "rom-unselected") == 0 || strcmp(scenario, "rom-unknown-command") == 0 ||
+                         strcmp(scenario, "rom-trace-failure") == 0;
+    fail_rom_trace = strcmp(scenario, "rom-trace-failure") == 0;
+    rom_send(host, strcmp(scenario, "rom-unknown-command") == 0 ? 0x80F31234u : 0x80F3A001u);
+    if (refusal) {
+        assert(host->error != NULL && host->error_address == 0xCC005002u);
+        assert(host->dsp.rom_boot.parameter == 0u && host->dsp.rom_boot.received == 0u);
+        assert(host->dsp.cpu_mailbox == (strcmp(scenario, "rom-unselected") == 0 ? 0x00F30000u : 0x80F30000u));
+    } else {
+        assert(host->error == NULL && read_register(host, 0xCC005000u) == 0x00F3u);
+        fail_rom_trace = strcmp(scenario, "rom-parameter-trace-failure") == 0;
+        rom_send(host, 0x00399420u);
+        if (fail_rom_trace) {
+            assert(host->error != NULL && host->dsp.rom_boot.parameter == 0x80F3A001u &&
+                   host->dsp.rom_boot.received == 0u && host->dsp.rom_boot.source == 0u &&
+                   host->dsp.cpu_mailbox == 0x0039A001u);
+            goto verify_rom;
+        }
+        assert(host->error == NULL && read_register(host, 0xCC005000u) == 0x0039u);
+        rom_send(host, 0x80F3C002u);
+        rom_send(host, 0xCAFE0100u);
+        rom_send(host, 0x80F3A002u);
+        rom_send(host, 0xCAFE1D20u);
+        rom_send(host, 0x80F3B002u);
+        rom_send(host, 0u);
+        assert(host->error == NULL);
+        assert(host->dsp.rom_boot.source == 0x00399420u && host->dsp.rom_boot.length == 0x1D20u &&
+               host->dsp.rom_boot.dmem_length == 0u && host->dsp.rom_boot.imem_address == 0x0100u &&
+               host->dsp.rom_boot.received == 15u && host->dsp.rom_boot.parameter == 0u);
+        if (strcmp(scenario, "rom-launch") == 0) {
+            rom_send(host, 0x80F3D001u);
+            assert(host->error == NULL);
+            rom_send(host, 0xCAFE0010u);
+            assert(host->error != NULL && host->error_address == 0xCC005002u &&
+                   strstr(host->error, "DSP task backend") != NULL);
+            assert(host->dsp.rom_boot.parameter == 0x80F3D001u && host->dsp.rom_boot.received == 15u);
+        } else if (strcmp(scenario, "rom-reset") == 0) {
+            control_write(host, 0x0805u);
+            assert(host->error == NULL);
+            assert(host->dsp.rom_boot.parameter == 0u && host->dsp.rom_boot.received == 0u &&
+                   host->dsp.rom_boot.source == 0u && host->dsp.rom_boot.length == 0u);
+        } else if (strcmp(scenario, "rom-invalid-init") == 0) {
+            const WwDspRomBoot before = host->dsp.rom_boot;
+            host->cpu.ram[WW_DSP_INIT_LOAD_ADDRESS] ^= 1u;
+            control_write(host, 4u);
+            host->cpu.ram[WW_DSP_INIT_LOAD_ADDRESS] ^= 1u;
+            assert(host->error != NULL && memcmp(&host->dsp.rom_boot, &before, sizeof(before)) == 0);
+        } else {
+            assert(strcmp(scenario, "rom-config") == 0);
+        }
+    }
+verify_rom:
+    expected_dsp = dsp_before;
+    expected_dsp.cpu_mailbox = host->dsp.cpu_mailbox;
+    expected_dsp.rom_boot = host->dsp.rom_boot;
+    expected_dsp.error = host->dsp.error;
+    if (strcmp(scenario, "rom-reset") == 0) {
+        expected_dsp.control = 0x0804u;
+        expected_dsp.rom_mail_pending = true;
+    }
+    assert(memcmp(&host->dsp, &expected_dsp, sizeof(expected_dsp)) == 0);
+    assert(host->cycles.absolute_cycles == cycles && host->cpu.timebase == 0u);
+    assert(memcmp(memory, host->cpu.ram, host->cpu.ram_size) == 0);
+    assert(memcmp(&audio, &host->audio, sizeof(audio)) == 0);
+    assert(!dol_interrupts_external_pending(&host->interrupts));
+    assert(host->dsp.dsp_mailbox == dsp_mail);
+    assert(host->stream.decoded == 0u && host->frontier.size == 0u);
+    free(memory);
 }
 
 int main(int argc, char** argv) {
@@ -21,7 +128,9 @@ int main(int argc, char** argv) {
         scratch[index] = index < 128u ? (u8)index : (u8)(index * 7u + 3u);
     control_write(host, 0x0805u);
     assert(host->error == NULL);
-    if (strcmp(argv[1], "no-reference") == 0) {
+    if (strncmp(argv[1], "rom-", 4u) == 0) {
+        rom_probe(host, argv[1]);
+    } else if (strcmp(argv[1], "no-reference") == 0) {
         host->dsp.init_reference = NULL;
         control_write(host, 4u);
         assert(host->error != NULL && !host->dsp.init_loaded);

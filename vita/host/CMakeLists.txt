@@ -40,7 +40,7 @@ target_compile_options(gxruntime PRIVATE -ffp-contract=off -fno-fast-math -fstac
 
 add_library(ww05_services STATIC boot_host.c gx_checkpoint.c gx_stream.c fifo_gather.c fifo_consumer.c
     code_guard.c dsp_interface.c bat_contract.c disc_service.c rel_provider.c rel_service.c rel_link.c
-    scheduler_observation.c vi_clock.c gx_draw_observation.c gpu_finish.c frame_timing.c mem1_capture.c frame_capture.cpp
+    scheduler_observation.c vi_clock.c gx_draw_observation.c gpu_finish.c frame_timing.c mem1_capture.c frame_capture.cpp dsp_rom_mail.c
     $<TARGET_OBJECTS:ww13_dvd_pin>
     "${BLUEWAKE_ROOT}/runtime/host/src/cycle_domain.c"
     "${BLUEWAKE_ROOT}/runtime/host/src/aram_dma.c"
@@ -81,6 +81,7 @@ if(WW05_TESTS_ONLY)
     add_executable(dsp_init_probe dsp_init_probe.c)
     target_compile_options(dsp_init_probe PRIVATE -UNDEBUG)
     target_link_libraries(dsp_init_probe PRIVATE ww05_services)
+    target_link_options(dsp_init_probe PRIVATE -Wl,--wrap=fprintf)
     add_executable(bat_probe bat_probe.c)
     target_compile_options(bat_probe PRIVATE -UNDEBUG)
     target_link_libraries(bat_probe PRIVATE ww05_services)

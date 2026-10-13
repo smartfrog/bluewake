@@ -15,6 +15,15 @@
 #define WW_DSP_AR_MODE 0xCC005016u
 #define WW_DSP_AR_REFRESH 0xCC00501Au
 
+typedef struct {
+    u32 parameter;
+    u32 source;
+    u16 length;
+    u16 dmem_length;
+    u16 imem_address;
+    u8 received;
+} WwDspRomBoot;
+
 typedef struct WwDspInterface {
     u16 ar_info;
     u16 ar_refresh;
@@ -32,10 +41,12 @@ typedef struct WwDspInterface {
     bool init_loaded;
     bool rom_selected;
     bool rom_mail_pending;
+    WwDspRomBoot rom_boot;
 } WwDspInterface;
 
 void ww_dsp_interface_init(WwDspInterface* dsp, const u8* init_reference);
 bool ww_dsp_interface_read(WwDspInterface* dsp, u32 address, u8 size, u64* value);
+const char* ww_dsp_rom_receive(WwDspInterface* dsp, u32 mail, u32 pc);
 bool ww_dsp_interface_write(WwDspInterface* dsp, CPUState* cpu, u32 address, u8 size, u64 value);
 bool ww_dsp_interface_advance(WwDspInterface* dsp, u64 cycles, u64 ticks);
 u64 ww_dsp_interface_deadline(const WwDspInterface* dsp);

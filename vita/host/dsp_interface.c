@@ -68,6 +68,7 @@ static bool control_write(WwDspInterface* dsp, const CPUState* cpu, u16 value) {
     if (running && (dsp->cpu_mailbox & DSP_MAIL_BUSY))
         return reject(dsp, "queued ROM mail protocol not implemented");
     if (load_init) {
+        memset(&dsp->rom_boot, 0, sizeof(dsp->rom_boot));
         memcpy(dsp->init_image, cpu->ram + WW_DSP_INIT_LOAD_ADDRESS, WW_DSP_INIT_TRANSFER_BYTES);
         dsp->init_loaded = true;
         dsp->init_cycles_remaining = DSP_INIT_CORE_CYCLES;
@@ -76,6 +77,7 @@ static bool control_write(WwDspInterface* dsp, const CPUState* cpu, u16 value) {
         dsp->rom_mail_pending = false;
     }
     if (reset) {
+        memset(&dsp->rom_boot, 0, sizeof(dsp->rom_boot));
         dsp->init_cycles_remaining = 0u;
         dsp->rom_selected = true;
         dsp->rom_mail_pending = true;
@@ -234,13 +236,22 @@ bool ww_dsp_interface_write(WwDspInterface* dsp, CPUState* cpu, u32 address, u8 
         return false;
     switch (address) {
     case 0xCC005000u:
-        dsp->cpu_mailbox = ((dsp->cpu_mailbox & 0xFFFFu) | ((u32)(u16)value << 16u)) & ~DSP_MAIL_BUSY;
+        dsp->cpu_mailbox = (dsp->cpu_mailbox & 0xFFFFu) | ((u32)(u16)value << 16u);
+        if (!dsp->rom_selected || (dsp->control & DSP_HALT) != 0u)
+            dsp->cpu_mailbox &= ~DSP_MAIL_BUSY;
         return true;
-    case 0xCC005002u:
-        if (!(dsp->control & DSP_HALT))
-            return reject(dsp, "running ROM mail protocol not implemented");
+    case 0xCC005002u: {
+        if (!(dsp->control & DSP_HALT)) {
+            const u32 mail = (dsp->cpu_mailbox & 0xFFFF0000u) | (u16)value;
+            const char* error = ww_dsp_rom_receive(dsp, mail, cpu != NULL ? cpu->pc : 0u);
+            if (error != NULL)
+                return reject(dsp, error);
+            dsp->cpu_mailbox = mail & ~DSP_MAIL_BUSY;
+            return true;
+        }
         dsp->cpu_mailbox = (dsp->cpu_mailbox & 0xFFFF0000u) | (u16)value | DSP_MAIL_BUSY;
         return true;
+    }
     case WW_DSP_CONTROL: return control_write(dsp, cpu, (u16)value);
     case WW_DSP_AR_INFO: dsp->ar_info = (u16)value & 0x007Fu; return true;
     case WW_DSP_AR_REFRESH: dsp->ar_refresh = (u16)value & 0x07FFu; return true;
