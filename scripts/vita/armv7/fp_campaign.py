@@ -51,7 +51,8 @@ def stage_campaign(root, plan, args, vpk):
     commands = {
         "install": plan["command"],
         "guest": sandbox_command(root, "Vita3K", ["--backend-renderer", "OpenGL", "--installed-path", title],
-                                 args.libraries, wayland_socket=args.wayland_socket),
+                                 args.libraries, wayland_socket=args.wayland_socket,
+                                 render_node=getattr(args, "render_node", None)),
     }
     plan.update(process_budget=2, request_policy="fresh guest token only after verified preparation",
                 phases={}, source_vpk=str(vpk),
@@ -67,10 +68,13 @@ def stage_campaign(root, plan, args, vpk):
         phase.mkdir(mode=0o700)
         (phase / "evidence").mkdir(mode=0o700)
         entry = {"command": command, "timeout_seconds": args.timeout, "evidence_root": str(phase),
+                 "renderer": plan.get("renderer"),
                  "process_number": 1 if name == "install" else 2, "sandbox_cwd": "/stack/vita3k",
                  "source": plan["source"], "vpk_sha256": plan["vpk_sha256"],
                  "config_sha256": plan["private_config"]["sha256"], "runtime_sha256": plan["runtime_sha256"],
                  "requires": "fresh profile" if name == "install" else "installer reaped and verified preparation"}
+        if "renderer_guard" in plan:
+            entry["renderer_guard"] = plan["renderer_guard"]
         plan["phases"][name] = entry
         with evidence_file(phase, "plan.json") as stream:
             stream.write(json.dumps(entry, indent=2) + "\n")
@@ -85,8 +89,9 @@ def runtime_inputs(executable):
 
 
 def verify_inputs(root, plan):
-    from fp_launch import verify_package
+    from fp_launch import verify_package, verify_renderer_identity
 
+    verify_renderer_identity(plan.get("renderer"))
     memory = plan.get("diagnostic") == "mem"
     control = plan.get("diagnostic") == "arm"
     options = {"control": True} if control else {"memory": True} if memory else {}
@@ -223,7 +228,8 @@ def execute_campaign(root, plan):
     verify_inputs(root, plan)
     if config_identity(root, alt=alt) != plan["private_config"]:
         raise ValueError("configuration changed before installation")
-    status = run_owned(install["command"], root, install["timeout_seconds"], evidence_root=install_root)
+    status = run_owned(install["command"], root, install["timeout_seconds"], evidence_root=install_root,
+                       renderer=plan.get("renderer"))
     process = json.loads((install_root / "evidence/process.json").read_text())
     preparation = {"readiness": "REJECTED", "process_status": status, "process": process}
     try:
@@ -264,7 +270,8 @@ def execute_campaign(root, plan):
     with evidence_file(guest_root, "request.json") as stream:
         stream.write(json.dumps({"token": token, "source": plan["source"], "vpk_sha256": plan["vpk_sha256"]}) + "\n")
     identity = (token, plan["source"], plan["vpk_sha256"])
-    status = run_owned(guest["command"], root, guest["timeout_seconds"], report_identity=identity, evidence_root=guest_root, **options)
+    status = run_owned(guest["command"], root, guest["timeout_seconds"], report_identity=identity, evidence_root=guest_root,
+                       renderer=plan.get("renderer"), **options)
     process = json.loads((guest_root / "evidence/process.json").read_text())
     error = None
     canonical = alt_config(checked_config(CONFIG_TEMPLATE)) if alt else None
@@ -285,4 +292,5 @@ def execute_campaign(root, plan):
                 restore_config(root, canonical, alt=alt)
             except (OSError, ValueError) as failure:
                 error = f"canonical restoration failed: {failure}; preceding error: {error}"
-    return collect_result(root, *identity, status, error, process, evidence_root=guest_root, **options)
+    return collect_result(root, *identity, status, error, process, evidence_root=guest_root,
+                          renderer=plan.get("renderer"), **options)

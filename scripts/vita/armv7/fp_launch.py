@@ -8,6 +8,7 @@ import json
 import math
 import os
 from pathlib import Path
+import re
 import resource
 import shutil
 import signal
@@ -23,6 +24,7 @@ from fp_libraries import directory_fd, library_identity
 from fp_profile import FIRMWARE_DIRECTORY, config_identity, stage_firmware, verify_config_log, verify_firmware
 from fp_report import validate
 from fp_vectors import cases
+from render_node_guard import renderer_guard_command, renderer_guard_plan, renderer_guard_status
 
 REPORT_DIRECTORY = Path("data/Vita3K/Vita3K/ux0/data/bluewake-ww-fixture")
 WRITABLE_DIRECTORIES = ("home", "config", "cache", "data", "state", "work", "xdg-runtime")
@@ -53,7 +55,50 @@ def evidence_file(root, name):
         yield stream
 
 
-def sandbox_command(root, executable, arguments, libraries=None, wayland_socket=None):
+def add_render_node_argument(parser):
+    parser.add_argument("--render-node", type=Path,
+                        help="opt in to hardware-requested rendering with one explicit /dev/dri/renderD* character device")
+
+
+def render_node_path(render_node):
+    path = Path(render_node)
+    if not path.is_absolute():
+        raise ValueError("render node must be an absolute /dev/dri/renderD* path")
+    reject_symlinks(path)
+    if path.parent != Path("/dev/dri") or re.fullmatch(r"renderD[0-9]+", path.name) is None:
+        raise ValueError("render node must be an explicit /dev/dri/renderD* path")
+    return path
+
+
+def render_node_identity(path, info):
+    major, minor = os.major(info.st_rdev), os.minor(info.st_rdev)
+    if not stat.S_ISCHR(info.st_mode) or major != 226 or not 128 <= minor <= 255 or path.name != f"renderD{minor}":
+        raise ValueError(f"render node must be a DRM render character device matching its name: {path}")
+    return {"mode": "hardware-requested", "render_node": {
+        "path": str(path), "major": major, "minor": minor, "device": info.st_dev, "inode": info.st_ino}}
+
+
+def renderer_identity(render_node=None):
+    if render_node is None:
+        return {"mode": "software", "render_node": None}
+    path = render_node_path(render_node)
+    try:
+        info = path.lstat()
+    except OSError as error:
+        raise ValueError(f"render node must be an existing character device: {path}") from error
+    return render_node_identity(path, info)
+
+
+def verify_renderer_identity(renderer):
+    if renderer is None:
+        return
+    node = renderer["render_node"]
+    if renderer_identity(node["path"] if node is not None else None) != renderer:
+        raise ValueError("render node identity or requested mode changed since staging")
+
+
+def sandbox_command(root, executable, arguments, libraries=None, wayland_socket=None, render_node=None):
+    renderer = renderer_identity(render_node)
     root = reject_symlinks(root)
     if Path(executable).name != executable:
         raise ValueError("executable must be a basename")
@@ -94,13 +139,64 @@ def sandbox_command(root, executable, arguments, libraries=None, wayland_socket=
         environment["QT_QPA_PLATFORM"] = "wayland"
         environment["WAYLAND_DISPLAY"] = "wayland-0"
         del environment["SDL_VIDEODRIVER"]
+    if renderer["render_node"] is not None:
+        node = renderer["render_node"]["path"]
+        command.extend(["--dir", "/dev/dri", "--dev-bind", node, node])
+        del environment["LIBGL_ALWAYS_SOFTWARE"]
+    application = ["/stack/vita3k/" + executable, *arguments]
+    if renderer["render_node"] is not None:
+        application = renderer_guard_command(application, renderer, environment.pop("LD_LIBRARY_PATH", ""))
     for name, value in environment.items():
         command.extend(["--setenv", name, value])
-    return [*command, "/stack/vita3k/" + executable, *arguments]
+    return [*command, *application]
+
+
+@contextmanager
+def guarded_renderer_command(command, renderer):
+    if renderer is None or renderer == renderer_identity():
+        if "--dev-bind" in command:
+            raise ValueError("render node bind requires its planned identity")
+        yield command, ()
+        return
+    if renderer["mode"] != "hardware-requested":
+        raise ValueError("render node bind requires a hardware-requested identity")
+    path = render_node_path(renderer["render_node"]["path"])
+    if command[0] != "/usr/bin/bwrap" or command.count("--dev-bind") != 1:
+        raise ValueError("render node command must contain exactly one bwrap device bind")
+    index = command.index("--dev-bind")
+    if command[index + 1:index + 3] != [str(path), str(path)]:
+        raise ValueError("render node command must bind the authorized canonical path only")
+    guard = command.index("/usr/bin/python3") if "/usr/bin/python3" in command else len(command)
+    if command[guard:guard + 10] != renderer_guard_command([], renderer)[:10] or len(command[guard:]) < 12:
+        raise ValueError("render node command must include the authorized mounted-node guard before exec")
+    with directory_fd(path.parent) as parent:
+        descriptor = os.open(path.name, os.O_PATH | os.O_NOFOLLOW | os.O_CLOEXEC, dir_fd=parent)
+        try:
+            if render_node_identity(path, os.fstat(descriptor)) != renderer:
+                raise ValueError("render node identity changed since staging")
+            execution = list(command)
+            execution[index + 1] = f"/proc/self/fd/{descriptor}"
+            yield execution, (descriptor,)
+        finally:
+            os.close(descriptor)
+
+
+def stop_owned(process):
+    if process.poll() is not None:
+        return
+    try:
+        os.killpg(process.pid, signal.SIGTERM)
+    except ProcessLookupError:
+        pass
+    try:
+        process.wait(timeout=2)
+    except subprocess.TimeoutExpired:
+        os.killpg(process.pid, signal.SIGKILL)
+        process.wait()
 
 
 def run_owned(command, root, timeout, report_identity=None, evidence_root=None, memory=False, control=False,
-              phase_observer=None):
+              phase_observer=None, renderer=None):
     if not math.isfinite(timeout) or timeout <= 0:
         raise ValueError("timeout must be finite and positive")
     if resource.getrlimit(resource.RLIMIT_FSIZE) != (resource.RLIM_INFINITY, resource.RLIM_INFINITY):
@@ -116,9 +212,23 @@ def run_owned(command, root, timeout, report_identity=None, evidence_root=None, 
 
     record = {"stop_reason": "exit"}
     with evidence_file(evidence_root or root, "process.log") as log:
-        with subprocess.Popen(command, cwd=root / "work", stdin=subprocess.DEVNULL, stdout=log, stderr=log,
-                              env={"PATH": "/usr/bin", "LANG": "C.UTF-8"},
-                              start_new_session=True) as process:
+        process = None
+        try:
+            with guarded_renderer_command(command, renderer) as (execution, descriptors):
+                options = {"pass_fds": descriptors} if descriptors else {}
+                if descriptors:
+                    record["renderer_launch"] = {"renderer": renderer, "command": execution,
+                        "pass_fds": list(descriptors), "preflight_validated": True,
+                        "guard": renderer_guard_plan(renderer), "postmount_validation": "UNOBSERVED",
+                        "source_transport": "preflight O_PATH via /proc/self/fd; bwrap may recanonicalize; fd numbers are per-spawn"}
+                process = subprocess.Popen(execution, cwd=root / "work", stdin=subprocess.DEVNULL, stdout=log, stderr=log,
+                                           env={"PATH": "/usr/bin", "LANG": "C.UTF-8"},
+                                           start_new_session=True, **options)
+        except BaseException:
+            if process is not None:
+                stop_owned(process)
+            raise
+        with process:
             try:
                 if report_identity is None and phase_observer is None:
                     status = process.wait(timeout=remaining_time())
@@ -177,18 +287,19 @@ def run_owned(command, root, timeout, report_identity=None, evidence_root=None, 
                 record["stop_reason"] = "observer_error"
                 raise
             finally:
-                if process.poll() is None:
-                    try:
-                        os.killpg(process.pid, signal.SIGTERM)
-                    except ProcessLookupError:
-                        pass
-                    try:
-                        process.wait(timeout=2)
-                    except subprocess.TimeoutExpired:
-                        os.killpg(process.pid, signal.SIGKILL)
-                        process.wait()
+                stop_owned(process)
                 record.update(pid=process.pid, exit=process.returncode, waited=True,
                               duration_seconds=time.monotonic() - started)
+                if descriptors:
+                    log.flush()
+                    with directory_fd((evidence_root or root) / "evidence") as parent:
+                        descriptor = os.open("process.log", os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK | os.O_CLOEXEC,
+                                             dir_fd=parent)
+                    with os.fdopen(descriptor, "rb") as stream:
+                        if not stat.S_ISREG(os.fstat(stream.fileno()).st_mode):
+                            raise ValueError("guard evidence must be a regular process log")
+                        line = stream.readline(512)
+                    record["renderer_launch"]["postmount_validation"] = renderer_guard_status(line, renderer)
                 with evidence_file(evidence_root or root, "process.json") as stream:
                     stream.write(json.dumps(record, indent=2) + "\n")
             return status
@@ -242,9 +353,11 @@ def read_report(root, memory=False, control=False):
         return content
 
 
-def collect_result(root, token, source, package, process_status, identity_error=None, process=None, evidence_root=None, memory=False, control=False):
+def collect_result(root, token, source, package, process_status, identity_error=None, process=None, evidence_root=None, memory=False, control=False, renderer=None):
     record = {"process_exit": process["exit"] if process else process_status,
               "completion": "INCOMPLETE", "semantic": "UNAVAILABLE"}
+    if renderer is not None:
+        record["renderer"] = renderer
     if process:
         record["process"] = process
     if identity_error:
@@ -310,6 +423,8 @@ def main(memory=False, control=False, cpu_opt_off=False):
     parser.add_argument("--libraries", type=Path, required=True, help="read-only public runtime libraries")
     parser.add_argument("--firmware", type=Path, help="copy only installed public system vs0/sa0 into the new profile")
     parser.add_argument("--wayland-socket", type=Path, help="explicitly authorized display socket only; no session bus")
+    if not control:
+        add_render_node_argument(parser)
     parser.add_argument("--build-evidence", type=Path, default=ROOT / ("build-ww08/arm-evidence.json" if control else "build-vita-ww-04/mem-evidence.json" if memory else "build-vita-ww-03/fp-evidence.json"))
     parser.add_argument("--out", type=Path, default=ROOT / ("build-ww08" if control else "build-vita-ww-04" if memory else "build-vita-ww-03"))
     parser.add_argument("--timeout", type=float, default=30)
@@ -328,6 +443,8 @@ def main(memory=False, control=False, cpu_opt_off=False):
         parser.error("two-phase execution requires verified private firmware and configuration")
     if not math.isfinite(args.timeout) or not 0 < args.timeout <= 30:
         parser.error("timeout must be finite, positive and at most 30 seconds")
+    render_node = getattr(args, "render_node", None)
+    renderer = renderer_identity(render_node)
     if cpu_opt_off:
         from fp_campaign import reservation_path
         reserved = reservation_path(ROOT)
@@ -367,6 +484,8 @@ def main(memory=False, control=False, cpu_opt_off=False):
         directory.mkdir(parents=True)
         (directory / "fp.request").write_text(f"{token} {source} {package}\n")
     display = {"wayland_socket": args.wayland_socket} if args.wayland_socket else {}
+    if render_node is not None:
+        display["render_node"] = render_node
     command = sandbox_command(root, "Vita3K", ["--console", "--backend-renderer", "OpenGL",
                                                 f"{diagnostic}.vpk"], args.libraries, **display)
     libraries_before = library_identity(args.libraries)
@@ -375,6 +494,7 @@ def main(memory=False, control=False, cpu_opt_off=False):
     plan = {"run": token, "source": source, "vpk_sha256": package,
             "runtime_sha256": args.runtime_sha256, "runtime_source": args.runtime_source_revision,
             "runtime_source_mapping": "UNVERIFIED",
+            "renderer": renderer,
             "wayland_socket": str(args.wayland_socket) if args.wayland_socket else None,
             "firmware": firmware, "firmware_provenance": "installed system trees; version/PUP UNVERIFIED",
             "private_config": private_config,
@@ -386,6 +506,9 @@ def main(memory=False, control=False, cpu_opt_off=False):
             "report_poll_seconds": .05, "report_exit_grace_seconds": .25,
             "RLIMIT_FSIZE": resource.getrlimit(resource.RLIMIT_FSIZE),
             "timeout_seconds": args.timeout, "real_execution": args.execute_reviewed}
+    guard = renderer_guard_plan(renderer)
+    if guard is not None:
+        plan["renderer_guard"] = guard
     if memory:
         plan.update(diagnostic="mem", method="bounded-v2", title="BWWM00004", process_budget_used=0)
     if control:
@@ -409,10 +532,11 @@ def main(memory=False, control=False, cpu_opt_off=False):
     if args.two_phase:
         from fp_campaign import execute_campaign
         return execute_campaign(root, plan)
+    verify_renderer_identity(renderer)
     verify_firmware(firmware)
     if private_config and config_identity(root, alt=cpu_opt_off) != private_config:
         raise ValueError("staged configuration changed before execution")
-    status = run_owned(command, root, args.timeout, report_identity=(token, source, package))
+    status = run_owned(command, root, args.timeout, report_identity=(token, source, package), renderer=renderer)
     process = json.loads((root / "evidence/process.json").read_text())
     identity_error = None
     try:
@@ -426,7 +550,7 @@ def main(memory=False, control=False, cpu_opt_off=False):
             verify_config_log(root)
     except (OSError, ValueError) as error:
         identity_error = f"cannot verify runtime inputs after execution: {error}"
-    return collect_result(root, token, source, package, status, identity_error, process)
+    return collect_result(root, token, source, package, status, identity_error, process, renderer=renderer)
 
 
 if __name__ == "__main__":

@@ -18,7 +18,8 @@ from report import MAX_JOURNAL_COMMANDS, MAX_JOURNAL_BYTES
 from memory_capture import MAX_CAPTURES, validate_memory_captures
 
 sys.path.insert(0, str(ROOT / 'scripts/vita/armv7'))
-from fp_launch import create_run, evidence_file, reject_symlinks, sandbox_command, stage_runtime
+from fp_launch import (add_render_node_argument, create_run, evidence_file, reject_symlinks,
+                       renderer_guard_plan, renderer_identity, sandbox_command, stage_runtime)
 from fp_libraries import file_identity, library_identity
 from fp_profile import config_identity, stage_firmware, read_profile_file
 from fp_campaign import runtime_inputs
@@ -69,6 +70,8 @@ def stage_disc(root, path, expected_sha256):
 
 
 def make_plan(root, args, source, package, run):
+    render_node = getattr(args, 'render_node', None)
+    renderer = renderer_identity(render_node)
     limit = getattr(args, 'continue_gx', 0)
     memory_captures = getattr(args, 'mem1_snapshots', 0)
     command_window = getattr(args, 'mem1_command_window', None)
@@ -83,22 +86,26 @@ def make_plan(root, args, source, package, run):
     extended = args.timeout > 600
     commands = {'install': ['--console', '--backend-renderer', 'OpenGL', 'ww05.vpk'],
                 'guest': ['--backend-renderer', 'OpenGL', '--installed-path', 'BWWG00005']}
-    phases = {name: {'command': sandbox_command(root, 'Vita3K', command, args.libraries, args.wayland_socket),
+    phases = {name: {'command': sandbox_command(root, 'Vita3K', command, args.libraries, args.wayland_socket,
+                                              render_node=render_node),
+                     'renderer': renderer,
                      'timeout_seconds': min(args.timeout, 600) if name == 'install' else args.timeout,
                      'evidence_root': str(root / 'phases' / name)}
                for name, command in commands.items()}
+    sandbox_program = '/usr/bin/python3' if render_node is not None else '/stack/vita3k/Vita3K'
     if memory_captures:
         command = phases['guest']['command']
-        index = command.index('/stack/vita3k/Vita3K')
+        index = command.index(sandbox_program)
         command[index:index] = ['--bind', str(root / 'evidence/frames'),
                               '/run/ww03/data/Vita3K/Vita3K/ux0/data/bluewake-ww-fixture/frames']
     disc = getattr(args, 'disc', None)
     if disc is not None:
         for phase in phases.values():
-            index = phase['command'].index('/stack/vita3k/Vita3K')
+            index = phase['command'].index(sandbox_program)
             phase['command'][index:index] = ['--ro-bind', str(disc),
                 '/run/ww03/data/Vita3K/Vita3K/ux0/data/bluewake/GZLE01.iso']
-    return {'ticket': 'VITA-WW-05', 'method': 'startup-gx-v1', 'title': 'BWWG00005',
+    plan = {'ticket': 'VITA-WW-05', 'method': 'startup-gx-v1', 'title': 'BWWG00005',
+            'renderer': renderer,
             'continue_gx': limit, 'mem1_snapshots': memory_captures,
             'mem1_command_window': command_window, 'journal_byte_limit': MAX_JOURNAL_BYTES,
             'defer_audio': defer_audio, 'audio': 'deferred' if defer_audio else 'strict',
@@ -131,6 +138,12 @@ def make_plan(root, args, source, package, run):
                         'parser once; opcode/raw bytes/start and completion PC/SP; edge-service latch; rendered=0',
             'input_policy': 'recheck clean source, artifacts, runtime, config and firmware before launch; '
                             'reject existing phase process evidence; preserve every attempt'}
+    guard = renderer_guard_plan(renderer)
+    if guard is not None:
+        plan['renderer_guard'] = guard
+        for phase in phases.values():
+            phase['renderer_guard'] = guard
+    return plan
 
 
 def verify_package(evidence):
@@ -191,6 +204,7 @@ def checked_build_receipt(path, launcher_source, baseline=False):
 
 
 def stage(args):
+    renderer_identity(getattr(args, 'render_node', None))
     CpuIdleWindow(getattr(args, 'idle_timeout', 30), 0.05)
     validate_continuation(getattr(args, 'continue_gx', 0))
     validate_memory_captures(getattr(args, 'mem1_snapshots', 0), getattr(args, 'continue_gx', 0),
@@ -256,6 +270,7 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--timeout', type=float, default=60)
     parser.add_argument('--wayland-socket', type=Path, required=True)
+    add_render_node_argument(parser)
     parser.add_argument('--continue-gx', type=int, default=0)
     parser.add_argument('--mem1-snapshots', type=int, choices=range(MAX_CAPTURES + 1), default=0)
     parser.add_argument('--mem1-command-window', type=int, nargs=2, metavar=('START', 'END'))
