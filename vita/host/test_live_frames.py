@@ -83,6 +83,20 @@ class LiveFramesTest(unittest.TestCase):
             self.assertTrue((root / 'frames/frame-1-rgba.png.partial').exists())
             self.assertFalse((root / 'frames/frame-1.json').exists())
 
+    def test_blocked_publication_keeps_actual_png_partial_but_cannot_certify_a_frame(self):
+        from frame_capture import collect_frames
+        with tempfile.TemporaryDirectory(dir='/tmp/opencode', prefix='ww25-blocked-frame-') as directory:
+            root = Path(directory)
+            log = self.probe(root, 'image-publication-blocked')
+            self.assertIn('stage=publication-unavailable', log)
+            self.assertEqual(parse_png(root / 'frames/frame-1-rgba.png.partial')[-1],
+                             bytes([70, 80, 90, 255, 100, 110, 120, 0, 10, 20, 30, 0, 40, 50, 60, 128]))
+            self.assertFalse((root / 'frames/frame-1-rgba.png').exists())
+            self.assertFalse((root / 'frames/frame-1.json').exists())
+            with self.assertRaisesRegex(ValueError, 'partial'):
+                collect_frames(root / 'frames', root / 'frames', enabled=True, presented=1,
+                               token='c' * 32, source='a' * 40, package='b' * 64)
+
     def test_concurrent_png_open_file_or_symlink_is_refused_without_overwriting_evidence(self):
         for kind in ('file', 'symlink'):
             with self.subTest(kind=kind), tempfile.TemporaryDirectory(dir='/tmp/opencode', prefix='ww25-open-') as directory:

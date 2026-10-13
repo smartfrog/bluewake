@@ -6,11 +6,6 @@
 #include <stdio.h>
 #include <string.h>
 #include <sys/stat.h>
-#ifdef __vita__
-#include <psp2/io/fcntl.h>
-#else
-#include <unistd.h>
-#endif
 
 static inline bool diagnostic_hex(const char* text, size_t length) {
     if (strlen(text) != length)
@@ -62,16 +57,9 @@ static inline int diagnostic_publish(FILE* stream, const char* partial, const ch
         return diagnostic_publish_error(flushed != 0 || failed ? "flush" : "close", partial, complete,
                                         -1, cause != 0 ? cause : EIO);
     }
-#ifdef __vita__
-    // Newlib rename removes the destination first; the native rename refuses an existing entry.
-    const int result = sceIoRename(partial, complete);
-    return result != 0 ? diagnostic_publish_error("sceIoRename", partial, complete, result, 0) : 0;
-#else
-    if (link(partial, complete) != 0)
-        return diagnostic_publish_error("link", partial, complete, -1, errno);
-    if (unlink(partial) != 0)
-        return diagnostic_publish_error("unlink", partial, complete, -1, errno);
-    return 0;
-#endif
+    // Path-based publication cannot bind the written inode or safely remove a mutable partial name.
+    // No proven identity-bound, no-replace publisher is available under the current output contract.
+    // Reports and PNG/MEM1 captures remain unpublished; their partials must not be certified.
+    return diagnostic_publish_error("publication-unavailable", partial, complete, -1, ENOSYS);
 }
 #endif

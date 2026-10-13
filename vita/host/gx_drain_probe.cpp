@@ -313,9 +313,11 @@ int main(int argc, char** argv) {
                     break;
                 }
                 if (backend.fail_readback || backend.invalid_readback || std::strcmp(scenario, "image-png-write-failure") == 0 ||
-                    std::strncmp(scenario, "image-race-", 11u) == 0) {
+                    std::strncmp(scenario, "image-race-", 11u) == 0 || std::strcmp(scenario, "image-publication-blocked") == 0) {
                     assert(error != nullptr && backend.presents == 1u && backend.readbacks == 1u);
                     std::fprintf(stderr, "capture stopped: %s\n", error);
+                    if (std::strcmp(scenario, "image-publication-blocked") == 0)
+                        assert(host->frame_capture.index == 0u);
                     break;
                 }
                 if (frame == 2u && std::strcmp(scenario, "image-refusal-trace-failure") == 0) {

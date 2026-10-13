@@ -88,6 +88,19 @@ class Mem1CaptureTest(unittest.TestCase):
             self.probe(root, 'state')
             self.assertEqual(list(root.iterdir()), [])
 
+    def test_blocked_publication_keeps_actual_mem1_partial_but_cannot_certify_a_snapshot(self):
+        with tempfile.TemporaryDirectory(dir='/tmp/opencode', prefix='ww25-blocked-mem1-') as directory:
+            root = Path(directory)
+            log = self.probe(root, 'capture-publication-blocked')
+            self.assertIn('stage=publication-unavailable', log)
+            self.assertEqual((root / 'ww05.mem1-1.bin.partial').stat().st_size, 25165824)
+            self.assertFalse((root / 'ww05.mem1-1.bin').exists())
+            self.assertFalse((root / 'ww05.mem1-1.json').exists())
+            self.assertNotIn('[mem1-snapshot]', log)
+            with self.assertRaisesRegex(ValueError, 'partial'):
+                verify_snapshots(root, token='c' * 32, source='a' * 40, package='b' * 64,
+                                 count=1, journal=log)
+
     def test_selected_draw_window_ignores_initial_ram_and_binds_each_snapshot_to_its_draw_prefix(self):
         from gx.capture import journal_commands
         with tempfile.TemporaryDirectory(dir='/tmp/opencode', prefix='ww16-scene-') as directory:
