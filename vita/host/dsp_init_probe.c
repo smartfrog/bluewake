@@ -70,9 +70,15 @@ static void rom_probe(WwHost* host, const char* scenario) {
     const bool deferred = strncmp(scenario, "rom-deferred", 12u) == 0;
     const bool invalid_deferred = strncmp(scenario, "rom-deferred-invalid-", 21u) == 0;
     const bool empty_query = strncmp(scenario, "rom-deferred-empty-", 19u) == 0;
+    const bool dma_probe = strncmp(scenario, "rom-deferred-setup-control-dma-", 31u) == 0;
     bool deferred_boot_done = false;
     bool deferred_reset = false;
     host->dsp.audio_deferred = deferred;
+    if (dma_probe) {
+        host->cpu.external_write(&host->cpu, 0xCC005032u, 0x2000u, 2u);
+        host->cpu.external_write(&host->cpu, 0xCC005036u, 0x0046u, 2u);
+        assert(host->error == NULL && host->audio.control == 0x0046u && host->audio.source_address == 0x2000u);
+    }
     const StaticRecompRange query_range = {0x8028E880u, 0x8028E890u};
     const StaticRecompModuleDesc query_module = {.code_ranges = &query_range, .num_code_ranges = 1u};
     if (empty_query) {
@@ -297,6 +303,29 @@ static void rom_probe(WwHost* host, const char* scenario) {
                     assert(host->error == NULL && ww_dsp_interface_interrupt_pending(&host->dsp));
                     assert(host->dsp.deferred_control_discarded && host->dsp.deferred_words_left == 0u);
                     expected_dsp_mail = consume_deferred_ack(host, expected_command_sync, false);
+                    if (dma_probe) {
+                        host->cpu.pc = 0x803169C4u;
+                        host->cpu.lr = 0x8028903Cu;
+                        fail_deferred_trace = strcmp(scenario, "rom-deferred-setup-control-dma-trace") == 0;
+                        const bool incomplete_boot = strcmp(scenario, "rom-deferred-setup-control-dma-incomplete") == 0;
+                        const bool changed_length = strcmp(scenario, "rom-deferred-setup-control-dma-changed-length") == 0;
+                        const bool zero_length = strcmp(scenario, "rom-deferred-setup-control-dma-zero") == 0;
+                        if (incomplete_boot)
+                            host->dsp.deferred_control_discarded = false;
+                        const u16 requested = changed_length ? 0x8047u : zero_length ? 0x8000u : 0x8046u;
+                        host->cpu.external_write(&host->cpu, 0xCC005036u, requested, 2u);
+                        if (fail_deferred_trace || incomplete_boot || changed_length || zero_length)
+                            assert(host->error != NULL && host->error_address == 0xCC005036u);
+                        else {
+                            assert(host->error == NULL && read_register(host, 0xCC005036u) == 0x0046u);
+                            if (strcmp(scenario, "rom-deferred-setup-control-dma-repeat") == 0) {
+                                host->cpu.external_write(&host->cpu, 0xCC005036u, 0x8046u, 2u);
+                                assert(host->error == NULL && read_register(host, 0xCC005036u) == 0x0046u);
+                            }
+                        }
+                        assert(!host->audio.interrupt_pending && host->audio.remaining_blocks == 0u &&
+                               host->audio.work_counter == 0u && host->audio.sample_counter == 0u);
+                    }
                     if (strcmp(scenario, "rom-deferred-setup-control-reset") == 0) {
                         expected_dsp_mail = reset_deferred_task(host);
                         expected_command_sync = 0u;

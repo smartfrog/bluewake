@@ -135,3 +135,21 @@ class DspRomTest(unittest.TestCase):
 
     def test_reset_clears_control_intake_and_ack_tags_without_changing_the_explicit_audio_policy(self):
         self.probe('rom-deferred-setup-control-reset')
+
+    def test_explicit_audio_deferral_suppresses_the_observed_DMA_enable_without_PCM_or_AID_interrupt(self):
+        self.assertIn('event=audio-dma-enable-suppressed requested=8046 retained=0046',
+                      self.probe('rom-deferred-setup-control-dma-enable'))
+
+    def test_failed_DMA_suppression_trace_stops_before_changing_audio_device_state(self):
+        self.probe('rom-deferred-setup-control-dma-trace')
+
+    def test_DMA_suppression_requires_the_completed_declared_control_bootstrap(self):
+        self.probe('rom-deferred-setup-control-dma-incomplete')
+
+    def test_DMA_suppression_does_not_accept_zero_or_changed_transfer_length(self):
+        for scenario in ('rom-deferred-setup-control-dma-zero', 'rom-deferred-setup-control-dma-changed-length'):
+            with self.subTest(scenario=scenario):
+                self.probe(scenario)
+
+    def test_repeated_DMA_start_requests_remain_declared_no_ops_without_sample_or_interrupt_activity(self):
+        self.assertEqual(self.probe('rom-deferred-setup-control-dma-repeat').count('event=audio-dma-enable-suppressed'), 2)

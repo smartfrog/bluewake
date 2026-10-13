@@ -448,6 +448,23 @@ static bool audio_dma_config_register(u32 address, u8 size) {
     return size == 2u && (address == 0xCC005030u || address == 0xCC005032u || address == 0xCC005036u);
 }
 
+static const char* suppress_deferred_audio_dma(const WwHost* host, u16 requested) {
+    const WwDspInterface* dsp = &host->dsp;
+    if (!dsp->audio_deferred || !dsp->deferred_task_started || !dsp->deferred_setup_discarded ||
+        !dsp->deferred_control_discarded || dsp->deferred_reply_mail != 0u ||
+        (dsp->dsp_mailbox & 0x80000000u) != 0u || dsp->deferred_task_interrupt)
+        return "audio DMA suppression requires the completed declared no-op bootstrap";
+    const DolAudioDma* audio = &host->audio;
+    const u16 retained = requested & DOL_AUDIO_DMA_BLOCK_MASK;
+    if (retained == 0u || retained != audio->control || audio->remaining_blocks != 0u ||
+        audio->work_counter != 0u || audio->interrupt_pending)
+        return "audio DMA suppression requires unchanged nonzero stopped configuration";
+    if (fprintf(stderr, "[audio-deferred] event=audio-dma-enable-suppressed requested=%04X retained=%04X source=%08X blocks=%u pc=%08X dma_enabled=0 aid_irq=none sample_progress=none pcm_output=none action=no-op\n",
+                requested, retained, audio->source_address, retained, host->cpu.pc) < 0)
+        return "deferred audio DMA suppression trace write failed";
+    return NULL;
+}
+
 static bool deferred_mail_status_query(const WwHost* host, const CPUState* cpu) {
     return host->dsp.audio_deferred && host->dsp.deferred_task_started &&
            cpu->pc == 0x80319080u && cpu->lr == 0x8028E884u &&
@@ -681,14 +698,23 @@ static void mmio_write(CPUState* cpu, u32 address, u64 value, u8 size) {
         }
         dol_audio_dma_ai_mmio_write(&host->audio, address - 0xCC006C00u, size, value);
     } else if (audio_dma_config_register(address, size)) {
+        const bool enable = address == 0xCC005036u && (value & DOL_AUDIO_DMA_ENABLE) != 0u;
         if ((read_be32(host->audio.ai_regs) & DOL_AUDIO_DMA_AI_PSTAT_BIT) != 0u ||
             (dol_audio_dma_read_control(&host->audio) & DOL_AUDIO_DMA_ENABLE) != 0u ||
-            (address == 0xCC005036u && (value & DOL_AUDIO_DMA_ENABLE) != 0u)) {
+            (enable && !host->dsp.audio_deferred)) {
             fail_mmio_write(host, "audio DMA configuration requires stopped engines; enable/transfer needs a PCM backend", address, value, size);
             return;
         }
-        const u16 mask = address == 0xCC005030u ? 0x03FFu : address == 0xCC005032u ? 0xFFE0u : 0x7FFFu;
-        dol_audio_dma_dsp_mmio_write(&host->audio, address - 0xCC005000u, size, value & mask);
+        if (enable) {
+            const char* error = suppress_deferred_audio_dma(host, (u16)value);
+            if (error != NULL) {
+                fail_mmio_write(host, error, address, value, size);
+                return;
+            }
+        } else {
+            const u16 mask = address == 0xCC005030u ? 0x03FFu : address == 0xCC005032u ? 0xFFE0u : 0x7FFFu;
+            dol_audio_dma_dsp_mmio_write(&host->audio, address - 0xCC005000u, size, value & mask);
+        }
     } else if (interrupt_register(address, size, true))
         dol_interrupts_mmio_write(&host->interrupts, address, size, value);
     else if (size == 4u && (address & 3u) == 0u && in_range(address, size, DOL_DI_BASE, DOL_DI_REGISTER_BYTES))

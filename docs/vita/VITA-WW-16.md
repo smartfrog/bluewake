@@ -2416,3 +2416,44 @@ closed report followed by known shutdown **133**; no inactive/timeout terminatio
 This shorter wall duration is **not** an isolated performance measurement or an
 FPS improvement claim. The full DSP/PCM port stays paused under video-first
 coordination; investigate only honest DMA suppression and actual guest progress.
+
+## Unit 62: PCM-DMA enable is explicitly suppressed, never falsely activated
+
+The original **AIStartDMA 803169B4-803169C8** merely sets enable **8000** and
+returns. In **audio=deferred** only, a request matching the existing stopped,
+nonzero length is now a logged **audio-dma-enable-suppressed** no-op. This is
+admitted only after the declared bootstrap, setup and control packets have
+completed intake and their replies/interrupts are consumed/acknowledged. Active
+AI/DMA engines, pending replies, zero/changed length, outstanding blocks/work or
+an audio interrupt are still explicit refusals. Strict mode keeps its previous
+PCM-backend STOP unchanged.
+
+For the actual request **8046**, the existing audio device remains **0046**,
+source/configuration untouched, **enable clear**. Reads therefore report the
+real disabled state, not a fabricated running DMA. The real device enable
+routine (**audio_dma.c:127-145**) is never called; no source is read, remaining
+block or sample progress created, PCM buffer written, audio sink invoked or
+AID interrupt raised. There is **no synthetic DMA-completion callback**. Normal
+guest instruction/cycle accounting and other interrupt sources are retained.
+Repeated start requests remain individually logged no-ops while quiescent.
+Failed suppression trace is a contextual MMIO STOP with no audio mutation.
+
+This permits the next original **AIStartDMA** return and normal guest
+**OSReceiveMessage**/scheduler path to execute, rather than assuming the audio
+thread's queue must be artificially fed. Whether other threads/video advance
+without AID callbacks remains an authentic-run question. A real video-blocking
+sample-processing wait must be recorded for coordination; the full PCM/DSP port
+is still paused. Every report and capture remains **audio=deferred**; no sound,
+silence samples, sample clock or completion is claimed.
+
+Linux AArch64: **720 host tests pass**, five new DMA scenarios: suppressed
+observed enable/readback, failed trace, incomplete bootstrap refusal,
+parameterized zero/changed length refusals, repeated no-op. The reused probe
+checks the **entire audio structure byte-for-byte unchanged**, complete RAM,
+DSP state outside declared prior intake, interrupts, clocks/timebase and GX
+frontier. Genuine red before implementation
+**logs/ww16-deferred-dma-red.log**; full green
+**logs/ww16-deferred-dma-green-host.log**. ARM host links without new warnings
+(**logs/ww16-deferred-dma-arm.log**); audit/attribution/whitespace pass. No
+Windows CI, physical Vita, new visible pixels, sound or FPS gain is claimed.
+Commit/rebuild and fresh watched **MEM1 + PNG live + audio=deferred** trial follow.
