@@ -17,9 +17,19 @@ typedef struct BlueWakeRelLifecycle {
     u32 prolog_address;
 } BlueWakeRelLifecycle;
 
+/* Zero means absent. These linked PCs describe header entries, not certified code.
+ * A separate export preserves the legacy lifecycle array's 8-byte stride. */
+typedef struct BlueWakeRelLifecycleV2 {
+    u32 module_id;
+    u32 prolog_address;
+    u32 epilog_address;
+    u32 unresolved_address;
+} BlueWakeRelLifecycleV2;
+
 const StaticRecompModuleDesc* staticrecomp_get_module(void);
 const BlueWakeRelData* staticrecomp_get_rel_data(u32* count);
 const BlueWakeRelLifecycle* staticrecomp_get_rel_lifecycle(u32* count);
+const BlueWakeRelLifecycleV2* staticrecomp_get_rel_lifecycle_v2(u32* count);
 void bluewake_set_edge_service(BluewakeEdgeServiceFn fn, void* user);
 
 #endif

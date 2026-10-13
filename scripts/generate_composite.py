@@ -217,6 +217,34 @@ def ranges_overlap(start, size, reserved_start, reserved_end):
     return size > 0 and start < reserved_end and start + size > reserved_start
 
 
+def rel_lifecycle_addresses(rel_data, sections, chunks):
+    """Validate header entry points, not the instructions or their callees."""
+    if len(rel_data) < 0x40:
+        raise ValueError("REL lifecycle header is truncated")
+    addresses = []
+    for index, name in enumerate(("prolog", "epilog", "unresolved")):
+        section_index = rel_data[0x30 + index]
+        offset = struct.unpack_from(">I", rel_data, 0x34 + index * 4)[0]
+        if section_index == 0 and offset == 0:
+            addresses.append(0)
+            continue
+        if section_index == 0 or section_index >= len(sections):
+            raise ValueError(f"REL lifecycle {name}: invalid section {section_index}")
+        section = sections[section_index]
+        address = section["linked_start"] + offset
+        if (not section["executable"] or not section["offset"] or
+                not section["linked_start"] or offset + 4 > section["size"] or
+                section["offset"] + section["size"] > len(rel_data) or
+                section["offset"] & 3 or section["size"] & 3 or
+                offset & 3 or address & 3 or address > 0xFFFFFFFC):
+            raise ValueError(f"REL lifecycle {name}: invalid executable offset {offset:#x}")
+        if not any(start <= address and address + 4 <= end and
+                   (address - start) % 4 == 0 for start, end in chunks):
+            raise ValueError(f"REL lifecycle {name}: no translated chunk at {address:#010x}")
+        addresses.append(address)
+    return tuple(addresses)
+
+
 def validate_rel_linked_namespace(section_maps):
     """Reject build-time REL storage that aliases authentic guest memory."""
     reserved = (
@@ -419,6 +447,16 @@ def main():
         print(f"ERROR: {exc}", file=sys.stderr)
         sys.exit(1)
     apply_rel_data_relocations(rel_bin_cache, rel_section_maps)
+
+    rel_lifecycle = {}
+    for e in rel_entries:
+        mid = int(e["name"].rsplit("_", 1)[-1])
+        if mid in rel_section_maps:
+            try:
+                rel_lifecycle[mid] = rel_lifecycle_addresses(
+                    rel_bin_cache[mid], rel_section_maps[mid]["sections"], e["chunks"])
+            except ValueError as exc:
+                raise ValueError(f"REL module {mid}: {exc}") from exc
 
     chunk_hashes = []
     for start, end in all_chunks:
@@ -876,20 +914,19 @@ static inline DOLRECOMP_UNUSED int dolrecomp_run_blocks(CPUState* ctx, u32 max_b
     data_lines.append(f"#define MODULE_REL_DATA_COUNT {len(data_entries)}u")
     data_lines.append("static const BlueWakeRelLifecycle s_rel_lifecycle[] = {")
     lifecycle_count = 0
-    for mid in sorted(rel_section_maps):
-        rel_data = rel_bin_cache[mid]
-        prolog_section = rel_data[0x30]
-        prolog_offset = struct.unpack_from(">I", rel_data, 0x34)[0]
-        if prolog_section >= len(rel_section_maps[mid]["sections"]):
+    for mid, (prolog, _, _) in sorted(rel_lifecycle.items()):
+        if not prolog:
             continue
-        section = rel_section_maps[mid]["sections"][prolog_section]
-        if not section["linked_start"]:
-            continue
-        prolog = section["linked_start"] + prolog_offset
         data_lines.append(f"    {{{mid}u, 0x{prolog:08X}u}},")
         lifecycle_count += 1
     data_lines.append("};")
     data_lines.append(f"#define MODULE_REL_LIFECYCLE_COUNT {lifecycle_count}u")
+    data_lines.append("static const BlueWakeRelLifecycleV2 s_rel_lifecycle_v2[] = {")
+    for mid, (prolog, epilog, unresolved) in sorted(rel_lifecycle.items()):
+        data_lines.append(
+            f"    {{{mid}u, 0x{prolog:08X}u, 0x{epilog:08X}u, 0x{unresolved:08X}u}},")
+    data_lines.append("};")
+    data_lines.append(f"#define MODULE_REL_LIFECYCLE_V2_COUNT {len(rel_lifecycle)}u")
     write_lf(out_dir / "rel_data.inc", chr(10).join(data_lines) + chr(10))
 
     # --- Determinism audit ---

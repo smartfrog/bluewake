@@ -214,6 +214,17 @@ RECOMP_MODULE_EXPORT const BlueWakeRelLifecycle* staticrecomp_get_rel_lifecycle(
     return s_rel_lifecycle;
 }
 
+RECOMP_MODULE_EXPORT const BlueWakeRelLifecycleV2* staticrecomp_get_rel_lifecycle_v2(u32* count)
+{
+#ifdef MODULE_REL_LIFECYCLE_V2_COUNT
+    if (count) *count = MODULE_REL_LIFECYCLE_V2_COUNT;
+    return s_rel_lifecycle_v2;
+#else
+    if (count) *count = 0;
+    return NULL;
+#endif
+}
+
 /* Host-only diagnostics need to reach the runtime instance embedded here. */
 RECOMP_MODULE_EXPORT void bluewake_set_mem_write_journal(
     PPCMemWriteJournal fn, void* user)
