@@ -17,6 +17,8 @@ The fast-guard retries preserve the RAM stops in Units 91-92. The next retry
 captures post-102936 FIFO and eight synchronized MEM1 versions (Unit 93), then
 hits the diagnostic snapshot budget, not a game wall. The last live image is
 still Nintendo; no title-screen, gameplay or FPS result is established.
+The sixteen-version budget is tested and rebuilt (Unit 94), but its first
+authentic retry hits host RAM pressure before taking any late snapshot (Unit 95).
 
 ## Unit 1: CP performance selector
 
@@ -4471,3 +4473,99 @@ audio=deferred** diagnostic, with RAM rechecked before build/install/guest and
 guarded every owned phase callback (~50 ms). Do not use the old eight-capacity
 binary under a sixteen request or relabel the old immutable receipt. No
 physical-Vita/Windows CI or title/gameplay/FPS claim; nothing is pushed.
+
+## Unit 95: sixteen-version rebuild succeeds; retry stops for RAM before any snapshot
+
+Committed **5709d12de1b78a6275d500ad6d2ee4c294566b10** rebuilds successfully
+with **VI/O1 -j2**, watched CPU/output progress, in **135.252542 observed seconds**.
+All **848 prior objects** are preserved; **829** keep their recorded signatures,
+nineteen rebuild. All **750 module commands** retain effective final **-O1**.
+New immutable receipt, not the old eight-capacity binary:
+
+```text
+/home/fred/projects/zeldaWWHDRecomp/build-f5/ww05/artifacts-0052bcb34ef64daeab1a50e24b42e64e/build-evidence.json
+```
+
+New VPK SHA **e5c1794e8935385b7e52dac3b565f6c6ee9d3a09de77ed4cbc56dea06c9840fe**;
+guest and launcher source both **5709d12**. The requested authentic run
+**8d7cf28f78654ca38c33b659a52536bc** uses **MEM1=16 / window 102937-196608 /
+FIFO 196608 / 1200 s / audio=deferred**, unchanged **128-image / 960x544**
+bounds, the active **~50 ms 2.5 GiB RAM guard** and CPU-OR-output watchdog.
+Actual guest RAM preflight is **6.688217 GiB**.
+
+The guard stops this fresh run at **167.470903 s**, observing **2646966272
+available bytes / 2.465179 GiB**, below the unchanged floor. Preserve
+**memory-pressure / SIGTERM / exit=-15 / waited=true / status 125 / INCOMPLETE /
+frontier UNAVAILABLE**. The real STOP receipt is **2026-10-13 18:57:12.475960
+(CEST, GMT+2; machine-local zone)**, after cleanup, not an invented exact
+pressure-reading timestamp. The original missing **ww05.report** error and
+traceback remain; the original **ww05.partial** is empty. No final guest report
+or frontier is manufactured to fill that absence.
+
+Verified extent: **9002 complete commands / 60627 FIFO bytes / 16 real retrace
+markers / eight black early-boot PNG pairs / zero MEM1 snapshots**. The first
+9002 command bytes and all sixteen raw/display PNG files equal the matching
+prefix of Unit 93's run. The last image is opened and is black, not a new title
+or a regression of the independently verified logo. Last recorded progress is
+**134504761 cycles / 3314813 edges / PC 80328B30 / exception 00000000**;
+last edge marker **134512150 cycles / 3315538 edges / PC 80328B2C**. These are
+observations only; final guest state is unavailable after the forced stop.
+
+This retry is **96946 commands and 322.782851 s below** the prior 105948-command,
+490.253754 s budget-stopped trial. It adds **no post-102936 input**. The earlier
+eight late RAM versions, full FIFO and 103 PNGs remain intact and ready for
+lane 18; do not replace or relabel them as a sixteen-version result. The short
+attempt also disproves any guarantee that each successive retry advances further.
+
+### The pressure happens before the requested snapshot work
+
+| Observed minute | Last sample (s) | Endpoint RSS (GiB) | Minimum sampled available RAM (GiB) |
+| ---: | ---: | ---: | ---: |
+| 1 | 59.197 | 3.461365 | 3.458130 |
+| 2 | 119.368 | 3.627441 | 3.088974 |
+| 3 (partial) | 166.564 | 3.627441 | 2.715210 |
+
+Offsets start at the first actually observed guest sample. Maximum **observed**
+RSS is **3.634003 GiB**; guest VmSwap is zero in all samples. In the final
+one-second interval, **18:57:11.313965-18:57:12.316855 (CEST/GMT+2)**, host
+available RAM falls **597.796875 MiB**, Cached falls **545.859375 MiB**, and
+sampled emulator RSS remains exactly **3894935552 bytes**. Global SwapFree
+falls to **zero** at the last sample, while this guest's sampled VmSwap remains
+zero. The last external sample still has **2.715210 GiB available**; the
+faster guard then catches **2.465179 GiB** at its distinct reading. Do not
+overwrite either sample or claim a perfectly timestamped app closure.
+
+These measurements establish **host-memory fluctuation not accompanied by
+growing observed Vita3K RSS at the end**, not the identity or lifecycle of a
+user application. Cache/kernel/other-process activity remains unisolated.
+The sixteen snapshot budget itself is not exercised at the stop: **zero bytes
+of snapshot payload were written**. The unchanged direct 64 KiB streaming
+writer adds no resident MEM1 clones; nominal **6/16-file payloads remain
+144/384 MiB on disk**, with real cache/I/O costs still subject to the guard.
+This run cannot measure an exact per-snapshot live RSS delta because it never
+reaches a selected draw. Do not substitute a guessed zero measurement.
+
+**The increased harness is committed, tested, rebuilt and actually launched.**
+Pause equivalent retries after this RAM stop until sustained headroom or another
+explicit owner opening. Do not lower the guard, kill user apps, revert the
+budget or claim the earlier diagnostic-budget stop was a game wall. Sixteen
+still does not certify coverage of the entire logo-to-title sequence.
+
+Private original failure, independent validation and memory profile:
+
+```text
+/home/fred/projects/zeldaWWHDRecomp/build-f5/ww05/vita3k-run-8d7cf28f78654ca38c33b659a52536bc/evidence/sixteen-retry-verdict.json
+/home/fred/projects/zeldaWWHDRecomp/build-f5/ww05/vita3k-run-8d7cf28f78654ca38c33b659a52536bc/evidence/sixteen-retry-memory-profile.json
+```
+
+Sibling **sixteen-retry-live-images-verified.json** and
+**sixteen-retry-memory-captures-verified.json** preserve independent partial
+checks without changing result.json's original status. Distinct
+**logs/watch-post-ci-sixteen-build.py / watch-post-ci-sixteen.py**, immutable
+build records and original telemetry remain private. All original result,
+process, journal, empty partial report and image hashes are rechecked unchanged;
+no owned emulator/compiler remains. Unit 94's **800 host/DVD tests / 1934
+subtests + 203 GX tests / 109 subtests** are the actual tested source used in
+the rebuild. Audit/attribution/whitespace pass. No Windows CI, physical Vita,
+new GPU replay, title/gameplay/whole-game parity, sound or FPS claim. No network,
+push, user-app termination, data deletion or fabricated resource/completion.
