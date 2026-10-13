@@ -70,3 +70,22 @@ class DspRomTest(unittest.TestCase):
 
     def test_a_genuine_mail_waiter_is_not_misclassified_as_the_nonwaiting_post_consumption_query(self):
         self.probe('rom-deferred-empty-waiter')
+
+    def test_deferred_no_op_accepts_only_the_bounded_setup_packet_without_reading_audio_tables_or_emitting_a_reply(self):
+        trace = self.probe('rom-deferred-setup')
+        self.assertIn('mail=81000001', trace)
+        self.assertEqual(trace.count('event=setup-word'), 5)
+
+    def test_deferred_input_assertion_is_a_declared_no_op_not_a_new_CPU_interrupt(self):
+        self.assertIn('event=assert-to-no-op', self.probe('rom-deferred-setup-assert'))
+
+    def test_audio_processing_packet_types_are_not_silently_discarded_as_setup(self):
+        self.probe('rom-deferred-setup-rejected-kind')
+
+    def test_setup_input_trace_failures_preserve_the_partial_intake_without_a_processing_ack(self):
+        for scenario in ('rom-deferred-setup-count-trace', 'rom-deferred-setup-word-trace'):
+            with self.subTest(scenario=scenario):
+                self.probe(scenario)
+
+    def test_a_second_setup_list_is_not_implicitly_accepted_by_the_one_bootstrap_no_op(self):
+        self.probe('rom-deferred-setup-repeat')

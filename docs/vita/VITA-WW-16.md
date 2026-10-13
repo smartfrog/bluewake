@@ -2138,3 +2138,43 @@ Install **1.25 s**, guest **86.10 s**, closed report followed by known shutdown
 physical-Vita behavior or FPS improvement is claimed. Continue the declared
 no-op input protocol rather than the paused full DSP port; a real processing
 dependency will be reported only when the guest actually waits for one.
+
+## Unit 56: bounded setup input is discarded by the declared no-op, not executed
+
+The deferred task now accepts the observed **count word 5**, followed by **five
+payload words only if the first word is command 01 (81xxxxxx)**, matching pinned
+**Zelda.cpp:163-167,194-202,376-411**. The incoming high word is retained in this
+declared HLE-style input path so command **81** is not lost when its CPU busy bit
+is cleared after actual stub intake (**DSPHLE.cpp:167-186**). Existing halted and
+strict-mode mailbox semantics remain unchanged. Only one setup list is accepted
+per reset; incomplete/unexpected packet types and later command lists remain
+explicit refusals. The first actual payload still needs confirmation in a run.
+
+The **803190B8/803190C0-803190E4** input assertion following the count sets
+**DSPAssertInt bit 0002** (`DSP.h:50`). For an explicitly deferred, bootstrapped
+task this is a logged **assert-to-no-op / ignored** operation: its transient input
+bit is not retained and **no CPU IRQ or task response is raised**. The sender's
+mailbox wait can then observe consumption normally; no guest branch is skipped.
+
+Every payload is logged **discarded / configuration=not-executed / reply=none /
+pcm_output=none**. No pointer is dereferenced, coefficient table copied, voice
+configured, audio buffer written, task executed or processing ACK generated.
+The small remaining-word counter denotes **input intake only**, not a completed
+audio operation. Failed trace writes preserve the partial input state; successful
+reset/init transitions clear the intake record. Audio mode remains visibly
+**audio=deferred** in all trial/report/image/memory provenance.
+
+Linux AArch64: **701 host tests pass**, five added setup scenarios including
+parameterized trace failures: complete packet with high-bit-preserving command
+type, ignored input assertion, wrong processing packet type, count/payload
+trace failure, and rejected repeated setup. The reused probe checks full DSP
+state outside the allowed intake/latch/error delta, RAM/audio buffers, clocks,
+interrupts and GX frontier. Setup intake was red before implementation
+(**logs/ww16-deferred-setup-red.log**); final full green in
+**logs/ww16-deferred-setup-verified-host.log**. ARM host links
+(**logs/ww16-deferred-setup-verified-arm.log**); the new stub's unsigned bound
+comparison warning was corrected, leaving the separate preexisting DSP-init
+warning unchanged. Audit/attribution/whitespace pass. No sound, new game pixels,
+hardware behavior or FPS gain is claimed. Commit/rebuild and watched **MEM1 +
+PNG live + audio=deferred** trial follow; source-backed minimal deferral continues
+instead of the paused real-DSP port.
