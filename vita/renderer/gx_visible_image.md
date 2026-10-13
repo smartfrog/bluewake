@@ -21,6 +21,39 @@ quadrant contains exactly **130,560 pixels** with one of the authored RGB values
 of an authored GX fixture, **not CPU rasterization or an expected-image file**.
 It proves the image pipeline; it does not certify game or physical-Vita parity.
 
+### First real replay image
+
+The matching memory arrived from lane 16 in run
+`33aa66c91b9d49a1b78cbabdeb1f86c3`. Snapshot 2 was captured before draw command
+1962; its manifest binds the complete **2,048-command logged prefix**.
+
+- Image: `build-f6/ww18/images/real-33aa-snapshot2/capture.png`
+- Raw: `build-f6/ww18/images/real-33aa-snapshot2/capture-rgba.png`
+- Viewer/manifest: `build-f6/ww18/images/real-33aa-snapshot2/index.html` and
+  `image.json`.
+- PNG SHA-256: `c871acff3fc84ccec64ed29b05f2b1549e05b5067e2e5adf193b60d5490fdae5`.
+- Guarded translation: **14,464 FIFO bytes, 2 plans/programs, no skips/refusals
+  or gaps, `verdict=ran`**. Actual GPU report: 2 draws, 1 GX present, 2 captures.
+- The opened image is **uniform opaque black**, all 522,240 pixels. The two
+  recorded quads contain black `RGBA=0,0,0,255` at every vertex and cover
+  640×480 guest coordinates. Black is consistent with these initialization
+  clears, **not proof of a visible game scene or pixel parity**.
+- The final PNG is explicitly `prefix-preview-swap-not-gx-present`: the first
+  draw reached a GX display copy; the second draw ends the logged prefix before
+  its next presentation. No unlogged command was reconstructed.
+- Watched GPU run `c95b7207ea324231ae02498701f49a8d`: install stopped on staging
+  at 0.530 s, replay stopped on its final report at 3.632 s. It ran from
+  `161ebfd` plus the uncommitted prefix-selector/docs change; the manifest
+  explicitly records dirty state and source hashes.
+
+Snapshot 2's RAM SHA is
+`8cc8414e03e8f8775ef493ac5db0bb7bc95fd7f84351e4f5f966e17773ee884b`;
+FIFO SHA remains
+`4f9b7592e088442ab9156410b9e5b1517e5a22e18f10d6623d2e67d6a1e13149`.
+This is same-run captured memory, never default zero RAM. A single late snapshot
+does not certify every earlier resource version. The report's **9 renderer
+draws/8 presents** are not this replay's coverage: only **2 logged draws** exist.
+
 ## Real replay command
 
 With lane 16's matching snapshot:
@@ -48,11 +81,14 @@ programs/copies and nonzero gaps do not become an unqualified image success.
 The VPK contains only the replay app; FIFO/RAM are staged separately in that
 run's private `ux0:data/ww02`, never embedded in a public artifact.
 
-At the last check, build-f5's new `logs/ww16-mem1-format-contract` files explicitly
-say `synthetic_test_only: true`; they are **not** the missing real run snapshot.
-No real image is claimed yet, and those dumps are not borrowed for real FIFO.
-Numbered per-draw manifests must match the selected command prefix exactly;
-their producer command/timing data must not be mistaken for a final-run dump.
+The separate `logs/ww16-mem1-format-contract` files explicitly say
+`synthetic_test_only: true`; they were not borrowed for the real FIFO.
+Numbered manifests must match the selected FIFO hash exactly. A producer's draw
+command number is timing provenance, not necessarily the digest's command
+extent. `extract.py --through-command N` can select a shorter whole-command
+prefix without changing the log, **only with a manifest bound to that prefix**.
+The real manifests above are bound to all 2,048 logged commands, so no selector
+was used for that run and their hashes were not rewritten.
 
 ## Capture boundary and the live-run seam
 
