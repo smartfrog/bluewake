@@ -170,25 +170,21 @@ bool translate_geometry(const gxc::DrawPlan& plan, Geometry& out,
   return true;
 }
 
-// The plan's vertex constants carry the transform the generated Cg consumes:
-// the XF position matrix (rows 0..2, padded to 4 rows with (0,0,0,1)) and the
-// Dolphin-layout projection (row-dot form).
+// GX constants are dot rows; Cg's mul(vector, matrix) needs their transpose.
 void translate_transform(const gxc::DrawPlan& plan, TranslatedDraw& out) {
-  for (std::uint32_t row = 0; row < 3u; ++row)
-    std::memcpy(&out.position_matrix[row * 4u],
-                plan.constants.posnormalmatrix[row], 4u * sizeof(float));
-  out.position_matrix[12] = 0.0f;
-  out.position_matrix[13] = 0.0f;
-  out.position_matrix[14] = 0.0f;
-  out.position_matrix[15] = 1.0f;
+  for (std::uint32_t row = 0; row < 4u; ++row) {
+    for (std::uint32_t column = 0; column < 4u; ++column) {
+      out.position_matrix[column * 4u + row] = row < 3u
+          ? plan.constants.posnormalmatrix[row][column] : (column == 3u ? 1.f : 0.f);
+      out.projection[column * 4u + row] = plan.constants.projection[row][column];
+    }
+  }
   if (plan.pipeline.shader.has_pos_mtx_idx != 0u) {
     // PNMTXIDX positions were transformed individually during translation.
     std::memset(out.position_matrix, 0, sizeof out.position_matrix);
     for (std::uint32_t i = 0; i < 4; ++i)
       out.position_matrix[5 * i] = 1.f;
   }
-  std::memcpy(out.projection, &plan.constants.projection[0][0],
-              16u * sizeof(float));
 }
 
 // Decode one texture to RGBA8 with the pinned codecs. A CI texture without

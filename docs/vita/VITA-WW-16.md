@@ -3142,3 +3142,57 @@ Existing **767 host/DVD / 111 GX Python** checks for b8e2048 remain the baseline
 this evidence-only unit is verified by the real artifact checks above.
 Linux AArch64/Vita3K only; no Windows CI, physical Vita, visible logo/gameplay,
 pixel parity, sound or 30+ FPS claim. No network or push.
+
+## Unit 76: transpose captured GX dot rows for Cg's row-vector multiply
+
+The source seam is now reproduced independently of game assets. Clean
+**8c05f2d / O1 / -j2** controls use the actual **WwRenderer / vitaGL backend /
+Cg**, with lane 18's authored checker copied read-only into fresh private
+fixtures. No scene RAM is borrowed. **build-f5/ww16-matrix-control-8c05f2d/**
+retains package/config/FIFO identities, watched profiles and exact PNG checks.
+
+Identity run **56ceb89c142f4fe796033d646adb05c4** reproduces the known checker
+SHA **97ed8bae1cf7694508b8d2ccb621e16f85a40cd8df4b4dce7712c97179320da8**:
+four exact **130,560-pixel** quadrants. The second control only changes the
+authored XF position rows: X/Y scale **0.5**, X translation **+0.25**.
+Run **d56e92854bc2418c9cbfcaac57d73fe4** still closes **demo done 0**, but
+independent pixel verification is **RED**: colored bounds are
+**[160,672) x [91,453)**, not **[360,840) x [136,408)**, with color populations
+**50,771 / 50,771 / 23,503 / 23,503** instead of **32,640 each**. PNG SHA
+**ba1cba7067d41e09a29832b092e3ef07d382a4c82e2b7a4b796d1fddf838f360**.
+Raw/display RGB agrees. The report's submission success is not pixel success.
+
+Sourced cause: pinned **gxcore.cpp:1560-1562 / 1641-1658** builds XF and
+projection **dot rows**; pinned **gxcore_shader.cpp:946-948** dots those rows
+with the view position. Our generated Cg instead uses **mul(vector, matrix)**,
+while **translate_transform** previously copied the rows without transposing.
+The real VitaGL uniform upload uses **GL_FALSE** and copies its floats as-is
+(read-only **custom_shaders.c:2908-2928**). The authored pixel failure matches
+translation entering **W** rather than X. No DSP or GPU completion hypothesis
+is needed to explain this demonstrated transform error.
+
+**gx_vita.cpp** now transposes both the padded XF position matrix and projection
+into the Cg row-vector uniform layout. Per-vertex PNMTXIDX remains transformed
+on the CPU with an identity position uniform; it is not transformed twice.
+The header states the actual layout. Existing direct-value checks are updated;
+a new parameterized renderer check compares non-symmetric translated/scaled
+position and orthographic/perspective clip results against the GX row-dot
+reference. It fails on the old translation at **view == expected_view**
+(**logs/ww16-matrix-native-red.log**) and passes after the change.
+
+Linux AArch64, builds **-j2**: **767 host/DVD**, **75 GX native-wrapper** and
+**111 GX Python** tests pass; native framebuffer PNG checks pass too
+(**logs/ww16-matrix-host.log / ww16-matrix-native-suites-certified.log**).
+The initial suite invocation used the wrong renderer-output environment and
+was rejected as stale; that log and the separate missing PNG CLI-argument
+invocation remain preserved. The final suite explicitly selects the fresh
+outputs for both **WW02_BUILD** and **WW17_BUILD**. Whitespace/audit/attribution
+pass. No source pin or production desktop path changes.
+
+Commit this unit, rebuild the committed control **O1 / -j2**, and require the
+actual translated checker pixels to match before the next fresh watched
+authentic **VI/O1 / journal 2048 / MEM1=2 / live PNG / audio=deferred** trial.
+Keep the 128-image and 600 s maximum bounds; stop a diagnostic at its closed
+report rather than wasting its remaining ceiling. The transform seam is
+proved on synthetic/native evidence only so far; no game scene, hardware
+parity, physical Vita, Windows CI, sound or FPS result is claimed.
