@@ -51,7 +51,8 @@ def stage_campaign(root, plan, args, vpk):
     commands = {
         "install": plan["command"],
         "guest": sandbox_command(root, "Vita3K", ["--backend-renderer", "OpenGL", "--installed-path", title],
-                                 args.libraries, wayland_socket=args.wayland_socket),
+                                 args.libraries, wayland_socket=args.wayland_socket,
+                                 render_node=getattr(args, "render_node", None)),
     }
     plan.update(process_budget=2, request_policy="fresh guest token only after verified preparation",
                 phases={}, source_vpk=str(vpk),
@@ -67,6 +68,7 @@ def stage_campaign(root, plan, args, vpk):
         phase.mkdir(mode=0o700)
         (phase / "evidence").mkdir(mode=0o700)
         entry = {"command": command, "timeout_seconds": args.timeout, "evidence_root": str(phase),
+                 "renderer": plan.get("renderer"),
                  "process_number": 1 if name == "install" else 2, "sandbox_cwd": "/stack/vita3k",
                  "source": plan["source"], "vpk_sha256": plan["vpk_sha256"],
                  "config_sha256": plan["private_config"]["sha256"], "runtime_sha256": plan["runtime_sha256"],
@@ -85,8 +87,9 @@ def runtime_inputs(executable):
 
 
 def verify_inputs(root, plan):
-    from fp_launch import verify_package
+    from fp_launch import verify_package, verify_renderer_identity
 
+    verify_renderer_identity(plan.get("renderer"))
     memory = plan.get("diagnostic") == "mem"
     control = plan.get("diagnostic") == "arm"
     options = {"control": True} if control else {"memory": True} if memory else {}
@@ -285,4 +288,5 @@ def execute_campaign(root, plan):
                 restore_config(root, canonical, alt=alt)
             except (OSError, ValueError) as failure:
                 error = f"canonical restoration failed: {failure}; preceding error: {error}"
-    return collect_result(root, *identity, status, error, process, evidence_root=guest_root, **options)
+    return collect_result(root, *identity, status, error, process, evidence_root=guest_root,
+                          renderer=plan.get("renderer"), **options)

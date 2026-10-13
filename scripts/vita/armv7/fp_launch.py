@@ -8,6 +8,7 @@ import json
 import math
 import os
 from pathlib import Path
+import re
 import resource
 import shutil
 import signal
@@ -53,7 +54,41 @@ def evidence_file(root, name):
         yield stream
 
 
-def sandbox_command(root, executable, arguments, libraries=None, wayland_socket=None):
+def add_render_node_argument(parser):
+    parser.add_argument("--render-node", type=Path,
+                        help="opt in to hardware-requested rendering with one explicit /dev/dri/renderD* character device")
+
+
+def renderer_identity(render_node=None):
+    if render_node is None:
+        return {"mode": "software", "render_node": None}
+    path = Path(render_node)
+    if not path.is_absolute():
+        raise ValueError("render node must be an absolute /dev/dri/renderD* path")
+    reject_symlinks(path)
+    if path.parent != Path("/dev/dri") or re.fullmatch(r"renderD[0-9]+", path.name) is None:
+        raise ValueError("render node must be an explicit /dev/dri/renderD* path")
+    try:
+        info = path.lstat()
+    except OSError as error:
+        raise ValueError(f"render node must be an existing character device: {path}") from error
+    major, minor = os.major(info.st_rdev), os.minor(info.st_rdev)
+    if not stat.S_ISCHR(info.st_mode) or major != 226 or not 128 <= minor <= 255 or path.name != f"renderD{minor}":
+        raise ValueError(f"render node must be a DRM render character device matching its name: {path}")
+    return {"mode": "hardware-requested", "render_node": {
+        "path": str(path), "major": major, "minor": minor, "device": info.st_dev, "inode": info.st_ino}}
+
+
+def verify_renderer_identity(renderer):
+    if renderer is None:
+        return
+    node = renderer["render_node"]
+    if renderer_identity(node["path"] if node is not None else None) != renderer:
+        raise ValueError("render node identity or requested mode changed since staging")
+
+
+def sandbox_command(root, executable, arguments, libraries=None, wayland_socket=None, render_node=None):
+    renderer = renderer_identity(render_node)
     root = reject_symlinks(root)
     if Path(executable).name != executable:
         raise ValueError("executable must be a basename")
@@ -94,6 +129,10 @@ def sandbox_command(root, executable, arguments, libraries=None, wayland_socket=
         environment["QT_QPA_PLATFORM"] = "wayland"
         environment["WAYLAND_DISPLAY"] = "wayland-0"
         del environment["SDL_VIDEODRIVER"]
+    if renderer["render_node"] is not None:
+        node = renderer["render_node"]["path"]
+        command.extend(["--dir", "/dev/dri", "--dev-bind", node, node])
+        del environment["LIBGL_ALWAYS_SOFTWARE"]
     for name, value in environment.items():
         command.extend(["--setenv", name, value])
     return [*command, "/stack/vita3k/" + executable, *arguments]
@@ -242,9 +281,11 @@ def read_report(root, memory=False, control=False):
         return content
 
 
-def collect_result(root, token, source, package, process_status, identity_error=None, process=None, evidence_root=None, memory=False, control=False):
+def collect_result(root, token, source, package, process_status, identity_error=None, process=None, evidence_root=None, memory=False, control=False, renderer=None):
     record = {"process_exit": process["exit"] if process else process_status,
               "completion": "INCOMPLETE", "semantic": "UNAVAILABLE"}
+    if renderer is not None:
+        record["renderer"] = renderer
     if process:
         record["process"] = process
     if identity_error:
@@ -310,6 +351,8 @@ def main(memory=False, control=False, cpu_opt_off=False):
     parser.add_argument("--libraries", type=Path, required=True, help="read-only public runtime libraries")
     parser.add_argument("--firmware", type=Path, help="copy only installed public system vs0/sa0 into the new profile")
     parser.add_argument("--wayland-socket", type=Path, help="explicitly authorized display socket only; no session bus")
+    if not control:
+        add_render_node_argument(parser)
     parser.add_argument("--build-evidence", type=Path, default=ROOT / ("build-ww08/arm-evidence.json" if control else "build-vita-ww-04/mem-evidence.json" if memory else "build-vita-ww-03/fp-evidence.json"))
     parser.add_argument("--out", type=Path, default=ROOT / ("build-ww08" if control else "build-vita-ww-04" if memory else "build-vita-ww-03"))
     parser.add_argument("--timeout", type=float, default=30)
@@ -328,6 +371,8 @@ def main(memory=False, control=False, cpu_opt_off=False):
         parser.error("two-phase execution requires verified private firmware and configuration")
     if not math.isfinite(args.timeout) or not 0 < args.timeout <= 30:
         parser.error("timeout must be finite, positive and at most 30 seconds")
+    render_node = getattr(args, "render_node", None)
+    renderer = renderer_identity(render_node)
     if cpu_opt_off:
         from fp_campaign import reservation_path
         reserved = reservation_path(ROOT)
@@ -367,6 +412,8 @@ def main(memory=False, control=False, cpu_opt_off=False):
         directory.mkdir(parents=True)
         (directory / "fp.request").write_text(f"{token} {source} {package}\n")
     display = {"wayland_socket": args.wayland_socket} if args.wayland_socket else {}
+    if render_node is not None:
+        display["render_node"] = render_node
     command = sandbox_command(root, "Vita3K", ["--console", "--backend-renderer", "OpenGL",
                                                 f"{diagnostic}.vpk"], args.libraries, **display)
     libraries_before = library_identity(args.libraries)
@@ -375,6 +422,7 @@ def main(memory=False, control=False, cpu_opt_off=False):
     plan = {"run": token, "source": source, "vpk_sha256": package,
             "runtime_sha256": args.runtime_sha256, "runtime_source": args.runtime_source_revision,
             "runtime_source_mapping": "UNVERIFIED",
+            "renderer": renderer,
             "wayland_socket": str(args.wayland_socket) if args.wayland_socket else None,
             "firmware": firmware, "firmware_provenance": "installed system trees; version/PUP UNVERIFIED",
             "private_config": private_config,
@@ -409,6 +457,7 @@ def main(memory=False, control=False, cpu_opt_off=False):
     if args.two_phase:
         from fp_campaign import execute_campaign
         return execute_campaign(root, plan)
+    verify_renderer_identity(renderer)
     verify_firmware(firmware)
     if private_config and config_identity(root, alt=cpu_opt_off) != private_config:
         raise ValueError("staged configuration changed before execution")
@@ -426,7 +475,7 @@ def main(memory=False, control=False, cpu_opt_off=False):
             verify_config_log(root)
     except (OSError, ValueError) as error:
         identity_error = f"cannot verify runtime inputs after execution: {error}"
-    return collect_result(root, token, source, package, status, identity_error, process)
+    return collect_result(root, token, source, package, status, identity_error, process, renderer=renderer)
 
 
 if __name__ == "__main__":
