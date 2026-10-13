@@ -22,7 +22,7 @@ from fp_launch import create_run, evidence_file, reject_symlinks, sandbox_comman
 from fp_libraries import file_identity, library_identity
 from fp_profile import config_identity, stage_firmware, read_profile_file
 from fp_campaign import runtime_inputs
-from activity import CpuIdleWindow
+from activity import CpuIdleWindow, MIN_EXTENDED_AVAILABLE_MEMORY_BYTES
 
 RUNTIME_SHA256 = 'cea2b91f05d9d03bb577b9c414e0da54d3b234f97dc4b23537561e800b1fbf30'
 SHADER_COMPILER = Path('/home/fred/cloudpunk-vita/tools/vita3k/data/Vita3K/Vita3K/ur0/data/libshacccg.suprx')
@@ -42,9 +42,12 @@ def stage_shader_compiler(root, source):
             'install_path': str(target.relative_to(root))}
 
 
-def validate_timeout(timeout):
-    if not math.isfinite(timeout) or not 0 < timeout <= 600:
-        raise ValueError('each phase deadline must be finite, positive and at most 600 seconds')
+def validate_timeout(timeout, *, scene_capture=False, idle_timeout=30):
+    maximum = 1800 if scene_capture else 600
+    if not math.isfinite(timeout) or not 0 < timeout <= maximum:
+        raise ValueError(f'each phase deadline must be finite, positive and at most {maximum} seconds')
+    if timeout > 600 and idle_timeout > 30:
+        raise ValueError('extended scene capture requires the CPU/output watchdog within 30 seconds')
 
 
 def validate_continuation(limit):
@@ -66,7 +69,6 @@ def stage_disc(root, path, expected_sha256):
 
 
 def make_plan(root, args, source, package, run):
-    validate_timeout(args.timeout)
     limit = getattr(args, 'continue_gx', 0)
     memory_captures = getattr(args, 'mem1_snapshots', 0)
     command_window = getattr(args, 'mem1_command_window', None)
@@ -77,10 +79,12 @@ def make_plan(root, args, source, package, run):
     CpuIdleWindow(idle_timeout, 0.05)
     validate_continuation(limit)
     validate_memory_captures(memory_captures, limit, command_window)
+    validate_timeout(args.timeout, scene_capture=command_window is not None, idle_timeout=idle_timeout)
+    extended = args.timeout > 600
     commands = {'install': ['--console', '--backend-renderer', 'OpenGL', 'ww05.vpk'],
                 'guest': ['--backend-renderer', 'OpenGL', '--installed-path', 'BWWG00005']}
     phases = {name: {'command': sandbox_command(root, 'Vita3K', command, args.libraries, args.wayland_socket),
-                     'timeout_seconds': args.timeout,
+                     'timeout_seconds': min(args.timeout, 600) if name == 'install' else args.timeout,
                      'evidence_root': str(root / 'phases' / name)}
                for name, command in commands.items()}
     if memory_captures:
@@ -100,6 +104,10 @@ def make_plan(root, args, source, package, run):
             'defer_audio': defer_audio, 'audio': 'deferred' if defer_audio else 'strict',
             'live_frame_capture': bool(memory_captures), 'frame_capture_limit': 128,
             'idle_timeout_seconds': idle_timeout, 'cpu_threshold': 0.05,
+            'extended_scene_capture': extended,
+            'minimum_available_memory_bytes': MIN_EXTENDED_AVAILABLE_MEMORY_BYTES if extended else 0,
+            'memory_pressure_policy': 'extended window only; require 2.5 GiB MemAvailable before each launch; '
+                                      'TERM/reap owned process on live pressure; never SIGSTOP or retain a resident paused guest',
             'activity_policy': 'CPU >= 5% OR growing process/cache log, guest journal/report/dispatch, or installed payload; '
                                'exclude observer-written monitoring evidence; only silence AND low CPU can be inactive',
             'continuation_policy': 'opt-in; journal first N commands; no guest execution cap; '
@@ -183,11 +191,12 @@ def checked_build_receipt(path, launcher_source, baseline=False):
 
 
 def stage(args):
-    validate_timeout(args.timeout)
     CpuIdleWindow(getattr(args, 'idle_timeout', 30), 0.05)
     validate_continuation(getattr(args, 'continue_gx', 0))
     validate_memory_captures(getattr(args, 'mem1_snapshots', 0), getattr(args, 'continue_gx', 0),
                              getattr(args, 'mem1_command_window', None))
+    validate_timeout(args.timeout, scene_capture=getattr(args, 'mem1_command_window', None) is not None,
+                     idle_timeout=getattr(args, 'idle_timeout', 30))
     args.libraries = STACK / 'vita3k-env'
     launcher_source = subprocess.check_output(['git', 'rev-parse', 'HEAD'], cwd=ROOT, text=True).strip()
     if subprocess.check_output(['git', 'status', '--porcelain'], cwd=ROOT, text=True):

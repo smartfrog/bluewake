@@ -3720,3 +3720,69 @@ Audit/attribution/whitespace pass on Linux AArch64. No repository code change,
 physical Vita, Windows CI, gameplay, sound, whole-game parity or 30+ FPS claim;
 no network or push. The requested rebuild and authentic verdict are delivered;
 the late CI capture gate remains open and is not disguised as a success.
+
+## Unit 87: owner-authorized extended CI deadline with actual user-RAM protection
+
+Take the direct, sourced path **(a)** after integrating clean trunk **52a8935**:
+extend the **external diagnostic deadline**, not guest time, VI pacing, cycles,
+interrupts or GPU/DSP completion. The previous complete 600 s observations
+prove continued real execution but not the requested CI extent. Their original
+failed dispositions stay unchanged. A new **1200 s guest ceiling**, ending
+earlier at the actual **101854-102936** window STOP, is the chosen single trial;
+an actual title-screen image is still to be inspected, not inferred from a CI
+texture counter or a command number.
+
+The existing **stage_plan.validate_timeout** is the only 600 s launcher cap.
+Allow up to **1800 s only for an explicitly validated logged MEM1 command
+window**, with the CPU/output watchdog still at **30 s or shorter**. Ordinary
+profiles remain capped at 600 s and all existing defaults stay unchanged;
+the installer remains at most **600 s**. Invalid window endpoints, no window,
+snapshots without a window, disabled/lengthened watchdog or >1800 s still fail
+before staging/execution. No renderer, guest-host code, source pin or shader is
+changed to obtain the later bytes.
+
+At initial inspection, Linux **MemAvailable is 6.716 GiB** and swap free is
+only about **281 MiB**. Use the real kernel **/proc/meminfo:MemAvailable**, not
+MemFree, swap or guessed guest heap totals. The extended profile records a
+**2.5 GiB minimum** (2,684,354,560 bytes), checks it before installer launch and
+again after reaping the installer, before creating the guest request. Below
+the floor, execution is explicitly withheld with preserved readiness/error
+evidence. A missing/invalid memory measurement fails loud; it is not invented.
+
+The same owned **ProcessIdleObserver** now optionally checks available RAM on
+its existing bounded sampling interval. Actual live RAM pressure stops/reaps
+only the owned process group, records **stop_reason=memory-pressure**, and keeps
+the **125 / INCOMPLETE** disposition when no report exists. Growing guest output
+cannot override the RAM guard. A resident **SIGSTOP** is not used: it would
+retain the roughly 1.8 GiB emulator allocation instead of relieving pressure.
+The guard is off for ordinary profiles; the original **CPU OR process-written
+output** activity rule, and **low CPU AND silence** hang detection, are unchanged.
+
+Selected deadline and RAM-gate cases are red before implementation on the old
+600 s validator/missing optional guard. Linux AArch64 verification is green:
+**86 focused tests / 39 subtests**, then **794 host/DVD tests / 1918 subtests**;
+**75 GX native-wrapper + 111 GX Python tests / 109 subtests**. Tests include
+1200/1800 window acceptance, retained 600 s installer/default cap, immutable
+128-image bound, short-watchdog enforcement, exact available-memory units,
+bad/missing readings, no install at low RAM, a second guest preflight after
+installer reap, and actual owned synthetic-process cleanup on live pressure.
+The synthetic fixtures are not game/MEM1/frame evidence. Logs:
+**ww16-extended-ci-focused.log / ww16-extended-ci-host.log**.
+
+Commit, then rebuild the committed source **VI/O1 -j2**, rechecking RAM before
+trial launch. The copied private build controller keeps its **15 s CPU/state/
+output heartbeat**, preserves objects, and does not resume other O2/O3 work.
+The copied extended-trial watcher retains original watchers and records actual
+**RAM available / owned emulator VmRSS**, CPU and process-written growth; the
+launcher's RAM guard is authoritative. It stops the owned emulator after an
+identity-validated **actual closed guest report**, not a synthetic END or frame.
+
+Keep **133260-command capacity / 8 MiB raw journal bound / at most eight actual
+24 MiB draw-time snapshots / 128 images / 960x544 / fresh isolated profile /
+readonly verified disc / audio=deferred** unchanged. At most **192 MiB snapshot
+files**, no additional shadow MEM1 or dirty tracker: longer wall residency,
+not an expanded guest memory or capture allocation. Preserve any RAM pause,
+timeout, native/shader/resource refusal or real preceding wall. Audit,
+attribution and whitespace pass; no Windows CI, physical Vita, sound, gameplay,
+title-screen parity or 30+ FPS claim. No network or push. The authentic extended
+trial outcome is pending until its real artifacts are collected.

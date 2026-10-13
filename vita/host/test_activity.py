@@ -120,6 +120,38 @@ class ProcessOutputActivityTest(unittest.TestCase):
         with self.assertRaises(OSError):
             self.sample(self.observer((self.root / 'linked/process.log',)), 0)
 
+    def test_optional_ram_guard_stops_even_when_guest_output_grows(self):
+        from activity import ProcessIdleObserver
+        minimum = 5 * 1024 ** 3 // 2
+        path = self.root / 'process.log'
+        path.write_text('actual process progress')
+        observer = ProcessIdleObserver(output_paths=(path,), minimum_available_memory_bytes=minimum)
+        with patch('activity.available_memory_bytes', return_value=minimum - 1024):
+            result = self.sample(observer, 0)
+        self.assertEqual(result['stop_reason'], 'memory-pressure')
+        self.assertEqual(result['available_memory_bytes'], minimum - 1024)
+        self.assertEqual(result['minimum_available_memory_bytes'], minimum)
+
+    def test_default_observer_does_not_read_optional_ram_pressure(self):
+        with patch('activity.available_memory_bytes', side_effect=AssertionError('default must stay unchanged')):
+            self.assertIsNone(self.sample(self.observer(()), 0))
+
+
+class AvailableMemoryTest(unittest.TestCase):
+    def test_memory_reader_uses_actual_available_kibibytes_not_free_or_swap(self):
+        from activity import available_memory_bytes
+        content = 'MemFree:        1024 kB\nMemAvailable:   2621440 kB\nSwapFree:       9999999 kB\n'
+        with patch.object(Path, 'read_text', return_value=content):
+            self.assertEqual(available_memory_bytes(), 5 * 1024 ** 3 // 2)
+
+    def test_memory_reader_refuses_missing_duplicate_invalid_or_unexpected_units(self):
+        from activity import available_memory_bytes
+        for content in ('MemFree: 1024 kB\n', 'MemAvailable: 1 kB\nMemAvailable: 2 kB\n',
+                        'MemAvailable: -1 kB\n', 'MemAvailable: 1 MB\n', 'MemAvailable: nope kB\n'):
+            with self.subTest(content=content), patch.object(Path, 'read_text', return_value=content):
+                with self.assertRaisesRegex(ValueError, 'available memory'):
+                    available_memory_bytes()
+
 
 if __name__ == '__main__':
     unittest.main()
