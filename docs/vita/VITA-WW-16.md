@@ -1380,3 +1380,69 @@ and preserves every byte and the complete physical range
 (`logs/ww16-mem1-format-contract/contract.json`). Those injected tests do not prove
 authentic game resources; a fresh committed rebuild and watched capture trial
 follows. No network, push, private data upload or pin modification.
+
+## Unit 39: two authentic, time-matched MEM1 snapshots delivered for lane 18
+
+Fresh committed VI/O1 build **`6d691a3`**, watched private capture run
+**`33aa66c91b9d49a1b78cbabdeb1f86c3`**: **two actual 24 MiB MEM1 captures verify**,
+before journal draws **990** and **1962**, at **14,491,219 / 24,342,927 executed
+cycles**, respectively. Writer **80323190**, completion **802CD824**, opcode **80**.
+First snapshot precedes any presentation; second follows the first. Bounded
+capture stops there; the actual guest continues to **nine draws / eight
+presentations**, **8,963 decoded / 2,048 journal commands**, zero skips/refusals/gaps.
+All eight presentation and ten retrace wall stamps still parse and match the
+report; the capture profile is **not an FPS baseline**. The no-dump Unit 37
+baseline is preserved, not replaced or compared against dump-writing timings.
+
+Closed STOP is unchanged: unsupported **AI volume read CC006C04**, PC **80316E00**,
+with **85,311,500 cycles / 1,033,628 edges**, exactly as in the no-dump trial.
+Install **1.23 s**, guest **91.23 s**, then the known closed-report shutdown
+**exit 133**. The watch records **91 guest samples**, including 67 silent but
+high-CPU samples; snapshot-file growth is activity too. No watchdog false hang.
+
+**Private hand-off root**:
+
+```text
+/home/fred/projects/zeldaWWHDRecomp/build-f5/ww05/vita3k-run-33aa66c91b9d49a1b78cbabdeb1f86c3
+```
+
+- **`evidence/mem1-capture.json`**: verified identities, commands, times, mappings,
+  binary/metadata hashes and explicit replay-manifest paths.
+- **`data/Vita3K/Vita3K/ux0/data/bluewake-ww-fixture/`**: original `ww05.log`,
+  `ww05.report`, **`ww05.mem1-{1,2}.bin`**, guest provenance
+  **`ww05.mem1-{1,2}.json`**, lane 18 contract
+  **`ww05.mem1-{1,2}.snapshot.json`**. Supply the latter with **`--snapshot`**.
+- **`evidence/gx-draw-prefix-snapshot{1,2}/`**: lane 18's read-only extractor
+  accepts each manifest and stages **14,464 FIFO bytes / two captured draws**,
+  original memory/manifest and coverage transport. Its available
+  `build-f6/ww18-verify/gx-host/gx_bridge` is **stale and lacks guarded snapshot
+  acknowledgement**, so both guarded replays explicitly reject; those refusals
+  remain in `replay.txt`, console logs and `evidence/mem1-replay-attempts.json`.
+  Tool/source/binary hashes are retained, not silently attributed to a new build.
+- **`evidence/gx-draw-prefix-raw-mem1-{1,2}/`**: the existing WW16 bridge can use
+  each **actual full, contiguous** MEM1 capture through the documented legacy
+  **`--mem1`** contract (no sparse holes/zero-filled reconstruction). Both produce
+  **2 plans / 2 accepted programmes / one distinct programme**, **4,045 events**,
+  no skipped plan/refused programme. **Global replay still fails coverage**:
+  its one display-copy is refused with **`display copy has no texture destination`**.
+  Thus report **`verdict=ran-with-coverage-gaps`**, not a clean independent replay.
+  Evidence: `evidence/mem1-full-image-replays.json` and the retained replay text.
+- **`evidence/capture-run-checks.json`**, `evidence/result.json` and
+  `evidence/run-watch.jsonl`: capture markers, actual frame/retrace counts,
+  certified frontier/command/memory evidence and continuous activity checks.
+
+MEM1 hashes, in capture order:
+
+```text
+72f9140a1fecd4f4e4022480457ce175252ffd37f8fcee6b5e82da407bc9a32f
+8cc8414e03e8f8775ef493ac5db0bb7bc95fd7f84351e4f5f966e17773ee884b
+```
+
+FIFO hash remains **4f9b7592e088442ab9156410b9e5b1517e5a22e18f10d6623d2e67d6a1e13149**.
+The snapshots differ, as expected for changing guest RAM. Each is time-matched
+to its own draw, not proof of every resource version throughout the prefix.
+Lane 18 now has real memory to investigate its guarded bridge/display-copy
+coverage independently. No pixels, physical-Vita behavior, gameplay or FPS gain
+is claimed, and no binary, disc data or captured memory is committed/uploaded.
+Next host seam is the sourced stopped-AI volume register; audio execution and
+unobserved interrupts remain explicit STOPs.
