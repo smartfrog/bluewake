@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Stage a fresh private WW05 profile and record exact isolated commands without launching."""
+"""Stage a fresh private WW05 profile and record direct native commands without launching."""
 
 import argparse
 import hashlib
@@ -18,12 +18,12 @@ from report import MAX_JOURNAL_COMMANDS, MAX_JOURNAL_BYTES
 from memory_capture import MAX_CAPTURES, validate_memory_captures
 
 sys.path.insert(0, str(ROOT / 'scripts/vita/armv7'))
-from fp_launch import (add_render_node_argument, create_run, evidence_file, reject_symlinks,
-                       renderer_guard_plan, renderer_identity, sandbox_command, stage_runtime)
+from fp_launch import create_run, evidence_file, reject_symlinks, stage_runtime
 from fp_libraries import file_identity, library_identity
-from fp_profile import config_identity, stage_firmware, read_profile_file
+from fp_profile import FIRMWARE_DIRECTORY, config_identity, stage_firmware, read_profile_file
 from fp_campaign import runtime_inputs
 from activity import CpuIdleWindow, MIN_EXTENDED_AVAILABLE_MEMORY_BYTES
+from direct_launch import RENDERER, direct_phases
 
 RUNTIME_SHA256 = 'cea2b91f05d9d03bb577b9c414e0da54d3b234f97dc4b23537561e800b1fbf30'
 SHADER_COMPILER = Path('/home/fred/cloudpunk-vita/tools/vita3k/data/Vita3K/Vita3K/ur0/data/libshacccg.suprx')
@@ -63,15 +63,15 @@ def stage_disc(root, path, expected_sha256):
         raise ValueError('optional disc does not match the verified WW05 input image')
     destination = root / 'data/Vita3K/Vita3K/ux0/data/bluewake/GZLE01.iso'
     destination.parent.mkdir(parents=True, mode=0o700)
-    with destination.open('xb'):
-        pass
+    destination.symlink_to(path)
     return {'path': str(path), 'identity': identity, 'install_path': str(destination.relative_to(root)),
-            'transport': 'readonly sandbox bind of verified private disc; no game data in VPK or writable copy'}
+            'transport': 'private profile symlink to verified disc; guest I/O opens readonly; no OS write confinement'}
 
 
 def make_plan(root, args, source, package, run):
-    render_node = getattr(args, 'render_node', None)
-    renderer = renderer_identity(render_node)
+    if getattr(args, 'render_node', None) is not None:
+        raise ValueError('direct native WW launch uses host GPU selection, not a render-node sandbox guard')
+    renderer = dict(RENDERER)
     limit = getattr(args, 'continue_gx', 0)
     memory_captures = getattr(args, 'mem1_snapshots', 0)
     command_window = getattr(args, 'mem1_command_window', None)
@@ -84,28 +84,9 @@ def make_plan(root, args, source, package, run):
     validate_memory_captures(memory_captures, limit, command_window)
     validate_timeout(args.timeout, scene_capture=command_window is not None, idle_timeout=idle_timeout)
     extended = args.timeout > 600
-    commands = {'install': ['--console', '--backend-renderer', 'OpenGL', 'ww05.vpk'],
-                'guest': ['--backend-renderer', 'OpenGL', '--installed-path', 'BWWG00005']}
-    phases = {name: {'command': sandbox_command(root, 'Vita3K', command, args.libraries, args.wayland_socket,
-                                              render_node=render_node),
-                     'renderer': renderer,
-                     'timeout_seconds': min(args.timeout, 600) if name == 'install' else args.timeout,
-                     'evidence_root': str(root / 'phases' / name)}
-               for name, command in commands.items()}
-    sandbox_program = '/usr/bin/python3' if render_node is not None else '/stack/vita3k/Vita3K'
-    if memory_captures:
-        command = phases['guest']['command']
-        index = command.index(sandbox_program)
-        command[index:index] = ['--bind', str(root / 'evidence/frames'),
-                              '/run/ww03/data/Vita3K/Vita3K/ux0/data/bluewake-ww-fixture/frames']
-    disc = getattr(args, 'disc', None)
-    if disc is not None:
-        for phase in phases.values():
-            index = phase['command'].index(sandbox_program)
-            phase['command'][index:index] = ['--ro-bind', str(disc),
-                '/run/ww03/data/Vita3K/Vita3K/ux0/data/bluewake/GZLE01.iso']
+    phases = direct_phases(root, args.timeout, args.libraries, args.wayland_socket)
     plan = {'ticket': 'VITA-WW-05', 'method': 'startup-gx-v1', 'title': 'BWWG00005',
-            'renderer': renderer,
+            'renderer': renderer, 'execution_mode': 'direct-native',
             'continue_gx': limit, 'mem1_snapshots': memory_captures,
             'mem1_command_window': command_window, 'journal_byte_limit': MAX_JOURNAL_BYTES,
             'defer_audio': defer_audio, 'audio': 'deferred' if defer_audio else 'strict',
@@ -123,10 +104,11 @@ def make_plan(root, args, source, package, run):
                                     'snapshot every selected draw before renderer write; no guest time or completion injection',
             'run': run, 'source': source, 'vpk_sha256': package,
             'real_execution': False, 'retry': 'fresh private profile for every attempt', 'phases': phases,
-            'cwd': str(root / 'work'), 'sandbox_cwd': '/stack/vita3k',
+            'cwd': str(root / 'runtime'),
             'RLIMIT_FSIZE': resource.getrlimit(resource.RLIMIT_FSIZE),
             'completion_policy': '124/125 remain INCOMPLETE; reported frontier verdict is separate',
-            'cleanup': 'owned process group TERM; wait at most 2 seconds, then KILL/reap; private PID namespace',
+            'cleanup': 'owned process group TERM; wait at most 2 seconds, then KILL/reap',
+            'isolation': 'fresh private HOME/XDG preferences and saves; no sandbox or OS filesystem confinement',
             'preparation_gate': 'installer fully stopped/reaped; exact owned single-link installed SELF/SFO/DOL bytes; '
                                 'no crash/config error; preserve emitted config, accept only canonical or user-id: 00, '
                                 'restore canonical before guest; verify all readonly input identities',
@@ -138,11 +120,6 @@ def make_plan(root, args, source, package, run):
                         'parser once; opcode/raw bytes/start and completion PC/SP; edge-service latch; rendered=0',
             'input_policy': 'recheck clean source, artifacts, runtime, config and firmware before launch; '
                             'reject existing phase process evidence; preserve every attempt'}
-    guard = renderer_guard_plan(renderer)
-    if guard is not None:
-        plan['renderer_guard'] = guard
-        for phase in phases.values():
-            phase['renderer_guard'] = guard
     return plan
 
 
@@ -204,7 +181,8 @@ def checked_build_receipt(path, launcher_source, baseline=False):
 
 
 def stage(args):
-    renderer_identity(getattr(args, 'render_node', None))
+    if getattr(args, 'render_node', None) is not None:
+        raise ValueError('direct native WW launch does not accept a render-node sandbox guard')
     CpuIdleWindow(getattr(args, 'idle_timeout', 30), 0.05)
     validate_continuation(getattr(args, 'continue_gx', 0))
     validate_memory_captures(getattr(args, 'mem1_snapshots', 0), getattr(args, 'continue_gx', 0),
@@ -231,7 +209,8 @@ def stage(args):
     shutil.copyfile(vpk, root / 'runtime/ww05.vpk')
     if sha256(root / 'runtime/ww05.vpk') != package:
         raise ValueError('staged private package changed')
-    firmware = stage_firmware(root, STACK / 'firmware', surface_sync=bool(getattr(args, 'mem1_snapshots', 0)))
+    firmware = stage_firmware(root, STACK / 'firmware', surface_sync=bool(getattr(args, 'mem1_snapshots', 0)),
+                              pref_path=root / FIRMWARE_DIRECTORY)
     shader_compiler = stage_shader_compiler(root, SHADER_COMPILER)
     libraries = library_identity(args.libraries)
     disc = None
@@ -244,8 +223,9 @@ def stage(args):
                 runtime_assets=assets, runtime_input=str(STACK / 'vita3k/Vita3K'),
                 runtime_inputs=runtime_inputs(STACK / 'vita3k/Vita3K'),
                 staged_runtime=library_identity(root / 'runtime', allow_symlinks=False),
-                 firmware=firmware, private_config=config_identity(root, surface_sync=plan['live_frame_capture']), runtime_libraries=libraries,
-                wayland_socket=str(args.wayland_socket), build_evidence=evidence,
+                 firmware=firmware, private_config=config_identity(root, surface_sync=plan['live_frame_capture'],
+                                                                  pref_path=root / FIRMWARE_DIRECTORY), runtime_libraries=libraries,
+                 wayland_socket=str(args.wayland_socket) if args.wayland_socket is not None else None, build_evidence=evidence,
                 source_vpk=str(vpk), build_evidence_sha256=sha256(receipt_path),
                 build_evidence_path=str(receipt_path), baseline_build=baseline_path is not None,
                 launcher_source=launcher_source, footprint_path=str(footprint_path),
@@ -270,7 +250,6 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--timeout', type=float, default=60)
     parser.add_argument('--wayland-socket', type=Path, required=True)
-    add_render_node_argument(parser)
     parser.add_argument('--continue-gx', type=int, default=0)
     parser.add_argument('--mem1-snapshots', type=int, choices=range(MAX_CAPTURES + 1), default=0)
     parser.add_argument('--mem1-command-window', type=int, nargs=2, metavar=('START', 'END'))

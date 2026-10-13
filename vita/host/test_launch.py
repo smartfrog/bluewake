@@ -1,6 +1,5 @@
 import json
 from pathlib import Path
-import shutil
 import sys
 import tempfile
 from types import SimpleNamespace
@@ -50,32 +49,32 @@ class PrivateLaunchTest(unittest.TestCase):
         self.assertEqual(request.read_text(), f'{token} {"a" * 40} {"b" * 64} 1\n')
 
     def setUp(self):
-        from fp_launch import create_run, sandbox_command
-        from fp_profile import CONFIG_PATH, CONFIG_TEMPLATE, config_identity
+        from fp_launch import create_run
+        from fp_profile import CONFIG_PATH, FIRMWARE_DIRECTORY, config_identity, profile_config
         from stage_plan import make_plan, sha256
 
-        temporary = tempfile.TemporaryDirectory(dir='/home/fred/projects/zeldaWWHDRecomp/build-f5', prefix='ww05-launch-')
+        temporary = tempfile.TemporaryDirectory(dir='/tmp/opencode', prefix='ww05-launch-')
         self.addCleanup(temporary.cleanup)
         self.root = Path(temporary.name) / 'run'
         create_run(self.root)
         (self.root / CONFIG_PATH).parent.mkdir()
-        shutil.copyfile(CONFIG_TEMPLATE, self.root / CONFIG_PATH)
+        (self.root / CONFIG_PATH).write_bytes(profile_config(pref_path=self.root / FIRMWARE_DIRECTORY))
         package = self.root / 'runtime/ww05.vpk'
         with zipfile.ZipFile(package, 'w') as archive:
             for name in ('eboot.bin', 'sce_sys/param.sfo', 'main.dol'):
                 archive.writestr(name, b'synthetic ' + name.encode())
         args = SimpleNamespace(timeout=2, libraries=None, wayland_socket=None)
         self.plan = make_plan(self.root, args, 'a' * 40, sha256(package), 'c' * 32)
-        self.plan['private_config'] = config_identity(self.root)
+        self.plan['private_config'] = config_identity(self.root, pref_path=self.root / FIRMWARE_DIRECTORY)
         for entry in self.plan['phases'].values():
             phase = Path(entry['evidence_root'])
             (phase / 'evidence').mkdir(parents=True)
-            entry['command'] = sandbox_command(self.root, 'Fake', entry['command'][entry['command'].index('/stack/vita3k/Vita3K') + 1:])
+            entry['command'][0] = str(self.root / 'runtime/Fake')
 
     def fake(self, installer, guest='sys.exit(0)'):
         fake = self.root / 'runtime/Fake'
         fake.write_text('#!/usr/bin/python3\nimport sys,time,zipfile\nfrom pathlib import Path\n'
-                        "root=Path('/run/ww03')\nif '--console' in sys.argv:\n" +
+                        f"root=Path({str(self.root)!r})\nif '--console' in sys.argv:\n" +
                         ''.join(' ' + line + '\n' for line in installer.splitlines()) +
                         'else:\n' + ''.join(' ' + line + '\n' for line in guest.splitlines()))
         fake.chmod(0o700)
@@ -229,7 +228,7 @@ class PrivateLaunchTest(unittest.TestCase):
         self.assertEqual(disposition['vpk_sha256'], self.plan['vpk_sha256'])
         self.assertEqual(disposition['reported_frontier'], 'UNAVAILABLE')
 
-    def test_busy_sandbox_descendant_is_not_mistaken_for_an_idle_bwrap_parent(self):
+    def test_busy_native_guest_is_not_mistaken_for_an_idle_process(self):
         self.successful_fake('end=time.monotonic()+1\nwhile time.monotonic()<end: pass')
         self.plan['idle_timeout_seconds'] = 0.3
         self.plan['phases']['guest']['timeout_seconds'] = 5
@@ -363,6 +362,26 @@ class PrivateLaunchTest(unittest.TestCase):
         self.assertFalse((self.root / REPORT_DIRECTORY / 'ww05.continue').exists())
         self.assertFalse((self.root / REPORT_DIRECTORY / 'ww05.mem1').exists())
 
+    def test_native_subprocess_does_not_inherit_forced_software_or_player_home(self):
+        import os
+        self.successful_fake("import os\n"
+                             "assert 'LIBGL_ALWAYS_SOFTWARE' not in os.environ\n"
+                             "assert os.environ['HOME']==str(root/'home')\n"
+                             "assert os.environ['XDG_DATA_HOME']==str(root/'data')\n")
+        with patch.dict(os.environ, {'LIBGL_ALWAYS_SOFTWARE': '1', 'HOME': '/player'}):
+            status, result = self.run_fake()
+        self.assertEqual(status, 0)
+        self.assertEqual(result['renderer'], {'mode': 'native-default', 'observation': 'UNOBSERVED'})
+
+    def test_native_frames_link_stays_within_the_private_run_evidence(self):
+        from launch import fresh_request
+        from fp_launch import REPORT_DIRECTORY
+        fresh_request(self.root, 'a' * 40, 'b' * 64, continue_gx=2048, mem1_snapshots=2)
+        frames = self.root / REPORT_DIRECTORY / 'frames'
+        self.assertEqual(frames.readlink(), self.root / 'evidence/frames')
+        (frames / 'synthetic-frame').write_bytes(b'synthetic frame')
+        self.assertEqual((self.root / 'evidence/frames/synthetic-frame').read_bytes(), b'synthetic frame')
+
     def test_memory_capture_request_is_bound_to_the_same_fresh_guest_identity(self):
         import launch
         from fp_launch import REPORT_DIRECTORY
@@ -384,27 +403,20 @@ class PrivateLaunchTest(unittest.TestCase):
         self.assertEqual(snapshot.read_bytes(), b'preserve private evidence')
         self.assertFalse((directory / 'ww05.request').exists())
 
-    def test_optional_disc_is_read_only_inside_the_guest_sandbox_and_never_modified(self):
-        from stage_plan import make_plan, sha256
+    def test_optional_disc_link_reads_the_verified_image_without_copying_or_modifying_it(self):
+        from stage_plan import stage_disc, sha256
         image = self.root.parent / 'fixture.iso'
         image.write_bytes(b'private disc fixture')
-        destination = self.root / 'data/Vita3K/Vita3K/ux0/data/bluewake/GZLE01.iso'
-        destination.parent.mkdir(parents=True)
-        destination.touch()
-        args = SimpleNamespace(timeout=2, libraries=None, wayland_socket=None, disc=image)
-        command = make_plan(self.root, args, 'a' * 40, 'b' * 64, 'c' * 32)['phases']['guest']['command']
-        command[command.index('/stack/vita3k/Vita3K')] = '/stack/vita3k/Fake'
-        self.plan['phases']['guest']['command'] = command
+        disc = stage_disc(self.root, image, sha256(image))
+        destination = self.root / disc['install_path']
         self.successful_fake("disc=root/'data/Vita3K/Vita3K/ux0/data/bluewake/GZLE01.iso'\n"
-                             "assert disc.read_bytes()==b'private disc fixture'\n"
-                             "try: disc.write_bytes(b'forbidden')\n"
-                             "except OSError as error: assert error.errno==30\n"
-                             "else: raise AssertionError('disc must be read only')")
+                              "assert disc.read_bytes()==b'private disc fixture'")
         before = sha256(image)
         status, result = self.run_fake()
         self.assertEqual(status, 0)
         self.assertEqual(sha256(image), before)
-        self.assertEqual(destination.read_bytes(), b'')
+        self.assertTrue(destination.is_symlink())
+        self.assertEqual(destination.readlink(), image)
 
     def test_installed_dol_mismatch_withholds_guest(self):
         self.fake("app=root/'data/Vita3K/Vita3K/ux0/app/BWWG00005'\napp.mkdir(parents=True)\n"

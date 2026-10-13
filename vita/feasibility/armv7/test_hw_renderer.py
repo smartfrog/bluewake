@@ -169,8 +169,8 @@ class RendererPlanTest(unittest.TestCase):
                     mock.patch.object(Path, 'lstat', side_effect=AssertionError('software plan probed DRI')):
                 launch.verify_renderer_identity(renderer)
 
-    def test_ww05_rechecks_node_before_reading_other_inputs(self):
-        with node_stat(inode=124), self.assertRaisesRegex(ValueError, 'render node.*changed'):
+    def test_ww05_rejects_obsolete_hardware_plan_before_reading_other_inputs(self):
+        with self.assertRaisesRegex(ValueError, 'direct-native'):
             ww05_launch.verify_inputs(Path('/unused'), {'renderer': HARDWARE})
 
     def test_fp_campaign_rechecks_node_before_reading_other_inputs(self):
@@ -187,7 +187,7 @@ class RendererPlanTest(unittest.TestCase):
             self.assertEqual(result['renderer'], HARDWARE)
             self.assertEqual(result['completion'], 'INCOMPLETE')
 
-    def test_ww05_receipt_records_requested_mode_when_preflight_fails(self):
+    def test_ww05_receipt_does_not_claim_hardware_for_an_obsolete_plan(self):
         with tempfile.TemporaryDirectory(dir='/tmp/opencode', prefix='ww24-receipt-') as directory:
             root = Path(directory) / 'run'
             launch.create_run(root)
@@ -196,51 +196,40 @@ class RendererPlanTest(unittest.TestCase):
                     mock.patch.object(ww05_launch, 'run_owned', side_effect=AssertionError('preflight must not launch')):
                 self.assertEqual(ww05_launch.execute_run(root, plan), 2)
             result = json.loads((root / 'evidence/result.json').read_text())
-            self.assertEqual(result['renderer'], HARDWARE)
+            self.assertEqual(result['renderer'], {'mode': 'native-default', 'observation': 'UNOBSERVED'})
             self.assertFalse(result['rendered'])
 
-    def test_ww05_plan_records_software_and_keeps_both_commands(self):
+    def test_ww05_plan_records_native_default_and_keeps_both_commands(self):
         args = SimpleNamespace(libraries=None, wayland_socket=None, timeout=60)
         plan = stage_plan.make_plan(Path('/unused'), args, 'a' * 40, 'b' * 64, 'c' * 32)
-        self.assertEqual(plan['renderer'], SOFTWARE)
+        self.assertEqual(plan['renderer'], {'mode': 'native-default', 'observation': 'UNOBSERVED'})
         self.assertNotIn('renderer_guard', plan)
         for phase in plan['phases'].values():
-            self.assertEqual(phase['renderer'], SOFTWARE)
-            self.assertIn('LIBGL_ALWAYS_SOFTWARE', phase['command'])
+            self.assertEqual(phase['renderer'], plan['renderer'])
+            self.assertNotIn('LIBGL_ALWAYS_SOFTWARE', phase['environment'])
             self.assertNotIn('--dev-bind', phase['command'])
 
-    def test_ww05_plan_records_hardware_request_in_both_exact_commands(self):
+    def test_ww05_plan_refuses_the_obsolete_hardware_guard_request(self):
         args = SimpleNamespace(libraries=None, wayland_socket=None, timeout=60, render_node=NODE)
-        with node_stat():
-            plan = stage_plan.make_plan(Path('/unused'), args, 'a' * 40, 'b' * 64, 'c' * 32)
-        self.assertEqual(plan['renderer'], HARDWARE)
-        self.assertEqual(plan['renderer_guard']['method'], 'mounted-render-node-stat-v1')
-        for phase in plan['phases'].values():
-            self.assertEqual(phase['renderer'], HARDWARE)
-            self.assertEqual(phase['renderer_guard'], plan['renderer_guard'])
-            command = phase['command']
-            index = command.index('--dev-bind')
-            self.assertEqual(command[index:index + 3], ['--dev-bind', str(NODE), str(NODE)])
-            self.assertNotIn('LIBGL_ALWAYS_SOFTWARE', command)
-            self.assertIn('--unshare-all', command)
+        with self.assertRaisesRegex(ValueError, 'direct native'):
+            stage_plan.make_plan(Path('/unused'), args, 'a' * 40, 'b' * 64, 'c' * 32)
 
-    def test_ww05_optional_mounts_are_inserted_before_the_guard_not_inside_guest_argv(self):
+    def test_ww05_optional_disc_and_frames_do_not_change_native_guest_argv(self):
         for options, source in (({'disc': Path('/synthetic.iso')}, '/synthetic.iso'),
                                 ({'mem1_snapshots': 2, 'continue_gx': 2048}, '/unused/evidence/frames')):
-            with self.subTest(options=options), node_stat():
-                args = SimpleNamespace(libraries=None, wayland_socket=None, timeout=60, render_node=NODE, **options)
+            with self.subTest(options=options):
+                args = SimpleNamespace(libraries=None, wayland_socket=None, timeout=60, **options)
                 plan = stage_plan.make_plan(Path('/unused'), args, 'a' * 40, 'b' * 64, 'c' * 32)
                 command = plan['phases']['guest']['command']
-                guard = command.index('/usr/bin/python3')
-                self.assertLess(command.index(source), guard)
-                application = ['/stack/vita3k/Vita3K', '--backend-renderer', 'OpenGL', '--installed-path', 'BWWG00005']
-                self.assertEqual(command[guard:], launch.renderer_guard_command(application, HARDWARE))
+                application = ['/unused/runtime/Vita3K', '--backend-renderer', 'OpenGL', '--installed-path', 'BWWG00005']
+                self.assertEqual(command, application)
+                self.assertNotIn(source, command)
 
     def test_ww05_invalid_node_fails_before_staging_or_reading_game_inputs(self):
         args = SimpleNamespace(timeout=60, render_node=Path('/dev/null'))
         with mock.patch.object(stage_plan, 'checked_sources', side_effect=AssertionError('read game inputs')), \
                 mock.patch.object(stage_plan, 'create_run', side_effect=AssertionError('created run')):
-            with self.assertRaisesRegex(ValueError, 'render node'):
+            with self.assertRaisesRegex(ValueError, 'render-node'):
                 stage_plan.stage(args)
 
     def test_fp_staged_plan_and_campaign_keep_the_same_requested_node(self):

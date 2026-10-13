@@ -81,10 +81,18 @@ def verify_config_log(root, limit=1024 * 1024):
         raise ValueError("runtime reported configuration parse failure; see evidence/process.log")
 
 
-def profile_config(alt=False, surface_sync=False):
+def profile_config(alt=False, surface_sync=False, pref_path=None):
     content = checked_config(CONFIG_TEMPLATE)
     if alt:
         content = alt_config(content)
+    if pref_path is not None:
+        value = str(pref_path)
+        if not Path(value).is_absolute() or any(char in value for char in '\r\n\t\x00:#{}[],\'"!&*?|>@`%\\'):
+            raise ValueError('preference path must be an absolute plain YAML path')
+        original = b'pref-path: /run/ww03/data/Vita3K/Vita3K\n'
+        if content.count(original) != 1:
+            raise ValueError('approved config must have exactly one preference path')
+        content = content.replace(original, ('pref-path: ' + value + '\n').encode(), 1)
     return surface_sync_config(content.decode()).encode() if surface_sync else content
 
 
@@ -96,9 +104,15 @@ def checked_surface_config(path, alt=False):
     return content
 
 
-def config_identity(root, alt=False, surface_sync=False):
-    content = checked_surface_config(root / CONFIG_PATH, alt) if surface_sync else (
-        checked_alt_config(root / CONFIG_PATH) if alt else checked_config(root / CONFIG_PATH))
+def config_identity(root, alt=False, surface_sync=False, pref_path=None):
+    if pref_path is not None:
+        expected = profile_config(alt=alt, surface_sync=surface_sync, pref_path=pref_path)
+        content = read_profile_file(root / CONFIG_PATH, len(expected), owned=True)
+        if content != expected:
+            raise ValueError('configuration differs from the approved private native profile')
+    else:
+        content = checked_surface_config(root / CONFIG_PATH, alt) if surface_sync else (
+            checked_alt_config(root / CONFIG_PATH) if alt else checked_config(root / CONFIG_PATH))
     identity = {"path": str(CONFIG_PATH), "bytes": len(content),
                 "sha256": hashlib.sha256(content).hexdigest(),
                 "template": CONFIG_TEMPLATE.name, "source_record": SOURCE_CONFIG_RECORD,
@@ -109,11 +123,13 @@ def config_identity(root, alt=False, surface_sync=False):
     if surface_sync:
         identity.update(surface_sync=True, capture_change='disable-surface-sync: true -> false',
                         baseline_sha256=CONFIG_ALT_SHA256 if alt else CONFIG_SHA256)
+    if pref_path is not None:
+        identity['pref_path'] = str(pref_path)
     return identity
 
 
-def stage_firmware(root, source, alt=False, surface_sync=False):
-    config = profile_config(alt=alt, surface_sync=surface_sync)
+def stage_firmware(root, source, alt=False, surface_sync=False, pref_path=None):
+    config = profile_config(alt=alt, surface_sync=surface_sync, pref_path=pref_path)
     sources = {name: library_identity(source / name, allow_symlinks=False) for name in ("vs0", "sa0")}
     for name, identity in sources.items():
         if not any(entry["type"] == "file" for entry in identity["entries"].values()):
