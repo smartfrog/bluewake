@@ -1735,3 +1735,38 @@ ARM host links without new warnings (`logs/ww16-idle-aid-arm-link.log`);
 audit/attribution/whitespace pass. No runtime pin, desktop default or rendering
 change. Fresh committed VI/O1 rebuild and watched MEM1/live-PNG trial follows;
 configuring an idle source does not prove playing audio or game progress.
+
+## Unit 47: idle DMA setup passes; the guest reaches the JAudio DSP-task boundary
+
+Committed VI/O1 build **c6497b4**, watched MEM1/live-PNG run
+**678e40d69c8e4e198c5f88abb3f89f6d**: the actual source-high/source-low/disabled
+length setup passes. The guest advances **68,275 cycles / 1,813 edges** beyond
+Unit 45 to **85,380,005 cycles / 1,035,459 edges**, then stops at **803193AC**:
+**`desktop interception unsupported; guest not skipped`**. Shared
+`edge_intercepts.c:47` and desktop `main.c:8497-8504` identify this as
+**__DSP_boot_task**, the JAudio task's second DSP boot handshake. The desktop
+arms its own reply bookkeeping there; that is not permission to inject mailbox
+replies or skip real task instructions on this host.
+
+Still **nine draws / eight presentations**, zero renderer skips/refusals/gaps,
+**8,963 decoded / 2,048 journal commands**. Two actual MEM1 captures and **eight
+live PNG pairs verify**; the last was opened and remains uniform opaque black,
+with the same **c871acff...** display hash as Unit 43. All eight actual presentation
+and ten retrace stamps match the report. Both guarded two-draw prefix replays
+remain clean, using the same real memory hashes, not default zero RAM.
+
+Private hand-off root:
+
+```text
+/home/fred/projects/zeldaWWHDRecomp/build-f5/ww05/vita3k-run-678e40d69c8e4e198c5f88abb3f89f6d
+```
+
+Latest image **`evidence/frames/frame-8.png`**; image/check/memory manifests
+**`evidence/live-images.json`**, **`evidence/live-capture-checks.json`** and
+**`evidence/mem1-capture.json`**; guarded fixtures
+**`evidence/gx-draw-prefix-snapshot{1,2}/`** and their replay manifest. Install
+**1.20 s**, guest **116.38 s**, closed report followed by known **exit 133**.
+No inactivity/timeout termination, fabricated frame, logo/gameplay claim or FPS
+comparison is made. The next seam is guarded observation of the actual DSP-task
+entry and guest mailbox access, preserving the real body and explicitly
+refusing unsupported task-peer behavior rather than adopting desktop replies.
