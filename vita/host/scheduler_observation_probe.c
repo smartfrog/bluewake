@@ -78,8 +78,8 @@ int main(int argc, char** argv) {
             assert(host->error == NULL);
         }
     }
-    host->rel_image.linked = strcmp(argv[1], "unlinked") != 0 && strcmp(argv[1], "late-unlinked") != 0;
-    host->rel_image.module_id = 1u;
+    host->rel_images[0].linked = strcmp(argv[1], "unlinked") != 0 && strcmp(argv[1], "late-unlinked") != 0;
+    host->rel_images[0].module_id = 1u;
     if (late_idle) {
         host->dsp.audio_deferred = strcmp(argv[1], "late-strict") != 0;
         host->stream.enabled = strcmp(argv[1], "late-no-continuation") != 0;
@@ -127,7 +127,7 @@ int main(int argc, char** argv) {
             } else {
                 assert(!second_intercepted && host->error == NULL && cpu->exception == 0u);
                 const bool eligible = host->dsp.audio_deferred && host->stream.enabled && host->card_probe_observed &&
-                                      host->frame_timing.present.index >= 32u && host->rel_image.linked;
+                                      host->frame_timing.present.index >= 32u && host->rel_images[0].linked;
                 assert(host->post_card_idle_observed == eligible);
                 assert(!ww_host_edge(host, cpu, cpu->pc));
             }

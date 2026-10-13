@@ -14,6 +14,7 @@
 #include "guest_timing.h"
 
 #include <string.h>
+#include <stdlib.h>
 
 #define PPC_EXC_EXTERNAL 0x00000040u
 #define PPC_VECTOR_EXTERNAL 0x00500u
@@ -293,9 +294,31 @@ bool ww_host_module_contains_address(const StaticRecompModuleDesc* module, u32 a
     return false;
 }
 
+static bool rel_execution_blocked(WwHost* host, u32 address, u32* linked) {
+    if ((address & ~0x40000000u) == 0x80240F54u && ww_host_rel_owned(host, host->cpu.gpr[3]) != NULL) {
+        ww_host_fail(host, "native REL unlink requires an unsupported epilog and destruction contract", address, host->cpu.pc);
+        return true;
+    }
+    *linked = ww_host_rel_address(host, address);
+    if (host->error != NULL)
+        return true;
+    if (!ww_host_rel_code_owned(host, *linked)) {
+        ww_host_fail(host, "REL dispatch requires live linked ownership", *linked, host->cpu.pc);
+        return true;
+    }
+    return false;
+}
+
 static bool host_call(CPUState* cpu, u32 service) {
     WwHost* host = owner(cpu);
     const u32 address = canonical_dispatch_address(cpu, service);
+    u32 linked = address;
+    if (rel_execution_blocked(host, address, &linked))
+        return true;
+    if (linked != address) {
+        cpu->pc = linked;
+        return true;
+    }
     if (ww_host_module_contains_address(host->module, address))
         return false;
     ww_host_fail(host, "unsupported host call", service, cpu->pc);
@@ -752,6 +775,15 @@ bool ww_host_edge(void* user, CPUState* cpu, u32 address) {
         host->edge_stopped = true;
         return true;
     }
+    u32 linked = address;
+    if (rel_execution_blocked(host, address, &linked)) {
+        host->edge_stopped = true;
+        return true;
+    }
+    if (linked != address) {
+        cpu->pc = linked;
+        return true;
+    }
     if (host->dvd_callback_active && address == BLUEWAKE_CALLBACK_RETURN_SENTINEL)
         return true;
     // Composite edges follow completed blocks; only in-block observations exclude an instruction suffix.
@@ -839,7 +871,7 @@ bool ww_host_edge(void* user, CPUState* cpu, u32 address) {
                                        observed_retrace_sleep || observed_draw_done_sleep || observed_async_draw_done) &&
                                          ww_host_module_contains_address(host->module, address);
     const bool desktop_edge = bluewake_edge_maybe_intercept(address);
-    if (address == 0x80307EF4u && host->rel_image.linked &&
+    if (address == 0x80307EF4u && ww_host_rel_linked(host, 1u) &&
         (!host->scheduler_idle_observed ||
          (host->dsp.audio_deferred && host->stream.enabled && host->card_probe_observed &&
           host->frame_timing.present.index >= 32u && !host->post_card_idle_observed))) {
@@ -963,6 +995,9 @@ int ww_host_dispatch(WwHost* host, u32 address) {
         ww_host_fail(host, "dispatch requires a loaded module", address, cpu->pc);
         return 0;
     }
+    u32 linked = address;
+    if (rel_execution_blocked(host, address, &linked))
+        return -1;
     const WwObservedVector* vector = observed_vector(address);
     if (vector != NULL &&
         !ww_host_module_contains_address(host->module, address) &&
@@ -985,7 +1020,9 @@ int ww_host_dispatch(WwHost* host, u32 address) {
         }
         return 1;
     }
-    return host->module->dispatch(&host->cpu, address);
+    if (linked != address)
+        cpu->pc = linked;
+    return host->module->dispatch(&host->cpu, linked);
 }
 
 bool ww_host_init(WwHost* host) {
@@ -1057,10 +1094,13 @@ void ww_host_shutdown(WwHost* host) {
     host->rel_data = NULL;
     host->rel_data_count = 0u;
     ww_code_guard_free(&host->code_guard);
+    for (u32 at = 0u; at < host->rel_image_count; ++at)
+        free(host->rel_images[at].sections);
     ppc_guest_alias_clear();
     host->alias_bytes = 0u;
     host->alias_count = 0u;
-    memset(&host->rel_image, 0, sizeof(host->rel_image));
+    memset(host->rel_images, 0, sizeof(host->rel_images));
+    host->rel_image_count = 0u;
     dol_guest_memory_shutdown(&host->memory);
     BlueWakeModuleStorage storage = {.cpu = &host->cpu};
     bw_module_cpu_free(&storage);

@@ -181,10 +181,10 @@ bool ww_host_dvd_edge(WwHost* host, u32 address) {
         if (error == NULL && fprintf(stderr, "[rel-frontier] name=%s object=%08X module=%08X pc=%08X\n",
                                     name, object, mem_read32(cpu, object + 0x10u), address) < 0)
             error = "REL frontier trace write failed";
-        if (error == NULL && host->rel_image.guest == 0u)
+        if (error == NULL)
             error = ww_host_materialize_rel(host, object, name);
         if (error == NULL)
-            error = ww_host_link_profile_list(host, object);
+            error = ww_host_link_rel(host, object);
         if (error != NULL)
             ww_host_fail(host, error, address, address);
         return true;
