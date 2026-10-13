@@ -1,3 +1,4 @@
+import hashlib
 import importlib.util
 import json
 from pathlib import Path
@@ -305,6 +306,179 @@ class BaselineBuildTest(unittest.TestCase):
         self.path = self.output / 'copied-receipt.json'
         with self.assertRaisesRegex(ValueError, 'preserved snapshot'):
             self.select()
+
+
+class CandidateBuildTest(unittest.TestCase):
+    def setUp(self):
+        import stage_plan
+        from game_build import PINS
+        self.temporary = tempfile.TemporaryDirectory(dir='/tmp/opencode', prefix='ww57-candidate-')
+        self.addCleanup(self.temporary.cleanup)
+        self.output = Path(self.temporary.name)
+        self.vpk = self.output / 'vita/ww05.vpk'
+        self.vpk.parent.mkdir()
+        self.eboot = self.output / 'vita/eboot.bin'
+        self.eboot.write_bytes(b'synthetic candidate eboot')
+        members = {'eboot.bin': self.eboot.read_bytes(), 'main.dol': b'synthetic candidate DOL',
+                   'sce_sys/param.sfo': b'synthetic candidate SFO'}
+        with zipfile.ZipFile(self.vpk, 'w') as archive:
+            for name, content in members.items():
+                archive.writestr(name, content)
+        self.source = 'a' * 40
+        self.digest = 'c' * 64
+        self.vpk_sha256 = stage_plan.sha256(self.vpk)
+        self.eboot_sha256 = stage_plan.sha256(self.eboot)
+        self.evidence = {
+            'status': 'PASS-private-offline-build-inspection', 'source': self.source, 'pins': PINS,
+            'composite_digest': self.digest, 'current_composite_digest': self.digest,
+            'artifacts': {
+                'ww05.vpk': {'path': str(self.vpk), 'bytes': self.vpk.stat().st_size, 'sha256': self.vpk_sha256},
+                'eboot.bin': {'path': str(self.eboot), 'bytes': self.eboot.stat().st_size, 'sha256': self.eboot_sha256},
+            },
+            'vpk_members': {name: {'bytes': len(content), 'sha256': hashlib.sha256(content).hexdigest()}
+                            for name, content in members.items()},
+            'config': {'pad_input': {'enabled': True, 'source': 'sceCtrlPeekBufferPositive',
+                                     'sampling': 'guest-SI-only'}},
+        }
+        self.receipt = self.output / 'build-evidence.json'
+        self.descriptor = {'kind': 'ww05-private-candidate-v1', 'receipt': str(self.receipt),
+                           'source': self.source, 'composite_digest': self.digest,
+                           'vpk_sha256': self.vpk_sha256, 'eboot_sha256': self.eboot_sha256,
+                           'pad_input': True}
+        self.descriptor_path = self.output / 'candidate.json'
+
+    def write(self, descriptor=None, evidence=None):
+        self.receipt.write_text(json.dumps(self.evidence if evidence is None else evidence))
+        self.descriptor_path.write_text(json.dumps(self.descriptor if descriptor is None else descriptor))
+
+    def admit(self, ancestor_status=0):
+        import stage_plan
+        with patch('subprocess.run', return_value=SimpleNamespace(returncode=ancestor_status,
+                                                                  stderr='synthetic git error')) as run:
+            descriptor = stage_plan.load_candidate_descriptor(self.descriptor_path)
+            evidence = stage_plan.checked_candidate_receipt(descriptor, 'b' * 40)
+            vpk, package = stage_plan.verify_candidate_package(descriptor, evidence)
+        return descriptor, evidence, vpk, package, run
+
+    def test_current_private_candidate_is_admitted_strictly(self):
+        self.write()
+        descriptor, evidence, vpk, package, run = self.admit()
+        self.assertEqual(descriptor['source'], self.source)
+        self.assertEqual(evidence['source'], self.source)
+        self.assertEqual(evidence['composite_digest'], self.digest)
+        self.assertEqual(vpk, self.vpk)
+        self.assertEqual(package, self.vpk_sha256)
+        self.assertIn(['git', 'merge-base', '--is-ancestor', self.source, 'b' * 40], run.call_args.args)
+
+    def test_tampered_candidate_artifact_is_rejected(self):
+        self.write()
+        self.eboot.write_bytes(b'tampered candidate eboot')
+        with self.assertRaisesRegex(ValueError, 'artifact changed: eboot.bin'):
+            self.admit()
+
+    def test_tampered_candidate_package_is_rejected(self):
+        self.write()
+        with zipfile.ZipFile(self.vpk, 'w') as archive:
+            for name in ('eboot.bin', 'main.dol', 'sce_sys/param.sfo'):
+                archive.writestr(name, b'tampered')
+        with self.assertRaisesRegex(ValueError, 'artifact changed: ww05.vpk'):
+            self.admit()
+
+    def test_descriptor_artifact_hash_mismatch_is_rejected(self):
+        for field in ('vpk_sha256', 'eboot_sha256'):
+            with self.subTest(field=field):
+                self.write(descriptor={**self.descriptor, field: 'f' * 64})
+                with self.assertRaisesRegex(ValueError, 'does not match the descriptor'):
+                    self.admit()
+
+    def test_descriptor_and_receipt_identity_mismatches_are_rejected(self):
+        for field, value in (('source', 'd' * 40), ('composite_digest', 'e' * 64),
+                             ('current_composite_digest', 'e' * 64), ('pins', {})):
+            with self.subTest(field=field):
+                self.write(evidence={**self.evidence, field: value})
+                with self.assertRaises(ValueError):
+                    self.admit()
+
+    def test_candidate_pad_state_must_match_the_receipt(self):
+        self.write(evidence={**self.evidence, 'config': {'pad_input': {'enabled': False}}})
+        with self.assertRaisesRegex(ValueError, 'PAD'):
+            self.admit()
+        self.write(descriptor={**self.descriptor, 'pad_input': False})
+        with self.assertRaisesRegex(ValueError, 'PAD'):
+            self.admit()
+
+    def test_missing_receipt_fields_fail_closed(self):
+        for field in ('status', 'source', 'pins', 'composite_digest', 'current_composite_digest',
+                      'config', 'artifacts', 'vpk_members'):
+            with self.subTest(field=field):
+                evidence = dict(self.evidence)
+                del evidence[field]
+                self.write(evidence=evidence)
+                with self.assertRaises(ValueError):
+                    self.admit()
+
+    def test_unknown_candidate_descriptor_schema_is_rejected(self):
+        import stage_plan
+        cases = ({**self.descriptor, 'kind': 'ww05-other-v1'},
+                 {**self.descriptor, 'extra': True},
+                 {key: value for key, value in self.descriptor.items() if key != 'eboot_sha256'})
+        for descriptor in cases:
+            with self.subTest(descriptor=sorted(descriptor)):
+                self.write(descriptor=descriptor)
+                with self.assertRaisesRegex(ValueError, 'candidate descriptor'):
+                    stage_plan.load_candidate_descriptor(self.descriptor_path)
+
+    def test_candidate_descriptor_identities_are_validated(self):
+        import stage_plan
+        for field, value in (('source', 'A' * 40), ('composite_digest', 'c' * 63),
+                             ('vpk_sha256', 'z' * 64), ('eboot_sha256', 7), ('pad_input', 'yes'),
+                             ('receipt', 7)):
+            with self.subTest(field=field):
+                self.write(descriptor={**self.descriptor, field: value})
+                with self.assertRaises(ValueError):
+                    stage_plan.load_candidate_descriptor(self.descriptor_path)
+
+    def test_candidate_source_must_be_an_ancestor_of_the_launcher(self):
+        self.write()
+        with self.assertRaisesRegex(ValueError, 'ancestor'):
+            self.admit(ancestor_status=1)
+        with self.assertRaisesRegex(RuntimeError, 'ancestry'):
+            self.admit(ancestor_status=128)
+
+    def test_candidate_package_payload_mismatch_is_rejected(self):
+        self.write(evidence={**self.evidence, 'vpk_members': {
+            **self.evidence['vpk_members'], 'main.dol': {'bytes': 7, 'sha256': 'a' * 64}}})
+        with self.assertRaisesRegex(ValueError, 'payload mismatch: main.dol'):
+            self.admit()
+
+    def test_candidate_receipt_is_not_admitted_by_the_legacy_baseline_path(self):
+        import stage_plan
+        self.write()
+        with self.assertRaisesRegex(ValueError, 'composite'):
+            stage_plan.checked_build_receipt(self.receipt, 'b' * 40)
+
+    def test_check_mode_admits_the_candidate_and_writes_nothing(self):
+        import stage_plan
+        self.write()
+        before = sorted(str(path) for path in self.output.rglob('*'))
+        args = SimpleNamespace(timeout=60, idle_timeout=30, continue_gx=0, mem1_snapshots=0,
+                               mem1_command_window=None, render_node=None,
+                               candidate_build=self.descriptor_path, baseline_build=None,
+                               wayland_socket=Path('/run/user/1000/wayland-0'))
+        with patch('subprocess.check_output', side_effect=['b' * 40, '']), \
+                patch.object(stage_plan, 'checked_sources'), \
+                patch('subprocess.run', return_value=SimpleNamespace(returncode=0, stderr='')):
+            self.assertEqual(stage_plan.check(args), 0)
+        self.assertEqual(before, sorted(str(path) for path in self.output.rglob('*')))
+
+    def test_candidate_and_baseline_selection_are_mutually_exclusive(self):
+        import stage_plan
+        args = SimpleNamespace(timeout=60, render_node=None, candidate_build=self.descriptor_path,
+                               baseline_build=Path('/unused/baseline.json'))
+        with self.assertRaisesRegex(ValueError, 'mutually exclusive'):
+            stage_plan.stage(args)
+        with self.assertRaisesRegex(ValueError, 'mutually exclusive'):
+            stage_plan.check(args)
 
 
 if __name__ == '__main__':

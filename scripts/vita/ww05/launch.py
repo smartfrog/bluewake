@@ -14,7 +14,8 @@ import uuid
 import zipfile
 
 from game_build import OUTPUT, ROOT, checked_sources, sha256
-from stage_plan import stage, validate_continuation, validate_timeout, verify_package, checked_build_receipt
+from stage_plan import (stage, check, validate_continuation, validate_timeout, verify_package, checked_build_receipt,
+                        load_candidate_descriptor, checked_candidate_receipt, verify_candidate_package)
 from report import MAX_JOURNAL_COMMANDS, matched, validate, validate_commands
 from fp_campaign import emitted_config, restore_config, runtime_inputs, verify_phase_logs, verify_stopped
 from fp_launch import REPORT_DIRECTORY, evidence_file, run_owned
@@ -38,7 +39,15 @@ def verify_inputs(root, plan):
     receipt_path = Path(plan.get('build_evidence_path', OUTPUT / 'build-evidence.json'))
     if sha256(receipt_path) != plan['build_evidence_sha256']:
         raise ValueError('selected build receipt changed')
-    if checked_build_receipt(receipt_path, source, plan.get('baseline_build', False)) != plan['build_evidence']:
+    candidate = None
+    if plan.get('candidate_build', False):
+        descriptor_path = Path(plan['candidate']['descriptor'])
+        if sha256(descriptor_path) != plan['candidate']['descriptor_sha256']:
+            raise ValueError('selected candidate descriptor changed')
+        candidate = load_candidate_descriptor(descriptor_path)
+        if checked_candidate_receipt(candidate, source) != plan['build_evidence']:
+            raise ValueError('selected guest build identity changed')
+    elif checked_build_receipt(receipt_path, source, plan.get('baseline_build', False)) != plan['build_evidence']:
         raise ValueError('selected guest build identity changed')
     validate_timeout(plan['phases']['guest']['timeout_seconds'],
                      scene_capture=plan.get('mem1_command_window') is not None,
@@ -48,7 +57,10 @@ def verify_inputs(root, plan):
                              Path(plan['wayland_socket']) if plan['wayland_socket'] is not None else None)
     if plan['phases'] != expected:
         raise ValueError('direct native commands, environment or phase identities changed')
-    vpk, package = verify_package(plan['build_evidence'])
+    if candidate is not None:
+        vpk, package = verify_candidate_package(candidate, plan['build_evidence'])
+    else:
+        vpk, package = verify_package(plan['build_evidence'])
     if str(vpk) != plan['source_vpk'] or package != plan['vpk_sha256']:
         raise ValueError('source package identity changed')
     if sha256(root / 'runtime/ww05.vpk') != package:
@@ -338,7 +350,14 @@ def main():
     parser.add_argument('--disc', type=Path, help='link the verified image into the private profile; guest disc I/O is readonly, not OS-confined')
     parser.add_argument('--baseline-build', type=Path,
                         help='explicit preserved ancestor build receipt; guest and current launcher identities stay separate')
-    root, plan = stage(parser.parse_args())
+    parser.add_argument('--candidate-build', type=Path,
+                        help='explicit private candidate descriptor; the receipt, artifacts and PAD state are verified strictly')
+    parser.add_argument('--check', action='store_true',
+                        help='verify admission read-only; launch nothing and write nothing')
+    args = parser.parse_args()
+    if args.check:
+        return check(args)
+    root, plan = stage(args)
     status = execute_run(root, plan)
     print(f'RESULT {root}/evidence/result.json')
     return status
