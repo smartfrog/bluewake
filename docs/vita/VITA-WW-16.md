@@ -2926,3 +2926,64 @@ continuously watched **300 s ceiling / journal 2048 / MEM1=2 + live PNG /
 audio=deferred** trial to expose the actual later renderer counters without
 another blind extension of the ceiling. Full DSP/PCM remains paused and all
 prior captures/incomplete evidence remain untouched.
+
+## Unit 73: 83 submitted draws, two programs, no observed refusal, still black RGB
+
+Committed VI/O1 **508f611**, **-j2**, watched diagnostic run
+**3080b87e2f50436c98fa8efeca7eefae** authentically verifies the new live renderer
+metadata. At all **55 actual capture instants**, **plans_skipped / programs_refused /
+copies_refused / gaps are zero**. Frame **55**, command **56076**, records
+**83 plans / submitted draws / programs**, **two distinct program keys**,
+**379,563 renderer bytes / 108,293 events / 55 display copies**, no EFB copies.
+These are actual counters at that image boundary, not final totals or pixel
+parity proof. Zero refusals are **not** retroactively assigned to the earlier
+121-frame trial or to work after this last capture.
+
+Independent artifact checks: **55 live PNG pairs / presentation markers**,
+**63 real retrace markers**, **two MEM1 images**, **audio=deferred**; every
+display image still opaque black, same RGB/hash. **frame-55.png** opened. Both
+guarded early draw-prefix replays pass; there is no valid late-frame replay
+using those earlier memories. Last observed progress is **515,297,154 cycles /
+5,617,494 edges / 2,012,144 turns**, PC **80307EF4**, exception **0**.
+Actual termination remains **300.02 s timeout / exit -15 / waited**, launcher
+**124**, early disposition and final result intact, no closed guest report,
+**INCOMPLETE / frontier UNAVAILABLE**. No Vita3K survivor remains.
+
+Private root for lane 18:
+
+```text
+/home/fred/projects/zeldaWWHDRecomp/build-f5/ww05/vita3k-run-3080b87e2f50436c98fa8efeca7eefae
+```
+
+Actual journal **`data/Vita3K/Vita3K/ux0/data/bluewake-ww-fixture/ww05.log`**;
+images and per-image renderer metadata **`evidence/frames/`**, independent checks
+**`evidence/live-images-post-timeout.json`**, **`evidence/mem1-post-timeout.json`**,
+**`evidence/renderer-health-run-diagnosis.json`**, guarded fixtures
+**`evidence/gx-draw-prefix-snapshot{1,2}/`**. Original snapshots, source receipts
+and monitor records remain private and preserved.
+
+The unresolved question is now **actual pixel output/readback**, not an observed
+parser/Cg refusal or main-thread DSP wait. Next verification reuses the existing
+**synthetic** WW02 demo's known red default-surface clear, front/back reads,
+green FBO clear and known fixture draws, with surface synchronization enabled.
+This is separate from authentic guest execution: no game RAM, journal, frame,
+callback, timestamp or FPS may be manufactured from a synthetic control. It
+contains no disc or DSP/audio workload and cannot establish game rendering.
+Its source **vita/feasibility/gx/gx_vita_main.cpp** already implements those
+positive controls; do not duplicate them or alter the read-only vitaGL/emulator
+pins to obtain an expected pixel. Use a fresh private **O1 -j2** control build
+and isolated, continuously watched profile, bounded phase ceiling and immediate
+stop on its actual closed report. Keep its package/sources/config/hash/CPU/log
+evidence, and report a failed pixel control plainly. Full DSP/PCM stays paused;
+no logo/gameplay, physical Vita or FPS claim is justified by these counters.
+
+Private control build wiring **logs/ww16-readback-control-source/CMakeLists.txt**
+reuses the committed demo/fixture/PNG and renderer translation sources without
+editing them or the pins. Only demo packaging and optimization are private:
+**50 generated translation-unit commands all have effective -O1**, verified
+before building, **-j2** maximum. Configuration succeeds
+(**logs/ww16-readback-control-configure.log**). No game module/disc/MEM1 image
+is staged in this synthetic profile. Its result must stay separate from WW05's
+explicit audio-deferred guest trials; the synthetic control has no audio/DSP
+workload, not a sound claim. Repository audit/attribution/whitespace pass;
+the existing **738 host tests** remain the last checked game-host baseline.
