@@ -3196,3 +3196,46 @@ Keep the 128-image and 600 s maximum bounds; stop a diagnostic at its closed
 report rather than wasting its remaining ceiling. The transform seam is
 proved on synthetic/native evidence only so far; no game scene, hardware
 parity, physical Vita, Windows CI, sound or FPS result is claimed.
+
+## Unit 77: the committed transform fix passes exact GPU pixels before game rebuild
+
+Clean committed **5f3e179**, **56 effective-O1 control translation units / -j2**,
+rebuilt in a new private directory **build-f5/ww16-matrix-control-5f3e179/**.
+The input bytes are the unchanged authored identity/translated checker
+fixtures from Unit 76, not expected-image files or any captured game scene.
+Package SHA is **9217f835171d00a28a511847d1fa3fb888adff3f013dc77d928b462183d89977**;
+**build/control-build-identity.json** records source/config/compiler identities.
+
+Fresh continuously watched control **c9daa81a2adc40729788acc336342d87** keeps
+the exact identity-checker SHA and four **130,560-pixel** quadrants. The corrected
+translated control **a1641f325649471abd9c751556a4af49** now gives exactly
+**[360,840) x [136,408)** colored bounds and **32,640 pixels of each authored
+color**, with **391,680 black background pixels**. Raw/display RGB is identical.
+PNG SHA **df16dd48e7ad776b40bb3c5d0854264fa57edd76c71e03b3d8d6be372c7bbd4d**;
+opened and inspected, with exact checks in each run's
+**evidence/matrix-pixel-check.json**. The same translation control was pixel-red
+before the fix; it is pixel-green now, not merely a successful draw submission.
+Its actual closed report is observed and the owned process terminated/reaped
+after **2.563 s**, rather than waiting for the 90 s ceiling. No owned Vita3K
+survivor remains before game trial preparation.
+
+This establishes the demonstrated GX-to-Cg transform seam on Linux AArch64 /
+Vita3K with the current renderer. It does **not** turn the previous 128 black
+game frames into a scene, certify the mixed FBO/WW02 triangle control, establish
+later game resource versions, or prove physical-Vita/pixel parity or FPS.
+The **767 host/DVD / 75 GX native-wrapper / 111 GX Python** results apply to
+this exact code; this unit only appends evidence, without another renderer fix.
+
+Next: certified committed **VI/O1 -j2** game rebuild, fresh watched authentic
+trial with unchanged **journal 2048 / MEM1=2 / live PNG / audio=deferred** and
+**128-image / 960x544 / 600 s maximum** bounds. The private copied watcher
+**logs/watch-matrix-run.py** retains the original watcher and adds an explicit
+owned SIGTERM once the actual bounded, identity-validated guest **END** report
+exists, to avoid waiting through active shutdown after the diagnostic is
+already over. It records **evidence/closed-report-stop.json**, does not write a
+guest report or inject a completion, and leaves termination and collector
+failures visible. Its syntax is checked; that new stop behavior still awaits
+the real trial. CPU-or-process-output growth monitoring and the 30 s
+low-CPU-plus-silence abort remain unchanged. Native ptrace sampling is not
+needed to retest this sourced pixel seam. Full DSP/PCM stays paused; no network,
+push, player data change, game scene or 30+ FPS claim.
