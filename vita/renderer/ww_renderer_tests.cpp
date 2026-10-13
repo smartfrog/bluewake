@@ -786,6 +786,34 @@ int emboss_is_submitted() {
 
 } // namespace
 
+int color_channel_masks_precede_color_texgens() {
+  for (std::uint8_t channels : {0, 1, 2}) {
+    for (std::uint8_t channel : {0, 1}) {
+      Fixture fixture;
+      RecordingBackend backend;
+      WwRenderer* renderer = nullptr;
+      auto config = fixture.config();
+      CHECK(ww_renderer_create(&renderer, &config, &backend) == nullptr);
+      const auto fifo = gx_ztexture_fixture::lighting_quad(0, channels, channel);
+      CHECK(ww_renderer_write(renderer, fifo.data(), fifo.size()) == nullptr);
+      CHECK(backend.draws.size() == 1);
+      const auto& geometry = backend.draws[0].geometry;
+      constexpr float lit_rg[2] = {63.f / 255.f, 128.f / 255.f};
+      for (unsigned v = 0; v < 4; ++v) {
+        for (int c = 0; c < 2; ++c) {
+          const float expected = channel >= channels ? 0.f : channel == 0 ? lit_rg[c] : 1.f;
+          CHECK(geometry.texcoords[v * 24 + c] == expected);
+        }
+      }
+      WwRendererStats stats;
+      ww_renderer_stats(renderer, &stats);
+      CHECK(stats.draws == 1 && stats.plans_skipped == 0 && stats.gap_count == 0);
+      ww_renderer_destroy(renderer);
+    }
+  }
+  return 0;
+}
+
 int normalized_post_matrix_never_reaches_the_backend() {
   Fixture fixture;
   RecordingBackend backend;
@@ -807,6 +835,7 @@ int normalized_post_matrix_never_reaches_the_backend() {
 }
 
 int main() {
+  CHECK(color_channel_masks_precede_color_texgens() == 0);
   CHECK(normalized_post_matrix_never_reaches_the_backend() == 0);
   CHECK(capture_presented_frame_before_next_draw() == 0);
   CHECK(capture_failure_stops_before_next_draw() == 0);

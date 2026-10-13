@@ -120,7 +120,7 @@ inline bool translate(const gxc::DrawPlan& plan, std::vector<std::uint8_t>& vert
     return false;
   }
   const bool active[] = {gxc::channel_lit_path(key, 0), gxc::channel_lit_path(key, 1)};
-  if (!active[0] && !active[1])
+  if (!active[0] && !active[1] && key.num_color_chans == 2)
     return true;
   bool needs_lights = false;
   for (int channel = 0; channel < 2; ++channel) {
@@ -157,9 +157,13 @@ inline bool translate(const gxc::DrawPlan& plan, std::vector<std::uint8_t>& vert
       }
     }
     for (int channel = 0; channel < 2; ++channel) {
+      const auto offset = gxc::kVertexColor0Offset + 16 * channel;
+      if (channel >= key.num_color_chans) {
+        std::memset(output + offset, 0, 4 * sizeof(float));
+        continue;
+      }
       if (!active[channel])
         continue;
-      const auto offset = gxc::kVertexColor0Offset + 16 * channel;
       const float* base = raw + offset / 4;
       float color[4];
       for (int part = 0; part < 2; ++part) {

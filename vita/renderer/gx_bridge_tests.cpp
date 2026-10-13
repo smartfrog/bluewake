@@ -391,6 +391,15 @@ int main(int argc, char** argv) {
     CHECK(result.counts.plans_ok == 1 && result.counts.programs == 1);
     CHECK(result.counts.programs_refused == 0 && result.plan_skips.empty());
   }
+  for (std::uint8_t channels : {0, 1, 2}) {
+    for (std::uint8_t channel : {0, 1}) {
+      gx_bridge::Result result;
+      CHECK(run_stream(gx_ztexture_fixture::lighting_quad(0, channels, channel), result));
+      CHECK(result.counts.plans_ok == 1 && result.counts.programs == 1);
+      CHECK(result.counts.programs_refused == 0 && result.plan_skips.empty());
+      CHECK(result.gaps.empty());
+    }
+  }
   for (bool indexed : {false, true}) {
     for (bool projected : {false, true}) {
       gx_bridge::Result result;

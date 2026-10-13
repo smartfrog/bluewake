@@ -14,8 +14,12 @@ CPU work; no performance improvement or production-default claim is made.
 
 Implemented:
 
-- The pinned capture gate: unconfigured channels remain vertex passthrough;
+- The pinned capture gate: unconfigured enabled channels remain vertex passthrough;
   configured register-material channels work even with lighting disabled.
+- The pinned output mask (`gxcore_shader.cpp:999–1004`): color0 is RGBA zero
+  with zero channels, and color1 is RGBA zero with zero or one channel. This
+  applies to both lit and passthrough outputs before Color0/Color1 texgens read
+  them; disabling lighting alone is not the same as disabling a color channel.
 - Independent RGB/alpha material and ambient sources; color channels 0/1.
 - Eight-light masks, None/Sign/Clamp diffuse and None/Directional/Spec/Spot
   attenuation. Spec uses the pinned normalized distance coefficients when
@@ -38,6 +42,18 @@ combinations, signed versus clamped diffuse, separate alpha material/ambient,
 cached normals, a per-vertex flipped normal matrix, light 7 selection,
 uncaptured-channel passthrough, channel 1/Color1 coordinates, coincident-light
 fallback, invalid attenuation and normal-bank bounds.
+
+The night-review mask regression failed first for both direct translation and
+the recording-backend FIFO path. It now checks all RGBA components and both
+Color texgens for **0/1/2 channels**, with captured register-material and
+uncaptured passthrough inputs. Expected zeros match the pin's generated WGSL
+mask statements; enabled channels retain their exact numerical values.
+In particular a one-channel FIFO using Color1 yields S=T=0, Q=1, not the
+missing-color white default. Six raw channel-count/texgen combinations remain
+accepted without bridge/renderer gaps. The older direct Color-texgen fixture
+now explicitly enables its two intended channels instead of relying on the
+default zero-channel key. All four Linux host suites pass normally and with
+ASan/UBSan. No GPU or physical-Vita run is claimed for this correction.
 
 A raw FIFO fixture loads actual XF normal/light/material/channel registers and
 uses a Color0 texgen. Recording-backend tests for lights 0 and 7 check lit RGB
