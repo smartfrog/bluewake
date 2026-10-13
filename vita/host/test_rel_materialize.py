@@ -125,9 +125,9 @@ def rel_archive(scenario):
         if scenario == 'second-lifecycle-epilog':
             actor[0x31] = 1
             struct.pack_into('>I', actor, 0x38, 4)
-        members = [(b'f_pc_profile_lst.rel', member), (b'd_a_kamome.rel', actor)]
+        members = [(b'f_pc_profile_lst.rel', member), (b'ww34_fixture_a.rel', actor)]
         if scenario == 'second-independent' or scenario.startswith('second-dependency-'):
-            members.append((b'd_a_ship.rel', actor_rel(168)))
+            members.append((b'ww34_fixture_b.rel', actor_rel(168)))
         archive = bytearray(0x100)
         archive[:4] = b'RARC'
         struct.pack_into('>I', archive, 0xC, 0xE0)
@@ -284,6 +284,23 @@ class RelMaterializeTest(unittest.TestCase):
 
     def test_native_unlink_without_an_epilog_and_destruction_contract_fails_closed(self):
         self.run_probe('second-native-unlink')
+
+    def test_composite_successor_is_checked_before_its_first_instruction(self):
+        for scenario in ('second-loop-unowned', 'second-loop-unlink'):
+            with self.subTest(scenario=scenario):
+                self.run_probe(scenario)
+
+    def test_generated_indirect_host_call_is_checked_before_its_first_instruction(self):
+        for scenario in ('second-indirect-unowned', 'second-indirect-unlink'):
+            with self.subTest(scenario=scenario):
+                self.run_probe(scenario)
+
+    def test_section_offset_and_execution_flag_changes_cannot_create_new_raw_aliases(self):
+        for scenario in ('second-loop-offset', 'second-loop-flags',
+                         'second-indirect-offset', 'second-indirect-flags',
+                         'second-loop-linked-offset', 'second-indirect-linked-flags'):
+            with self.subTest(scenario=scenario):
+                self.run_probe(scenario)
 
     def test_repeated_profile_link_does_not_read_or_materialize_again(self):
         self.run_probe('link-repeat')

@@ -149,6 +149,7 @@ bool ww_host_rel_linked(WwHost* host, u32 module_id);
 WwRelImage* ww_host_rel_live(WwHost* host, u32 module_id);
 const char* ww_host_unlink_rel(WwHost* host, u32 owner);
 bool ww_host_rel_code_owned(WwHost* host, u32 address);
+bool ww_host_rel_sections_match(const WwRelImage* slot);
 const char* ww_host_observe_scheduler_idle(WwHost* host);
 const char* ww_host_observe_dsp_task_boot(WwHost* host);
 const char* ww_host_observe_card_probe(WwHost* host);

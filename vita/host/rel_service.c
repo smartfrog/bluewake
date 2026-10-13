@@ -47,15 +47,20 @@ static bool rel_contains(const StaticRecompRelModule* rel, u32 address) {
 }
 
 bool ww_host_rel_code_owned(WwHost* host, u32 address) {
-    if ((address & 0xC0000000u) != 0xC0000000u)
+    if (host->module == NULL || (address & 0xC0000000u) != 0xC0000000u)
         return true;
     for (u32 at = 0u; at < host->rel_image_count; ++at) {
         const WwRelImage* slot = &host->rel_images[at];
         if (!slot->linked || ww_host_rel_live(host, slot->module_id) == NULL)
             continue;
         const StaticRecompRelModule* rel = ww_host_rel_descriptor(host, slot->module_id);
-        if (rel != NULL && rel_contains(rel, address))
+        if (rel != NULL && rel_contains(rel, address)) {
+            if (!ww_host_rel_sections_match(slot)) {
+                ww_host_fail(host, "REL owned section table changed after validation", address, host->cpu.pc);
+                return false;
+            }
             return true;
+        }
     }
     for (u32 at = 0u; at < host->module->num_rel_modules; ++at)
         if (rel_contains(&host->module->rel_modules[at], address))
@@ -102,6 +107,7 @@ const char* ww_host_collect_rels(WwHost* host) {
             return "REL unloaded scratch mapping could not be removed";
         host->alias_count--;
         host->alias_bytes -= slot->capacity;
+        free(slot->sections);
         *slot = (WwRelImage){0};
     }
     while (host->rel_image_count != 0u && host->rel_images[host->rel_image_count - 1u].guest == 0u)
@@ -227,6 +233,25 @@ const char* ww_host_materialize_rel(WwHost* host, u32 owner, const char* name) {
         if (host->rel_images[index].guest != 0u && host->rel_images[index].module_id == module_id)
             error = "REL module already belongs to another guest owner";
     const u32 capacity = (bytes + 31u) & ~31u;
+    WwRelSection* sections = NULL;
+    u32 section_count = 0u, section_table = 0u;
+    if (error == NULL) {
+        section_count = bluewake_archive_be32(image + 0xCu);
+        section_table = bluewake_archive_be32(image + 0x10u);
+        sections = calloc(section_count, sizeof(*sections));
+        if (sections == NULL) {
+            error = "REL immutable section metadata allocation failed";
+        } else {
+            const StaticRecompRelModule* rel = ww_host_rel_descriptor(host, module_id);
+            for (u32 at = 0u; at < section_count; ++at) {
+                sections[at].flags = bluewake_archive_be32(image + section_table + at * 8u);
+                sections[at].size = bluewake_archive_be32(image + section_table + at * 8u + 4u);
+                for (u32 linked = 0u; linked < rel->num_sections; ++linked)
+                    if (rel->sections[linked].section_index == at)
+                        sections[at].linked_start = rel->sections[linked].linked_start;
+            }
+        }
+    }
     if (error == NULL)
         error = scratch_address(host, capacity, &guest);
     if (error == NULL && !ppc_guest_alias_add(guest, capacity, NULL))
@@ -248,7 +273,9 @@ const char* ww_host_materialize_rel(WwHost* host, u32 owner, const char* name) {
                 ww_host_fail(host, "REL failed mapping could not be removed", guest, host->cpu.pc);
         } else {
             *slot = (WwRelImage){.owner = owner, .guest = guest, .bytes = bytes, .capacity = capacity,
-                                 .module_id = module_id};
+                                 .module_id = module_id, .sections = sections, .section_count = section_count,
+                                 .section_table = section_table};
+            sections = NULL;
             memcpy(slot->name, name, strlen(name) + 1u);
             const u32 count = (u32)(slot - host->rel_images) + 1u;
             if (host->rel_image_count < count)
@@ -257,6 +284,7 @@ const char* ww_host_materialize_rel(WwHost* host, u32 owner, const char* name) {
             host->alias_bytes += capacity;
         }
     }
+    free(sections);
     free(image);
     return error;
 }

@@ -1,5 +1,6 @@
 #include "probe_support.h"
 #include "dvd_io.h"
+#include "dispatch_loop.h"
 #include <errno.h>
 #include <stdarg.h>
 #include <stdlib.h>
@@ -8,6 +9,24 @@ static bool fail_trace;
 static bool fail_alias;
 static bool fail_link_trace;
 static u32 dispatched_address;
+static u32 loop_successor;
+static u32 loop_dispatches;
+static u32 loop_instructions;
+
+static int loop_chunk_dispatch(CPUState* cpu, u32 address) {
+    loop_dispatches++;
+    if (cpu->host_call && ppc_host_call(cpu, address))
+        return 1;
+    loop_instructions++;
+    cpu->downcount--;
+    cpu->pc = loop_successor;
+    return 1;
+}
+
+static int composite_dispatch(CPUState* cpu, u32 address) {
+    return bluewake_chassis_dispatch_loop(cpu, address, loop_chunk_dispatch,
+                                         ww_host_edge, cpu->external_user_data);
+}
 
 static u64 actor_code_hash(const char* scenario) {
     u8 bytes[32];
@@ -74,14 +93,14 @@ static void second_module_case(WwHost* host, const char* scenario) {
     const WwRelImage profile = host->rel_images[0];
     const bool dependency_live = strcmp(scenario, "second-dependency-live") == 0;
     if (dependency_live || strcmp(scenario, "second-dependency-unloaded") == 0) {
-        request_rel(host, 0x80002200u, 0x80003200u, "d_a_ship");
+        request_rel(host, 0x80002200u, 0x80003200u, "ww34_fixture_b");
         assert(host->error == NULL && mem_read32(cpu, 0x80002210u) != 0u);
         if (!dependency_live) {
             assert(ww_host_unlink_rel(host, 0x80002200u) == NULL);
             assert(ww_host_collect_rels(host) == NULL && host->alias_count == 1u);
         }
     }
-    request_rel(host, 0x80002100u, 0x80003100u, "d_a_kamome");
+    request_rel(host, 0x80002100u, 0x80003100u, "ww34_fixture_a");
     assert(memcmp(&profile, &host->rel_images[0], sizeof(profile)) == 0);
     assert(mem_read32(cpu, 0x80002010u) == profile.guest);
     assert(mem_read32(cpu, 0x803F6A68u) == 0xC1F80178u);
@@ -125,7 +144,7 @@ static void second_module_case(WwHost* host, const char* scenario) {
     if (strcmp(scenario, "second-repeat") == 0) {
         BwDvdIoStats before, after;
         bw_dvd_io_stats(&before);
-        request_rel(host, 0x80002100u, 0x80003100u, "d_a_kamome");
+        request_rel(host, 0x80002100u, 0x80003100u, "ww34_fixture_a");
         bw_dvd_io_stats(&after);
         assert(host->error == NULL && cpu->pc == cpu->lr && cpu->gpr[3] == 1u);
         assert(after.total_read_bytes == before.total_read_bytes && host->alias_count == 2u);
@@ -136,7 +155,7 @@ static void second_module_case(WwHost* host, const char* scenario) {
         assert(ww_host_collect_rels(host) == NULL);
         assert(host->alias_count == 1u && host->alias_bytes == 256u);
         assert(get_ram_ptr(cpu, actor, 256u, NULL) == NULL);
-        request_rel(host, 0x80002100u, 0x80003100u, "d_a_kamome");
+        request_rel(host, 0x80002100u, 0x80003100u, "ww34_fixture_a");
         assert(host->error == NULL && mem_read32(cpu, 0x80002110u) == actor);
         assert(mem_read8(cpu, 0xC0997700u) == 0u && host->alias_count == 2u);
     } else if (strcmp(scenario, "second-unload-incomplete") == 0) {
@@ -149,14 +168,14 @@ static void second_module_case(WwHost* host, const char* scenario) {
         mem_write8(cpu, 0xC1B224D0u, 0xCCu);
         assert(ww_host_unlink_rel(host, 0x80002200u) != NULL);
         assert(mem_read32(cpu, 0x80002210u) == dependency && mem_read8(cpu, 0xC1B224D0u) == 0xCCu);
-        assert(ww_host_materialize_rel(host, 0x80002300u, "d_a_ship") != NULL);
+        assert(ww_host_materialize_rel(host, 0x80002300u, "ww34_fixture_b") != NULL);
         assert(mem_read8(cpu, 0xC1B224D0u) == 0xCCu && host->alias_count == 3u);
         assert(ww_host_unlink_rel(host, 0x80002100u) == NULL);
         assert(ww_host_collect_rels(host) == NULL);
         assert(ww_host_unlink_rel(host, 0x80002200u) == NULL);
         assert(ww_host_collect_rels(host) == NULL && host->alias_count == 1u);
         assert(get_ram_ptr(cpu, actor, 256u, NULL) == NULL && get_ram_ptr(cpu, dependency, 256u, NULL) == NULL);
-        request_rel(host, 0x80002200u, 0x80003200u, "d_a_ship");
+        request_rel(host, 0x80002200u, 0x80003200u, "ww34_fixture_b");
         assert(host->error == NULL && mem_read32(cpu, 0x80002210u) == dependency);
         assert(mem_read8(cpu, 0xC1B224D0u) == 0u);
         assert(mem_read32(cpu, 0x80002010u) == profile.guest && ww_host_rel_live(host, 1u) != NULL);
@@ -177,8 +196,42 @@ static void second_module_case(WwHost* host, const char* scenario) {
         assert(ww_host_dispatch(host, cpu->pc) == -1);
         assert(host->error != NULL && dispatched_address == 0u);
         assert(mem_read32(cpu, 0x80002110u) == actor && host->alias_count == 2u);
+    } else if (strncmp(scenario, "second-loop-", 12u) == 0 || strncmp(scenario, "second-indirect-", 16u) == 0) {
+        const bool indirect = strncmp(scenario, "second-indirect-", 16u) == 0;
+        loop_successor = 0xC09900F4u;
+        if (strstr(scenario, "unowned") != NULL) {
+            assert(ww_host_unlink_rel(host, 0x80002100u) == NULL);
+        } else if (strstr(scenario, "unlink") != NULL) {
+            loop_successor = 0x80240F54u;
+        } else if (strstr(scenario, "offset") != NULL) {
+            mem_write32(cpu, actor + 0x54u, 0x85u);
+            loop_successor = actor + 0x84u;
+        } else if (strstr(scenario, "flags") != NULL) {
+            mem_write32(cpu, actor + 0x64u, 0xB1u);
+            loop_successor = actor + 0xB0u;
+        }
+        if (strstr(scenario, "linked-") != NULL)
+            loop_successor = 0xC09900F4u;
+        cpu->gpr[3] = 0x80002100u;
+        cpu->pc = indirect ? loop_successor : 0x80240744u;
+        cpu->cycle_budget = 256;
+        cpu->downcount = 0;
+        if (indirect)
+            assert(loop_chunk_dispatch(cpu, cpu->pc) == 1);
+        else
+            assert(ww_host_dispatch(host, cpu->pc) == 1);
+        assert(host->error != NULL && loop_dispatches == 1u && loop_instructions == (indirect ? 0u : 1u));
+        if (!indirect)
+            assert(host->edge_stopped);
+        if (strstr(scenario, "offset") != NULL || strstr(scenario, "flags") != NULL)
+            assert(strstr(host->error, "section table changed") != NULL);
+        if (strstr(scenario, "unowned") != NULL)
+            assert(strstr(host->error, "live linked ownership") != NULL);
+        if (strstr(scenario, "unlink") != NULL)
+            assert(strstr(host->error, "epilog and destruction") != NULL);
+        assert(mem_read32(cpu, 0x80002010u) == profile.guest && host->alias_count == 2u);
     } else if (strcmp(scenario, "second-independent") == 0) {
-        request_rel(host, 0x80002200u, 0x80003200u, "d_a_ship");
+        request_rel(host, 0x80002200u, 0x80003200u, "ww34_fixture_b");
         assert(host->error == NULL && cpu->pc == cpu->lr && cpu->gpr[3] == 1u);
         assert(mem_read32(cpu, 0x80002210u) != actor && mem_read32(cpu, 0x80002210u) != profile.guest);
         assert(mem_read8(cpu, 0xC0997700u) == 0xBBu && mem_read8(cpu, 0xC1B224D0u) == 0u);
@@ -186,7 +239,7 @@ static void second_module_case(WwHost* host, const char* scenario) {
     } else if (strcmp(scenario, "second-wrong-owner") == 0 || strcmp(scenario, "second-wrong-name") == 0) {
         const bool wrong_owner = strcmp(scenario, "second-wrong-owner") == 0;
         request_rel(host, wrong_owner ? 0x80002200u : 0x80002100u, 0x80003200u,
-                    wrong_owner ? "d_a_kamome" : "d_a_ship");
+                    wrong_owner ? "ww34_fixture_a" : "ww34_fixture_b");
         assert(host->error != NULL && host->edge_stopped && host->alias_count == 2u);
         assert(mem_read32(cpu, 0x80002110u) == actor && mem_read8(cpu, 0xC0997700u) == 0xBBu);
         assert(mem_read32(cpu, 0x80002210u) == 0u);
@@ -225,7 +278,7 @@ int main(int argc, char** argv) {
                                           .num_code_ranges = second && strcmp(scenario, "second-no-code") != 0 ? 3u : 1u,
                                           .rel_modules = rels, .num_rel_modules = second ? 3u : 1u,
                                           .chunk_ranges = chunks, .num_chunk_ranges = 2u, .chunk_hashes = hashes,
-                                          .dispatch = rel_dispatch};
+                                          .dispatch = strncmp(scenario, "second-loop-", 12u) == 0 ? composite_dispatch : rel_dispatch};
     host->module = &module;
     const u8 profile_bytes[16] = {0x80u, 1u, 2u, 3u, 4u, 5u, 6u, 7u, 8u, 9u, 10u, 11u, 12u, 13u, 14u, 15u};
     const BlueWakeRelData profile = {1u, 4u, 0xC1F80178u, sizeof(profile_bytes), profile_bytes};

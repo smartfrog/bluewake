@@ -266,6 +266,8 @@ const char* ww_host_link_rel(WwHost* host, u32 object) {
     WwRelImage* slot = ww_host_rel_owned(host, object);
     if (slot == NULL)
         return "REL link requires an owned materialized image";
+    if (!ww_host_rel_sections_match(slot))
+        return "REL owned section table changed after validation";
     if (slot->module_id == 1u)
         return ww_host_link_profile_list(host, object);
     CPUState* cpu = &host->cpu;
@@ -331,6 +333,19 @@ const char* ww_host_link_rel(WwHost* host, u32 object) {
     return NULL;
 }
 
+bool ww_host_rel_sections_match(const WwRelImage* slot) {
+    u8* raw = NULL;
+    if (slot->sections == NULL || !ppc_guest_alias_get_storage(slot->guest, slot->capacity, &raw) ||
+        bluewake_archive_be32(raw + 0xCu) != slot->section_count ||
+        bluewake_archive_be32(raw + 0x10u) != slot->section_table)
+        return false;
+    for (u32 at = 0u; at < slot->section_count; ++at)
+        if (bluewake_archive_be32(raw + slot->section_table + at * 8u) != slot->sections[at].flags ||
+            bluewake_archive_be32(raw + slot->section_table + at * 8u + 4u) != slot->sections[at].size)
+            return false;
+    return true;
+}
+
 u32 ww_host_rel_address(WwHost* host, u32 address) {
     const u32 canonical = address & ~0x40000000u;
     if (canonical < WW_REL_SCRATCH_BASE || canonical >= WW_REL_SCRATCH_LIMIT)
@@ -341,29 +356,15 @@ u32 ww_host_rel_address(WwHost* host, u32 address) {
             continue;
         if (!slot->linked || mem_read32(&host->cpu, slot->owner + 0x10u) != slot->guest)
             continue;
-        u8* raw = NULL;
-        if (!ppc_guest_alias_get_storage(slot->guest, slot->capacity, &raw)) {
-            ww_host_fail(host, "REL executable alias owned storage disappeared", address, host->cpu.pc);
+        if (!ww_host_rel_sections_match(slot)) {
+            ww_host_fail(host, "REL owned section table changed after validation", address, host->cpu.pc);
             return address;
         }
-        const StaticRecompRelModule* rel = ww_host_rel_descriptor(host, slot->module_id);
-        const u32 table = bluewake_archive_be32(raw + 0x10u);
-        if (rel == NULL || table != rel->section_info_offset || (u64)table + rel->section_count * 8u > slot->bytes) {
-            ww_host_fail(host, "REL executable alias raw table changed", address, host->cpu.pc);
-            return address;
-        }
-        for (u32 section = 0u; section < rel->num_sections; ++section) {
-            const StaticRecompRelSection* linked = &rel->sections[section];
-            if (linked->section_index >= rel->section_count)
-                continue;
-            const u32 flags = bluewake_archive_be32(raw + table + linked->section_index * 8u);
-            const u32 size = bluewake_archive_be32(raw + table + linked->section_index * 8u + 4u);
-            if (size != linked->size || (u64)(flags & ~1u) + size > slot->bytes) {
-                ww_host_fail(host, "REL executable alias raw section changed", address, host->cpu.pc);
-                return address;
-            }
-            const u32 start = slot->guest + (flags & ~1u);
-            if ((flags & 1u) != 0u && canonical >= start && (u64)canonical < (u64)start + linked->size)
+        for (u32 section = 0u; section < slot->section_count; ++section) {
+            const WwRelSection* linked = &slot->sections[section];
+            const u32 start = slot->guest + (linked->flags & ~1u);
+            if (linked->linked_start != 0u && (linked->flags & 1u) != 0u &&
+                canonical >= start && (u64)canonical < (u64)start + linked->size)
                 return linked->linked_start + canonical - start;
         }
     }
@@ -380,6 +381,8 @@ const char* ww_host_link_profile_list(WwHost* host, u32 object) {
     WwRelImage* slot = ww_host_rel_owned(host, object);
     if (slot == NULL || slot->module_id != 1u)
         return "REL link supports only the owned profile-list module 1 contract";
+    if (!ww_host_rel_sections_match(slot))
+        return "REL owned section table changed after validation";
     if ((cpu->lr & 3u) != 0u || cpu->lr == 0u)
         return "REL link requires an aligned real guest return";
     const BlueWakeRelData* profile = bluewake_rel_profile_list(host->rel_data, host->rel_data_count, slot->module_id);
