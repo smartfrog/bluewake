@@ -13,6 +13,11 @@ namespace gx_vita::texgen {
 namespace gxc = gxruntime::gxcore;
 inline constexpr std::uint32_t kFloatsPerVertex = 3 * gxc::kMaxTexGens;
 
+inline const char* post_support_reason(std::uint8_t post_mask, std::uint8_t normalize_mask) {
+  return (post_mask & normalize_mask) != 0
+             ? "post-normalized texture matrix not supported" : nullptr;
+}
+
 inline const char* support_reason(const gxc::ShaderKey& key, const gxc::TexGenKey& gen,
                                   std::uint32_t destination) {
   const auto type = static_cast<gxc::TexGenType>(gen.texgentype);

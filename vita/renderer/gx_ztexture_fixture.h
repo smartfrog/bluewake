@@ -69,14 +69,14 @@ inline std::vector<std::uint8_t> matrix_quad(bool indexed = false, bool projecte
   return fifo;
 }
 
-inline std::vector<std::uint8_t> post_matrix_quad() {
+inline std::vector<std::uint8_t> post_matrix_quad(bool normalize = false) {
   auto fifo = matrix_quad();
   const auto draw_size = 3 + 4 * 5 * sizeof(float);
   const std::vector<std::uint8_t> draw(fifo.end() - draw_size, fifo.end());
   fifo.resize(fifo.size() - draw_size);
   gx_fixture::push_xf_block(fifo, 0x1012, {1});
   gx_fixture::push_xf_f32(fifo, 0x500, {1, 0, 0, 10, 0, 1, 0, 20, 0, 0, 1, 0});
-  gx_fixture::push_xf_block(fifo, 0x1050, {0});
+  gx_fixture::push_xf_block(fifo, 0x1050, {normalize ? 1u << 8 : 0u});
   fifo.insert(fifo.end(), draw.begin(), draw.end());
   return fifo;
 }

@@ -786,7 +786,28 @@ int emboss_is_submitted() {
 
 } // namespace
 
+int normalized_post_matrix_never_reaches_the_backend() {
+  Fixture fixture;
+  RecordingBackend backend;
+  WwRenderer* renderer = nullptr;
+  auto config = fixture.config();
+  CHECK(ww_renderer_create(&renderer, &config, &backend) == nullptr);
+  const auto fifo = gx_ztexture_fixture::post_matrix_quad(true);
+  CHECK(ww_renderer_write(renderer, fifo.data(), fifo.size()) == nullptr);
+  WwRendererStats stats;
+  ww_renderer_stats(renderer, &stats);
+  CHECK(stats.plans == 1 && stats.plans_skipped == 1);
+  CHECK(stats.draws == 0 && stats.programs == 0 && backend.draws.empty());
+  CHECK(stats.skip_count == 1);
+  CHECK(std::string(stats.skip_reasons[0]) == "post-normalized texture matrix not supported");
+  CHECK(stats.gap_count == 1);
+  CHECK(std::string(stats.gaps[0].name) == "unsupported_texgen" && stats.gaps[0].value == 1);
+  ww_renderer_destroy(renderer);
+  return 0;
+}
+
 int main() {
+  CHECK(normalized_post_matrix_never_reaches_the_backend() == 0);
   CHECK(capture_presented_frame_before_next_draw() == 0);
   CHECK(capture_failure_stops_before_next_draw() == 0);
   CHECK(readback_failure_never_calls_writer() == 0);

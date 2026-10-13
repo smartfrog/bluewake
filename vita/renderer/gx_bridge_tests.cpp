@@ -237,11 +237,57 @@ int display_copy_is_a_frame_boundary_not_a_refused_texture_copy() {
   return 0;
 }
 
+int normalized_post_matrix_is_refused_with_a_gap() {
+  gx_bridge::Result result;
+  CHECK(run_stream(gx_ztexture_fixture::post_matrix_quad(true), result));
+  CHECK(result.counts.plans == 1 && result.counts.plans_skipped == 1);
+  CHECK(result.counts.plans_ok == 0 && result.counts.programs == 0);
+  CHECK(result.plan_skips.size() == 1);
+  CHECK(result.plan_skips[0] == "post-normalized texture matrix not supported");
+  const auto* gap = find_gap(result, "unsupported_texgen");
+  CHECK(gap != nullptr && gap->value == 1);
+  return 0;
+}
+
+int post_normalization_stays_paired_with_deferred_draws() {
+  auto fifo = gx_ztexture_fixture::post_matrix_quad();
+  for (bool normalized : {true, false}) {
+    const auto next = gx_ztexture_fixture::post_matrix_quad(normalized);
+    fifo.insert(fifo.end(), next.begin(), next.end());
+  }
+  gx_bridge::Result result;
+  CHECK(run_stream(fifo, result));
+  CHECK(result.counts.plans == 3 && result.counts.plans_skipped == 1);
+  CHECK(result.counts.plans_ok == 2 && result.counts.programs == 2);
+  CHECK(result.plan_skips.size() == 1);
+  CHECK(result.plan_skips[0] == "post-normalized texture matrix not supported");
+  const auto* gap = find_gap(result, "unsupported_texgen");
+  CHECK(gap != nullptr && gap->value == 1);
+  return 0;
+}
+
+int disabled_post_transform_does_not_refuse_normalization() {
+  auto fifo = gx_ztexture_fixture::post_matrix_quad(true);
+  constexpr auto draw_size = 3 + 4 * 5 * sizeof(float);
+  const std::vector<std::uint8_t> draw(fifo.end() - draw_size, fifo.end());
+  fifo.resize(fifo.size() - draw_size);
+  gx_fixture::push_xf_block(fifo, 0x1012, {0});
+  fifo.insert(fifo.end(), draw.begin(), draw.end());
+  gx_bridge::Result result;
+  CHECK(run_stream(fifo, result));
+  CHECK(result.counts.plans_ok == 1 && result.counts.programs == 1);
+  CHECK(result.counts.plans_skipped == 0 && result.plan_skips.empty());
+  CHECK(result.gaps.empty());
+  return 0;
+}
+
 } // namespace
 
 int main(int argc, char** argv) {
   if (argc == 3 && (std::string(argv[1]) == "--write-ztexture-fixture" ||
                     std::string(argv[1]) == "--write-matrix-fixture" ||
+                    std::string(argv[1]) == "--write-post-matrix-fixture" ||
+                    std::string(argv[1]) == "--write-post-normalized-fixture" ||
                     std::string(argv[1]) == "--write-light-fixture" ||
                     std::string(argv[1]) == "--write-fog-fixture" ||
                     std::string(argv[1]) == "--write-indirect-fixture" ||
@@ -254,6 +300,10 @@ int main(int argc, char** argv) {
     auto fifo = gx_ztexture_fixture::clear_quad();
     if (std::string(argv[1]) == "--write-matrix-fixture")
       fifo = gx_ztexture_fixture::matrix_quad(true, true);
+    else if (std::string(argv[1]) == "--write-post-matrix-fixture")
+      fifo = gx_ztexture_fixture::post_matrix_quad();
+    else if (std::string(argv[1]) == "--write-post-normalized-fixture")
+      fifo = gx_ztexture_fixture::post_matrix_quad(true);
     else if (std::string(argv[1]) == "--write-light-fixture")
       fifo = gx_ztexture_fixture::lighting_quad(7);
     else if (std::string(argv[1]) == "--write-fog-fixture")
@@ -304,6 +354,9 @@ int main(int argc, char** argv) {
   CHECK(original_lod_refusal_reports_the_plan_contract_limit() == 0);
   CHECK(captured_mip_colors_cannot_be_rebuilt_from_the_base_image() == 0);
   CHECK(display_copy_is_a_frame_boundary_not_a_refused_texture_copy() == 0);
+  CHECK(normalized_post_matrix_is_refused_with_a_gap() == 0);
+  CHECK(post_normalization_stays_paired_with_deferred_draws() == 0);
+  CHECK(disabled_post_transform_does_not_refuse_normalization() == 0);
   for (bool indexed : {false, true}) {
     for (bool chained : {false, true}) {
       gx_bridge::Result result;
