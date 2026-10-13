@@ -3417,3 +3417,69 @@ maximum / 128 live images / actual CPU-or-output watch / **audio=deferred**.
 The first interval's delivery gate is met; a genuine CI input, later scene
 content, gameplay, physical Vita, Windows CI, sound, parity and 30+ FPS still
 need their own evidence. No pin change, network or push.
+
+## Unit 81: the first CI attempt misses its window without borrowing earlier RAM
+
+Certified **b276f38 / VI / O1 / -j2**, watched attempt
+**a31f77e552114075806cf6ec06f6c536**, keeps executing/rendering but stops at the
+unchanged **600.001 s ceiling**, before **101854-102936**. **85 actual live PNG
+pairs / 92 retrace markers** validate independently; the complete structurally
+framed journal prefix contains **87,529 commands / 590,240 raw FIFO bytes**.
+No snapshot binary is written: only the identity-bound window request files
+exist. **captured=0 / window_complete=false** is independently checked; the
+Nintendo-window or init RAM is not substituted for the missing CI resources.
+
+Frame 85 / command **86586** records **113 cumulative submitted draws / two
+programs / zero observed skips, refusals or gaps**, **750,246,461 cycles**.
+Last observed progress is **750,285,684 cycles / 7,016,288 edges / 2,927,097
+turns**, PC **802EC8BC**, exception **0**. These are observation instants, not
+unavailable final counters. The process remains active with CPU or output
+growth during the diagnostic; no low-CPU-and-silent hang is proved.
+
+Original **result.json / guest-disposition.json** remain untouched:
+**timeout / SIGTERM / exit=-15 / waited=true / status 124 / INCOMPLETE /
+frontier UNAVAILABLE**, no closed guest report. Private
+**evidence/ci-window-incomplete-check.json** preserves exact journal and PNG
+checks without inventing an END report. No owned Vita3K remains after reap.
+The first extra-draw handoff from Unit 80 is still valid; **the CI handoff is
+not ready**. Do not extend the deadline merely to conceal this missing data.
+
+## Unit 82: byte-identical command records without per-byte diagnostic formatting
+
+The capture writer has a sourced, avoidable cost: **gx_stream.c** writes the
+header, then calls **fprintf("%02X") once per raw byte**, then writes a newline.
+**main.c** explicitly sets this redirected journal's **stderr to _IONBF**;
+**vita/feasibility/armv7/platform.c:23-40** redirects it into the private log.
+The preceding CI prefix therefore implies **765,298 command-record formatting
+calls**, plus separate draw-layout lines. This is a count derived from the
+source and actual byte/command counts, **not a measured syscall total, FPS or
+proof that formatting caused the missed window**. Real GPU waits still exist.
+
+Isolate a small journal helper: encode the already framed bytes into one fixed
+**2,051-byte hex buffer** and make **one formatted command-record call**, with
+the original header/provenance/hex/newline unchanged. The separate layout
+witness, command/raw-byte limits and fail-loud write checks remain. Counters
+advance only after that record succeeds. No guest instructions, cycle charging,
+RAM/resources, FIFO payload, framebuffer, GPU completion or audio policy changes.
+No full-prefix buffer, shadow MEM1, new dependency or default opt-in is added.
+It does not assume the C library performs only one kernel write internally.
+
+Test-first native instrumentation is **red** on the old writer: the short mixed
+CP/BP/XF fixture emits **54 formatted calls for 11 commands**, not 11
+(**logs/ww16-journal-record-red.log**). After the helper, it emits **11 calls**.
+Before/after stderr transcripts are **byte-identical** for that fixture, the
+maximum supported **1,025-byte / 255-word XF** command, and the **2048-command**
+prefix. Independent saved hashes and transcripts live under
+**logs/ww16-journal-record-byte-check/**. Existing first/second write-failure,
+raw-byte-budget, continuation, large-journal and snapshot-window tests remain
+green; failures cannot certify a partial/unlogged command.
+
+Linux AArch64, builds **-j2**: **781 host/DVD tests / 1911 subtests** pass
+(**logs/ww16-journal-record-host.log**); **75 GX native-wrapper + 111 GX Python
+tests / 109 subtests** pass together. Audit/attribution/whitespace pass.
+The improvement is a proved reduction in formatted calls with unchanged
+bytes, **not yet a measured gain on the game diagnostic**. Commit, certified
+**VI/O1 -j2** rebuild, then one fresh watched attempt at the **same CI window /
+133260-command capacity / eight-snapshot budget / 600 s maximum / 128 live
+images / audio=deferred**. Preserve any failure; no guessed renderer/DSP seam,
+fake completion, Windows/physical-Vita check, gameplay, parity or FPS claim.

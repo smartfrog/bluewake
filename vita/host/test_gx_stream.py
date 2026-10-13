@@ -52,3 +52,13 @@ class GxStreamTest(unittest.TestCase):
     def test_fifo_byte_budget_fails_before_claiming_an_unlogged_command(self):
         result = self.run_probe('byte-budget')
         self.assertNotIn('[gx-command]', result.stderr)
+
+    def test_each_complete_command_is_emitted_as_one_bounded_formatted_record(self):
+        result = self.run_probe('single-record')
+        self.assertIn('journal commands=11 record_calls=11', result.stdout)
+
+    def test_maximum_supported_xf_record_keeps_every_original_byte(self):
+        result = self.run_probe('maximum-xf')
+        record = next(line for line in result.stderr.splitlines() if line.startswith('[gx-command] index=2 '))
+        raw = bytes.fromhex(record.split('hex=', 1)[1])
+        self.assertEqual(raw, bytes.fromhex('1000FE0000') + bytes(1020))

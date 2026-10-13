@@ -5,11 +5,22 @@
 
 static u32 fail_command;
 static u32 trace_calls;
+static u32 record_calls;
+static bool record_open;
 
 int __wrap_fprintf(FILE* stream, const char* format, ...) {
     if (stream == stderr && strncmp(format, "[gx-command]", 12u) == 0 && ++trace_calls == fail_command) {
         errno = ENOSPC;
         return -1;
+    }
+    if (stream == stderr) {
+        if (strncmp(format, "[gx-command]", 12u) == 0)
+            record_open = true;
+        if (record_open) {
+            ++record_calls;
+            if (format[strlen(format) - 1u] == '\n')
+                record_open = false;
+        }
     }
     va_list arguments;
     va_start(arguments, format);
@@ -26,6 +37,7 @@ int main(int argc, char** argv) {
     host->cp_fifo_high_watermark = 96u;
     host->stream.enabled = true;
     const bool long_journal = strcmp(argv[1], "long-journal") == 0;
+    const bool maximum_xf = strcmp(argv[1], "maximum-xf") == 0;
     host->stream.log_limit = long_journal ? 2048u : strcmp(argv[1], "log-limit") == 0 ? 2u : 64u;
     mem_write16(&host->cpu, 0xCC000002u, 0x15u);
     assert(host->error == NULL);
@@ -47,7 +59,11 @@ int main(int argc, char** argv) {
         host->stream.decoded = UINT64_MAX;
     else if (strcmp(scenario, "byte-budget") == 0)
         host->stream.logged_bytes = WW_GX_MAX_JOURNAL_BYTES;
-    else if (strcmp(scenario, "split-wrap") == 0) {
+    else if (maximum_xf) {
+        memset(bytes + 5u, 0, sizeof(bytes) - 5u);
+        bytes[5] = 0x10u;
+        write_be32(bytes + 6u, 254u << 16u);
+    } else if (strcmp(scenario, "split-wrap") == 0) {
         memset(bytes + 5u, 0, sizeof(bytes) - 5u);
         bytes[5] = 0x10u;
         write_be32(bytes + 6u, 0x00080000u);
@@ -72,6 +88,11 @@ int main(int argc, char** argv) {
             ww_probe_gather_bytes(host, bytes, 32u, 64u, 1u);
             assert(host->stream.decoded == 20u && host->gx.last_xf_count == 9u);
             assert(host->cp_fifo_read_pointer == 0x1020u && host->cp_fifo_distance == 0u);
+        } else if (maximum_xf) {
+            assert(host->stream.command.size == 27u && host->stream.decoded == 1u);
+            ww_probe_gather_bytes(host, bytes, 32u, 1056u, 1u);
+            assert(host->gx.last_xf_count == 255u && host->stream.decoded == 28u);
+            assert(host->stream.logged == 28u && host->stream.command.size == 0u);
         } else if (strcmp(scenario, "many-blocks") == 0 || long_journal) {
             const u32 end = long_journal ? sizeof(bytes) : 2048u;
             ww_probe_gather_bytes(host, bytes, 32u, end, 1u);
@@ -95,6 +116,8 @@ int main(int argc, char** argv) {
         assert(host->error == NULL && !host->edge_stopped);
         assert(host->frontier.pc == 0x80001000u && host->frontier.completion_pc == 0x80001010u);
     }
+    if (strcmp(scenario, "single-record") == 0)
+        printf("journal commands=%u record_calls=%u\n", host->stream.logged, record_calls);
     ww_host_shutdown(host);
     free(host);
     return 0;

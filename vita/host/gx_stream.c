@@ -1,5 +1,22 @@
 #include "boot_host.h"
 
+static const char* journal_command(const WwGxCheckpoint* command, u64 index) {
+    if (command->size == 0u || command->size > WW_GX_MAX_COMMAND_BYTES)
+        return "GX command journal requires bounded complete bytes";
+    static const char digits[] = "0123456789ABCDEF";
+    char hex[WW_GX_MAX_COMMAND_BYTES * 2u + 1u];
+    for (u32 offset = 0u; offset < command->size; ++offset) {
+        hex[offset * 2u] = digits[command->bytes[offset] >> 4u];
+        hex[offset * 2u + 1u] = digits[command->bytes[offset] & 15u];
+    }
+    hex[command->size * 2u] = '\0';
+    if (fprintf(stderr, "[gx-command] index=%llu opcode=%02X bytes=%u pc=%08X completion_pc=%08X sp=%08X hex=%s\n",
+                (unsigned long long)index, command->bytes[0], command->size,
+                command->pc, command->completion_pc, command->sp, hex) < 0)
+        return "GX command journal write failed";
+    return NULL;
+}
+
 const char* ww_gx_stream_write(WwHost* host, u8 byte, const WwFifoOrigin* origin, u32 trailing) {
     WwGxStream* stream = &host->stream;
     if (stream->log_limit == 0u || stream->log_limit > WW_GX_MAX_JOURNAL_COMMANDS)
@@ -31,16 +48,9 @@ const char* ww_gx_stream_write(WwHost* host, u8 byte, const WwFifoOrigin* origin
                     read_be16(command->bytes + 1u), host->gx.vertex_layouts[command->bytes[0] & 7u].vertex_size,
                     command->size) < 0)
             return "GX command layout journal write failed";
-        if (fprintf(stderr, "[gx-command] index=%llu opcode=%02X bytes=%u pc=%08X completion_pc=%08X sp=%08X hex=",
-                    (unsigned long long)index, command->bytes[0], command->size,
-                    command->pc, command->completion_pc, command->sp) < 0)
-            return "GX command journal write failed";
-        for (u32 offset = 0u; offset < command->size; ++offset) {
-            if (fprintf(stderr, "%02X", command->bytes[offset]) < 0)
-                return "GX command journal byte write failed";
-        }
-        if (fprintf(stderr, "\n") < 0)
-            return "GX command journal closure failed";
+        const char* journal_error = journal_command(command, index);
+        if (journal_error != NULL)
+            return journal_error;
         stream->logged++;
         stream->logged_bytes += command->size;
     }
