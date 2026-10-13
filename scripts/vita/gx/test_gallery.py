@@ -81,6 +81,22 @@ class GalleryTests(unittest.TestCase):
         candidate = gallery.inspect_run(self.report, 'd' * 40)
         self.assertEqual((candidate['draws'], candidate['through_command']), (1, 1))
 
+    def test_command_threshold_uses_the_bound_draw_not_report_totals(self):
+        self.write_run(2)
+        with patch.object(gallery.image, 'render_fixture') as renderer:
+            events = list(gallery.scan_once(self.source, self.output, self.build,
+                                           code_revision='d' * 40, after_command=2))
+        renderer.assert_not_called()
+        self.assertEqual(events, [])
+
+    def test_later_bound_draw_is_replayed_without_rebinding(self):
+        self.write_run(3)
+        with patch.object(gallery.image, 'render_fixture', side_effect=self.fake_render):
+            events = list(gallery.scan_once(self.source, self.output, self.build,
+                                           code_revision='d' * 40, after_command=2))
+        self.assertEqual(events[0]['last_draw_command'], 3)
+        self.assertEqual(events[0]['draws'], 3)
+
     def test_numbered_snapshot_fallback_prefers_richer_bound_prefix(self):
         commands, manifest = self.write_run(2)
         self.snapshot.unlink()
@@ -151,6 +167,41 @@ class GalleryTests(unittest.TestCase):
             event = self.scan()[0]
         self.assertTrue(event['nonblack'])
         self.assertEqual(event['event'], 'gallery-nonblack')
+
+    def test_known_logo_is_archived_without_a_new_content_alert(self):
+        comparison = dict(classification='logo-compatible', nonblack_RGB_pixels=1)
+        with patch.object(gallery.image, 'render_fixture', side_effect=self.fake_render), \
+                patch.object(gallery.novelty, 'classify_frame', return_value=comparison):
+            event = list(gallery.scan_once(self.source, self.output, self.build,
+                                          code_revision='d' * 40, known_logo={'sha256': 'e' * 64}))[0]
+        self.assertEqual(event['event'], 'gallery-known-logo')
+        self.assertFalse(event['new_visual_content'])
+        self.assertTrue((self.output / event['image_path']).is_file())
+
+    def test_new_visual_candidate_is_reported_without_claiming_a_title_screen(self):
+        comparison = dict(classification='new-content-candidate', nonblack_RGB_pixels=1)
+        with patch.object(gallery.image, 'render_fixture', side_effect=self.fake_render), \
+                patch.object(gallery.novelty, 'classify_frame', return_value=comparison):
+            event = list(gallery.scan_once(self.source, self.output, self.build,
+                                          code_revision='d' * 40, known_logo={'sha256': 'e' * 64}))[0]
+        self.assertEqual(event['event'], 'gallery-new-content')
+        self.assertTrue(event['new_visual_content'])
+        self.assertEqual(event['visual'], comparison)
+
+    def test_novelty_notification_does_not_wake_for_a_logo(self):
+        event = dict(event='gallery-known-logo', nonblack=True, new_visual_content=False)
+        self.assertFalse(gallery.notification_required(event, new_content_only=True))
+
+    def test_novelty_notification_wakes_for_new_content(self):
+        event = dict(event='gallery-new-content', new_visual_content=True)
+        self.assertTrue(gallery.notification_required(event, new_content_only=True))
+
+    def test_legacy_notification_still_wakes_for_every_update(self):
+        self.assertTrue(gallery.notification_required(dict(event='gallery-added'), new_content_only=False))
+
+    def test_novelty_notification_reports_a_replay_blocker(self):
+        event = dict(event='gallery-failed', error='guarded memory unavailable')
+        self.assertTrue(gallery.notification_required(event, new_content_only=True))
 
     def test_image_error_is_kept_and_never_signals_a_scene(self):
         with patch.object(gallery.image, 'render_fixture', side_effect=ValueError('readback failed')):
