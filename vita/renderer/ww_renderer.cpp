@@ -18,6 +18,7 @@
 #include "gx_bridge.h"
 #include "gx_cg.h"
 #include "gx_vita.h"
+#include "gx_frame_capture.h"
 
 #include "gxruntime/aurora_recomp/retail_gx_frontend.hpp"
 #include "gxruntime/gxcore/gxcore.hpp"
@@ -43,6 +44,8 @@ struct WwRenderer {
   std::string error;
   bool frame_ready = false;
   bool failed = false;
+  WwRendererFrameCapture capture = nullptr;
+  void* capture_user = nullptr;
 };
 
 namespace {
@@ -187,15 +190,26 @@ const char* ww_renderer_create(WwRenderer** out,
     return "config memory is null";
   if (config->cpu == nullptr)
     return "config cpu is null";
+  DolGuestAddressResolver resolver;
+  dol_guest_address_resolver_init(&resolver, config->memory, config->cpu);
+  return ww_renderer_create_with_resolver(out, &resolver, backend);
+}
+
+const char* ww_renderer_create_with_resolver(WwRenderer** out,
+                                             const DolGuestAddressResolver* resolver,
+                                             WwRendererBackend* backend) {
+  if (out == nullptr)
+    return "renderer out pointer is null";
+  *out = nullptr;
+  if (resolver == nullptr)
+    return "renderer resolver is null";
   if (backend == nullptr)
     backend = ww_renderer_vita_backend();
   if (backend == nullptr)
     return "no renderer backend on this platform";
   auto* renderer = new WwRenderer();
   renderer->backend = backend;
-  DolGuestAddressResolver resolver;
-  dol_guest_address_resolver_init(&resolver, config->memory, config->cpu);
-  renderer->frontend.reset(&resolver);
+  renderer->frontend.reset(resolver);
   renderer->frontend.set_packet_drain_enabled(true);
   renderer->frontend.set_stop_at_display_copy(true);
   renderer->frontend.set_event_observer(count_event, renderer);
@@ -210,6 +224,36 @@ const char* ww_renderer_create(WwRenderer** out,
   }
   *out = renderer;
   return nullptr;
+}
+
+const char* ww_renderer_set_frame_capture(WwRenderer* renderer,
+                                          WwRendererFrameCapture capture, void* user) {
+  if (renderer == nullptr)
+    return "renderer is null";
+  if (renderer->failed)
+    return renderer->error.c_str();
+  renderer->capture = capture;
+  renderer->capture_user = user;
+  return nullptr;
+}
+
+const char* ww_renderer_capture_frame(WwRenderer* renderer,
+                                      WwRendererFrameCapture capture, void* user) {
+  if (renderer == nullptr)
+    return "renderer is null";
+  if (capture == nullptr)
+    return "frame capture callback is null";
+  if (renderer->failed)
+    return renderer->error.c_str();
+  WwRendererFramePixels pixels;
+  const char* error = renderer->backend->readback(pixels);
+  if (error != nullptr)
+    return fail(renderer, error);
+  const WwRendererFrame frame{pixels.width, pixels.height, pixels.rgba.data(), pixels.rgba.size()};
+  if (!gx_capture::valid(frame))
+    return fail(renderer, "invalid framebuffer readback dimensions/bytes");
+  error = capture(&frame, user);
+  return error != nullptr ? fail(renderer, error) : nullptr;
 }
 
 void ww_renderer_destroy(WwRenderer* renderer) {
@@ -256,6 +300,11 @@ const char* ww_renderer_present(WwRenderer* renderer, bool* presented) {
   renderer->frame_ready = false;
   if (presented != nullptr)
     *presented = true;
+  if (renderer->capture != nullptr) {
+    error = ww_renderer_capture_frame(renderer, renderer->capture, renderer->capture_user);
+    if (error != nullptr)
+      return error;
+  }
   // The shown frame is complete; the held bytes resume as the next frame,
   // drawing into the fresh back buffer.
   return flush(renderer);

@@ -222,6 +222,21 @@ int captured_mip_colors_cannot_be_rebuilt_from_the_base_image() {
   return 0;
 }
 
+int display_copy_is_a_frame_boundary_not_a_refused_texture_copy() {
+  auto fifo = gx_ztexture_fixture::clear_quad(0, 0);
+  gx_fixture::push_bp(fifo, 0x52, 1u << 14);
+  gx_fixture::FixtureContext memory;
+  gx_ztexture_fixture::fill_memory(memory);
+  DolGuestAddressResolver resolver;
+  dol_guest_address_resolver_init_callback(&resolver, gx_fixture::resolve_mem1, &memory);
+  gx_bridge::Result result;
+  CHECK(gx_bridge::run(fifo, resolver, &result));
+  CHECK(result.counts.copies_refused == 0);
+  CHECK(result.counts.copies == 0);
+  CHECK(result.copy_refusals.empty());
+  return 0;
+}
+
 } // namespace
 
 int main(int argc, char** argv) {
@@ -230,7 +245,8 @@ int main(int argc, char** argv) {
                     std::string(argv[1]) == "--write-light-fixture" ||
                     std::string(argv[1]) == "--write-fog-fixture" ||
                     std::string(argv[1]) == "--write-indirect-fixture" ||
-                    std::string(argv[1]) == "--write-emboss-fixture")) {
+                    std::string(argv[1]) == "--write-emboss-fixture" ||
+                    std::string(argv[1]) == "--write-image-fixture")) {
     const std::filesystem::path directory(argv[2]);
     std::filesystem::create_directories(directory);
     gx_fixture::FixtureContext memory;
@@ -248,6 +264,27 @@ int main(int argc, char** argv) {
     }
     else if (std::string(argv[1]) == "--write-emboss-fixture")
       fifo = gx_emboss_fixture::quad(true, true, 7);
+    else if (std::string(argv[1]) == "--write-image-fixture") {
+      fifo = gx_ztexture_fixture::clear_quad(0, 0);
+      constexpr auto draw_size = 3 + 4 * 5 * sizeof(float);
+      const std::vector<std::uint8_t> draw(fifo.end() - draw_size, fifo.end());
+      fifo.resize(fifo.size() - draw_size);
+      gx_fixture::push_bp(fifo, 0xF6, 4);
+      gx_fixture::push_bp(fifo, 0xF7, 14);
+      fifo.insert(fifo.end(), draw.begin(), draw.end());
+      constexpr std::uint8_t colors[4][3] = {{244,64,64}, {64,220,96}, {64,128,244}, {248,224,64}};
+      for (unsigned y = 0; y < 4; ++y) {
+        for (unsigned x = 0; x < 4; ++x) {
+          const unsigned pixel = y * 4 + x;
+          const auto* color = colors[(y / 2) * 2 + x / 2];
+          memory.mem1[gx_fixture::kTextureBase + 2 * pixel] = 255;
+          memory.mem1[gx_fixture::kTextureBase + 2 * pixel + 1] = color[0];
+          memory.mem1[gx_fixture::kTextureBase + 32 + 2 * pixel] = color[1];
+          memory.mem1[gx_fixture::kTextureBase + 32 + 2 * pixel + 1] = color[2];
+        }
+      }
+      gx_fixture::push_bp(fifo, 0x52, 1u << 14);
+    }
     std::ofstream fifo_file(directory / "clear.fifo", std::ios::binary);
     std::ofstream memory_file(directory / "clear.mem1", std::ios::binary);
     fifo_file.write(reinterpret_cast<const char*>(fifo.data()), fifo.size());
@@ -266,6 +303,7 @@ int main(int argc, char** argv) {
   CHECK(pinned_plan_discards_original_lod_sampler_fields() == 0);
   CHECK(original_lod_refusal_reports_the_plan_contract_limit() == 0);
   CHECK(captured_mip_colors_cannot_be_rebuilt_from_the_base_image() == 0);
+  CHECK(display_copy_is_a_frame_boundary_not_a_refused_texture_copy() == 0);
   for (bool indexed : {false, true}) {
     for (bool chained : {false, true}) {
       gx_bridge::Result result;

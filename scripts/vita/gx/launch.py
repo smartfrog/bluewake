@@ -16,6 +16,7 @@ import argparse
 import hashlib
 import json
 import os
+import re
 from pathlib import Path
 import shutil
 import subprocess
@@ -46,6 +47,13 @@ def sha256(path):
         for block in iter(lambda: stream.read(1 << 20), b""):
             digest.update(block)
     return digest.hexdigest()
+
+
+def surface_sync_config(text):
+    setting = 'disable-surface-sync: false'
+    if re.search(r'^disable-surface-sync:.*$', text, re.MULTILINE):
+        return re.sub(r'^disable-surface-sync:.*$', setting, text, flags=re.MULTILINE)
+    return text.rstrip('\n') + '\n' + setting + '\n'
 
 
 def find_recompcore():
@@ -154,9 +162,16 @@ def main():
     parser.add_argument("--stack", default=str(DEFAULT_STACK))
     parser.add_argument("--vpk", default=None)
     parser.add_argument("--timeout", type=float, default=PHASE_TIMEOUT)
+    parser.add_argument("--fixture", type=Path, help="validated private extracted fixture to stage")
+    parser.add_argument("--watched", action="store_true", help="monitor logs/CPU and abort silent hangs")
+    parser.add_argument("--surface-sync", action="store_true", help="enable GPU surface writeback for capture")
     parser.add_argument("--wayland-socket", type=Path,
                         default=Path(f"/run/user/{os.getuid()}/wayland-0"))
     args = parser.parse_args()
+    phase_runner = run_phase
+    if args.watched:
+        import watch
+        phase_runner = watch.run_phase
 
     build = Path(args.output)
     stack = Path(args.stack)
@@ -180,6 +195,13 @@ def main():
     ur0_data.mkdir(parents=True, exist_ok=True)
     shutil.copyfile(shacccg_source, ur0_data / "libshacccg.suprx")
     (root / UX0_DATA).mkdir(parents=True, exist_ok=True)
+    if args.fixture is not None:
+        from image import validate_fixture
+        validate_fixture(args.fixture, json.loads((args.fixture / 'capture.json').read_text()))
+        for name in ('stream.fifo', 'mem1.bin', 'mem1.ranges'):
+            source = args.fixture / name
+            if source.is_file():
+                shutil.copyfile(source, root / UX0_DATA / name)
     shutil.copytree(stack / "vita3k", root / "runtime")
     shutil.copyfile(vpk, root / "runtime" / vpk.name)
     config_dir = root / "config/Vita3K"
@@ -190,9 +212,12 @@ def main():
         "backend-renderer: OpenGL\n"
         "pref-path: /run/ww03/data/Vita3K/Vita3K\nuser-id: 00\n"
         "user-name: BlueWake\ncpu-opt: true\ndiscord-rich-presence: false\n")
+    if args.surface_sync:
+        path = config_dir / 'config.yml'
+        path.write_text(surface_sync_config(path.read_text()))
     verify_staging(root, vpk)
 
-    phases = [run_phase(root, stack, "install",
+    phases = [phase_runner(root, stack, "install",
                         ["--console", "--backend-renderer", "OpenGL", vpk.name],
                         args.timeout, args.wayland_socket)]
     # The install phase rewrites the config with the stock welcome/update
@@ -205,9 +230,11 @@ def main():
                         "warn-missing-firmware: false")
     if "warn-missing-firmware" not in text:
         text += "warn-missing-firmware: false\n"
+    if args.surface_sync:
+        text = surface_sync_config(text)
     config_path.write_text(text)
     verify_staging(root, vpk)
-    phases.append(run_phase(root, stack, "run",
+    phases.append(phase_runner(root, stack, "run",
                             ["--backend-renderer", "OpenGL", "--installed-path", TITLE_ID],
                             args.timeout, args.wayland_socket))
 
@@ -228,6 +255,10 @@ def main():
     if capture_path.is_file():
         shutil.copyfile(capture_path, root / "evidence/capture.png")
         evidence["capture"] = "evidence/capture.png"
+    raw_capture = root / UX0_DATA / 'capture-rgba.png'
+    if raw_capture.is_file():
+        shutil.copyfile(raw_capture, root / 'evidence/capture-rgba.png')
+        evidence['capture_rgba'] = 'evidence/capture-rgba.png'
 
     result = {"ticket": "VITA-WW-02", "run": root.name.removeprefix("vita3k-run-"),
               "title": TITLE_ID, "ok": ok, "status": status,

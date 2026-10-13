@@ -189,6 +189,18 @@ public:
     return check_gl("present");
   }
 
+  const char* readback(WwRendererFramePixels& frame) override {
+    frame.width = kScreenWidth;
+    frame.height = kScreenHeight;
+    frame.rgba.resize(std::size_t(kScreenWidth) * kScreenHeight * 4);
+    glFinish();
+    glReadBuffer(GL_FRONT);
+    glReadPixels(0, 0, kScreenWidth, kScreenHeight, GL_RGBA, GL_UNSIGNED_BYTE,
+                 frame.rgba.data());
+    glReadBuffer(GL_BACK);
+    return check_gl("front-buffer readback");
+  }
+
   void shutdown() override {
     for (const auto& [key, program] : programs_)
       glDeleteProgram(program);

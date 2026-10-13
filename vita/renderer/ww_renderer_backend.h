@@ -12,6 +12,12 @@
 #include "gx_cg.h"
 #include "gx_vita.h"
 
+struct WwRendererFramePixels {
+  std::uint32_t width = 0;
+  std::uint32_t height = 0;
+  std::vector<std::uint8_t> rgba;
+};
+
 // See the typedef in ww_renderer.h: C sees this as an opaque struct.
 class WwRendererBackend {
 public:
@@ -33,6 +39,12 @@ public:
 
   // Show the completed frame (vitaGL: vglSwapBuffers).
   virtual const char* present() = 0;
+
+  // Read the most recently presented front buffer, tightly packed RGBA8,
+  // bottom row first. Unsupported backends must refuse, never fabricate pixels.
+  virtual const char* readback(WwRendererFramePixels&) {
+    return "framebuffer readback unsupported by this backend";
+  }
 
   // Release backend resources. The renderer calls it once, at destroy.
   virtual void shutdown() = 0;

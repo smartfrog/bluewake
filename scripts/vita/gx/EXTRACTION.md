@@ -29,6 +29,13 @@ WW02_BUILD=build-f6/ww18 python3 scripts/vita/gx/bridge.py FIXTURE/stream.fifo \
   --snapshot FIXTURE/memory.json
 ```
 
+For a **visible GPU image** rather than translation counters alone, add
+`--image-output build-f6/ww18/images/NEW` to extraction. The PNG, raw RGBA PNG,
+local HTML viewer and SHA/source manifest are retained privately. See
+`vita/renderer/gx_visible_image.md` for capture boundaries, the surface-sync
+setting, explicit presentation-alpha handling and live-host integration limits.
+No image is synthesized when memory is missing.
+
 The legacy explicit form still accepts a raw, contiguous memory image starting
 at physical address zero, without a manifest:
 
