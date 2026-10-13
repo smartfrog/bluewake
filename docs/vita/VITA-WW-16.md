@@ -2457,3 +2457,50 @@ frontier. Genuine red before implementation
 (**logs/ww16-deferred-dma-arm.log**); audit/attribution/whitespace pass. No
 Windows CI, physical Vita, new visible pixels, sound or FPS gain is claimed.
 Commit/rebuild and fresh watched **MEM1 + PNG live + audio=deferred** trial follow.
+
+## Unit 63: silent trial was killed by the phase ceiling, not a proved module crash
+
+Committed VI/O1 build **6ec634d**, watched MEM1/live-PNG/audio-deferred run
+**d5f68d96c8e94c0daa165efd11cd9ee0** has no closed guest report. Its actual
+**`phases/guest/evidence/process.json`** records **stop_reason=timeout**, **exit=-15
+(SIGTERM)**, **waited=true**, **181.61 s**. The owned runner's phase ceiling sent
+TERM and reaped it. The final **process.log** records successful publication of
+frame 8, not a trap/abort/module-crash diagnostic. Normal missing-destination
+messages around exclusive PNG renames are not crash evidence. The shell harness
+subsequently reports SIGTERM too; its sender/cause is **not established**. There
+is no root **result.json**: do not manufacture a guest report or completed result.
+
+The audio-DMA request really passes as logged **8046 → retained 0046 / disabled**.
+Other guest work advances beyond the prior audio-thread frontier: DVD callbacks,
+resource construction, **16 retrace markers** and last observed
+**134,504,761 cycles / 3,314,813 edges / 528,663 turns**, PC **80328B30**,
+exception **0**. This is **not the final PC/counter snapshot**. That PC belongs
+to the original array-construction callback loop; silence alone cannot tell
+whether the later stall is guest code, native JIT/render work or host pressure.
+Last watched aggregate CPU is about **593%** with silent logs: the run never
+met the low-CPU **AND** silence idle rule. No AID completion/PCM is synthesized.
+
+The independently closed artifacts verify after termination: eight actual
+presentation markers and PNG pairs, two actual MEM1 images, **audio=deferred**,
+all display PNGs numerically opaque black. Original log/partial/process evidence
+stays intact. Post-timeout verification is explicitly incomplete and **does not
+certify the guest frontier**; final counters and final decoded/draw totals stay
+UNKNOWN. An owned-profile process scan finds **no surviving Vita3K process**,
+including no Vita3K zombie. Other lanes/builds are not touched.
+
+Private root:
+
+```text
+/home/fred/projects/zeldaWWHDRecomp/build-f5/ww05/vita3k-run-d5f68d96c8e94c0daa165efd11cd9ee0
+```
+
+**`evidence/run-diagnosis.json`**, **`evidence/live-images-post-timeout.json`**,
+**`evidence/mem1-post-timeout.json`** retain the independent checks and exact
+process disposition; original **`evidence/run-watch.jsonl`** retains CPU/log
+samples. The DMA wall is crossed, but visible logo/gameplay remains unverified.
+Next correction publishes the measured guest disposition before expensive
+post-run identity validation, so later launcher interruption cannot erase that
+checkpoint. A fresh watched diagnostic trial must locate the CPU-active silent
+frontier before changing guest behavior. Under the user's memory-pressure
+constraint: **O1, -j2**, no O2 work started/resumed, no leftover owned emulator
+before launching. No module-crash, real-audio dependency or FPS claim is made.
