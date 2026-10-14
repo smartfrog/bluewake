@@ -1,6 +1,14 @@
 #ifndef WW_REL_SECTION_GUARD_PROBE_H
 #define WW_REL_SECTION_GUARD_PROBE_H
 
+static u32 bss_section_index(const WwRelImage* image) {
+    for (u32 at = 0u; at < image->section_count; ++at)
+        if (image->sections[at].flags == 0u && image->sections[at].size != 0u)
+            return at;
+    assert(false);
+    return 0u;
+}
+
 static void relocate_section_table(WwHost* host, const WwRelImage* image) {
     CPUState* cpu = &host->cpu;
     mem_write32(cpu, image->guest + 0x10u, image->guest + image->section_table);
@@ -10,10 +18,9 @@ static void relocate_section_table(WwHost* host, const WwRelImage* image) {
         const u32 value = offset != 0u ? (image->guest + offset) | (flags & 1u) : 0u;
         mem_write32(cpu, image->guest + image->section_table + at * 8u, value);
     }
-    const u32 bss = image->section_count - 1u;
-    assert(image->sections[bss].flags == 0u && image->sections[bss].size != 0u);
+    const u32 bss = bss_section_index(image);
     mem_write32(cpu, image->guest + image->section_table + bss * 8u, 0x807FF620u);
-    if (image->section_count == 7u) {
+    if (image->section_count == 21u) {
         const u32 ww80[] = {0u, 0x81F900F5u, 0x81F9DAF0u, 0x81F9DAF8u,
                            0x81F9DB00u, 0x81F9DEE0u, 0x807FF620u};
         assert(mem_read32(cpu, image->guest + 0x10u) == 0x81F9004Cu);
@@ -33,7 +40,7 @@ static void probe_rel_sections(WwHost* host, const char* site, const char* form)
     const u32 target = image->guest + (image->sections[1].flags & ~1u);
     const u32 linked = image->sections[1].linked_start;
     const u32 table = image->guest + image->section_table;
-    const u32 bss = table + (image->section_count - 1u) * 8u;
+    const u32 bss = table + bss_section_index(image) * 8u;
     const bool constructor = strncmp(site, "ctor", 4u) == 0;
     const BlueWakeRelData* ctors = &host->rel_data[0];
     assert(ctors->bytes != NULL);
