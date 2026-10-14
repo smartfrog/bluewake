@@ -155,7 +155,7 @@ class ShipPrologTest(unittest.TestCase):
             target.write_bytes(image)
             (root / 'synthetic.dol').write_bytes(bytes([1, 2, 3, 5 if scenario == 'bad-dol' else 4]))
             command = [str(output / 'ship_prolog_probe'), scenario]
-            if scenario.startswith('scratch-'):
+            if scenario.startswith(('scratch-', 'icbi-')):
                 if ranges is None:
                     ranges = [(start, start + 0x100) for start in range(0x81820000, 0x81F80000, 0x10000)]
                     if scenario == 'scratch-exhausted':
@@ -216,6 +216,38 @@ class ShipPrologTest(unittest.TestCase):
 
     def test_explicit_ship_unlink_remains_gated(self):
         self.assertIn('unsupported epilog and destruction contract', self.run_probe('unlink'))
+
+    def test_icbi_accepts_the_start_of_published_linked_ship_executable_code(self):
+        self.assertIn('PASS icbi accepted', self.run_probe('icbi-start'))
+
+    def test_icbi_accepts_an_unaligned_target_inside_published_linked_ship_code(self):
+        self.assertIn('PASS icbi accepted', self.run_probe('icbi-interior'))
+
+    def test_icbi_accepts_the_last_byte_of_published_linked_ship_code(self):
+        self.assertIn('PASS icbi accepted', self.run_probe('icbi-last'))
+
+    def test_icbi_accepts_the_tagged_staging_alias_of_published_linked_ship_code(self):
+        self.assertIn('PASS icbi accepted', self.run_probe('icbi-tagged'))
+
+    def test_icbi_refuses_targets_outside_the_published_ship_executable_range(self):
+        for boundary in ('below', 'end', 'above'):
+            with self.subTest(boundary=boundary):
+                self.assertIn('PASS icbi refused', self.run_probe(f'icbi-{boundary}'))
+
+    def test_icbi_refuses_ship_code_after_its_guest_publication_is_cleared(self):
+        self.assertIn('PASS icbi refused', self.run_probe('icbi-unpublished'))
+
+    def test_icbi_refuses_ship_code_after_its_linked_state_is_cleared(self):
+        self.assertIn('PASS icbi refused', self.run_probe('icbi-unlinked'))
+
+    def test_icbi_refuses_ship_code_after_its_unlinked_image_is_collected(self):
+        self.assertIn('PASS icbi refused', self.run_probe('icbi-collected'))
+
+    def test_icbi_refuses_ship_fallback_code_without_its_certification_contract(self):
+        self.assertIn('PASS icbi refused', self.run_probe('icbi-no-contract'))
+
+    def test_icbi_unknown_target_keeps_the_existing_refusal_text_and_context(self):
+        self.assertIn('PASS icbi refused target=90000000', self.run_probe('icbi-unknown'))
 
     def test_native_actor_unlink_remains_gated(self):
         self.assertIn('native REL unlink', self.run_probe('native-unlink'))
