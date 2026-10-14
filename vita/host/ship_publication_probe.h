@@ -1,48 +1,36 @@
 #ifndef WW_SHIP_PUBLICATION_PROBE_H
 #define WW_SHIP_PUBLICATION_PROBE_H
+#include "rel_sdk_fixture.h"
 
 static void relocate_ship_payload(WwHost* host, const WwRelImage* image) {
-    CPUState* cpu = &host->cpu;
-    const u8* original = host->ship_contract->rel_bytes;
-    const u32 imports = read_be32(original + 0x28u);
-    for (u32 at = imports; at < imports + read_be32(original + 0x2Cu); at += 8u) {
-        const u32 module = read_be32(original + at);
-        assert(module == 0u || module == 168u);
-        u32 patch = 0u;
-        for (u32 cursor = read_be32(original + at + 4u);; cursor += 8u) {
-            assert(cursor + 8u <= image->bytes);
-            const u8* entry = original + cursor;
-            const u32 type = entry[2];
-            if (type == 203u) break;
-            if (type == 202u) {
-                patch = image->guest + (image->sections[entry[3]].flags & ~1u);
-                continue;
-            }
-            patch += ((u32)entry[0] << 8u) | entry[1];
-            if (type == 201u) continue;
-            const u32 section = module == 0u ? 0u :
-                mem_read32(cpu, image->guest + image->section_table + entry[3] * 8u) & ~1u;
-            const u32 value = section + read_be32(entry + 4u);
-            if (type == 1u) mem_write32(cpu, patch, value);
-            else if (type == 4u) mem_write16(cpu, patch, (u16)value);
-            else if (type == 6u) mem_write16(cpu, patch, (u16)((value + 0x8000u) >> 16u));
-            else {
-                assert(type == 10u);
-                mem_write32(cpu, patch, (mem_read32(cpu, patch) & ~0x03FFFFFCu) |
-                    ((value - patch) & 0x03FFFFFCu));
-            }
-        }
-        mem_write32(cpu, image->guest + at + 4u, image->guest + read_be32(original + at + 4u));
-    }
-    for (u32 at = 0u; at < 3u; ++at) {
-        const u32 field = (u32[]){0x24u, 0x28u, 0x48u}[at];
-        mem_write32(cpu, image->guest + field, image->guest + read_be32(original + field));
-    }
-    mem_write8(cpu, image->guest + 0x33u, (u8)bss_section_index(image));
-    mem_write32(cpu, image->guest + 0x8u, 0x81822E80u);
-    mem_write32(cpu, image->guest + 0x2Cu, 0u);
-    mem_write32(cpu, image->owner + 0x14u, 0x807FF620u);
-    mem_write32(cpu, 0x800030CCu, image->guest);
+    ww_probe_sdk_append(host, image, image->sdk_fixed);
+}
+
+static void seed_ship_profile(WwHost* host) {
+    static StaticRecompModuleDesc module;
+    static StaticRecompRelModule descriptors[2];
+    static BlueWakeRelData data[3];
+    static const u8 profile_bytes[4];
+    static const StaticRecompRelSection profile_section = {1u,4u,0xC1F80178u,4u};
+    module = *host->module;
+    descriptors[0] = host->module->rel_modules[0];
+    descriptors[1] = (StaticRecompRelModule){.module_id=1u,.sections=&profile_section,.num_sections=1u};
+    module.rel_modules = descriptors;
+    module.num_rel_modules = 2u;
+    memcpy(data, host->rel_data, 2u * sizeof(*data));
+    data[2] = (BlueWakeRelData){1u,4u,0xC1F80178u,4u,profile_bytes};
+    host->module = &module;
+    host->rel_data = data;
+    host->rel_data_count = 3u;
+    assert(ppc_guest_alias_add(0x81822E80u, 32u, NULL));
+    assert(ppc_guest_alias_add(data[2].linked_start, data[2].size, data[2].bytes));
+    host->rel_images[0] = (WwRelImage){.owner=0x80002400u,.guest=0x81822E80u,.bytes=32u,.capacity=32u,
+                                     .module_id=1u,.linked=true};
+    host->rel_image_count = 1u;
+    mem_write32(&host->cpu, 0x81822E80u, 1u);
+    mem_write32(&host->cpu, 0x803F6A68u, data[2].linked_start);
+    mem_write32(&host->cpu, 0x800030C8u, 0x81822E80u);
+    mem_write32(&host->cpu, 0x800030CCu, 0x81822E80u);
 }
 
 static void rebase_ship_lifecycle(WwHost* host, const WwRelImage* image) {
@@ -64,10 +52,12 @@ static void probe_ship_publication(WwHost* host, const char* scenario) {
     const bool sdk_entry = strncmp(scenario, "publication-sdk-entry", 21u) == 0;
     if (sdk_entry || strcmp(scenario, "publication-entry-pc") == 0) {
         cpu->gpr[3] = 0x80AE0918u;
-        mem_write32(cpu, 0x800030CCu, 0x81822E80u);
+        seed_ship_profile(host);
     }
     const u32 owner = cpu->gpr[3];
-    assert(ww_host_materialize_rel(host, owner, "d_a_ship") == NULL);
+    const char* materialize_error = ww_host_materialize_rel(host, owner, "d_a_ship");
+    if (materialize_error != NULL) fprintf(stderr, "publication materialize: %s\n", materialize_error);
+    assert(materialize_error == NULL);
     WwRelImage* image = ww_host_rel_owned(host, owner);
     assert(image != NULL && image->guest == WW_REL_SHIP_SCRATCH_BASE);
     const u64 materialized_hash = image->raw_hash;
@@ -75,12 +65,13 @@ static void probe_ship_publication(WwHost* host, const char* scenario) {
     assert(ww_host_rel_live(host, 168u) == image);
     if (sdk_entry || strcmp(scenario, "publication-entry-pc") == 0) {
         if (sdk_entry) {
+            mem_write32(cpu, image->owner + 0x14u, 0x807FF620u);
+            assert(ww_host_rel_sdk_prepare(host, image,
+                strcmp(scenario, "publication-sdk-entry-unfixed") != 0) == NULL);
             relocate_section_table(host, image);
             rebase_ship_lifecycle(host, image);
             if (strcmp(scenario, "publication-sdk-entry-partial") != 0)
                 relocate_ship_payload(host, image);
-            if (strcmp(scenario, "publication-sdk-entry-unfixed") == 0)
-                mem_write32(cpu, image->guest + 0x2Cu, read_be32(host->ship_contract->rel_bytes + 0x2Cu));
         }
         cpu->pc = image->guest + (image->sections[1].flags & ~1u);
         cpu->lr = 0x80240EE8u;

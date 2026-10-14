@@ -6,40 +6,30 @@ const char* ww_host_enable_ship_contract(WwHost* host, const BlueWakeShipContrac
         contract->dol_bytes == NULL || contract->dol_size == 0u || contract->dol_size > 0x800000u ||
         contract->rel_bytes == NULL || contract->rel_size < 0x4Cu || contract->rel_size > 0x100000u ||
         contract->canonical_sections == NULL || contract->section_count == 0u || contract->section_count > 256u ||
-        contract->build_identity == NULL || strlen(contract->build_identity) != 64u ||
+        contract->build_identity == NULL || strnlen(contract->build_identity, 65u) != 64u ||
         strspn(contract->build_identity, "0123456789abcdef") != 64u || dol == NULL)
         return "ship prolog requires a complete generated exact build contract";
-    FILE* stream = fopen(dol, "rb");
-    if (stream == NULL)
-        return "ship contract raw DOL open failed";
-    u8 buffer[4096];
-    const char* error = NULL;
-    for (u32 at = 0u; at < contract->dol_size && error == NULL;) {
-        const u32 size = contract->dol_size - at < sizeof(buffer) ? contract->dol_size - at : sizeof(buffer);
-        if (fread(buffer, 1u, size, stream) != size || memcmp(buffer, contract->dol_bytes + at, size) != 0)
-            error = "ship contract full raw DOL identity mismatch";
-        at += size;
+    const char* error = ww_rel_check_dol(contract->dol_bytes, contract->dol_size, dol);
+    host->ship_lifecycle = (BlueWakeRelLifecycleV2){168u, 0xC1B100F4u, 0xC1B10120u, 0xC1B1014Cu};
+    BlueWakeRelInitContractV1 certificate = {.module_id = 168u, .rel_size = contract->rel_size,
+        .rel_bytes = contract->rel_bytes, .canonical_sections = contract->canonical_sections,
+        .section_count = contract->section_count, .ctor_return_pc = 0xC1B1010Cu,
+        .lifecycle = &host->ship_lifecycle, .build_identity = contract->build_identity};
+    for (u32 at = 0u; at < contract->section_count; ++at) {
+        const BlueWakeRelData* section = &contract->canonical_sections[at];
+        if (section->linked_start <= 0xC1B1DAF0u &&
+            (u64)0xC1B1DAF0u + 4u <= (u64)section->linked_start + section->size) {
+            certificate.ctor_table_section = section->section_index;
+            certificate.ctor_table_offset = 0xC1B1DAF0u - section->linked_start;
+        }
     }
-    if (error == NULL && (fgetc(stream) != EOF || ferror(stream)))
-        error = "ship contract full raw DOL length or read mismatch";
-    if (fclose(stream) != 0 && error == NULL)
-        error = "ship contract raw DOL close failed";
     if (error == NULL)
+        error = ww_rel_validate_certificate(host, &certificate);
+    if (error == NULL) {
+        host->ship_certificate = certificate;
         host->ship_contract = contract;
+    }
     return error;
-}
-
-bool ww_host_ship_raw_matches(WwHost* host, const u8* raw, u32 bytes) {
-    const BlueWakeShipContractV1* contract = host->ship_contract;
-    return contract != NULL && bytes == contract->rel_size && bluewake_archive_be32(raw) == 168u &&
-        memcmp(raw, contract->rel_bytes, bytes) == 0;
-}
-
-void ww_host_ship_publish(WwHost* host, WwRelImage* image) {
-    u8* raw = get_ram_ptr(&host->cpu, image->guest, image->bytes, NULL);
-    image->raw_hash = ww_host_rel_raw_hash(raw, image->bytes);
-    image->ship_sdk_previous = mem_read32(&host->cpu, 0x800030CCu);
-    image->ship_sdk_name_base = mem_read32(&host->cpu, 0x800030D0u);
 }
 
 static void clear_ship_return(WwHost* host) {
@@ -83,7 +73,8 @@ const char* ww_host_ship_boundary(WwHost* host, u32 address) {
         return "ship epilog or unresolved entry has no supported lifecycle contract";
     if (host->ship_prolog_owner != 0u) {
         const WwRelImage* image = ww_host_rel_live(host, 168u);
-        if (image == NULL || image->owner != host->ship_prolog_owner || !ww_host_rel_raw_unchanged(image))
+        if (image == NULL || image->owner != host->ship_prolog_owner || !ww_host_rel_raw_unchanged(image) ||
+            (image->sdk_phase == WW_REL_SDK_CERTIFIED && !ww_host_rel_sdk_integrity(host)))
             return "ship prolog continuation lost its exact live owner";
         if (canonical == 0x80240EE8u) {
             if (host->cpu.lr != 0x80240EE8u || host->cpu.gpr[1] != host->ship_prolog_stack ||
@@ -107,6 +98,7 @@ const char* ww_host_ship_boundary(WwHost* host, u32 address) {
     if (host->ship_contract == NULL || image == NULL ||
         host->cpu.lr != 0x80240EE8u || host->cpu.gpr[31] != image->owner ||
         host->cpu.gpr[3] != image->guest ||
+        (image->sdk_phase == WW_REL_SDK_CERTIFIED && !ww_host_rel_sdk_integrity(host)) ||
         (ww_host_rel_address(host, host->cpu.pc) & ~0x40000000u) != canonical ||
         (!ww_host_rel_raw_unchanged(image) &&
          (host->ship_prolog_owner != 0u || !ww_host_ship_sdk_hash(host, image, &entry_hash))))

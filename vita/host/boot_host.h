@@ -16,6 +16,7 @@
 #include "mem1_capture.h"
 #include "dvd_completion.h"
 #include "rel_service.h"
+#include "rel_contract.h"
 #include "pad_input.h"
 #include "gxruntime/di.h"
 #include "gxruntime/exi.h"
@@ -61,6 +62,17 @@ typedef struct WwHost {
     u32 rel_constructor_size;
     const u8* rel_constructor_bytes;
     const BlueWakeShipContractV1* ship_contract;
+    BlueWakeRelInitContractV1 ship_certificate;
+    BlueWakeRelLifecycleV2 ship_lifecycle;
+    const BlueWakeRelInitContractSetV1* rel_contracts;
+    u32 rel_sdk_head;
+    u32 rel_sdk_tail;
+    u32 rel_sdk_pending_owner;
+    bool rel_sdk_seeded;
+    bool rel_sdk_failed;
+#if WW05_TESTS_ONLY
+    bool rel_test_admission;
+#endif
     u32 ship_prolog_owner;
     u32 ship_prolog_stack;
     u32 ship_prolog_r2;
@@ -139,8 +151,6 @@ bool ww_host_init(WwHost* host);
 const char* ww_host_enable_ship_contract(WwHost* host, const BlueWakeShipContractV1* contract, const char* dol);
 const char* ww_host_ship_boundary(WwHost* host, u32 address);
 const char* ww_host_ship_exception_restored(WwHost* host, u32 address);
-bool ww_host_ship_raw_matches(WwHost* host, const u8* raw, u32 bytes);
-void ww_host_ship_publish(WwHost* host, WwRelImage* image);
 bool ww_host_ship_sdk_hash(WwHost* host, const WwRelImage* image, u64* hash);
 void ww_host_shutdown(WwHost* host);
 bool ww_host_load(WwHost* host, const StaticRecompModuleDesc* module,

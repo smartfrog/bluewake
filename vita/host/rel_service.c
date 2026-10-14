@@ -17,7 +17,8 @@ u64 ww_host_rel_raw_hash(const u8* bytes, u32 size) {
 
 bool ww_host_rel_raw_unchanged(const WwRelImage* image) {
     // Scratch integrity is not producer identity or canonical relocation certification.
-    if (image == NULL || image->bytes > image->capacity)
+    if (image == NULL || image->bytes > image->capacity || image->sdk_phase == WW_REL_SDK_PENDING ||
+        image->sdk_phase == WW_REL_SDK_FAILED)
         return false;
     u8* raw = NULL;
     return ppc_guest_alias_get_storage(image->guest, image->capacity, &raw) &&
@@ -99,8 +100,8 @@ const char* ww_host_unlink_rel(WwHost* host, u32 owner) {
         return "REL unlink requires unchanged live ownership";
     if (slot->module_id == 1u)
         return "REL profile-list resident contract does not support unload";
-    if (slot->module_id == 168u && host->ship_contract != NULL)
-        return "ship unlink requires an unsupported epilog and destruction contract";
+    if (slot->certificate != NULL)
+        return "REL unlink requires an unsupported epilog and destruction contract";
     for (u32 at = 0u; at < host->rel_image_count; ++at) {
         const WwRelImage* importer = &host->rel_images[at];
         if (!importer->linked)
@@ -306,6 +307,7 @@ const char* ww_host_materialize_rel(WwHost* host, u32 owner, const char* name) {
         } else {
             *slot = (WwRelImage){.owner = owner, .guest = guest, .bytes = bytes, .capacity = capacity,
                                  .module_id = module_id, .raw_hash = ww_host_rel_raw_hash(image, bytes),
+                                 .certificate = ww_host_rel_certificate(host, module_id),
                                  .sections = sections, .section_count = section_count,
                                  .section_table = section_table};
             sections = NULL;

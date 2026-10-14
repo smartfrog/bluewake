@@ -138,8 +138,6 @@ int main(int argc, char** argv) {
     WwHost* host = calloc(1u, sizeof(*host));
     assert(host != NULL && ww_host_init(host));
     StaticRecompRelModule rel = fixture_rel;
-    if (strcmp(scenario, "other-actor") == 0)
-        rel.module_id = 169u;
     StaticRecompModuleDesc module = {.code_ranges = fixture_ranges,
         .num_code_ranges = sizeof(fixture_ranges) / sizeof(fixture_ranges[0]),
         .chunk_ranges = fixture_chunks, .chunk_hashes = fixture_hashes, .num_chunk_ranges = 3u,
@@ -201,7 +199,8 @@ int main(int argc, char** argv) {
         static BlueWakeShipContractV1 enabled_contract;
         enabled_contract = contract;
         const char* error = ww_host_enable_ship_contract(host, &enabled_contract, "synthetic.dol");
-        if (strcmp(scenario, "bad-dol") == 0) {
+        if (strcmp(scenario, "bad-dol") == 0 || strncmp(scenario, "uncertified-", 12u) == 0 ||
+            strcmp(scenario, "lifecycle-data") == 0) {
             assert(error != NULL && host->ship_contract == NULL);
             fprintf(stderr, "PASS rejected reason=%s\n", error);
             ww_host_shutdown(host);
@@ -210,6 +209,8 @@ int main(int argc, char** argv) {
         }
         assert(error == NULL);
     }
+    if (strcmp(scenario, "other-actor") == 0)
+        rel.module_id = 169u;
     u64 hashes[3];
     memcpy(hashes, fixture_hashes, sizeof(hashes));
     if (strcmp(scenario, "stale-code") == 0) {

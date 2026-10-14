@@ -44,7 +44,7 @@ add_subdirectory(dvd)
 target_compile_options(gxruntime PRIVATE -ffp-contract=off -fno-fast-math -fstack-usage)
 
 add_library(ww05_services STATIC boot_host.c gx_checkpoint.c gx_stream.c fifo_gather.c fifo_consumer.c
-    code_guard.c dsp_interface.c bat_contract.c disc_service.c rel_provider.c rel_service.c rel_link.c ship_contract.c
+    code_guard.c dsp_interface.c bat_contract.c disc_service.c rel_provider.c rel_service.c rel_link.c rel_contract.c rel_sdk.c ship_contract.c
     scheduler_observation.c game_stop.c vi_clock.c gx_draw_observation.c gpu_finish.c frame_timing.c mem1_capture.c frame_capture.cpp
     dsp_rom_mail.c dsp_deferred.c pad_input.c
     $<TARGET_OBJECTS:ww13_dvd_pin>
@@ -75,6 +75,7 @@ target_compile_options(ww05_services PRIVATE -O2 -ffp-contract=off -fno-fast-mat
     -Wall -Wextra $<$<COMPILE_LANGUAGE:C>:-Werror=implicit-function-declaration>)
 
 if(WW05_TESTS_ONLY)
+    target_compile_definitions(ww05_services PUBLIC WW05_TESTS_ONLY=1)
     enable_testing()
     add_executable(game_stop_probe game_stop_probe.c)
     target_compile_options(game_stop_probe PRIVATE -UNDEBUG)
@@ -153,6 +154,19 @@ if(WW05_TESTS_ONLY)
     target_link_libraries(rel_provider_probe PRIVATE ww05_services)
     target_link_options(rel_provider_probe PRIVATE -Wl,--wrap=malloc -Wl,--wrap=bw_dvd_fclose)
     if(EXISTS "${CMAKE_CURRENT_BINARY_DIR}/ship_translated.c")
+        add_executable(rel_contract_probe rel_contract_probe.c)
+        target_include_directories(rel_contract_probe PRIVATE "${CMAKE_CURRENT_BINARY_DIR}")
+        target_compile_options(rel_contract_probe PRIVATE -UNDEBUG)
+        target_link_libraries(rel_contract_probe PRIVATE ww05_services)
+        foreach(scenario legacy-ctor-terminator schema-version schema-count-zero schema-count-limit schema-null
+                         schema-identity schema-duplicate schema-unknown-id schema-canonical-count schema-canonical-duplicate
+                         schema-canonical-code schema-export-duplicate schema-lifecycle-id schema-lifecycle-selector
+                         schema-lifecycle-offset schema-ctor-terminator schema-imports schema-relocation schema-stream-end
+                         schema-zero-bss schema-zero-bss-selector schema-empty-flags schema-empty-size
+                         schema-alignment schema-rel-version schema-fabricated-export)
+            add_test(NAME rel-contract-${scenario} COMMAND rel_contract_probe ${scenario})
+            set_tests_properties(rel-contract-${scenario} PROPERTIES LABELS "synthetic;rel")
+        endforeach()
         add_executable(ship_prolog_probe ship_prolog_probe.c)
         target_include_directories(ship_prolog_probe PRIVATE "${CMAKE_CURRENT_BINARY_DIR}")
         target_compile_options(ship_prolog_probe PRIVATE -UNDEBUG)

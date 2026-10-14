@@ -296,6 +296,11 @@ bool ww_host_module_contains_address(const StaticRecompModuleDesc* module, u32 a
 }
 
 static bool rel_execution_blocked(WwHost* host, u32 address, u32* linked) {
+    const char* sdk_error = ww_host_rel_sdk_observe(host, address & ~0x40000000u);
+    if (sdk_error != NULL) {
+        ww_host_fail(host, sdk_error, address, host->cpu.pc);
+        return true;
+    }
     if ((address & ~0x40000000u) == 0x80240F54u && ww_host_rel_owned(host, host->cpu.gpr[3]) != NULL) {
         ww_host_fail(host, "native REL unlink requires an unsupported epilog and destruction contract", address, host->cpu.pc);
         return true;
@@ -303,6 +308,19 @@ static bool rel_execution_blocked(WwHost* host, u32 address, u32* linked) {
     *linked = ww_host_rel_address(host, address);
     if (host->error != NULL)
         return true;
+    for (u32 at = 0u; at < host->rel_image_count; ++at) {
+        const WwRelImage* image = &host->rel_images[at];
+        if (image->certificate == NULL || (host->ship_contract != NULL && image->module_id == 168u))
+            continue;
+        const StaticRecompRelModule* rel = ww_host_rel_descriptor(host, image->module_id);
+        for (u32 section = 0u; rel != NULL && section < rel->num_sections; ++section) {
+            const StaticRecompRelSection* range = &rel->sections[section];
+            if (*linked >= range->linked_start && (u64)*linked < (u64)range->linked_start + range->size) {
+                ww_host_fail(host, "REL initialization execution requires the unsupported owner-qualified call contract", address, host->cpu.pc);
+                return true;
+            }
+        }
+    }
     const char* ship_error = ww_host_ship_boundary(host, *linked);
     if (ship_error != NULL) {
         ww_host_fail(host, ship_error, address, host->cpu.pc);

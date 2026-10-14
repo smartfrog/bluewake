@@ -57,6 +57,8 @@ class StartupHostTest(unittest.TestCase):
             subprocess.run([str(generator / 'ww_vector_emit'), str(binary), '00000900'], check=True, stdout=stream)
         from test_ship_prolog import fixture
         fixture(output)
+        from test_rel_contract import fixture as rel_contract_fixture
+        rel_contract_fixture(output)
         with (output / 'ship_translated.c').open('w') as stream:
             subprocess.run([str(generator / 'ww_ship_fixture_emit'), str(output / 'ship.instructions')],
                            check=True, stdout=stream)

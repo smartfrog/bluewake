@@ -4,6 +4,15 @@
 #include <stdint.h>
 #include <stdbool.h>
 
+struct BlueWakeRelInitContractV1;
+typedef enum WwRelSdkPhase {
+    WW_REL_SDK_NONE,
+    WW_REL_SDK_PENDING,
+    WW_REL_SDK_CERTIFIED,
+    WW_REL_SDK_RESIDENT,
+    WW_REL_SDK_FAILED
+} WwRelSdkPhase;
+
 #define WW_REL_MAX_IMPORTS 32u
 
 typedef struct WwRelSection {
@@ -19,8 +28,13 @@ typedef struct WwRelImage {
     uint32_t capacity;
     uint32_t module_id;
     uint64_t raw_hash;
-    uint32_t ship_sdk_previous;
-    uint32_t ship_sdk_name_base;
+    const struct BlueWakeRelInitContractV1* certificate;
+    uint32_t sdk_previous;
+    uint32_t sdk_next;
+    uint32_t sdk_name_base;
+    uint32_t sdk_bss;
+    bool sdk_fixed;
+    WwRelSdkPhase sdk_phase;
     WwRelSection* sections;
     uint32_t section_count;
     uint32_t section_table;
