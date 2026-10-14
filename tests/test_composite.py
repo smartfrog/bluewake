@@ -1,8 +1,10 @@
 #!/usr/bin/env python3
 """Synthetic fixture tests for generate_composite.py (P3 Route A)."""
 import hashlib
+import json
 import re
 import struct
+import subprocess
 import sys
 import tempfile
 from pathlib import Path
@@ -14,6 +16,8 @@ import generate_composite as gc
 
 DOL_TEXT_ADDR = 0x80003100
 REL_BASE = 0xC0400000
+SHIP_START = 0xC1B100F4
+SHIP_SIZE = 55804
 
 
 def build_dol(text_data):
@@ -103,6 +107,31 @@ def write_rel_module(root, mid, chunks):
         (cd / f"chunk_{start:08X}.c").write_text('#include "../generated.h"\n')
 
 
+def write_ship_fixture(td):
+    raw = bytearray(56200)
+    struct.pack_into('>I', raw, 0, 168)
+    struct.pack_into('>II', raw, 0xC, 4, 0x4C)
+    struct.pack_into('>I', raw, 0x1C, 3)
+    struct.pack_into('>III', raw, 0x24, 56100, 56064, 16)
+    raw[0x30:0x33] = bytes([1, 1, 1])
+    struct.pack_into('>III', raw, 0x34, 0, 44, 88)
+    for index, (offset, size) in enumerate(((0, 0), (245, SHIP_SIZE),
+                                           (56048, 8), (56056, 8))):
+        struct.pack_into('>II', raw, 0x4C + index * 8, offset, size)
+    raw[244:56048] = bytes((i * 13 + 7) & 255 for i in range(SHIP_SIZE))
+    struct.pack_into('>I', raw, 252, 0x48000001)
+    struct.pack_into('>IIII', raw, 56064, 168, 56100, 0, 56164)
+    records = [(0, 202, 1, 0), (2, 6, 2, 0), (4, 4, 2, 0),
+               (0, 202, 2, 0), (0, 1, 1, 0xD320),
+               (0, 202, 3, 0), (0, 1, 1, 0x94), (0, 203, 0, 0)]
+    for index, record in enumerate(records):
+        struct.pack_into('>HBBI', raw, 56100 + index * 8, *record)
+    for index, record in enumerate(((0, 202, 1, 0), (8, 10, 0, DOL_TEXT_ADDR), (0, 203, 0, 0))):
+        struct.pack_into('>HBBI', raw, 56164 + index * 8, *record)
+    (td / 'rels_bin' / '0168.rel').write_bytes(raw)
+    write_rel_module(td / 'rels_out', 168, [(SHIP_START, SHIP_START + SHIP_SIZE)])
+
+
 def setup_fixture(td, dol_chunks=None, rel_specs=None):
     td = Path(td)
     if dol_chunks is None:
@@ -113,6 +142,7 @@ def setup_fixture(td, dol_chunks=None, rel_specs=None):
     write_dol_dir(td / "dol_out", dol_chunks)
     rb = td / "rels_bin"; rb.mkdir(exist_ok=True)
     ro = td / "rels_out"; ro.mkdir(exist_ok=True)
+    write_ship_fixture(td)
     for spec in (rel_specs or []):
         mid = spec["module_id"]
         chunks = spec["chunks"]
@@ -124,7 +154,6 @@ def setup_fixture(td, dol_chunks=None, rel_specs=None):
 
 
 def run_generator(td, expect_fail=False):
-    import subprocess
     cmd = [sys.executable, str(SCRIPTS_DIR / "generate_composite.py"),
            "--dol-dir", str(Path(td)/"dol_out"), "--rels-dir", str(Path(td)/"rels_out"),
            "--rels-bin-dir", str(Path(td)/"rels_bin"), "--main-dol", str(Path(td)/"input"/"main.dol"),
@@ -138,7 +167,17 @@ def run_generator(td, expect_fail=False):
 
 
 def test_single_dol_no_rels():
-    """Generator produces correct output from DOL-only input."""
+    """The ordinary pipeline cannot silently omit the ship contract."""
+    with tempfile.TemporaryDirectory() as td:
+        td = setup_fixture(td)
+        import shutil
+        shutil.rmtree(td / 'rels_out' / 'd_a_test_168')
+        result = run_generator(td, expect_fail=True)
+        assert 'ship contract requires translated module 168' in result.stderr
+        assert not (td / 'composite' / 'rel_data.inc').exists()
+
+
+def test_dol_dispatch_with_ship_contract():
     chunks = [(0x80003100, 0x80003140), (0x80003140, 0x80003200)]
     with tempfile.TemporaryDirectory() as td:
         td = setup_fixture(td, dol_chunks=chunks)
@@ -170,12 +209,11 @@ def test_single_dol_no_rels():
         tbl = (out / "module_tables.inc").read_text()
         for s, e in chunks:
             assert f"{{0x{s:08X}u, 0x{e:08X}u}}" in tbl
-        assert "MODULE_CHUNK_RANGE_COUNT 2u" in tbl
+        assert "MODULE_CHUNK_RANGE_COUNT 3u" in tbl
         rm = (out / "rel_modules.inc").read_text()
-        assert "MODULE_REL_MODULE_COUNT 0u" in rm
+        assert "MODULE_REL_MODULE_COUNT 1u" in rm
         data = (out / "rel_data.inc").read_text()
-        assert "MODULE_REL_LIFECYCLE_V2_COUNT 0u" in data
-    print("PASS: test_single_dol_no_rels")
+        assert "MODULE_REL_LIFECYCLE_V2_COUNT 1u" in data
 
 
 def test_native_dol_chunks_are_preserved():
@@ -220,7 +258,7 @@ def test_multi_section_rel():
         run_generator(td)
         rm = (Path(td) / "composite" / "rel_modules.inc").read_text()
         assert f"s_rel_sec_{mid}[]" in rm
-        assert "MODULE_REL_MODULE_COUNT 1u" in rm
+        assert "MODULE_REL_MODULE_COUNT 2u" in rm
     print("PASS: test_multi_section_rel")
 
 
@@ -301,7 +339,7 @@ def test_chunk_hash_correctness():
         ep_rel = int(re.search(r"DOLRECOMP_ENTRY_POINT 0x([0-9A-F]{8})u", gen_h_text).group(1), 16)
         tbl = (Path(td) / "composite" / "module_tables.inc").read_text()
         hashes = [int(x, 16) for x in re.findall(r"0x([0-9A-F]{16})ull,", tbl)]
-        assert len(hashes) == 2, f"expected 2 hashes, got {len(hashes)}"
+        assert len(hashes) == 3, f"expected 3 hashes, got {len(hashes)}"
         # DOL chunk hash
         dol_bin = (Path(td) / "input" / "main.dol").read_bytes()
         s, e = dc[0]
@@ -317,7 +355,7 @@ def test_chunk_hash_correctness():
                 off = raw_off & ~1
                 lo2 = off + (rc[0][0] - ep_rel)
                 data = rel_bin[lo2 : lo2 + (rc[0][1] - rc[0][0])]
-                assert hashes[-1] == gc.fnv1a64(data), "REL hash mismatch"
+                assert hashes[1] == gc.fnv1a64(data), "REL hash mismatch"
                 break
     print("PASS: test_chunk_hash_correctness")
 
@@ -400,7 +438,7 @@ def test_determinism():
             td = setup_fixture(td, dol_chunks=dc, rel_specs=[{"module_id": mid, "chunks": rc}])
             run_generator(td)
             out = Path(td) / "composite"
-            for f in ["generated_composite.h", "module_tables.inc", "rel_modules.inc", "rel_data.inc"]:
+            for f in ["generated.h", "generated_composite.h", "module_tables.inc", "rel_modules.inc", "rel_data.inc", "generation_receipt.json"]:
                 store[f] = hashlib.sha256((out / f).read_bytes()).hexdigest()
     assert d1 == d2, f"non-deterministic"
     print("PASS: test_determinism")
@@ -435,7 +473,7 @@ def test_lifecycle_metadata_complete():
         td = setup_fixture(td, rel_specs=specs)
         run_generator(td)
         rm = (Path(td) / "composite" / "rel_modules.inc").read_text()
-        assert "MODULE_REL_MODULE_COUNT 3u" in rm
+        assert "MODULE_REL_MODULE_COUNT 4u" in rm
         for mid in (1, 2, 3):
             assert f"s_rel_sec_{mid}[]" in rm
     print("PASS: test_lifecycle_metadata_complete")
@@ -504,7 +542,7 @@ def test_lifecycle_export_preserves_legacy_stride():
         assert f"{{37u, 0x{start:08X}u}}," in text
         assert "static const BlueWakeRelLifecycleV2 s_rel_lifecycle_v2[]" in text
         assert f"{{37u, 0x{start:08X}u, 0x{start + 12:08X}u, 0x{start + 28:08X}u}}," in text
-        assert "#define MODULE_REL_LIFECYCLE_V2_COUNT 1u" in text
+        assert "#define MODULE_REL_LIFECYCLE_V2_COUNT 2u" in text
 
 
 def test_lifecycle_invalid_executable_sections():
@@ -550,7 +588,7 @@ def test_import_across_modules():
     bi = REL_BASE + imp_mid * 0x10000
     bd = REL_BASE + dep_mid * 0x10000
     with tempfile.TemporaryDirectory() as td:
-        td = Path(td)
+        td = setup_fixture(td)
         write_dol_binary(td / "input", b"\x90" * 0x40)
         write_dol_dir(td / "dol_out", [(0x80003100, 0x80003140)])
         rb = td / "rels_bin"; rb.mkdir(exist_ok=True)
@@ -569,7 +607,7 @@ def test_import_across_modules():
         write_rel_module(ro, imp_mid, imp_chunks)
         run_generator(td)
         rm = (td / "composite" / "rel_modules.inc").read_text()
-        assert "MODULE_REL_MODULE_COUNT 2u" in rm
+        assert "MODULE_REL_MODULE_COUNT 3u" in rm
     print("PASS: test_import_across_modules")
 
 
@@ -578,7 +616,7 @@ def test_zero_length_section():
     mid = 20; b = REL_BASE + mid * 0x10000
     chunks = [(b + 0x100, b + 0x200)]
     with tempfile.TemporaryDirectory() as td:
-        td = Path(td)
+        td = setup_fixture(td)
         write_dol_binary(td / "input", b"\x90" * 0x40)
         write_dol_dir(td / "dol_out", [(0x80003100, 0x80003140)])
         rb = td / "rels_bin"; rb.mkdir(exist_ok=True)
@@ -593,9 +631,191 @@ def test_zero_length_section():
     print("PASS: test_zero_length_section")
 
 
+def read_c_array(text, name):
+    match = re.search(rf'static const u8 {name}\[\] = \{{(.*?)\}};', text, re.S)
+    assert match, name
+    return bytes(int(value, 0) for value in re.findall(r'\b(?:0x[0-9A-Fa-f]+|[0-9]+)\b', match[1]))
+
+
+def test_ship_contract_emitted_from_normal_inputs():
+    with tempfile.TemporaryDirectory() as td:
+        td = setup_fixture(td)
+        run_generator(td)
+        text = (td / 'composite' / 'rel_data.inc').read_text()
+        assert '#define MODULE_SHIP_CONTRACT_PRESENT 1' in text
+        assert 'static const BlueWakeShipContractV1 s_ship_contract' in text
+        assert read_c_array(text, 's_ship_raw_dol') == (td / 'input' / 'main.dol').read_bytes()
+        assert read_c_array(text, 's_ship_raw_rel') == (td / 'rels_bin' / '0168.rel').read_bytes()
+        canonical = read_c_array(text, 's_ship_canonical_1')
+        assert len(canonical) == SHIP_SIZE
+        assert struct.unpack_from('>H', canonical, 2)[0] == 0xC1B2
+        assert struct.unpack_from('>H', canonical, 6)[0] == 0xDAF0
+        assert read_c_array(text, 's_ship_canonical_2') == struct.pack('>II', 0xC1B1D414, 0)
+        assert read_c_array(text, 's_ship_canonical_3') == struct.pack('>II', 0xC1B10188, 0)
+        receipt = json.loads((td / 'composite' / 'generation_receipt.json').read_text())
+        contract = receipt['ship_contract']
+        assert contract['version'] == 1 and contract['module_id'] == 168
+        assert contract['exec'] == {'index': 1, 'offset': 244, 'linked_start': SHIP_START, 'size': SHIP_SIZE}
+        assert contract['lifecycle'] == {'prolog': SHIP_START, 'epilog': 0xC1B10120, 'unresolved': 0xC1B1014C}
+        assert contract['ctors'] == 0xC1B1DAF0 and contract['dtors'] == 0xC1B1DAF8
+        assert contract['section_count'] == 3
+        for name, path in [('dol', td / 'input' / 'main.dol'), ('rel', td / 'rels_bin' / '0168.rel')]:
+            raw = path.read_bytes()
+            assert contract[f'{name}_size'] == len(raw)
+            assert contract[f'{name}_sha256'] == hashlib.sha256(raw).hexdigest()
+        for name, digest in receipt['output_sha256'].items():
+            assert hashlib.sha256((td / 'composite' / name).read_bytes()).hexdigest() == digest
+        fields = dict(contract)
+        identity = fields.pop('build_identity')
+        fields.pop('sha256')
+        assert hashlib.sha256(json.dumps(fields, sort_keys=True, separators=(',', ':')).encode()).hexdigest() == identity
+        assert f'1u,384u,s_ship_raw_dol,56200u,s_ship_raw_rel,s_ship_canonical,3u,"{contract["build_identity"]}"' in text
+        contract_text = text[text.index('#define MODULE_SHIP_CONTRACT_PRESENT'):]
+        assert contract['sha256'] == hashlib.sha256(contract_text.encode()).hexdigest()
+
+
+def test_ship_chunk_hashes_use_canonical_executable_bytes():
+    with tempfile.TemporaryDirectory() as td:
+        td = setup_fixture(td)
+        run_generator(td)
+        out = td / 'composite'
+        canonical = read_c_array((out / 'rel_data.inc').read_text(), 's_ship_canonical_1')
+        hashes = re.findall(r'0x([0-9A-F]{16})ull,', (out / 'module_tables.inc').read_text())
+        assert int(hashes[-1], 16) == gc.fnv1a64(canonical)
+
+
+def test_ship_contract_rejects_changed_layout():
+    cases = [('exec offset', 0x54, 249), ('exec size', 0x58, SHIP_SIZE - 4),
+             ('ctors address', 0x5C, 56052), ('dtors address', 0x64, 56060)]
+    for label, offset, value in cases:
+        assert_ship_change_rejected(offset, struct.pack('>I', value), label=label)
+
+
+def test_ship_contract_rejects_changed_lifecycle():
+    for index, name in enumerate(('prolog', 'epilog', 'unresolved')):
+        assert_ship_change_rejected(0x34 + index * 4, struct.pack('>I', index * 44 + 4),
+                                    diagnostic=f'ship contract {name}')
+
+
+def test_ship_contract_requires_raw_module_168():
+    with tempfile.TemporaryDirectory() as td:
+        td = setup_fixture(td)
+        (td / 'rels_bin' / '0168.rel').unlink()
+        result = run_generator(td, expect_fail=True)
+        assert 'ship contract requires raw module 168' in result.stderr
+
+
+def test_ship_contract_rejects_ambiguous_raw_input():
+    with tempfile.TemporaryDirectory() as td:
+        td = setup_fixture(td)
+        (td / 'rels_bin' / 'duplicate.rel').write_bytes((td / 'rels_bin' / '0168.rel').read_bytes())
+        result = run_generator(td, expect_fail=True)
+        assert 'ambiguous .rel binaries for mid=168' in result.stderr
+        assert not (td / 'composite' / 'generation_receipt.json').exists()
+
+
+def test_ship_contract_rejects_invalid_relocations():
+    cases = [('type', 56110, b'\x05'), ('patch', 56108, struct.pack('>H', 55804)),
+             ('target', 56112, struct.pack('>I', 8)),
+             ('end', 56158, b'\xC9'), ('import', 56064, struct.pack('>I', 999)),
+             ('branch coverage', 56176, struct.pack('>I', 0x80005000)),
+             ('branch opcode', 252, struct.pack('>I', 0x60000000)),
+             ('ctor target', 56136, struct.pack('>I', SHIP_SIZE)),
+             ('ctor terminator', 56052, struct.pack('>I', 1))]
+    for label, offset, value in cases:
+        assert_ship_change_rejected(offset, value, label=label)
+
+
+def assert_ship_change_rejected(offset, value, diagnostic='ship contract', label=''):
+    with tempfile.TemporaryDirectory() as td:
+        td = setup_fixture(td)
+        path = td / 'rels_bin' / '0168.rel'
+        raw = bytearray(path.read_bytes())
+        raw[offset:offset + len(value)] = value
+        path.write_bytes(raw)
+        result = run_generator(td, expect_fail=True)
+        assert diagnostic in result.stderr, (label, result.stderr)
+        assert not (td / 'composite' / 'rel_data.inc').exists()
+
+
+def test_ship_dol_branch_relocation_retains_linked_tag():
+    with tempfile.TemporaryDirectory() as td:
+        td = setup_fixture(td)
+        run_generator(td)
+        text = (td / 'composite' / 'rel_data.inc').read_text()
+        canonical = read_c_array(text, 's_ship_canonical_1')
+        word = struct.unpack_from('>I', canonical, 8)[0]
+        displacement = word & 0x03FFFFFC
+        if displacement & 0x02000000:
+            displacement -= 0x04000000
+        assert SHIP_START + 8 + displacement == DOL_TEXT_ADDR | 0x40000000
+        assert word & 3 == 1
+
+
+def test_ship_contract_additive_abi_and_chunk_include_set():
+    root = SCRIPTS_DIR.parent
+    header = (root / 'cmake/composite/module_exports.h').read_text()
+    assert 'typedef struct BlueWakeShipContractV1' in header
+    assert 'staticrecomp_get_ship_contract_v1(void)' in header
+    export = (root / 'cmake/composite/module_export.c').read_text()
+    assert '#ifdef MODULE_SHIP_CONTRACT_PRESENT\n    return &s_ship_contract;' in export
+    with tempfile.TemporaryDirectory() as td:
+        td = setup_fixture(td)
+        run_generator(td)
+        out = td / 'composite'
+        for source in out.glob('chunks_*/*.c'):
+            assert source.read_text() == '#include "../generated.h"\n'
+        translated_header = (out / 'generated.h').read_text()
+        assert re.findall(r'^#include (.*)$', translated_header, re.M) == [
+            '<string.h>', '<math.h>', 'DOLRECOMP_CPU_HEADER']
+        assert 'module_exports.h' not in translated_header
+        assert 'BlueWakeShipContract' not in translated_header
+
+
+def test_failed_regeneration_invalidates_success_receipt():
+    with tempfile.TemporaryDirectory() as td:
+        td = setup_fixture(td)
+        run_generator(td)
+        (td / 'rels_bin' / '0168.rel').unlink()
+        run_generator(td, expect_fail=True)
+        assert not (td / 'composite' / 'generation_receipt.json').exists()
+
+
+def test_generated_contract_compiles_with_existing_export_abi():
+    with tempfile.TemporaryDirectory() as td:
+        td = setup_fixture(td)
+        run_generator(td)
+        (td / 'core').mkdir()
+        (td / 'core' / 'cpu.h').write_text('typedef struct CPUState CPUState;\n')
+        (td / 'StaticRecompABI.h').write_text(
+            '#include <stdint.h>\ntypedef uint8_t u8;\ntypedef uint32_t u32;\n'
+            'typedef struct StaticRecompModuleDesc StaticRecompModuleDesc;\n')
+        glue = (SCRIPTS_DIR.parent / 'cmake/composite/module_export.c').read_text()
+        getter = re.search(r'RECOMP_MODULE_EXPORT const BlueWakeShipContractV1\* '
+                           r'staticrecomp_get_ship_contract_v1\(void\)\n\{.*?\n\}', glue, re.S)[0]
+        source = td / 'contract_probe.c'
+        source.write_text('#include <assert.h>\n#include <stddef.h>\n#include "module_exports.h"\n'
+                          '#include "rel_data.inc"\n#define RECOMP_MODULE_EXPORT\n' + getter + '\n'
+                          'int main(void) {\n'
+                          'const BlueWakeShipContractV1* c = staticrecomp_get_ship_contract_v1();\n'
+                          'assert(c != NULL && c->version == 1u && c->dol_size == 384u);\n'
+                          'assert(c->rel_size == 56200u && c->section_count == 3u);\n'
+                          'assert(c->canonical_sections[0].linked_start == 0xC1B100F4u);\n'
+                          'assert(c->canonical_sections[0].size == 55804u);\n'
+                          'assert(c->canonical_sections[1].linked_start == 0xC1B1DAF0u);\n'
+                          'assert(c->canonical_sections[2].linked_start == 0xC1B1DAF8u);\n'
+                          'return 0;\n}\n')
+        subprocess.run(['cc', '-std=c11', '-Wall', '-Wextra', '-Werror',
+                        '-Wno-unused-const-variable', '-I', str(td), '-I', str(td / 'composite'),
+                        '-I', str(SCRIPTS_DIR.parent / 'cmake/composite'), str(source),
+                        '-o', str(td / 'contract_probe')], check=True, capture_output=True, text=True)
+        subprocess.run([str(td / 'contract_probe')], check=True, capture_output=True, text=True)
+
+
 def main():
     tests = [
         test_single_dol_no_rels,
+        test_dol_dispatch_with_ship_contract,
         test_native_dol_chunks_are_preserved,
         test_mixed_dol_backends_are_rejected,
         test_multi_section_rel,
@@ -621,6 +841,17 @@ def main():
         test_generator_rejects_invalid_lifecycle,
         test_import_across_modules,
         test_zero_length_section,
+        test_ship_contract_emitted_from_normal_inputs,
+        test_ship_chunk_hashes_use_canonical_executable_bytes,
+        test_ship_contract_rejects_changed_layout,
+        test_ship_contract_rejects_changed_lifecycle,
+        test_ship_contract_requires_raw_module_168,
+        test_ship_contract_rejects_ambiguous_raw_input,
+        test_ship_contract_rejects_invalid_relocations,
+        test_ship_dol_branch_relocation_retains_linked_tag,
+        test_ship_contract_additive_abi_and_chunk_include_set,
+        test_failed_regeneration_invalidates_success_receipt,
+        test_generated_contract_compiles_with_existing_export_abi,
     ]
     failures = 0
     for t in tests:

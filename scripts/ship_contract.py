@@ -1,4 +1,157 @@
+import hashlib
+import json
 import struct
+
+
+SHIP_EXEC = (1, 244, 0xC1B100F4, 55804)
+SHIP_LIFECYCLE = (0xC1B100F4, 0xC1B10120, 0xC1B1014C)
+SHIP_TABLES = ((2, 0xC1B1DAF0), (3, 0xC1B1DAF8))
+
+
+def verify_layout(raw, sections, chunks):
+    if not 0x4C <= len(raw) <= 0x100000 or struct.unpack_from('>I', raw)[0] != 168:
+        raise ValueError('ship contract requires a bounded raw module 168')
+    count, table = struct.unpack_from('>II', raw, 0xC)
+    if count != len(sections) or not 4 <= count <= 256 or table + count * 8 > len(raw):
+        raise ValueError('ship contract raw section table is invalid')
+    for index, section in enumerate(sections):
+        flags, size = struct.unpack_from('>II', raw, table + index * 8)
+        if (section['index'] != index or section['offset'] != flags & ~1 or
+                section['size'] != size or section['executable'] != bool(flags & 1) or
+                (size and section['offset'] and section['offset'] + size > len(raw))):
+            raise ValueError('ship contract section metadata disagrees with raw REL bytes')
+    bss_size = sum(section['size'] for section in sections if not section['offset'])
+    if bss_size != struct.unpack_from('>I', raw, 0x20)[0]:
+        raise ValueError('ship contract BSS size differs from its raw header')
+    executable = [section for section in sections if section['executable'] and section['size']]
+    if len(executable) != 1 or tuple(executable[0][key] for key in (
+            'index', 'offset', 'linked_start', 'size')) != SHIP_EXEC:
+        raise ValueError('ship contract executable section offset/address/size mismatch')
+    for index, (name, expected) in enumerate(zip(('prolog', 'epilog', 'unresolved'), SHIP_LIFECYCLE)):
+        section = raw[0x30 + index]
+        offset = struct.unpack_from('>I', raw, 0x34 + index * 4)[0]
+        if section != 1 or sections[section]['linked_start'] + offset != expected:
+            raise ValueError(f'ship contract {name} address mismatch')
+    for (index, expected), name in zip(SHIP_TABLES, ('ctors', 'dtors')):
+        section = sections[index]
+        if (section['executable'] or section['size'] != 8 or not section['offset'] or
+                section['linked_start'] != expected or
+                section['offset'] != expected - (SHIP_EXEC[2] - SHIP_EXEC[1])):
+            raise ValueError(f'ship contract {name} address/size mismatch')
+    cursor = SHIP_EXEC[2]
+    for start, end in chunks:
+        if start != cursor or end <= start or end > SHIP_EXEC[2] + SHIP_EXEC[3] or (end - start) & 3:
+            raise ValueError('ship contract requires complete translated executable chunks')
+        cursor = end
+    if cursor != SHIP_EXEC[2] + SHIP_EXEC[3]:
+        raise ValueError('ship contract requires complete translated executable chunks')
+
+
+def relocate_ship(raw, sections, dol_ranges):
+    """Replay only WW63's admitted relocation semantics from ordinary REL bytes."""
+    result = {section['index']: bytearray(raw[section['offset']:section['offset'] + section['size']])
+              for section in sections if section['size'] and section['offset']}
+    imports, size = struct.unpack_from('>II', raw, 0x28)
+    if size == 0 or size % 8 or size // 8 > 32 or imports + size > len(raw):
+        raise ValueError('ship contract relocation import table is invalid')
+    relocation_start = struct.unpack_from('>I', raw, 0x24)[0]
+    for at in range(imports, imports + size, 8):
+        module, cursor = struct.unpack_from('>II', raw, at)
+        if module not in (0, 168):
+            raise ValueError('ship contract imports an unsupported module')
+        if cursor < relocation_start or cursor + 8 > len(raw):
+            raise ValueError('ship contract import points outside relocations')
+        patch = None
+        offset = 0
+        while cursor + 8 <= len(raw):
+            delta, kind, index, symbol = struct.unpack_from('>HBBI', raw, cursor)
+            cursor += 8
+            if kind == 203:
+                break
+            if kind == 202:
+                if index >= len(sections) or not sections[index]['size']:
+                    raise ValueError('ship contract relocation selects an absent patch section')
+                patch = sections[index]
+                offset = 0
+                continue
+            offset += delta
+            if patch is None or offset > patch['size']:
+                raise ValueError('ship contract relocation patch offset exceeds its section')
+            if kind == 201:
+                continue
+            width = 2 if kind in (4, 6) else 4
+            if (kind not in (1, 4, 6, 10) or offset + width > patch['size'] or
+                    offset % width or not patch['offset']):
+                raise ValueError('ship contract relocation type, storage or alignment is unsupported')
+            destination = None
+            if module == 168:
+                if index >= len(sections):
+                    raise ValueError('ship contract relocation target section is absent')
+                destination = sections[index]
+                if not destination['linked_start'] or symbol >= destination['size']:
+                    raise ValueError('ship contract relocation target exceeds its section')
+                address = destination['linked_start'] + symbol
+            else:
+                if not 0x80000000 <= symbol < 0x81800000:
+                    raise ValueError('ship contract relocation DOL target is outside MEM1')
+                address = symbol
+            value = address
+            if kind == 10:
+                coverage = dol_ranges
+                if destination is not None:
+                    coverage = ([(destination['linked_start'], destination['linked_start'] + destination['size'])]
+                                if destination['executable'] else [])
+                if address & 3 or not any(start <= address and address + 4 <= end for start, end in coverage):
+                    raise ValueError('ship contract branch target lacks translated executable coverage')
+                patch_address = patch['linked_start'] + offset
+                displacement = ((address | (patch_address & 0x40000000)) - patch_address) & 0xFFFFFFFF
+                if displacement & 0x80000000:
+                    displacement -= 0x100000000
+                word = struct.unpack_from('>I', raw, patch['offset'] + offset)[0]
+                if (not -0x2000000 <= displacement <= 0x1FFFFFC or
+                        displacement & 3 or word >> 26 != 18 or word & 2):
+                    raise ValueError('ship contract branch displacement or instruction is not representable')
+                value = (word & ~0x03FFFFFC) | (displacement & 0x03FFFFFC)
+            elif kind == 6:
+                value = (value + 0x8000) >> 16
+            struct.pack_into('>H' if width == 2 else '>I', result[patch['index']], offset,
+                             value & ((1 << (width * 8)) - 1))
+        else:
+            raise ValueError('ship contract relocation stream has no bounded end')
+    return {index: bytes(data) for index, data in result.items()}
+
+
+def normal_contract(raw_dol, raw_ship, sections, chunks, dol_ranges):
+    verify_layout(raw_ship, sections, chunks)
+    if not 0 < len(raw_dol) <= 0x800000:
+        raise ValueError('ship contract requires a bounded full raw DOL')
+    canonical = relocate_ship(raw_ship, sections, dol_ranges)
+    for section in sections:
+        if section['size'] and section['offset'] and not section['executable']:
+            if canonical[section['index']] != section['bytes']:
+                raise ValueError('ship contract canonical data differs from normal relocated exports')
+    for (index, _), name in zip(SHIP_TABLES, ('ctors', 'dtors')):
+        target, terminator = struct.unpack('>II', canonical[index])
+        if target & 3 or not SHIP_EXEC[2] <= target < SHIP_EXEC[2] + SHIP_EXEC[3] or terminator:
+            raise ValueError(f'ship contract {name} requires an owned executable target and terminator')
+    fields = {
+        'version': 1, 'module_id': 168,
+        'dol_size': len(raw_dol), 'dol_sha256': hashlib.sha256(raw_dol).hexdigest(),
+        'rel_size': len(raw_ship), 'rel_sha256': hashlib.sha256(raw_ship).hexdigest(),
+        'exec': dict(zip(('index', 'offset', 'linked_start', 'size'), SHIP_EXEC)),
+        'lifecycle': dict(zip(('prolog', 'epilog', 'unresolved'), SHIP_LIFECYCLE)),
+        'ctors': SHIP_TABLES[0][1], 'dtors': SHIP_TABLES[1][1],
+        'chunks': [list(chunk) for chunk in chunks],
+        'section_count': len(canonical),
+        'canonical_sections': [{key: section[key] for key in ('index', 'offset', 'linked_start', 'size')} |
+                               {'sha256': hashlib.sha256(canonical[section['index']]).hexdigest()}
+                               for section in sections if section['size'] and section['offset']],
+    }
+    identity = hashlib.sha256(json.dumps(fields, sort_keys=True, separators=(',', ':')).encode()).hexdigest()
+    text = emit_contract(raw_dol, raw_ship, sections, canonical, identity)
+    fields['build_identity'] = identity
+    fields['sha256'] = hashlib.sha256(text.encode()).hexdigest()
+    return text, fields, canonical[SHIP_EXEC[0]]
 
 
 def read_canonical(data, sections):

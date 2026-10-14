@@ -7,11 +7,14 @@ Deterministic: identical inputs produce byte-identical outputs.
 """
 import argparse
 import hashlib
+import json
 import os
 import re
 import struct
 import sys
 from pathlib import Path
+
+import ship_contract
 
 
 def write_lf(path, text):
@@ -162,14 +165,17 @@ def parse_rel_sections(data, section_count, sio_offset, linked_base):
 
 def find_rel_binary(rels_bin_dir, module_id):
     """Find .rel binary matching module_id by reading its header."""
+    found = None
     for bp in sorted(Path(rels_bin_dir).iterdir()):
         if bp.suffix != ".rel":
             continue
         with open(bp, "rb") as f:
             mid = struct.unpack(">I", f.read(4))[0]
         if mid == module_id:
-            return bp
-    return None
+            if found is not None:
+                raise ValueError(f'ambiguous .rel binaries for mid={module_id}')
+            found = bp
+    return found
 
 
 def read_rel_exec_range(rel_data, start, end, linked_base):
@@ -352,6 +358,9 @@ def main():
     rels_bin_dir = Path(args.rels_bin_dir)
     out_dir = Path(args.output_dir)
     out_dir.mkdir(parents=True, exist_ok=True)
+    receipt_path = out_dir / 'generation_receipt.json'
+    if receipt_path.exists():
+        receipt_path.unlink()
 
     # --- Parse DOL ---
     dol_h = (dol_dir / "generated.h").read_text()
@@ -391,6 +400,10 @@ def main():
 
     rel_entries.sort(key=lambda e: e["entry_point"])
     print(f"RELs: {len(rel_entries)} modules")
+    ship_entries = [e for e in rel_entries if int(e['name'].rsplit('_', 1)[-1]) == 168]
+    if len(ship_entries) != 1:
+        raise ValueError('ship contract requires translated module 168 exactly once')
+    ship_entry = ship_entries[0]
 
     # --- Merge ---
     all_chunks = sorted(dol_chunks + [c for e in rel_entries for c in e["chunks"]])
@@ -420,6 +433,8 @@ def main():
                 rel_bin_cache[mid] = bp.read_bytes()
             else:
                 rel_bin_cache[mid] = None
+    if rel_bin_cache.get(168) is None:
+        raise ValueError('ship contract requires raw module 168')
 
     # Build linked section images before emitting the ABI tables. The entry
     # point is inside the executable section, so recover each REL's load base
@@ -447,6 +462,11 @@ def main():
         print(f"ERROR: {exc}", file=sys.stderr)
         sys.exit(1)
     apply_rel_data_relocations(rel_bin_cache, rel_section_maps)
+    if 168 not in rel_section_maps:
+        raise ValueError('ship contract requires module 168 executable sections')
+    ship_text, ship_fields, ship_executable = ship_contract.normal_contract(
+        Path(args.main_dol).read_bytes(), rel_bin_cache[168],
+        rel_section_maps[168]['sections'], ship_entry['chunks'], dol_ranges)
 
     rel_lifecycle = {}
     for e in rel_entries:
@@ -479,7 +499,11 @@ def main():
             if rel_data is None:
                 print(f"ERROR: no .rel binary for mid={mid}", file=sys.stderr)
                 sys.exit(1)
-            data = read_rel_exec_range(rel_data, start, end, owner["entry_point"])
+            if mid == 168:
+                offset = start - ship_fields['exec']['linked_start']
+                data = ship_executable[offset:offset + end - start]
+            else:
+                data = read_rel_exec_range(rel_data, start, end, owner["entry_point"])
         chunk_hashes.append(fnv1a64(data))
 
     # --- Emit generated_composite.h ---
@@ -927,7 +951,7 @@ static inline DOLRECOMP_UNUSED int dolrecomp_run_blocks(CPUState* ctx, u32 max_b
             f"    {{{mid}u, 0x{prolog:08X}u, 0x{epilog:08X}u, 0x{unresolved:08X}u}},")
     data_lines.append("};")
     data_lines.append(f"#define MODULE_REL_LIFECYCLE_V2_COUNT {len(rel_lifecycle)}u")
-    write_lf(out_dir / "rel_data.inc", chr(10).join(data_lines) + chr(10))
+    write_lf(out_dir / "rel_data.inc", chr(10).join(data_lines) + chr(10) + ship_text)
 
     # --- Determinism audit ---
     output_files = ["generated_composite.h", "module_tables.inc", "rel_modules.inc", "rel_data.inc"]
@@ -939,6 +963,9 @@ static inline DOLRECOMP_UNUSED int dolrecomp_run_blocks(CPUState* ctx, u32 max_b
     print("Output SHA-256:")
     for fname, h_val in sorted(hashes.items()):
         print(f"  {fname}: {h_val[:16]}...")
+    receipt = {'version': 1, 'game_id': args.game_id, 'ship_contract': ship_fields,
+               'output_sha256': hashes}
+    write_lf(receipt_path, json.dumps(receipt, sort_keys=True, indent=2) + '\n')
 
     print(f"PASS: {n} chunks, {len(rel_module_info)} rel modules, "
           f"{len(all_code_ranges)} code ranges")
