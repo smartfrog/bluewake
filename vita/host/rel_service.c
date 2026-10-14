@@ -296,7 +296,7 @@ const char* ww_host_materialize_rel(WwHost* host, u32 owner, const char* name) {
             memcpy(storage, image, bytes);
             if (memcmp(storage, image, bytes) != 0)
                 error = "REL scratch copy differs from the verified raw image";
-            else if (fprintf(stderr, "[rel-materialized] module=%u name=%s bytes=%u guest=%08X owner=%08X source=iso-RELS.arc backend=%s\n",
+            else if (fprintf(stderr, "[rel-materialized] module=%u name=%s bytes=%u guest=%08X owner=%08X source=owned-iso backend=%s\n",
                              module_id, name, bytes, guest, owner, bw_dvd_io_backend_name()) < 0)
                 error = "REL materialization trace write failed";
         }

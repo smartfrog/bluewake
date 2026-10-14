@@ -129,6 +129,21 @@ class RelProviderTest(unittest.TestCase):
         image = add_loose(base_image(rarc([(b'f_pc_profile_lst.rel', raw_rel(4))])), title)
         self.run_probe('serve-case', 'expected.bin', image, title)
 
+    def test_loose_module_materialize_trace_names_the_owned_iso(self):
+        title = raw_rel(8)
+        image = add_loose(base_image(rarc([(b'f_pc_profile_lst.rel', raw_rel(4))])), title)
+        result = self.run_probe('materialize', 'd_a_title', image)
+        self.assertIn('source=owned-iso', result.stderr)
+        self.assertNotIn('iso-RELS.arc', result.stderr)
+
+    def test_archive_module_materialize_trace_names_the_owned_iso(self):
+        title = raw_rel(8)
+        image = base_image(rarc([(b'f_pc_profile_lst.rel', raw_rel(4)),
+                                 (b'd_a_title.rel', title)]))
+        result = self.run_probe('materialize', 'd_a_title', image)
+        self.assertIn('source=owned-iso', result.stderr)
+        self.assertNotIn('iso-RELS.arc', result.stderr)
+
     def test_absent_module_fails_closed(self):
         image = base_image(rarc([(b'f_pc_profile_lst.rel', raw_rel(4))]))
         self.reject(image, 'requested REL is absent from the owned ISO archive and loose rels/')

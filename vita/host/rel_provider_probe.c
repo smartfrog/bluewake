@@ -26,6 +26,13 @@ int __wrap_bw_dvd_fclose(FILE* stream) {
     return __real_bw_dvd_fclose(stream);
 }
 
+static const StaticRecompRelModule materialize_rel = {
+    .module_id = 1u, .section_count = 2u, .section_info_offset = 0x4Cu, .file_size = 256u,
+};
+static const StaticRecompModuleDesc materialize_module = {
+    .rel_modules = &materialize_rel, .num_rel_modules = 1u,
+};
+
 static void serve_title(WwHost* host, const char* name, const char* expected_path) {
     u8* image = NULL;
     u32 bytes = 0u;
@@ -55,7 +62,12 @@ int main(int argc, char** argv) {
     }
     if (strcmp(scenario, "closefail") == 0)
         fail_close_at = (unsigned)strtoul(argument, NULL, 0);
-    if (strcmp(scenario, "serve") == 0) {
+    if (strcmp(scenario, "materialize") == 0) {
+        host->module = &materialize_module;
+        const char* error = ww_host_materialize_rel(host, 0x80002000u, "d_a_title");
+        assert(error == NULL);
+        fprintf(stderr, "PASS materialized\n");
+    } else if (strcmp(scenario, "serve") == 0) {
         serve_title(host, "d_a_title", argument);
     } else if (strcmp(scenario, "serve-case") == 0) {
         serve_title(host, "D_A_TITLE", argument);
