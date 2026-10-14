@@ -7,7 +7,7 @@ from vector_fixture import external_vector_fixture
 
 ROOT = Path(__file__).resolve().parents[2]
 STACK = Path('/home/fred/projects/zeldaWWHDRecomp/build-vita-tools/local-stack')
-OUT = Path('/home/fred/projects/zeldaWWHDRecomp/build-f5/services-tests')
+OUT = ROOT / 'build-f5/services-tests'
 FIFO_REGISTERS = {'pi-fifo-base': 4, 'pi-fifo-end': 4, 'pi-fifo-wptr': 4,
                   'cp-fifo-base-low': 2, 'cp-fifo-end-low': 2, 'cp-fifo-wptr-low': 2,
                   'cp-fifo-rptr-low': 2, 'cp-fifo-high-watermark-low': 2,
@@ -29,7 +29,12 @@ def require_no_vita3k():
 class StartupHostTest(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
-        generator = OUT / 'vector-generator'
+        cls.build()
+
+    @classmethod
+    def build(cls, output=None, cmake_options=(), targets=()):
+        output = OUT if output is None else output
+        generator = output / 'vector-generator'
         subprocess.run([str(STACK / 'bin/cmake'), '-S', str(ROOT / 'vita/feasibility/armv7/generator'),
                         '-B', str(generator), '-G', 'Ninja', f'-DCMAKE_C_COMPILER={os.environ["CC"]}',
                         f'-DCMAKE_MAKE_PROGRAM={STACK}/bin/ninja',
@@ -38,31 +43,32 @@ class StartupHostTest(unittest.TestCase):
         require_no_vita3k()
         subprocess.run([str(STACK / 'bin/cmake'), '--build', str(generator),
                         '--target', 'ww_vector_emit', 'ww_ship_fixture_emit', '-j', '1'], check=True, capture_output=True)
-        binary = OUT / 'synthetic-external-vector.bin'
+        binary = output / 'synthetic-external-vector.bin'
         binary.write_bytes(external_vector_fixture())
-        with (OUT / 'ww05_external_vector.c').open('w') as stream:
+        with (output / 'ww05_external_vector.c').open('w') as stream:
             subprocess.run([str(generator / 'ww_vector_emit'), str(binary)], check=True, stdout=stream)
-        binary = OUT / 'synthetic-fp-vector.bin'
+        binary = output / 'synthetic-fp-vector.bin'
         binary.write_bytes(external_vector_fixture(7))
-        with (OUT / 'ww05_fp_vector.c').open('w') as stream:
+        with (output / 'ww05_fp_vector.c').open('w') as stream:
             subprocess.run([str(generator / 'ww_vector_emit'), str(binary), '00000800'], check=True, stdout=stream)
-        binary = OUT / 'synthetic-decrementer-vector.bin'
+        binary = output / 'synthetic-decrementer-vector.bin'
         binary.write_bytes(external_vector_fixture(8))
-        with (OUT / 'ww05_decrementer_vector.c').open('w') as stream:
+        with (output / 'ww05_decrementer_vector.c').open('w') as stream:
             subprocess.run([str(generator / 'ww_vector_emit'), str(binary), '00000900'], check=True, stdout=stream)
         from test_ship_prolog import fixture
-        fixture(OUT)
-        with (OUT / 'ship_translated.c').open('w') as stream:
-            subprocess.run([str(generator / 'ww_ship_fixture_emit'), str(OUT / 'ship.instructions')],
+        fixture(output)
+        with (output / 'ship_translated.c').open('w') as stream:
+            subprocess.run([str(generator / 'ww_ship_fixture_emit'), str(output / 'ship.instructions')],
                            check=True, stdout=stream)
-        subprocess.run([str(STACK / 'bin/cmake'), '-S', str(ROOT / 'vita/host'), '-B', str(OUT),
+        subprocess.run([str(STACK / 'bin/cmake'), '-S', str(ROOT / 'vita/host'), '-B', str(output),
                         '-G', 'Ninja', f'-DCMAKE_C_COMPILER={os.environ["CC"]}',
                         f'-DCMAKE_MAKE_PROGRAM={STACK}/bin/ninja',
                         f'-DRECOMPCORE_DIR={ROOT}/ref/vita-ww-01/RecompCore',
-                        '-DWW05_TESTS_ONLY=ON'], check=True, capture_output=True)
+                        '-DWW05_TESTS_ONLY=ON', *cmake_options], check=True, capture_output=True)
         require_no_vita3k()
-        with (OUT / 'build.log').open('w') as log:
-            subprocess.run([str(STACK / 'bin/cmake'), '--build', str(OUT), '-j', '1'],
+        with (output / 'build.log').open('w') as log:
+            subprocess.run([str(STACK / 'bin/cmake'), '--build', str(output), '-j', '1',
+                            *(['--target', *targets] if targets else [])],
                            check=True, stdout=log, stderr=subprocess.STDOUT)
 
     def test_unknown_mmio_stops_with_context(self):

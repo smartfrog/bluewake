@@ -18,12 +18,13 @@ int main(int argc, char** argv) {
                           ww05_external_vector_reference;
     WwHost* host = calloc(1u, sizeof(*host));
     assert(host != NULL && ww_host_init(host));
+    const bool failed_store = strcmp(argv[1], "failed-store") == 0;
     StaticRecompRange range = {0x80001000u, 0x80001004u};
     StaticRecompModuleDesc module = {.dispatch = unsupported_dispatch, .code_ranges = &range, .num_code_ranges = 1u};
     host->module = &module;
     CPUState* cpu = &host->cpu;
     memcpy(cpu->ram + vector, reference, WW05_EXTERNAL_VECTOR_BYTES);
-    mem_write32(cpu, 0x800000C0u, 0x80002000u);
+    mem_write32(cpu, 0x800000C0u, failed_store ? 0xCC123400u : 0x80002000u);
     mem_write32(cpu, 0x80003010u, 0x80004000u);
     mem_write32(cpu, 0x8000200Cu, 0xCCCCCCCCu);
     cpu->pc = vector;
@@ -98,6 +99,12 @@ int main(int argc, char** argv) {
             assert(mem_read32(cpu, 0x8000200Cu) == 0xCCCCCCCCu);
             break;
         }
+        if (failed_store && host->error != NULL) {
+            assert(dispatched == 1 && cpu->exception != 0u);
+            assert(strcmp(host->error, "unsupported MMIO write") == 0);
+            assert(host->error_address == 0xCC12340Cu);
+            break;
+        }
         assert(dispatched == 1 && host->error == NULL && ++dispatches < 64u);
         if (zero) {
             assert(cpu->pc == vector && cpu->gpr[4] == 0xB6B6B6B6u);
@@ -106,6 +113,8 @@ int main(int argc, char** argv) {
             break;
         }
     } while (cpu->pc >= vector && cpu->pc < vector + WW05_EXTERNAL_VECTOR_BYTES);
+    if (failed_store)
+        assert(host->error != NULL);
     if (!host->error && !zero) {
         assert(strcmp(argv[1], "execute") == 0 || single);
         assert(cpu->pc == 0x80004000u && cpu->msr == (PPC_MSR_IR | PPC_MSR_DR));
