@@ -3,6 +3,7 @@
 #include "rel_archive.h"
 #include "gxruntime/dvd.h"
 #include <ctype.h>
+#include <stdio.h>
 #include <stdlib.h>
 
 static bool member_matches(const char* member, const char* name) {
@@ -13,6 +14,62 @@ static bool member_matches(const char* member, const char* name) {
         ++name;
     }
     return strcmp(member, ".rel") == 0;
+}
+
+// One bounded per-request fallback: when the archive has no matching member,
+// read the loose rels/<name>.rel file range through the same DVD seam and
+// decoder the archive path uses. The raw bytes are returned untouched.
+static const char* loose_rel_image(const char* name, u8** image, size_t* result_bytes) {
+    if (!bluewake_rel_module_name_valid(name))
+        return "REL loose module name is not a bounded identifier";
+    char path[128];
+    const int written = snprintf(path, sizeof(path), "/rels/%s.rel", name);
+    if (written < 0 || (size_t)written >= sizeof(path))
+        return "REL loose module path exceeds its bound";
+    u32 start = 0u, source_bytes = 0u;
+    const s32 entry = dvd_path_to_entrynum(path);
+    if (entry < 0 || !dvd_entry_info(entry, &start, &source_bytes))
+        return "requested REL is absent from the owned ISO archive and loose rels/";
+    if (source_bytes == 0u || source_bytes > 16u * 1024u * 1024u ||
+        (u64)start + source_bytes > 0x80000000ull)
+        return "REL loose member ISO range is invalid or unbounded";
+    u8* member = malloc(source_bytes);
+    if (member == NULL)
+        return "REL loose member allocation failed";
+    FILE* stream = bw_dvd_fopen(BW_DVD_INSTALL_PATH, "rb");
+    if (stream == NULL) {
+        free(member);
+        return "REL loose member ISO stream open failed";
+    }
+    const char* error = NULL;
+    if (bw_dvd_fseeko(stream, start, SEEK_SET) != 0 ||
+        bw_dvd_fread(member, 1u, source_bytes, stream) != source_bytes)
+        error = "REL loose member ISO read failed or was short";
+    if (bw_dvd_fclose(stream) != 0 && error == NULL)
+        error = "REL loose member ISO stream close failed";
+    if (error != NULL) {
+        free(member);
+        return error;
+    }
+    if (source_bytes >= 4u && memcmp(member, "Yaz0", 4u) == 0) {
+        size_t decoded_bytes = source_bytes;
+        u8* decoded = NULL;
+        if (source_bytes >= 16u && bluewake_archive_be32(member + 4u) <= 0x100000u)
+            decoded = yaz0_decode(member, source_bytes, &decoded_bytes);
+        free(member);
+        member = decoded;
+        if (member == NULL)
+            return "REL loose member Yaz0 wrapper is invalid or exceeds the bound";
+        *result_bytes = decoded_bytes;
+    } else {
+        *result_bytes = source_bytes;
+    }
+    if (*result_bytes < 0x4Cu || *result_bytes > 0x100000u) {
+        free(member);
+        return "REL loose member is invalid, too large or could not be allocated";
+    }
+    *image = member;
+    return NULL;
 }
 
 const char* ww_host_rel_image(WwHost* host, const char* name, u8** image, u32* bytes) {
@@ -73,11 +130,9 @@ const char* ww_host_rel_image(WwHost* host, const char* name, u8** image, u32* b
             found = member;
             found_bytes = size;
         }
-        if (error == NULL && found == NULL)
-            error = "requested REL is absent from the owned ISO archive";
     }
     size_t result_bytes = found_bytes;
-    if (error == NULL) {
+    if (error == NULL && found != NULL) {
         if (found_bytes >= 4u && memcmp(found, "Yaz0", 4u) == 0) {
             if (found_bytes >= 16u && bluewake_archive_be32(found + 4u) <= 0x100000u)
                 *image = yaz0_decode(found, found_bytes, &result_bytes);
@@ -89,6 +144,8 @@ const char* ww_host_rel_image(WwHost* host, const char* name, u8** image, u32* b
         if (*image == NULL || result_bytes < 0x4Cu || result_bytes > 0x100000u)
             error = "REL member is invalid, too large or could not be allocated";
     }
+    if (error == NULL && found == NULL)
+        error = loose_rel_image(name, image, &result_bytes);
     free(archive);
     if (error != NULL) {
         free(*image);
