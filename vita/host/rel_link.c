@@ -396,6 +396,41 @@ bool ww_host_rel_sections_match(const WwRelImage* slot) {
     return true;
 }
 
+bool ww_host_rel_sections_match_post_link(const WwRelImage* slot) {
+    u8* raw = NULL;
+    if (slot == NULL || slot->sections == NULL || slot->bytes < 0x4Cu || slot->bytes > slot->capacity ||
+        slot->section_count == 0u || slot->section_count > 256u ||
+        (u64)slot->section_table + (u64)slot->section_count * 8u > slot->bytes ||
+        !ppc_guest_alias_get_storage(slot->guest, slot->capacity, &raw))
+        return false;
+    if (ww_host_rel_sections_match(slot))
+        return true;
+    const u64 table = (u64)slot->guest + slot->section_table;
+    if (!slot->linked || table > UINT32_MAX || bluewake_archive_be32(raw + 0xCu) != slot->section_count ||
+        bluewake_archive_be32(raw + 0x10u) != table)
+        return false;
+    for (u32 at = 0u; at < slot->section_count; ++at) {
+        const WwRelSection* section = &slot->sections[at];
+        const u32 flags = bluewake_archive_be32(raw + slot->section_table + at * 8u);
+        const u32 size = bluewake_archive_be32(raw + slot->section_table + at * 8u + 4u);
+        if (size != section->size)
+            return false;
+        const u32 offset = section->flags & ~1u;
+        if (offset != 0u) {
+            const u64 expected = ((u64)slot->guest + offset) | (section->flags & 1u);
+            if (expected > UINT32_MAX || flags != expected)
+                return false;
+        } else if (section->size == 0u) {
+            if (flags != section->flags)
+                return false;
+        } else if (flags != 0u && ((flags & 3u) != 0u || flags < GC_RAM_BASE ||
+                   flags >= GC_RAM_BASE + GC_MAIN_RAM_SIZE)) {
+            return false;
+        }
+    }
+    return true;
+}
+
 static void trace_section_mismatch(const WwRelImage* slot) {
     u8* raw = NULL;
     if (slot->capacity < 0x14u || !ppc_guest_alias_get_storage(slot->guest, slot->capacity, &raw))
@@ -451,7 +486,7 @@ const char* ww_host_rel_constructor_boundary(WwHost* host, u32 address) {
         const WwRelImage* image = ww_host_rel_owned(host, host->rel_constructor_owner);
         if (image == NULL || ww_host_rel_live(host, image->module_id) != image)
             return "REL constructor continuation requires its live owner";
-        if (!ww_host_rel_sections_match(image) || !ww_host_rel_raw_unchanged(image))
+        if (!ww_host_rel_sections_match_post_link(image) || !ww_host_rel_raw_unchanged(image))
             return "REL constructor raw image changed after validation";
         const u8* table = get_ram_ptr(cpu, host->rel_constructor_table, host->rel_constructor_size, NULL);
         if (table == NULL || memcmp(table, host->rel_constructor_bytes, host->rel_constructor_size) != 0)
@@ -484,7 +519,7 @@ const char* ww_host_rel_constructor_boundary(WwHost* host, u32 address) {
     }
     if (image == NULL)
         return "REL constructor table requires its caller's live owner";
-    if (!ww_host_rel_sections_match(image) || !ww_host_rel_raw_unchanged(image))
+    if (!ww_host_rel_sections_match_post_link(image) || !ww_host_rel_raw_unchanged(image))
         return "REL constructor raw image changed after validation";
     if (host->rel_constructor_owner != 0u &&
         (host->rel_constructor_owner != image->owner || host->rel_constructor_return != caller))
@@ -550,7 +585,7 @@ u32 ww_host_rel_address(WwHost* host, u32 address) {
             continue;
         if (!slot->linked || mem_read32(&host->cpu, slot->owner + 0x10u) != slot->guest)
             continue;
-        if (!ww_host_rel_sections_match(slot)) {
+        if (!ww_host_rel_sections_match_post_link(slot)) {
             trace_section_mismatch(slot);
             ww_host_fail(host, "REL owned section table changed after validation", address, host->cpu.pc);
             return address;
