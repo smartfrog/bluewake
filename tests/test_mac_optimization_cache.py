@@ -21,6 +21,7 @@ class MacOptimizationCacheTest(unittest.TestCase):
         script = r'''
 set -euo pipefail
 root=$1; out=$2; module_optimizations=$3; mods=0; accept_new=0; logs=$out/logs
+iso=$out/synthetic.iso
 mkdir -p "$logs"
 . "$root/scripts/builder/profiles/bluewake.sh"
 mkdir -p "$out/fixture"

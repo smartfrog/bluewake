@@ -153,6 +153,7 @@ def main():
                                          '--dol-dir', translated / 'dol/generated',
                                          '--rels-dir', translated / 'rels/generated/rels',
                                          '--rels-bin-dir', private / 'rels', '--main-dol', private / 'main.dol',
+                                         '--ship-disc', args.disc,
                                          '--output-dir', composite])
     digest = subprocess.check_output([sys.executable, '-B', ROOT / 'scripts/ios/composite_manifest.py', composite],
                                      text=True).split()[0]

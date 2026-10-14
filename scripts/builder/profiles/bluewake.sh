@@ -147,7 +147,7 @@ profile_generate() {
     rm -rf "$out/composite-src.new"
     run composite-generate python3 scripts/generate_composite.py \
         --dol-dir "$out/translated/dol/generated" --rels-dir "$out/translated/rels/generated/rels" \
-        --rels-bin-dir "$out/game/rels" --main-dol "$out/game/main.dol" --output-dir "$out/composite-src.new"
+        --rels-bin-dir "$out/game/rels" --main-dol "$out/game/main.dol" --ship-disc "$iso" --output-dir "$out/composite-src.new"
     tail -1 "$logs/composite-generate.log"
     local digest
     digest=$(python3 scripts/ios/composite_manifest.py "$out/composite-src.new" | awk '{print $1}')

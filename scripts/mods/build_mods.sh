@@ -3,7 +3,7 @@
 # and each widescreen with them) to a device build's composite source, after
 # scripts/ios/build_device.sh has built it.
 #
-#   scripts/mods/build_mods.sh BUILD_DIR [DISC.iso]
+#   scripts/mods/build_mods.sh BUILD_DIR DISC.iso
 #
 # BUILD_DIR is build_device.sh's --out (default build/device). Afterwards, run
 # the composite build again (cmake BUILD_DIR/composite-ios && ninja -C
@@ -11,7 +11,8 @@
 # See docs/MODS.md.
 set -euo pipefail
 root=$(cd "$(dirname "$0")/../.." && pwd)
-B=$(cd "${1:?usage: build_mods.sh BUILD_DIR [DISC.iso]}" && pwd)
+B=$(cd "${1:?usage: build_mods.sh BUILD_DIR DISC.iso}" && pwd)
+disc=${2:?usage: build_mods.sh BUILD_DIR DISC.iso}
 M=$B/mods
 mkdir -p "$M"
 dolrecomp=${DOLRECOMP:-$B/dolrecomp/dolrecomp}
@@ -32,7 +33,7 @@ translate() {  # DOL OUT_DIR [RELS_DIR]; with the option sites while sites=(--op
 }
 composite() {  # DOL_DIR RELS_DIR RELS_BIN MAIN_DOL OUT
     python3 "$root/scripts/generate_composite.py" --dol-dir "$1" --rels-dir "$2" --rels-bin-dir "$3" \
-        --main-dol "$4" --output-dir "$5" | tail -1
+        --main-dol "$4" --ship-disc "$disc" --output-dir "$5" | tail -1
 }
 
 echo "==> widescreen"
@@ -77,7 +78,7 @@ sites=()
 echo "==> variants into $B/composite-src"
 python3 "$root/scripts/generate_composite.py" --dol-dir "$B/translated/dol/generated" \
     --rels-dir "$B/translated/rels/generated/rels" --rels-bin-dir "$B/game/rels" --main-dol "$B/game/main.dol" \
-    --output-dir "$M/composite-src.base" | tail -1
+    --ship-disc "$disc" --output-dir "$M/composite-src.base" | tail -1
 python3 "$root/scripts/mods/build_mod_variants.py" --composite-src "$M/composite-src.base" --base-dol "$B/game/main.dol" \
     --mod "widescreen:$M/widescreen/composite-src:$M/widescreen/main.dol:$M/widescreen/runtime.json" \
     --mod "betterww:$M/betterww/composite-src:$B/game/main.dol" \
