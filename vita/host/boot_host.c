@@ -235,7 +235,7 @@ static void cache_control(CPUState* cpu, u8 operation, u32 ea, u32 cia) {
         WwHost* host = owner(cpu);
         const u32 address = canonical_dispatch_address(cpu, ea);
         if (host->module == NULL || (!ww_code_guard_matches(&host->code_guard, cpu, address) &&
-            ww_host_rel_address(host, address) == address)) {
+            !ww_host_rel_icbi_allowed(host, address))) {
             ww_host_fail(host, "instruction cache invalidation requires unmodified mapped DOL code", address, cia);
             return;
         }

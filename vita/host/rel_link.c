@@ -571,12 +571,12 @@ const char* ww_host_rel_constructor_boundary(WwHost* host, u32 address) {
     return "REL constructor table has no terminator within its owned section";
 }
 
-u32 ww_host_rel_address(WwHost* host, u32 address) {
+static const WwRelImage* linked_image_at(WwHost* host, u32 address) {
     const u32 canonical = address & ~0x40000000u;
     const bool legacy = canonical >= WW_REL_SCRATCH_BASE && canonical < WW_REL_SCRATCH_LIMIT;
     const bool ship = canonical >= WW_REL_SHIP_SCRATCH_BASE && canonical < WW_REL_SHIP_SCRATCH_LIMIT;
     if (!legacy && !ship)
-        return address;
+        return NULL;
     for (u32 at = 0u; at < host->rel_image_count; ++at) {
         const WwRelImage* slot = &host->rel_images[at];
         if (ship && (slot->module_id != 168u || host->ship_contract == NULL))
@@ -588,15 +588,28 @@ u32 ww_host_rel_address(WwHost* host, u32 address) {
         if (!ww_host_rel_sections_match_post_link(slot)) {
             trace_section_mismatch(slot);
             ww_host_fail(host, "REL owned section table changed after validation", address, host->cpu.pc);
-            return address;
+            return NULL;
         }
-        for (u32 section = 0u; section < slot->section_count; ++section) {
-            const WwRelSection* linked = &slot->sections[section];
-            const u32 start = slot->guest + (linked->flags & ~1u);
-            if (linked->linked_start != 0u && (linked->flags & 1u) != 0u &&
-                canonical >= start && (u64)canonical < (u64)start + linked->size)
-                return linked->linked_start + canonical - start;
-        }
+        return slot;
+    }
+    return NULL;
+}
+
+bool ww_host_rel_icbi_allowed(WwHost* host, u32 address) {
+    return linked_image_at(host, address) != NULL;
+}
+
+u32 ww_host_rel_address(WwHost* host, u32 address) {
+    const WwRelImage* slot = linked_image_at(host, address);
+    if (slot == NULL)
+        return address;
+    const u32 canonical = address & ~0x40000000u;
+    for (u32 section = 0u; section < slot->section_count; ++section) {
+        const WwRelSection* linked = &slot->sections[section];
+        const u32 start = slot->guest + (linked->flags & ~1u);
+        if (linked->linked_start != 0u && (linked->flags & 1u) != 0u &&
+            canonical >= start && (u64)canonical < (u64)start + linked->size)
+            return linked->linked_start + canonical - start;
     }
     return address;
 }

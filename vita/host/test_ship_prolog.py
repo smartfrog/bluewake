@@ -229,18 +229,40 @@ class ShipPrologTest(unittest.TestCase):
     def test_icbi_accepts_the_tagged_staging_alias_of_published_linked_ship_code(self):
         self.assertIn('PASS icbi accepted', self.run_probe('icbi-tagged'))
 
-    def test_icbi_refuses_targets_outside_the_published_ship_executable_range(self):
+    def test_icbi_accepts_non_executable_data_in_the_published_linked_image(self):
+        self.assertIn('PASS icbi accepted', self.run_probe('icbi-data'))
+
+    def test_icbi_accepts_non_executable_data_after_exact_section_table_relocation(self):
+        log = self.run_probe('icbi-data-relocated')
+        self.assertIn('PASS icbi accepted', log)
+        self.assertNotIn('[rel-section-mismatch]', log)
+
+    def test_icbi_refuses_in_image_data_when_the_relocated_section_guard_fails(self):
+        log = self.run_probe('icbi-data-tampered')
+        self.assertIn('PASS icbi refused', log)
+        self.assertIn('[rel-section-mismatch]', log)
+
+    def test_icbi_accepts_the_first_byte_of_the_published_linked_image(self):
+        self.assertIn('PASS icbi accepted', self.run_probe('icbi-image-start'))
+
+    def test_icbi_accepts_the_last_byte_of_the_published_linked_image(self):
+        self.assertIn('PASS icbi accepted', self.run_probe('icbi-image-last'))
+
+    def test_icbi_accepts_the_tagged_alias_of_the_last_image_byte(self):
+        self.assertIn('PASS icbi accepted', self.run_probe('icbi-image-tagged'))
+
+    def test_icbi_refuses_targets_outside_the_published_ship_image(self):
         for boundary in ('below', 'end', 'above'):
             with self.subTest(boundary=boundary):
                 self.assertIn('PASS icbi refused', self.run_probe(f'icbi-{boundary}'))
 
-    def test_icbi_refuses_ship_code_after_its_guest_publication_is_cleared(self):
+    def test_icbi_refuses_ship_data_after_its_guest_publication_is_cleared(self):
         self.assertIn('PASS icbi refused', self.run_probe('icbi-unpublished'))
 
-    def test_icbi_refuses_ship_code_after_its_linked_state_is_cleared(self):
+    def test_icbi_refuses_ship_data_after_its_linked_state_is_cleared(self):
         self.assertIn('PASS icbi refused', self.run_probe('icbi-unlinked'))
 
-    def test_icbi_refuses_ship_code_after_its_unlinked_image_is_collected(self):
+    def test_icbi_refuses_ship_data_after_its_unlinked_image_is_collected(self):
         self.assertIn('PASS icbi refused', self.run_probe('icbi-collected'))
 
     def test_icbi_refuses_ship_fallback_code_without_its_certification_contract(self):

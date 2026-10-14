@@ -5,6 +5,7 @@
 #include "ship_fixture.inc"
 #include "ship_contract.inc"
 #include "rel_section_guard_probe.h"
+#include "rel_icbi_probe.h"
 #define DOLRECOMP_CPU_HEADER "core/cpu.h"
 #define DOLRECOMP_C_LOOP_CYCLE_BUDGET (ctx->cycle_budget)
 #include "ship_translated.c"
@@ -130,62 +131,6 @@ static int translated_dispatch(CPUState* cpu, u32 address) {
     return bluewake_chassis_dispatch_loop(cpu, address, translated_chunk, probe_edge, cpu->external_user_data);
 }
 
-static void probe_icbi(WwHost* host) {
-    CPUState* cpu = &host->cpu;
-    assert(ww_host_materialize_rel(host, cpu->gpr[3], "d_a_ship") == NULL);
-    assert(ww_host_link_rel(host, cpu->gpr[3]) == NULL);
-    WwRelImage* image = ww_host_rel_live(host, 168u);
-    assert(image != NULL && image->guest == WW_REL_SHIP_SCRATCH_BASE);
-    const WwRelSection* section = &image->sections[1];
-    const u32 start = image->guest + (section->flags & ~1u);
-    const u32 end = start + section->size;
-    u32 target = start;
-    bool accepted = false;
-    if (strcmp(scenario, "icbi-start") == 0 || strcmp(scenario, "icbi-tagged") == 0)
-        accepted = true;
-    else if (strcmp(scenario, "icbi-interior") == 0) {
-        target++;
-        accepted = true;
-    } else if (strcmp(scenario, "icbi-last") == 0) {
-        target = end - 1u;
-        accepted = true;
-    } else if (strcmp(scenario, "icbi-below") == 0)
-        target--;
-    else if (strcmp(scenario, "icbi-end") == 0)
-        target = end;
-    else if (strcmp(scenario, "icbi-above") == 0)
-        target = end + 1u;
-    else if (strcmp(scenario, "icbi-unknown") == 0)
-        target = 0x90000000u;
-    else if (strcmp(scenario, "icbi-unpublished") == 0)
-        mem_write32(cpu, image->owner + 0x10u, 0u);
-    else if (strcmp(scenario, "icbi-unlinked") == 0 || strcmp(scenario, "icbi-collected") == 0) {
-        image->linked = false;
-        image->unlinked = true;
-        mem_write32(cpu, image->owner + 0x10u, 0u);
-        if (strcmp(scenario, "icbi-collected") == 0)
-            assert(ww_host_collect_rels(host) == NULL);
-    } else if (strcmp(scenario, "icbi-no-contract") == 0)
-        host->ship_contract = NULL;
-    else
-        assert(false);
-    if (strcmp(scenario, "icbi-tagged") == 0)
-        target |= 0x40000000u;
-    cpu->pc = 0x803031D8u;
-    cpu->gpr[3] = target;
-    cpu->instruction_fallback(cpu, 0x7C001FACu, cpu->pc);
-    if (accepted) {
-        if (host->error != NULL)
-            fprintf(stderr, "STOP reason=%s address=%08X\n", host->error, host->error_address);
-        assert(host->error == NULL && cpu->exception == 0u && cpu->pc == 0x803031DCu);
-    } else {
-        assert(host->error != NULL && cpu->exception == PPC_EXC_PROGRAM && cpu->pc == 0x803031D8u);
-        assert(strcmp(host->error, "instruction cache invalidation requires unmodified mapped DOL code") == 0);
-        assert(host->error_address == target && host->error_pc == cpu->pc);
-    }
-    fprintf(stderr, "PASS icbi %s target=%08X range=[%08X,%08X)\n", accepted ? "accepted" : "refused", target, start, end);
-}
-
 int main(int argc, char** argv) {
     assert(argc >= 2 && argc <= 4);
     scenario = argv[1];
@@ -308,7 +253,7 @@ int main(int argc, char** argv) {
         return 0;
     }
     if (strncmp(scenario, "icbi-", 5u) == 0) {
-        probe_icbi(host);
+        probe_rel_icbi(host, scenario);
         ww_host_shutdown(host);
         free(scratch_ranges);
         free(host);
