@@ -236,8 +236,7 @@ const char* ww_host_materialize_rel(WwHost* host, u32 owner, const char* name) {
         return "REL materialization requires an owned host";
     if (host->module == NULL || host->module->rel_modules == NULL)
         return "REL materialization requires the compiled module catalog";
-    if (name == NULL || name[0] == '\0' || strlen(name) > 95u || strspn(name,
-        "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_") != strlen(name))
+    if (!bluewake_rel_module_name_valid(name))
         return "REL materialization requires a bounded module identifier";
     if ((owner & 3u) != 0u || owner < GC_RAM_BASE || (u64)owner + 0x20u > (u64)GC_RAM_BASE + host->cpu.ram_size ||
         ww_host_linked_alias_overlaps(owner, 0x20u))
@@ -297,7 +296,7 @@ const char* ww_host_materialize_rel(WwHost* host, u32 owner, const char* name) {
             memcpy(storage, image, bytes);
             if (memcmp(storage, image, bytes) != 0)
                 error = "REL scratch copy differs from the verified raw image";
-            else if (fprintf(stderr, "[rel-materialized] module=%u name=%s bytes=%u guest=%08X owner=%08X source=iso-RELS.arc backend=%s\n",
+            else if (fprintf(stderr, "[rel-materialized] module=%u name=%s bytes=%u guest=%08X owner=%08X source=owned-iso backend=%s\n",
                              module_id, name, bytes, guest, owner, bw_dvd_io_backend_name()) < 0)
                 error = "REL materialization trace write failed";
         }

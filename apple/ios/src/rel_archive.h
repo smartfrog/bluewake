@@ -1,9 +1,19 @@
 #ifndef BLUEWAKE_REL_ARCHIVE_H
 #define BLUEWAKE_REL_ARCHIVE_H
 
+#include <stdbool.h>
 #include <stdint.h>
 #include <stdlib.h>
 #include <string.h>
+
+// Module request names are bounded identifiers: no separators, dots or
+// whitespace, so they can never escape the archive or the loose rels/ folder.
+static inline bool bluewake_rel_module_name_valid(const char* name) {
+    if (name == NULL || name[0] == '\0' || strlen(name) > 95u)
+        return false;
+    return strspn(name, "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_") ==
+        strlen(name);
+}
 
 static inline uint32_t bluewake_archive_be32(const uint8_t* p) {
     return ((uint32_t)p[0] << 24) | ((uint32_t)p[1] << 16) | ((uint32_t)p[2] << 8) | p[3];
