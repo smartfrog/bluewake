@@ -193,7 +193,8 @@ bool ww_host_dvd_edge(WwHost* host, u32 address) {
         dvd_read_edge(host, address);
         return true;
     }
-    const bool entry_only = address == 0x8030F2B0u;
+    const bool archive_entry = address == 0x80017FD8u;
+    const bool entry_only = address == 0x8030F2B0u || archive_entry;
     const bool fast = address == 0x8030F5A4u;
     if (!entry_only && !fast && address != 0x8030F618u)
         return false;
@@ -211,9 +212,9 @@ bool ww_host_dvd_edge(WwHost* host, u32 address) {
         error = ww_host_disc_ready(host);
     if (error == NULL) {
         const s32 entry = fast ? (s32)cpu->gpr[3] : dvd_path_to_entrynum(path);
+        const char* kind = archive_entry ? "archive" : entry_only ? "entry" : fast ? "fast" : "open";
         if (fprintf(stderr, "[dvd-open] kind=%s path=%s entry=%d file=%08X backend=%s pc=%08X\n",
-                    entry_only ? "entry" : fast ? "fast" : "open", path, entry, file_info,
-                    bw_dvd_io_backend_name(), address) < 0) {
+                    kind, path, entry, file_info, bw_dvd_io_backend_name(), address) < 0) {
             error = "DVD open trace write failed";
         } else {
             if (entry_only)
