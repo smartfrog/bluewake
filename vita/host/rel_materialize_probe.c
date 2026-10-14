@@ -610,7 +610,8 @@ int main(int argc, char** argv) {
     const char* scenario = argv[1];
     const bool second = strncmp(scenario, "second", 6u) == 0;
     const bool link_case = strncmp(scenario, "link", 4u) == 0 || second;
-    const bool link_success = strcmp(scenario, "link") == 0 || strcmp(scenario, "link-repeat") == 0 || second;
+    const bool link_success = strcmp(scenario, "link") == 0 || strcmp(scenario, "link-repeat") == 0 ||
+        strcmp(scenario, "link-relocated") == 0 || second;
     WwHost* host = calloc(1u, sizeof(*host));
     assert(host != NULL && ww_host_init(host));
     track_sections = true;
@@ -724,6 +725,20 @@ int main(int argc, char** argv) {
                 bw_dvd_io_stats(&after);
                 assert(host->error == NULL && cpu->pc == cpu->lr && cpu->gpr[3] == 1u);
                 assert(after.total_read_bytes == before.total_read_bytes && host->alias_count == 1u);
+            }
+            if (strcmp(scenario, "link-relocated") == 0) {
+                const WwRelImage* image = &host->rel_images[0];
+                mem_write32(cpu, image->guest + 0x10u, image->guest + image->section_table);
+                for (u32 at = 0u; at < image->section_count; ++at) {
+                    const u32 flags = image->sections[at].flags;
+                    if ((flags & ~1u) != 0u)
+                        mem_write32(cpu, image->guest + image->section_table + at * 8u,
+                                    (image->guest + (flags & ~1u)) | (flags & 1u));
+                }
+                const char* error = ww_host_link_profile_list(host, image->owner);
+                assert(error != NULL && strcmp(error, "REL owned section table changed after validation") == 0);
+                assert(mem_read32(cpu, 0x803F6A68u) == profile.linked_start);
+                fprintf(stderr, "PASS profile-link rejects relocated section table\n");
             }
             if (second) {
                 second_module_case(host, scenario, ranges);

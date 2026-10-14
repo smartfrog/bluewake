@@ -494,6 +494,9 @@ class RelMaterializeTest(unittest.TestCase):
     def test_repeated_profile_link_does_not_read_or_materialize_again(self):
         self.run_probe('link-repeat')
 
+    def test_profile_link_time_rejects_a_relocated_section_table(self):
+        self.assertIn('PASS profile-link rejects relocated section table', self.run_probe('link-relocated').stderr)
+
     def test_invalid_profile_binding_is_not_published(self):
         for scenario in ('link-missing-data', 'link-unmapped', 'link-dirty-data', 'link-wrong-global', 'link-bad-return'):
             with self.subTest(scenario=scenario):

@@ -155,7 +155,7 @@ class ShipPrologTest(unittest.TestCase):
             target.write_bytes(image)
             (root / 'synthetic.dol').write_bytes(bytes([1, 2, 3, 5 if scenario == 'bad-dol' else 4]))
             command = [str(output / 'ship_prolog_probe'), scenario]
-            if scenario.startswith(('scratch-', 'icbi-')):
+            if scenario.startswith(('scratch-', 'icbi-', 'sections-')):
                 if ranges is None:
                     ranges = [(start, start + 0x100) for start in range(0x81820000, 0x81F80000, 0x10000)]
                     if scenario == 'scratch-exhausted':
