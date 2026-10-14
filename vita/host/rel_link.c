@@ -501,10 +501,14 @@ const char* ww_host_rel_constructor_boundary(WwHost* host, u32 address) {
 
 u32 ww_host_rel_address(WwHost* host, u32 address) {
     const u32 canonical = address & ~0x40000000u;
-    if (canonical < WW_REL_SCRATCH_BASE || canonical >= WW_REL_SCRATCH_LIMIT)
+    const bool legacy = canonical >= WW_REL_SCRATCH_BASE && canonical < WW_REL_SCRATCH_LIMIT;
+    const bool ship = canonical >= WW_REL_SHIP_SCRATCH_BASE && canonical < WW_REL_SHIP_SCRATCH_LIMIT;
+    if (!legacy && !ship)
         return address;
     for (u32 at = 0u; at < host->rel_image_count; ++at) {
         const WwRelImage* slot = &host->rel_images[at];
+        if (ship && (slot->module_id != 168u || host->ship_contract == NULL))
+            continue;
         if (canonical < slot->guest || (u64)canonical >= (u64)slot->guest + slot->bytes)
             continue;
         if (!slot->linked || mem_read32(&host->cpu, slot->owner + 0x10u) != slot->guest)

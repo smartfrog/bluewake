@@ -50,7 +50,7 @@ def fnv(data):
 
 def fixture(output):
     code = instructions()
-    raw = bytearray(0x280)
+    raw = bytearray(74960)
     for offset, value in ((0, 168), (0xC, 6), (0x10, 0x4C), (0x1C, 3), (0x20, 16),
                           (0x28, 0x1A0), (0x2C, 16), (0x38, 44), (0x3C, 88)):
         struct.pack_into('>I', raw, offset, value)
@@ -96,7 +96,7 @@ def fixture(output):
     lines += ['};', 'static const StaticRecompRelSection fixture_sections[] = {']
     lines.extend(f'{{168u, {index}u, 0x{address:08X}u, {size}u}},' for index, address, _, size in sections)
     lines += ['};', 'static const StaticRecompRelModule fixture_rel = {.module_id=168u, .section_count=6u,',
-              '.section_info_offset=0x4Cu, .file_size=0x280u, .sections=fixture_sections, .num_sections=5u};',
+              f'.section_info_offset=0x4Cu, .file_size={len(raw)}u, .sections=fixture_sections, .num_sections=5u}};',
               'static const u8 fixture_ctors[] = {0xC1, 0xB1, 0xD4, 0x14, 0, 0, 0, 0, 0, 0, 0, 0};',
               'static const BlueWakeRelData fixture_data[] = {',
               '{168u, 4u, 0xC1B1DAF0u, 12u, fixture_ctors}, {168u, 5u, 0xC1B224D0u, 16u, NULL}};']
@@ -119,7 +119,7 @@ class ShipPrologTest(unittest.TestCase):
     def setUpClass(cls):
         test_di_read.DiscReadTest.setUpClass()
 
-    def run_probe(self, scenario):
+    def run_probe(self, scenario, ranges=None):
         output = test_host.OUT
         raw = bytearray((output / 'ship.rel').read_bytes())
         if scenario == 'bad-rel':
@@ -152,7 +152,19 @@ class ShipPrologTest(unittest.TestCase):
             target.parent.mkdir(parents=True)
             target.write_bytes(image)
             (root / 'synthetic.dol').write_bytes(bytes([1, 2, 3, 5 if scenario == 'bad-dol' else 4]))
-            result = subprocess.run([str(output / 'ship_prolog_probe'), scenario], cwd=root,
+            command = [str(output / 'ship_prolog_probe'), scenario]
+            if scenario.startswith('scratch-'):
+                if ranges is None:
+                    ranges = [(start, start + 0x100) for start in range(0x81820000, 0x81F80000, 0x10000)]
+                    if scenario == 'scratch-exhausted':
+                        ranges = [(0x81820000, 0x81F80000), (0x82000000, 0x82020000)]
+                    if scenario == 'scratch-tagged-prefix':
+                        ranges.append((0xC2000000, 0xC2000040))
+                occupancy = root / 'scratch-ranges.bin'
+                occupancy.write_bytes(struct.pack('>I', len(ranges)) + b''.join(
+                    struct.pack('>II', start, end) for start, end in ranges))
+                command.append(str(occupancy))
+            result = subprocess.run(command, cwd=root,
                                     capture_output=True, text=True, timeout=10)
             self.assertEqual(result.returncode, 0, result.stderr)
             return result.stderr
@@ -274,6 +286,19 @@ class ShipPrologTest(unittest.TestCase):
         log = self.run_probe('interrupt-return-pending')
         self.assertIn('return requires its verified exception restoration', log)
         self.assertIn('PASS suspended-admission-cleared', log)
+
+    def test_ship_materialization_uses_bounded_fallback_when_legacy_scratch_is_fragmented(self):
+        log = self.run_probe('scratch-fragmented')
+        self.assertIn('PASS staging guest=82000000 bytes=74960 capacity=74976 controller=preserved', log)
+
+    def test_ship_materialization_still_rejects_when_both_staging_windows_are_exhausted(self):
+        self.assertIn('REL scratch has no bounded unoccupied range', self.run_probe('scratch-exhausted'))
+
+    def test_ship_fallback_does_not_overwrite_an_unowned_tagged_alias(self):
+        self.assertIn('REL scratch overlaps an existing alias owner', self.run_probe('scratch-alias'))
+
+    def test_ship_fallback_reserves_folded_tagged_canonical_ranges(self):
+        self.assertIn('PASS staging guest=82000040', self.run_probe('scratch-tagged-prefix'))
 
     def test_lifecycle_entries_require_executable_section_ownership(self):
         self.assertIn('lifecycle entries require owned translated executable sections', self.run_probe('lifecycle-data'))

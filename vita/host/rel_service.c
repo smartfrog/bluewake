@@ -181,7 +181,7 @@ static const char* validate_rel(WwHost* host, const u8* image, u32 bytes, u32* m
     return "REL module identity is not owned by the compiled descriptor";
 }
 
-static const char* scratch_address(WwHost* host, u32 bytes, u32* guest) {
+static const char* scratch_address(WwHost* host, u32 module_id, u32 bytes, u32* guest) {
     size_t count = host->module->num_code_ranges;
     if (count > 16384u - WW_REL_MAX_IMAGES)
         return "REL descriptor occupied-range count exceeds its bound";
@@ -215,8 +215,11 @@ static const char* scratch_address(WwHost* host, u32 bytes, u32* guest) {
             ranges[at++] = (BlueWakeScratchRange){linked->linked_start & ~0x40000000u, linked->size};
         }
     }
-    const bool found = bluewake_rel_scratch_first_fit(WW_REL_SCRATCH_BASE, WW_REL_SCRATCH_LIMIT,
-                                                    bytes, ranges, count, guest);
+    bool found = bluewake_rel_scratch_first_fit(WW_REL_SCRATCH_BASE, WW_REL_SCRATCH_LIMIT,
+                                               bytes, ranges, count, guest);
+    if (!found && module_id == 168u && host->ship_contract != NULL)
+        found = bluewake_rel_scratch_first_fit(WW_REL_SHIP_SCRATCH_BASE, WW_REL_SHIP_SCRATCH_LIMIT,
+                                               bytes, ranges, count, guest);
     free(ranges);
     if (!found)
         return "REL scratch has no bounded unoccupied range";
@@ -280,7 +283,7 @@ const char* ww_host_materialize_rel(WwHost* host, u32 owner, const char* name) {
         }
     }
     if (error == NULL)
-        error = scratch_address(host, capacity, &guest);
+        error = scratch_address(host, module_id, capacity, &guest);
     if (error == NULL && !ppc_guest_alias_add(guest, capacity, NULL))
         error = "REL scratch alias allocation failed";
     if (error == NULL) {
