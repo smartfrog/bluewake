@@ -15,7 +15,7 @@ class DvdOpenTest(unittest.TestCase):
     def run_probe(self, scenario):
         with tempfile.TemporaryDirectory(dir=test_host.OUT, prefix='dvd-open-') as directory:
             root = Path(directory)
-            if scenario != 'missing-disc':
+            if scenario not in ('missing-disc', 'archive-missing-disc'):
                 test_di_read.DiscReadTest.image.write_image(root / 'ux0:data/bluewake/GZLE01.iso')
             return subprocess.run([str(test_host.OUT / 'dvd_open_probe'), scenario], cwd=root, check=True,
                                   capture_output=scenario.startswith('rel-'), text=True)
@@ -58,6 +58,38 @@ class DvdOpenTest(unittest.TestCase):
 
     def test_rel_frontier_trace_failure_is_reported_without_modifying_the_guest(self):
         self.run_probe('rel-trace')
+
+    def test_archive_path_resolves_a_present_file_to_the_signed_entry(self):
+        self.run_probe('archive-found')
+
+    def test_archive_path_returns_the_signed_absent_result(self):
+        self.run_probe('archive-absent')
+
+    def test_archive_path_refuses_invalid_guest_strings(self):
+        for scenario in ('archive-bad-path', 'archive-null', 'archive-unterminated'):
+            with self.subTest(scenario=scenario):
+                self.run_probe(scenario)
+
+    def test_archive_path_requires_the_owned_disc_image(self):
+        self.run_probe('archive-missing-disc')
+
+    def test_another_owners_disc_is_not_borrowed_for_archive_path(self):
+        self.run_probe('archive-borrowed')
+
+    def test_archive_path_requires_a_module_owned_address(self):
+        self.run_probe('archive-unowned')
+
+    def test_archive_path_refuses_an_unaligned_return(self):
+        self.run_probe('archive-bad-return')
+
+    def test_archive_path_does_not_treat_r4_as_file_info(self):
+        self.run_probe('archive-r4')
+
+    def test_archive_path_trace_failure_stops_before_mutating_the_guest(self):
+        self.run_probe('archive-trace')
+
+    def test_unrelated_desktop_edges_are_still_refused(self):
+        self.run_probe('archive-unrelated')
 
 
 if __name__ == '__main__':
