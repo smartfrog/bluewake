@@ -30,6 +30,11 @@ set_property(CACHE COMPOSITE_OPTIMIZATION_LEVEL PROPERTY STRINGS 0 1 2 3)
 if(NOT COMPOSITE_OPTIMIZATION_LEVEL MATCHES "^[0-3]$")
   message(FATAL_ERROR "COMPOSITE_OPTIMIZATION_LEVEL must be 0, 1, 2, or 3")
 endif()
+set(COMPOSITE_EXPORT_OPTIMIZATION_LEVEL "" CACHE STRING
+  "module_export.c alone: 0, 1, 2, or 3; empty inherits COMPOSITE_OPTIMIZATION_LEVEL")
+if(NOT COMPOSITE_EXPORT_OPTIMIZATION_LEVEL MATCHES "^[0-3]?$")
+  message(FATAL_ERROR "COMPOSITE_EXPORT_OPTIMIZATION_LEVEL must be empty, 0, 1, 2, or 3")
+endif()
 set(COMPOSITE_O1_FALLBACK_SOURCES
   "chunks_d_a_npc_so_148/chunk_0000_rel1_C10800F4.c;chunks_dol/chunk_0140_text1_802316E0.c;chunks_dol/chunk_0202_text1_803296E0.c"
   CACHE STRING "Composite-relative generated sources compiled at O1 when the target uses O2")
@@ -265,6 +270,14 @@ if(NOT WIN32 AND NOT APPLE)
       -include "${CMAKE_CURRENT_SOURCE_DIR}/hidden_externs.h")
 endif()
 target_compile_options(${MODULE_NAME} PRIVATE -O${COMPOSITE_OPTIMIZATION_LEVEL} -ffp-contract=off)
+
+# Source options come after the target's on the command line, so this is the
+# compiler's last word for module_export.c alone; every other source keeps the
+# target's level. Empty (the default) adds nothing and inherits that level.
+if(NOT COMPOSITE_EXPORT_OPTIMIZATION_LEVEL STREQUAL "")
+  set_property(SOURCE module_export.c APPEND PROPERTY COMPILE_OPTIONS
+      -O${COMPOSITE_EXPORT_OPTIMIZATION_LEVEL})
+endif()
 
 # The builder's --tiered: chunks the optimization training never ran, one
 # composite-relative path a line, compiled at -O1 without GVN's memory
