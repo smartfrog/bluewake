@@ -2,6 +2,7 @@ import os
 from pathlib import Path
 import subprocess
 import unittest
+from unittest.mock import patch
 
 from vector_fixture import external_vector_fixture
 
@@ -577,6 +578,52 @@ class StartupHostTest(unittest.TestCase):
 
     def test_partial_code_snapshot_allocation_is_released_on_failure(self):
         subprocess.run([str(OUT / 'host_probe'), 'code-copy-failure'], cwd=OUT, check=True)
+
+
+class TitleContractTest(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        StartupHostTest.setUpClass()
+        cls.enabled_output = OUT.parent / 'title-enabled'
+        StartupHostTest.build(cls.enabled_output, ('-DWW05_ENABLE_TITLE_CONTRACT=ON',),
+                              ('rel_lifecycle_probe', 'io_probe'))
+        import test_di_read
+        test_di_read.DiscReadTest.setUpClass()
+
+    def probe(self, scenario, enabled=True):
+        import test_rel_lifecycle
+        with patch('test_host.OUT', self.enabled_output if enabled else OUT):
+            test_rel_lifecycle.RelLifecycleTest().run_probe(scenario)
+
+    def test_default_off_keeps_the_original_title_refusal(self):
+        self.assertIn('WW05_ENABLE_TITLE_CONTRACT:BOOL=OFF', (OUT / 'CMakeCache.txt').read_text())
+        self.probe('registered-only', enabled=False)
+
+    def test_enabled_title_uses_registered_certificate_without_test_admission(self):
+        self.assertIn('WW05_ENABLE_TITLE_CONTRACT:BOOL=ON', (self.enabled_output / 'CMakeCache.txt').read_text())
+        self.probe('title-enabled')
+
+    def test_title_policy_does_not_admit_a_registered_module_401(self):
+        self.probe('title-catalog-id')
+
+    def test_title_policy_does_not_admit_a_copy_of_the_registered_certificate(self):
+        self.probe('title-copy')
+
+    def test_certificate_bearing_title_reports_disabled_policy(self):
+        self.probe('title-disabled', enabled=False)
+
+    def test_startup_registration_failure_stops_before_guest_execution(self):
+        import test_io
+        for invalid in (False, True):
+            with self.subTest(invalid=invalid), patch.dict(os.environ, {'WW05_IO_TITLE_INVALID': '1'}):
+                if not invalid:
+                    os.environ.pop('WW05_IO_TITLE_INVALID')
+                status, report, log = test_io.MainIoTest().run_fixture(output=self.enabled_output, return_log=True)
+                self.assertEqual(status, 1)
+                self.assertIn('STOP reason=REL certificate set schema, count or identity is invalid', report)
+                self.assertIn('edges=0 exception=00000001 cycles=0', report)
+                self.assertIn('[host] stage=load initialized=0', log)
+                self.assertNotIn('[dispatch]', log)
 
 
 if __name__ == '__main__':

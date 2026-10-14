@@ -15,6 +15,11 @@ void ww_host_rel_lifecycle_revoke(WwHost* host) {
 static bool policy_permits(const WwHost* host, const WwRelImage* image) {
     if (host->ship_contract != NULL && image->certificate == &host->ship_certificate)
         return true;
+    if (host->rel_title_admission && host->rel_contracts != NULL)
+        for (u32 at = 0u; at < host->rel_contracts->contract_count; ++at)
+            if (host->rel_contracts->contracts[at].module_id == 400u &&
+                image->certificate == &host->rel_contracts->contracts[at])
+                return true;
 #if WW05_TESTS_ONLY
     if (host->rel_test_admission && host->rel_contracts != NULL)
         for (u32 at = 0u; at < host->rel_contracts->contract_count; ++at)
@@ -106,7 +111,10 @@ static const char* boundary(WwHost* host, u32 address) {
     if (entering == NULL)
         return NULL;
     const BlueWakeRelInitContractV1* certificate = entering->certificate;
-    if (!policy_permits(host, entering) || ww_host_rel_live(host, entering->module_id) != entering ||
+    if (!policy_permits(host, entering))
+        return !host->rel_title_admission && certificate->module_id == 400u ? "title initialization is disabled" :
+            "REL prolog entry requires its exact translated dynamic-link caller";
+    if (ww_host_rel_live(host, entering->module_id) != entering ||
         ww_host_rel_owned(host, entering->owner) != entering || certificate->module_id != entering->module_id ||
         entering->bytes != certificate->rel_size || entering->initialization_completed ||
         cpu->lr != WW_REL_CALLER_SUCCESSOR || cpu->gpr[31] != entering->owner || cpu->gpr[3] != entering->guest ||

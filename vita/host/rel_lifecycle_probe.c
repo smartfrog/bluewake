@@ -21,6 +21,7 @@ static u32 entry_yields;
 static u32 return_yields;
 static bool trace_failure;
 static u32 requested_owner;
+static BlueWakeRelInitContractV1 copied_certificate;
 
 int __wrap_fprintf(FILE* stream, const char* format, ...) {
     if (trace_failure && strstr(format, "[rel-prolog]") != NULL)
@@ -108,6 +109,14 @@ static bool probe_edge(void* user, CPUState* cpu, u32 address) {
     if (selected != NULL && pc == entry && stop_before_entry)
         return true;
     if (selected != NULL && pc == entry && !injected) {
+        if (is("title-disabled") || is("title-catalog-id") || is("title-copy")) {
+            host->rel_test_admission = false;
+            if (is("title-copy")) {
+                copied_certificate = *selected->certificate;
+                selected->certificate = &copied_certificate;
+            }
+            injected = true;
+        }
         if (strncmp(scenario, "entry-", 6u) == 0 && !is("entry-after-progress") &&
             !is("entry-after-walker") && !is("entry-trace") && !is("entry-certified-r3")) {
             mutate_register(cpu, scenario + 6u);
@@ -311,12 +320,39 @@ int main(int argc, char** argv) {
          .canonical_sections=lifecycle_title_canonical,.section_count=2u,.ctor_table_section=2u,
          .ctor_return_pc=0xC1E000F4u,.lifecycle=&title_lifecycle,.build_identity=s_ship_contract.build_identity}};
     BlueWakeRelInitContractSetV1 set = {1u,s_ship_contract.dol_size,s_ship_contract.dol_bytes,certificates,2u,s_ship_contract.build_identity};
+    u8 catalog_raw[sizeof(lifecycle_title_raw)];
+    StaticRecompRelSection catalog_sections[2];
+    BlueWakeRelData catalog_canonical[2];
+    if (is("title-catalog-id")) {
+        memcpy(catalog_raw, lifecycle_title_raw, sizeof(catalog_raw));
+        write_be32(catalog_raw, 401u);
+        write_be32(catalog_raw + 0x130u, 401u);
+        memcpy(catalog_sections, lifecycle_title_sections, sizeof(catalog_sections));
+        memcpy(catalog_canonical, lifecycle_title_canonical, sizeof(catalog_canonical));
+        for (u32 at = 0u; at < 2u; ++at) {
+            catalog_sections[at].module_id = 401u;
+            catalog_canonical[at].module_id = 401u;
+        }
+        descriptors[1].module_id = certificates[1].module_id = title_lifecycle.module_id = data[2].module_id = 401u;
+        descriptors[1].sections = catalog_sections;
+        certificates[1].rel_bytes = catalog_raw;
+        certificates[1].canonical_sections = catalog_canonical;
+    }
     const char* registration = ww_host_register_rel_contracts(host, &set, "synthetic.dol");
     if (registration != NULL) fprintf(stderr, "registration: %s\n", registration);
     assert(registration == NULL);
-    if (!is("registered-only") && !is("ship-only"))
+    const bool title_policy = strncmp(scenario, "title-", 6u) == 0;
+#if WW05_ENABLE_TITLE_CONTRACT
+    if (title_policy && !is("title-disabled"))
+        host->rel_title_admission = true;
+#endif
+    if (is("title-enabled") || is("title-copy"))
+        assert(ww_host_rel_certificate(host, 400u) == &certificates[1]);
+    if (is("title-catalog-id"))
+        assert(ww_host_rel_certificate(host, 401u) == NULL);
+    if (!is("registered-only") && !is("ship-only") && !is("title-enabled"))
         assert(ww_host_rel_test_admission(host) == NULL);
-    if (is("legacy") || is("ship-only"))
+    if (is("legacy") || is("ship-only") || title_policy)
         assert(ww_host_enable_ship_contract(host, &s_ship_contract, "synthetic.dol") == NULL);
     for (u32 at = 0u; at < 4u; ++at)
         assert(ppc_guest_alias_add(data[at].linked_start, data[at].size, data[at].bytes));
@@ -334,6 +370,7 @@ int main(int argc, char** argv) {
     if (is("registered-only") || is("ship-only")) {
         run_call(host, 0x80002300u, "d_a_title");
         assert(host->error != NULL && ww_host_rel_owned(host, 0x80002300u) == NULL);
+        assert(strcmp(host->error, "REL prolog, epilog or unresolved entry requires an unsupported lifecycle contract") == 0);
         assert(host->alias_count == 1u && host->rel_pending_init.phase == WW_REL_INIT_NONE);
         goto done;
     }
@@ -357,6 +394,17 @@ int main(int argc, char** argv) {
     run_call(host, 0x80002300u, "d_a_title");
     assert(selected != NULL);
     assert(selected->guest == 0x818325E0u);
+    if (title_policy) {
+        assert(!host->rel_test_admission);
+        if (!is("title-enabled")) {
+            assert(host->error != NULL && !selected->initialization_completed);
+            assert(strcmp(host->error, is("title-disabled") ? "title initialization is disabled" :
+                "REL prolog entry requires its exact translated dynamic-link caller") == 0);
+            assert(host->rel_pending_init.phase == WW_REL_INIT_NONE && host->rel_constructor_owner == 0u);
+            assert(mem_read32(&host->cpu, 0x80005000u) == 1u);
+            goto done;
+        }
+    }
     if (strstr(scenario, "tamper-certificate") == NULL)
         assert(selected->certificate == &certificates[1]);
     if (stop_before_entry) {
@@ -383,7 +431,7 @@ int main(int argc, char** argv) {
         }
         assert(ww_host_dispatch(host, cpu->pc) == -1);
     }
-    const bool positive = is("success") || is("observations") || strncmp(scenario, "interrupt-", 10u) == 0 ||
+    const bool positive = is("success") || is("title-enabled") || is("observations") || strncmp(scenario, "interrupt-", 10u) == 0 ||
         is("expiry") || is("repeat-init") || strncmp(scenario, "epilog-", 7u) == 0 ||
         strncmp(scenario, "unresolved-", 11u) == 0 || is("unlink") || is("native-unlink");
     if (positive) {

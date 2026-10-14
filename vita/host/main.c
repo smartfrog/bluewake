@@ -127,12 +127,30 @@ int fixture_run(int argc, char** argv) {
     const BlueWakeRelData* data = staticrecomp_get_rel_data(&count);
     error |= fprintf(stderr, "[host] stage=initialize\n") < 0;
     bool initialized = !error && ww_host_init(host);
+#if WW05_ENABLE_TITLE_CONTRACT
+    if (initialized) {
+        host->module = module;
+        host->rel_data = data;
+        host->rel_data_count = count;
+    }
+#endif
 #if WW05_ENABLE_SHIP_PROLOG
     if (initialized) {
         const char* contract_error = ww_host_enable_ship_contract(host, staticrecomp_get_ship_contract_v1(), WW05_DOL_PATH);
         if (contract_error != NULL) {
             ww_host_fail(host, contract_error, 0u, host->cpu.pc);
             initialized = false;
+        }
+    }
+#endif
+#if WW05_ENABLE_TITLE_CONTRACT
+    if (initialized) {
+        const char* contract_error = ww_host_register_rel_contracts(host, staticrecomp_get_rel_init_contracts_v1(), WW05_DOL_PATH);
+        if (contract_error != NULL) {
+            ww_host_fail(host, contract_error, 0u, host->cpu.pc);
+            initialized = false;
+        } else {
+            host->rel_title_admission = true;
         }
     }
 #endif

@@ -384,6 +384,11 @@ const BlueWakeShipContractV1* staticrecomp_get_ship_contract_v1(void) {
     return NULL;
 }
 
+const BlueWakeRelInitContractSetV1* staticrecomp_get_rel_init_contracts_v1(void) {
+    static const BlueWakeRelInitContractSetV1 invalid = {.version = 2u};
+    return getenv("WW05_IO_TITLE_INVALID") != NULL ? &invalid : NULL;
+}
+
 void bluewake_set_edge_service(BluewakeEdgeServiceFn callback, void* user) {
     edge = callback;
     edge_user = user;

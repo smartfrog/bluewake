@@ -72,6 +72,7 @@ typedef struct WwHost {
     u32 rel_sdk_pending_owner;
     bool rel_sdk_seeded;
     bool rel_sdk_failed;
+    bool rel_title_admission;
 #if WW05_TESTS_ONLY
     bool rel_test_admission;
 #endif

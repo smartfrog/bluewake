@@ -55,7 +55,7 @@ def archive(scenario, title=None):
         title[-1] ^= 1
     if scenario == 'catalog-id':
         struct.pack_into('>I', title, 0, 401)
-        struct.pack_into('>I', title, 0xD0, 401)
+        struct.pack_into('>I', title, struct.unpack_from('>I', title, 0x28)[0], 401)
     members = [(b'f_pc_profile_lst.rel', profile),
                (b'd_a_ship.rel', (test_host.OUT / 'ship.rel').read_bytes()),
                (b'd_a_title.rel', title)]

@@ -222,6 +222,10 @@ const char* ww_host_register_rel_contracts(WwHost* host, const BlueWakeRelInitCo
 const BlueWakeRelInitContractV1* ww_host_rel_certificate(WwHost* host, u32 module_id) {
     if (host->ship_contract != NULL && module_id == host->ship_certificate.module_id)
         return &host->ship_certificate;
+    if (host->rel_title_admission && module_id == 400u && host->rel_contracts != NULL)
+        for (u32 at = 0u; at < host->rel_contracts->contract_count; ++at)
+            if (host->rel_contracts->contracts[at].module_id == module_id)
+                return &host->rel_contracts->contracts[at];
 #if WW05_TESTS_ONLY
     if (host->rel_test_admission && host->rel_contracts != NULL)
         for (u32 at = 0u; at < host->rel_contracts->contract_count; ++at)
