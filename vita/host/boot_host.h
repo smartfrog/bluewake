@@ -60,6 +60,13 @@ typedef struct WwHost {
     u32 rel_constructor_table;
     u32 rel_constructor_size;
     const u8* rel_constructor_bytes;
+    const BlueWakeShipContractV1* ship_contract;
+    u32 ship_prolog_owner;
+    u32 ship_prolog_stack;
+    u32 ship_prolog_r2;
+    u32 ship_prolog_r13;
+    bool ship_prolog_ctor_completed;
+    bool ship_prolog_return_ready;
     WwDspInterface dsp;
     WwBatContract bat;
     const StaticRecompModuleDesc* module;
@@ -127,6 +134,10 @@ static inline bool ww_host_trace_syscall(u64 resume) {
 }
 
 bool ww_host_init(WwHost* host);
+const char* ww_host_enable_ship_contract(WwHost* host, const BlueWakeShipContractV1* contract, const char* dol);
+const char* ww_host_ship_boundary(WwHost* host, u32 address);
+bool ww_host_ship_raw_matches(WwHost* host, const u8* raw, u32 bytes);
+void ww_host_ship_publish(WwHost* host, WwRelImage* image);
 void ww_host_shutdown(WwHost* host);
 bool ww_host_load(WwHost* host, const StaticRecompModuleDesc* module,
                    const BlueWakeRelData* data, u32 count, const char* dol);

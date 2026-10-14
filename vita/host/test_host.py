@@ -16,6 +16,16 @@ FIFO_REGISTERS = {'pi-fifo-base': 4, 'pi-fifo-end': 4, 'pi-fifo-wptr': 4,
                   'cp-fifo-high-watermark-high': 2, 'cp-fifo-low-watermark-high': 2}
 
 
+def require_no_vita3k():
+    for path in Path('/proc').glob('[0-9]*/comm'):
+        try:
+            name = path.read_text()
+        except FileNotFoundError:
+            continue
+        if 'vita3k' in name.lower():
+            raise RuntimeError(f'Host tests require Vita3K to be stopped: {path.parent.name}')
+
+
 class StartupHostTest(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
@@ -25,8 +35,9 @@ class StartupHostTest(unittest.TestCase):
                         f'-DCMAKE_MAKE_PROGRAM={STACK}/bin/ninja',
                         f'-DDOLRECOMP_DIR={ROOT}/ref/vita-ww-01/DolRecomp',
                         '-DCMAKE_DISABLE_FIND_PACKAGE_ZLIB=ON'], check=True, capture_output=True)
+        require_no_vita3k()
         subprocess.run([str(STACK / 'bin/cmake'), '--build', str(generator),
-                        '--target', 'ww_vector_emit', '-j', '2'], check=True, capture_output=True)
+                        '--target', 'ww_vector_emit', 'ww_ship_fixture_emit', '-j', '1'], check=True, capture_output=True)
         binary = OUT / 'synthetic-external-vector.bin'
         binary.write_bytes(external_vector_fixture())
         with (OUT / 'ww05_external_vector.c').open('w') as stream:
@@ -39,13 +50,19 @@ class StartupHostTest(unittest.TestCase):
         binary.write_bytes(external_vector_fixture(8))
         with (OUT / 'ww05_decrementer_vector.c').open('w') as stream:
             subprocess.run([str(generator / 'ww_vector_emit'), str(binary), '00000900'], check=True, stdout=stream)
+        from test_ship_prolog import fixture
+        fixture(OUT)
+        with (OUT / 'ship_translated.c').open('w') as stream:
+            subprocess.run([str(generator / 'ww_ship_fixture_emit'), str(OUT / 'ship.instructions')],
+                           check=True, stdout=stream)
         subprocess.run([str(STACK / 'bin/cmake'), '-S', str(ROOT / 'vita/host'), '-B', str(OUT),
                         '-G', 'Ninja', f'-DCMAKE_C_COMPILER={os.environ["CC"]}',
                         f'-DCMAKE_MAKE_PROGRAM={STACK}/bin/ninja',
                         f'-DRECOMPCORE_DIR={ROOT}/ref/vita-ww-01/RecompCore',
                         '-DWW05_TESTS_ONLY=ON'], check=True, capture_output=True)
+        require_no_vita3k()
         with (OUT / 'build.log').open('w') as log:
-            subprocess.run([str(STACK / 'bin/cmake'), '--build', str(OUT), '-j', '2'],
+            subprocess.run([str(STACK / 'bin/cmake'), '--build', str(OUT), '-j', '1'],
                            check=True, stdout=log, stderr=subprocess.STDOUT)
 
     def test_unknown_mmio_stops_with_context(self):

@@ -6,6 +6,7 @@ set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 option(WW05_TESTS_ONLY "Build game-free host contract tests only" OFF)
 option(WW05_ENABLE_VI_CLOCK "Experimental guest-cycle VI clock for private boot trials" OFF)
 option(WW05_ENABLE_PAD_INPUT "Experimental Vita controls sampled only by guest SI requests" OFF)
+option(WW05_ENABLE_SHIP_PROLOG "Experimental exact-contract ship prolog through translated caller" OFF)
 file(GENERATE OUTPUT "${CMAKE_CURRENT_BINARY_DIR}/ww05_pad_input.json"
     CONTENT "{\"option\":\"WW05_ENABLE_PAD_INPUT\",\"enabled\":$<IF:$<BOOL:${WW05_ENABLE_PAD_INPUT}>,true,false>,\"source\":\"$<IF:$<BOOL:${WW05_ENABLE_PAD_INPUT}>,sceCtrlPeekBufferPositive,empty-legacy>\",\"sampling\":\"guest-SI-only\"}\n")
 get_filename_component(BLUEWAKE_ROOT "../.." ABSOLUTE BASE_DIR "${CMAKE_CURRENT_SOURCE_DIR}")
@@ -42,7 +43,7 @@ add_subdirectory(dvd)
 target_compile_options(gxruntime PRIVATE -ffp-contract=off -fno-fast-math -fstack-usage)
 
 add_library(ww05_services STATIC boot_host.c gx_checkpoint.c gx_stream.c fifo_gather.c fifo_consumer.c
-    code_guard.c dsp_interface.c bat_contract.c disc_service.c rel_provider.c rel_service.c rel_link.c
+    code_guard.c dsp_interface.c bat_contract.c disc_service.c rel_provider.c rel_service.c rel_link.c ship_contract.c
     scheduler_observation.c vi_clock.c gx_draw_observation.c gpu_finish.c frame_timing.c mem1_capture.c frame_capture.cpp
     dsp_rom_mail.c dsp_deferred.c pad_input.c
     $<TARGET_OBJECTS:ww13_dvd_pin>
@@ -62,6 +63,7 @@ target_include_directories(ww05_services PRIVATE "${BLUEWAKE_ROOT}/vita/feasibil
 target_link_libraries(ww05_services PUBLIC ww13_dvd_io GXRuntime::runtime ww_renderer)
 target_compile_definitions(ww05_services PRIVATE WW05_ENABLE_VI_CLOCK=$<BOOL:${WW05_ENABLE_VI_CLOCK}>)
 target_compile_definitions(ww05_services PUBLIC WW05_ENABLE_PAD_INPUT=$<BOOL:${WW05_ENABLE_PAD_INPUT}>)
+target_compile_definitions(ww05_services PUBLIC WW05_ENABLE_SHIP_PROLOG=$<BOOL:${WW05_ENABLE_SHIP_PROLOG}>)
 if(VITA AND WW05_ENABLE_PAD_INPUT)
     target_sources(ww05_services PRIVATE pad_vita.c)
     target_link_libraries(ww05_services PUBLIC SceCtrl_stub)
@@ -139,6 +141,12 @@ if(WW05_TESTS_ONLY)
     target_compile_options(rel_materialize_probe PRIVATE -UNDEBUG)
     target_link_libraries(rel_materialize_probe PRIVATE ww05_services)
     target_link_options(rel_materialize_probe PRIVATE -Wl,--wrap=fprintf -Wl,--wrap=calloc -Wl,--wrap=free)
+    if(EXISTS "${CMAKE_CURRENT_BINARY_DIR}/ship_translated.c")
+        add_executable(ship_prolog_probe ship_prolog_probe.c)
+        target_include_directories(ship_prolog_probe PRIVATE "${CMAKE_CURRENT_BINARY_DIR}")
+        target_compile_options(ship_prolog_probe PRIVATE -UNDEBUG)
+        target_link_libraries(ship_prolog_probe PRIVATE ww05_services)
+    endif()
     add_executable(scheduler_observation_probe scheduler_observation_probe.c)
     target_compile_options(scheduler_observation_probe PRIVATE -UNDEBUG)
     target_link_libraries(scheduler_observation_probe PRIVATE ww05_services)

@@ -6,7 +6,7 @@
 #include <stdlib.h>
 #include <strings.h>
 
-static u64 raw_hash(const u8* bytes, u32 size) {
+u64 ww_host_rel_raw_hash(const u8* bytes, u32 size) {
     u64 hash = 14695981039346656037ull;
     for (u32 at = 0u; at < size; ++at) {
         hash ^= bytes[at];
@@ -21,7 +21,7 @@ bool ww_host_rel_raw_unchanged(const WwRelImage* image) {
         return false;
     u8* raw = NULL;
     return ppc_guest_alias_get_storage(image->guest, image->capacity, &raw) &&
-        raw_hash(raw, image->bytes) == image->raw_hash;
+        ww_host_rel_raw_hash(raw, image->bytes) == image->raw_hash;
 }
 
 WwRelImage* ww_host_rel_owned(WwHost* host, u32 owner) {
@@ -99,6 +99,8 @@ const char* ww_host_unlink_rel(WwHost* host, u32 owner) {
         return "REL unlink requires unchanged live ownership";
     if (slot->module_id == 1u)
         return "REL profile-list resident contract does not support unload";
+    if (slot->module_id == 168u && host->ship_contract != NULL)
+        return "ship unlink requires an unsupported epilog and destruction contract";
     for (u32 at = 0u; at < host->rel_image_count; ++at) {
         const WwRelImage* importer = &host->rel_images[at];
         if (!importer->linked)
@@ -298,7 +300,7 @@ const char* ww_host_materialize_rel(WwHost* host, u32 owner, const char* name) {
                 ww_host_fail(host, "REL failed mapping could not be removed", guest, host->cpu.pc);
         } else {
             *slot = (WwRelImage){.owner = owner, .guest = guest, .bytes = bytes, .capacity = capacity,
-                                 .module_id = module_id, .raw_hash = raw_hash(image, bytes),
+                                 .module_id = module_id, .raw_hash = ww_host_rel_raw_hash(image, bytes),
                                  .sections = sections, .section_count = section_count,
                                  .section_table = section_table};
             sections = NULL;

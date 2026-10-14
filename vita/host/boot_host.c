@@ -302,6 +302,11 @@ static bool rel_execution_blocked(WwHost* host, u32 address, u32* linked) {
     *linked = ww_host_rel_address(host, address);
     if (host->error != NULL)
         return true;
+    const char* ship_error = ww_host_ship_boundary(host, *linked);
+    if (ship_error != NULL) {
+        ww_host_fail(host, ship_error, address, host->cpu.pc);
+        return true;
+    }
     const char* constructor_error = ww_host_rel_constructor_boundary(host, *linked);
     if (constructor_error != NULL) {
         ww_host_fail(host, constructor_error, address, host->cpu.pc);
@@ -872,7 +877,10 @@ bool ww_host_edge(void* user, CPUState* cpu, u32 address) {
             return true;
         }
     }
-    const bool compiled_cpu_boundary = (address == 0x80328F84u || address == 0x80303A50u || observed_dsp_task || observed_card_probe ||
+    const WwRelImage* ship = host->ship_contract == NULL ? NULL : ww_host_rel_live(host, 168u);
+    const bool compiled_ship_resume = address == 0x80240EE8u && ship != NULL &&
+        cpu->lr == address && cpu->gpr[31] == ship->owner && host->ship_prolog_return_ready;
+    const bool compiled_cpu_boundary = (compiled_ship_resume || address == 0x80328F84u || address == 0x80303A50u || observed_dsp_task || observed_card_probe ||
                                        observed_retrace_sleep || observed_draw_done_sleep || observed_async_draw_done) &&
                                          ww_host_module_contains_address(host->module, address);
     const bool desktop_edge = bluewake_edge_maybe_intercept(address);
