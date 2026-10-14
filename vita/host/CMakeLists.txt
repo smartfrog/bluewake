@@ -74,6 +74,10 @@ target_compile_options(ww05_services PRIVATE -O2 -ffp-contract=off -fno-fast-mat
 
 if(WW05_TESTS_ONLY)
     enable_testing()
+    add_executable(game_stop_probe game_stop_probe.c)
+    target_compile_options(game_stop_probe PRIVATE -UNDEBUG)
+    target_link_libraries(game_stop_probe PRIVATE ww05_services)
+    target_link_options(game_stop_probe PRIVATE -Wl,--wrap=fprintf)
     add_executable(pad_input_probe pad_input_probe.c)
     target_compile_options(pad_input_probe PRIVATE -UNDEBUG)
     target_link_libraries(pad_input_probe PRIVATE ww05_services)
