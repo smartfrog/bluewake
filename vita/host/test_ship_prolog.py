@@ -155,7 +155,7 @@ class ShipPrologTest(unittest.TestCase):
             target.write_bytes(image)
             (root / 'synthetic.dol').write_bytes(bytes([1, 2, 3, 5 if scenario == 'bad-dol' else 4]))
             command = [str(output / 'ship_prolog_probe'), scenario]
-            if scenario.startswith(('scratch-', 'icbi-', 'sections-')):
+            if scenario.startswith(('scratch-', 'icbi-', 'sections-', 'publication-')):
                 if ranges is None:
                     ranges = [(start, start + 0x100) for start in range(0x81820000, 0x81F80000, 0x10000)]
                     if scenario == 'scratch-exhausted':
@@ -178,6 +178,31 @@ class ShipPrologTest(unittest.TestCase):
         for stage in ('entered', 'ctor-completed', 'caller-returned'):
             self.assertEqual(log.count(f'stage={stage}'), 1, log)
         self.assertIn('PASS caller-returned pc=80001004 bss-init-calls=2', log)
+
+    def test_publication_preserves_the_exact_pristine_lifecycle_offsets(self):
+        self.assertIn('PASS publication pristine offsets=00000000,0000002C,00000058',
+                      self.run_probe('publication-offsets'))
+
+    def test_publication_allows_one_sdk_rebase_to_the_approved_lifecycle_targets(self):
+        self.assertIn('PASS publication SDK prolog canonical=81B100F4 gate=not-entered',
+                      self.run_probe('publication-sdk-target'))
+
+    def test_publication_relink_preserves_pristine_offsets_and_initialized_bss(self):
+        self.assertIn('PASS publication pristine', self.run_probe('publication-relink'))
+
+    def test_publication_relink_refuses_tampered_lifecycle_offsets(self):
+        for entry in ('prolog', 'epilog', 'unresolved'):
+            with self.subTest(entry=entry):
+                self.assertIn('PASS publication tampered refused',
+                              self.run_probe(f'publication-tampered-{entry}'))
+
+    def test_publication_sdk_mutation_still_fails_the_prolog_whole_image_hash_gate(self):
+        self.assertIn('gate=ship prolog entry requires its exact translated dynamic-link caller',
+                      self.run_probe('publication-sdk-entry'))
+
+    def test_publication_sdk_mutation_still_fails_the_constructor_whole_image_hash_gate(self):
+        self.assertIn('gate=REL constructor raw image changed after validation',
+                      self.run_probe('publication-sdk-ctor'))
 
     def test_default_off_rejects_ship_lifecycle_before_publication(self):
         self.assertIn('unsupported lifecycle contract', self.run_probe('default-off'))

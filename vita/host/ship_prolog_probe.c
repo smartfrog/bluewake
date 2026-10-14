@@ -6,6 +6,7 @@
 #include "ship_contract.inc"
 #include "rel_section_guard_probe.h"
 #include "rel_icbi_probe.h"
+#include "ship_publication_probe.h"
 #define DOLRECOMP_CPU_HEADER "core/cpu.h"
 #define DOLRECOMP_C_LOOP_CYCLE_BUDGET (ctx->cycle_budget)
 #include "ship_translated.c"
@@ -149,7 +150,7 @@ int main(int argc, char** argv) {
     StaticRecompRange* scratch_ranges = NULL;
     if (argc >= 3) {
         assert(strncmp(scenario, "scratch-", 8u) == 0 || strncmp(scenario, "icbi-", 5u) == 0 ||
-               strncmp(scenario, "sections-", 9u) == 0);
+               strncmp(scenario, "sections-", 9u) == 0 || strncmp(scenario, "publication-", 12u) == 0);
         FILE* stream = fopen(argv[2], "rb");
         assert(stream != NULL);
         u8 word[4];
@@ -240,6 +241,13 @@ int main(int argc, char** argv) {
     memcpy(cpu->ram + 0x3000u, strcmp(scenario, "other-actor") == 0 ? "d_a_test" : "d_a_ship", 9u);
     cpu->pc = 0x80240EC0u;
     cpu->cycle_budget = 200;
+    if (strncmp(scenario, "publication-", 12u) == 0) {
+        probe_ship_publication(host, scenario);
+        ww_host_shutdown(host);
+        free(scratch_ranges);
+        free(host);
+        return 0;
+    }
     if (strncmp(scenario, "sections-", 9u) == 0) {
         char site[32];
         const char* form = strchr(scenario + 9u, ':');
