@@ -21,8 +21,11 @@ def instructions():
     return {
         0x80007000: [0x80A40198, 0x7CBA03A6, 0x80A4019C, 0x7CBB03A6,
                      0x8064000C, 0x80840010, 0x4C000064],
-        0x80240EC0: [0x9421FFF0, 0x7C0802A6, 0x90010014, 0x93E1000C, 0x7C7F1B78,
-                     branch(0x80240ED4, 0x80240744), 0x819F0010, 0x818C0034,
+        # This game-free caller computes the SDK result in registers without mutating the guarded image.
+        0x80240EA0: [0x9421FFF0, 0x7C0802A6, 0x90010014, 0x93E1000C, 0x7C7F1B78,
+                     branch(0x80240EB4, 0x80240744), 0x807F0010, 0x80830010, 0x7C832214,
+                     0x88A30030, 0x54A51838, 0x7C84282E, 0x5484003C, 0x7C832214,
+                     0x81830034, 0x7D8C2214,
                      0x7D8903A6, 0x4E800421, 0x83E1000C, 0x80010014, 0x7C0803A6,
                      0x38210010, 0x4E800020],
         0xC0241178: [0x9421FFF0, 0x7C0802A6, 0x90010014, 0x93E1000C, 0x7C7F1B78,
@@ -155,7 +158,7 @@ class ShipPrologTest(unittest.TestCase):
             target.write_bytes(image)
             (root / 'synthetic.dol').write_bytes(bytes([1, 2, 3, 5 if scenario == 'bad-dol' else 4]))
             command = [str(output / 'ship_prolog_probe'), scenario]
-            if scenario.startswith(('scratch-', 'icbi-', 'sections-')):
+            if scenario.startswith(('scratch-', 'icbi-', 'sections-', 'publication-')):
                 if ranges is None:
                     ranges = [(start, start + 0x100) for start in range(0x81820000, 0x81F80000, 0x10000)]
                     if scenario == 'scratch-exhausted':
@@ -178,6 +181,31 @@ class ShipPrologTest(unittest.TestCase):
         for stage in ('entered', 'ctor-completed', 'caller-returned'):
             self.assertEqual(log.count(f'stage={stage}'), 1, log)
         self.assertIn('PASS caller-returned pc=80001004 bss-init-calls=2', log)
+
+    def test_publication_preserves_the_exact_pristine_lifecycle_offsets(self):
+        self.assertIn('PASS publication pristine offsets=00000000,0000002C,00000058',
+                      self.run_probe('publication-offsets'))
+
+    def test_publication_allows_one_sdk_rebase_to_the_approved_lifecycle_targets(self):
+        self.assertIn('PASS publication SDK prolog canonical=81B100F4 gate=not-entered',
+                      self.run_probe('publication-sdk-target'))
+
+    def test_publication_relink_preserves_pristine_offsets_and_initialized_bss(self):
+        self.assertIn('PASS publication pristine', self.run_probe('publication-relink'))
+
+    def test_publication_relink_refuses_tampered_lifecycle_offsets(self):
+        for entry in ('prolog', 'epilog', 'unresolved'):
+            with self.subTest(entry=entry):
+                self.assertIn('PASS publication tampered refused',
+                              self.run_probe(f'publication-tampered-{entry}'))
+
+    def test_publication_sdk_mutation_still_fails_the_prolog_whole_image_hash_gate(self):
+        self.assertIn('gate=ship prolog entry requires its exact translated dynamic-link caller',
+                      self.run_probe('publication-sdk-entry'))
+
+    def test_publication_sdk_mutation_still_fails_the_constructor_whole_image_hash_gate(self):
+        self.assertIn('gate=REL constructor raw image changed after validation',
+                      self.run_probe('publication-sdk-ctor'))
 
     def test_default_off_rejects_ship_lifecycle_before_publication(self):
         self.assertIn('unsupported lifecycle contract', self.run_probe('default-off'))
