@@ -3,9 +3,11 @@
 ## Outcome and boundary
 
 `scripts/generate_composite.py` now emits WW63's exact ship contract from the
-ordinary module-168 REL and full raw DOL inputs. It requires translated module
-168 and its raw REL, rejects layout/lifecycle/table mismatches, replays only the
-admitted relocation semantics, and writes a deterministic generation receipt.
+ordinary module-168 translation inputs, original disc-member identity bytes and
+full raw DOL. It requires both ship sources, rejects layout/lifecycle/table and
+source-relationship mismatches, replays only admitted relocation semantics, and
+writes a deterministic generation receipt. The WW65 correction below separates
+disc identity from the processed translation/reference input.
 No patched producer, canonical sidecar or foreign generation-result input is used.
 
 The worktree started clean at `880a0bc302aed554aaa508b8743a9f110a780f6a`, on a
@@ -59,7 +61,7 @@ relocated canonical bytes. Therefore four ship hashes in `module_tables.inc`
 must change as well as appending the contract to `rel_data.inc`. The other 744
 chunk hashes, all ranges, all translated sources and their header remain identical.
 
-## TDD and checks
+## TDD and checks: initial delivery
 
 Linux AArch64, Python 3.14, native C compiler. No network or installs. Native
 verification compiler commands were single invocations; no parallel build ran.
@@ -90,7 +92,7 @@ verification compiler commands were single invocations; no parallel build ran.
 Raw logs, the external verification adapter, command records and private outputs
 are under `/tmp/opencode/ww64/`; no game-derived bytes are tracked.
 
-## Real ordinary regeneration
+## Real ordinary regeneration: initial delivery
 
 Read-only inputs were the same WW05 translated DOL/REL directories, extracted
 REL directory and `main.dol` recorded by WW54. Output:
@@ -114,3 +116,95 @@ the 3,822,272-byte raw DOL. Its emitted C text is 12,184,843 bytes. These are
 static byte counts, not compiler peak memory, linked footprint or Vita memory-fit
 measurements. The next build must account for this cost and truthfully bind the
 new digest/receipt; legacy launcher/digest admission was not changed here.
+
+## WW65 correction: original identity, processed canonical replay
+
+The initial contract embedded the approved **processed** extraction, not the
+member the guest reads from the disc. WW65 stopped correctly at full raw REL
+identity mismatch. WW63's comparison found exactly one differing byte, `0x43`,
+inside the section-alignment word at `0x40`; both images are 74,960 bytes and all
+lifecycle fields are identical. The standalone input is not changed by this fix.
+
+- **Runtime identity:** original `RELS.arc/amem/d_a_ship.rel`, read directly from
+  the player's disc, SHA-256
+  `945a6493a7f9d353657b07048b26e63c8fd53ca147df9d1b5378c44f0ef2280e`.
+  These exact bytes populate `s_ship_raw_rel` and the receipt's `rel_sha256`.
+- **Canonical/reference source:** unchanged approved standalone processed member,
+  SHA-256 `ef42b45d7c8c1ac5fd233f6769a58381b1b691cf90c3010eab49a92172788448`,
+  with alignment 4. Its existing unpatched-loader proof is retained and rerun.
+
+The original game loader accepts this alignment-8 disc member, as established by
+the coordinator's real-run evidence, with the approved four-aligned executable
+address `C1B100F4`. The pinned DolRecomp loader instead checks executable-address
+alignment and rejects it (`C1B100F4 % 8 == 4`). The existing disc importer therefore
+normalizes alignment to 4 in translation copies. The attempted direct original
+member replay stopped at this rejection in correction round 2; its log is
+`reference-check-r2.log`. Neither pinned loader nor runtime identity gate is
+patched or relaxed. This correction did not launch the game to verify behavior.
+
+The coordinator approved the following strict separation in correction round 3:
+
+1. `--ship-disc` is mandatory for successful generation. The generator reuses the
+   existing disc/FST and bounded RARC/Yaz0 readers to select exactly one original
+   `d_a_ship.rel` archive member. There is no standalone-identity fallback.
+   `--ship-rel-sha256` optionally pins the expected member hash; it is pinned to
+   `945a6493...` in the recorded real regeneration command.
+2. Both processed and original section tables are validated directly against the
+   compiled layout. The images must have identical lengths and bytes everywhere
+   except the **entire u32 word at `0x40`**. Any other difference fails generation.
+   Both alignment values are read and recorded; processed alignment must be 4,
+   and disc alignment must be a nonzero power of two. No identity alignment is
+   imposed on the already-approved static executable address.
+3. Canonical replay uses the unchanged processed image. The disc image is also
+   replayed independently through the Python relocation validator and must yield
+   byte-identical canonical sections. The disc's own section table must match
+   the canonical catalog, and `raw_sha256` records its bytes at each section's
+   actual offset/size. Each relocated `sha256` records the emitted canonical
+   bytes. **Raw relocation placeholders cannot equal relocated canonical hashes**;
+   these two distinct hashes plus direct disc replay provide the content proof.
+4. The runtime host consumes the original identity bytes for its full comparison
+   and validates lifecycle entries against the unchanged canonical targets,
+   relocated section images and executable chunk hashes. Default-OFF and all
+   lifecycle/teardown gates remain unchanged.
+
+The normal Vita, Builder, Linux and Windows generation calls now pass their
+existing disc path. The mods helper also forwards that path and now requires its
+disc argument. No build, launcher/digest admission or candidate integration was
+performed; those callers received syntax and synthetic mocked-call/cache checks,
+not platform builds.
+
+### Correction-round evidence
+
+- Test-first: **38/42 pass, four failing methods** before implementation; the
+  required disc-source/hash-pin CLI was not yet accepted. Green: **42/42**, then
+  final **44/44** including required-disc/stale-receipt rejection and mocked
+  Linux/Windows disc-path forwarding. Coverage includes
+  identity hash/array equality, the one-word-only relationship, direct disc-table
+  validation, raw/canonical hashes and rejection of a processed identity under
+  a configured disc-member hash pin. Public synthetic fixtures only.
+- The updated receipt-red scenario first succeeds, then rejects an out-of-word
+  identity change and removes the old success receipt.
+- Fresh unpatched processed-source replay: **2,075 relocations, five sections**,
+  all byte-identical to the preserved reference, emitted arrays and direct disc
+  Python replay. Disc section metadata and raw content hashes also matched.
+- Synthetic builder regressions: **21/21** Windows prepared-cache, **9/9** Windows
+  training and **2/2** Mac optimization-cache methods. The initial Mac run had
+  two missing-disc-variable fixture errors; its mock generation harness now
+  supplies a synthetic disc path. No platform build or gameplay ran.
+- **1,999 inputs**, including the original disc, matched before/after hashes.
+  Generator totals remain **748 chunks, 415 REL modules, 417 code ranges**.
+- Output `/tmp/opencode/ww64/composite-r3/`, 755 files, digest
+  `b85c9fadee6fd3a12efcdd8105463d8bc599cdb29e01e12898f8b465c74045fe`.
+- Versus initial WW64 digest `61c9ebc7...`, only `rel_data.inc` and
+  `generation_receipt.json` change. In generated C, the only differences are the
+  raw identity byte at `0x43` and the derived 64-character build-identity string
+  that binds the corrected source hash. All five canonical arrays, all 748 chunk
+  sources, `generated.h`, ranges, exports and chunk hashes are unchanged.
+- Repeated regeneration: **755/755 files byte-identical** with the same digest.
+
+Raw round-3 logs, commands and hashes are under `/tmp/opencode/ww64/`, notably
+`red-tests-r3.log`, `green-tests-r3.log`, `reference-check-r3.log`,
+`regenerate-r3.log` and `regeneration-evidence-r3.json`. No game-derived bytes are
+committed. No emulator, candidate build, integration, network, install or runtime
+gate change occurred. Independent review and the next private build/run remain
+necessary before declaring the real trial fixed.

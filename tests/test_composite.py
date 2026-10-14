@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Synthetic fixture tests for generate_composite.py (P3 Route A)."""
 import hashlib
+import importlib.util
 import json
 import re
 import struct
@@ -115,6 +116,7 @@ def write_ship_fixture(td):
     struct.pack_into('>III', raw, 0x24, 56100, 56064, 16)
     raw[0x30:0x33] = bytes([1, 1, 1])
     struct.pack_into('>III', raw, 0x34, 0, 44, 88)
+    struct.pack_into('>I', raw, 0x40, 4)
     for index, (offset, size) in enumerate(((0, 0), (245, SHIP_SIZE),
                                            (56048, 8), (56056, 8))):
         struct.pack_into('>II', raw, 0x4C + index * 8, offset, size)
@@ -129,6 +131,8 @@ def write_ship_fixture(td):
     for index, record in enumerate(((0, 202, 1, 0), (8, 10, 0, DOL_TEXT_ADDR), (0, 203, 0, 0))):
         struct.pack_into('>HBBI', raw, 56164 + index * 8, *record)
     (td / 'rels_bin' / '0168.rel').write_bytes(raw)
+    struct.pack_into('>I', raw, 0x40, 8)
+    (td / 'input' / 'ship-disc.rel').write_bytes(raw)
     write_rel_module(td / 'rels_out', 168, [(SHIP_START, SHIP_START + SHIP_SIZE)])
 
 
@@ -153,11 +157,44 @@ def setup_fixture(td, dol_chunks=None, rel_specs=None):
     return td
 
 
-def run_generator(td, expect_fail=False):
+def write_ship_disc(td):
+    raw = (td / 'input' / 'ship-disc.rel').read_bytes()
+    names = b'ship\0d_a_ship.rel\0'
+    archive = bytearray(128 + len(raw))
+    archive[:4] = b'RARC'
+    struct.pack_into('>III', archive, 4, len(archive), 32, 96)
+    struct.pack_into('>6I', archive, 32, 1, 32, 1, 48, len(names), 68)
+    struct.pack_into('>HI', archive, 74, 1, 0)
+    struct.pack_into('>III', archive, 84, 0x11000005, 0, len(raw))
+    archive[100:100 + len(names)] = names
+    archive[128:] = raw
+    dol = (td / 'input' / 'main.dol').read_bytes()
+    fst_offset = gc.align_up(0x500 + len(dol), 32)
+    fst = struct.pack('>6I', 0x01000000, 0, 2, 0, 0, len(archive)) + b'RELS.arc\0'
+    archive_offset = gc.align_up(fst_offset + len(fst), 32)
+    fst = bytearray(fst)
+    struct.pack_into('>I', fst, 16, archive_offset)
+    disc = bytearray(archive_offset + len(archive))
+    disc[:6] = b'GZLE01'
+    struct.pack_into('>I', disc, 0x1C, 0xC2339F3D)
+    struct.pack_into('>III', disc, 0x420, 0x500, fst_offset, len(fst))
+    disc[0x500:0x500 + len(dol)] = dol
+    disc[fst_offset:fst_offset + len(fst)] = fst
+    disc[archive_offset:] = archive
+    path = td / 'input' / 'game.iso'
+    path.write_bytes(disc)
+    return path
+
+
+def run_generator(td, expect_fail=False, disc_reference=True, identity_sha256=None):
     cmd = [sys.executable, str(SCRIPTS_DIR / "generate_composite.py"),
            "--dol-dir", str(Path(td)/"dol_out"), "--rels-dir", str(Path(td)/"rels_out"),
            "--rels-bin-dir", str(Path(td)/"rels_bin"), "--main-dol", str(Path(td)/"input"/"main.dol"),
            "--output-dir", str(Path(td)/"composite")]
+    if disc_reference:
+        cmd += ['--ship-disc', str(write_ship_disc(Path(td)))]
+    if identity_sha256 is not None:
+        cmd += ['--ship-rel-sha256', identity_sha256]
     r = subprocess.run(cmd, capture_output=True, text=True)
     if expect_fail:
         assert r.returncode != 0, f"expected failure:\nstdout={r.stdout}\nstderr={r.stderr}"
@@ -645,7 +682,7 @@ def test_ship_contract_emitted_from_normal_inputs():
         assert '#define MODULE_SHIP_CONTRACT_PRESENT 1' in text
         assert 'static const BlueWakeShipContractV1 s_ship_contract' in text
         assert read_c_array(text, 's_ship_raw_dol') == (td / 'input' / 'main.dol').read_bytes()
-        assert read_c_array(text, 's_ship_raw_rel') == (td / 'rels_bin' / '0168.rel').read_bytes()
+        assert read_c_array(text, 's_ship_raw_rel') == (td / 'input' / 'ship-disc.rel').read_bytes()
         canonical = read_c_array(text, 's_ship_canonical_1')
         assert len(canonical) == SHIP_SIZE
         assert struct.unpack_from('>H', canonical, 2)[0] == 0xC1B2
@@ -659,7 +696,7 @@ def test_ship_contract_emitted_from_normal_inputs():
         assert contract['lifecycle'] == {'prolog': SHIP_START, 'epilog': 0xC1B10120, 'unresolved': 0xC1B1014C}
         assert contract['ctors'] == 0xC1B1DAF0 and contract['dtors'] == 0xC1B1DAF8
         assert contract['section_count'] == 3
-        for name, path in [('dol', td / 'input' / 'main.dol'), ('rel', td / 'rels_bin' / '0168.rel')]:
+        for name, path in [('dol', td / 'input' / 'main.dol'), ('rel', td / 'input' / 'ship-disc.rel')]:
             raw = path.read_bytes()
             assert contract[f'{name}_size'] == len(raw)
             assert contract[f'{name}_sha256'] == hashlib.sha256(raw).hexdigest()
@@ -733,6 +770,10 @@ def assert_ship_change_rejected(offset, value, diagnostic='ship contract', label
         raw = bytearray(path.read_bytes())
         raw[offset:offset + len(value)] = value
         path.write_bytes(raw)
+        identity_path = td / 'input' / 'ship-disc.rel'
+        identity_raw = bytearray(identity_path.read_bytes())
+        identity_raw[offset:offset + len(value)] = value
+        identity_path.write_bytes(identity_raw)
         result = run_generator(td, expect_fail=True)
         assert diagnostic in result.stderr, (label, result.stderr)
         assert not (td / 'composite' / 'rel_data.inc').exists()
@@ -776,8 +817,12 @@ def test_failed_regeneration_invalidates_success_receipt():
     with tempfile.TemporaryDirectory() as td:
         td = setup_fixture(td)
         run_generator(td)
-        (td / 'rels_bin' / '0168.rel').unlink()
-        run_generator(td, expect_fail=True)
+        path = td / 'input' / 'ship-disc.rel'
+        raw = bytearray(path.read_bytes())
+        raw[8] ^= 1
+        path.write_bytes(raw)
+        result = run_generator(td, expect_fail=True)
+        assert 'ship identity and processed inputs differ outside header alignment word 0x40' in result.stderr
         assert not (td / 'composite' / 'generation_receipt.json').exists()
 
 
@@ -810,6 +855,85 @@ def test_generated_contract_compiles_with_existing_export_abi():
                         '-I', str(SCRIPTS_DIR.parent / 'cmake/composite'), str(source),
                         '-o', str(td / 'contract_probe')], check=True, capture_output=True, text=True)
         subprocess.run([str(td / 'contract_probe')], check=True, capture_output=True, text=True)
+
+
+def test_ship_identity_uses_disc_member_not_processed_member():
+    with tempfile.TemporaryDirectory() as td:
+        td = setup_fixture(td)
+        disc_raw = (td / 'input' / 'ship-disc.rel').read_bytes()
+        processed = (td / 'rels_bin' / '0168.rel').read_bytes()
+        expected = hashlib.sha256(disc_raw).hexdigest()
+        run_generator(td, disc_reference=True, identity_sha256=expected)
+        out = td / 'composite'
+        assert read_c_array((out / 'rel_data.inc').read_text(), 's_ship_raw_rel') == disc_raw
+        receipt = json.loads((out / 'generation_receipt.json').read_text())['ship_contract']
+        assert receipt['rel_sha256'] == expected
+        assert receipt['processed_rel_sha256'] == hashlib.sha256(processed).hexdigest()
+        assert receipt['section_alignment'] == {'identity': 8, 'processed': 4}
+        for section in receipt['canonical_sections']:
+            at, size = section['offset'], section['size']
+            assert section['raw_sha256'] == hashlib.sha256(disc_raw[at:at + size]).hexdigest()
+            emitted = read_c_array((out / 'rel_data.inc').read_text(), f's_ship_canonical_{section["index"]}')
+            assert section['sha256'] == hashlib.sha256(emitted).hexdigest()
+
+
+def test_ship_sources_reject_differences_outside_alignment_word():
+    for offset in (0x08, 0x43 + 1, 244, 56048, 56112):
+        with tempfile.TemporaryDirectory() as td:
+            td = setup_fixture(td)
+            path = td / 'input' / 'ship-disc.rel'
+            raw = bytearray(path.read_bytes())
+            raw[offset] ^= 1
+            path.write_bytes(raw)
+            result = run_generator(td, expect_fail=True, disc_reference=True)
+            assert 'ship identity and processed inputs differ outside header alignment word 0x40' in result.stderr
+            assert not (td / 'composite' / 'generation_receipt.json').exists()
+
+
+def test_ship_disc_section_table_is_checked_directly():
+    with tempfile.TemporaryDirectory() as td:
+        td = setup_fixture(td)
+        path = td / 'input' / 'ship-disc.rel'
+        raw = bytearray(path.read_bytes())
+        struct.pack_into('>I', raw, 0x58, SHIP_SIZE - 4)
+        path.write_bytes(raw)
+        result = run_generator(td, expect_fail=True, disc_reference=True)
+        assert 'ship contract section metadata disagrees with raw REL bytes' in result.stderr
+
+
+def test_ship_identity_hash_pin_rejects_processed_identity():
+    with tempfile.TemporaryDirectory() as td:
+        td = setup_fixture(td)
+        expected = hashlib.sha256((td / 'input' / 'ship-disc.rel').read_bytes()).hexdigest()
+        (td / 'input' / 'ship-disc.rel').write_bytes((td / 'rels_bin' / '0168.rel').read_bytes())
+        result = run_generator(td, expect_fail=True, disc_reference=True, identity_sha256=expected)
+        assert 'ship disc-member identity SHA-256 mismatch' in result.stderr
+
+
+def test_ship_requires_disc_reference_without_stale_success_receipt():
+    with tempfile.TemporaryDirectory() as td:
+        td = setup_fixture(td)
+        run_generator(td)
+        result = run_generator(td, expect_fail=True, disc_reference=False)
+        assert 'ship contract requires a disc-member identity reference' in result.stderr
+        assert not (td / 'composite' / 'generation_receipt.json').exists()
+
+
+def test_desktop_builders_forward_the_original_disc():
+    for platform in ('linux', 'windows'):
+        with tempfile.TemporaryDirectory() as td:
+            td = Path(td)
+            spec = importlib.util.spec_from_file_location(f'{platform}_builder', SCRIPTS_DIR / platform / 'build.py')
+            module = importlib.util.module_from_spec(spec)
+            spec.loader.exec_module(module)
+            builder = module.Builder.__new__(module.Builder)
+            builder.iso = td / 'owned-disc.iso'
+            commands = []
+            builder.run = lambda name, command: commands.append(command)
+            builder.composite(td / 'dol', td / 'rels', td / 'rels_bin', td / 'main.dol', td / 'out', 'generate')
+            assert len(commands) == 1
+            index = commands[0].index('--ship-disc')
+            assert commands[0][index + 1] == builder.iso
 
 
 def main():
@@ -852,6 +976,12 @@ def main():
         test_ship_contract_additive_abi_and_chunk_include_set,
         test_failed_regeneration_invalidates_success_receipt,
         test_generated_contract_compiles_with_existing_export_abi,
+        test_ship_identity_uses_disc_member_not_processed_member,
+        test_ship_sources_reject_differences_outside_alignment_word,
+        test_ship_disc_section_table_is_checked_directly,
+        test_ship_identity_hash_pin_rejects_processed_identity,
+        test_ship_requires_disc_reference_without_stale_success_receipt,
+        test_desktop_builders_forward_the_original_disc,
     ]
     failures = 0
     for t in tests:

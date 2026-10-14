@@ -1,11 +1,36 @@
 import hashlib
 import json
 import struct
+from pathlib import PurePosixPath
 
 
 SHIP_EXEC = (1, 244, 0xC1B100F4, 55804)
 SHIP_LIFECYCLE = (0xC1B100F4, 0xC1B10120, 0xC1B1014C)
 SHIP_TABLES = ((2, 0xC1B1DAF0), (3, 0xC1B1DAF8))
+
+
+def read_disc_member(path):
+    import prepare
+    from wwhd.formats import MAX_FILE, rarc, yaz0
+
+    with open(path, 'rb') as stream:
+        header = prepare.validate_disc_header(stream)
+        if header['revision'] != 0:
+            raise ValueError('ship identity requires GZLE01 revision 0')
+        files = prepare.read_fst(stream, header['fst_offset'], header['fst_size'])
+        archives = [entry for entry in files if not entry['is_dir'] and entry['path'] == 'RELS.arc']
+        if len(archives) != 1 or not 0 < archives[0]['size'] <= MAX_FILE:
+            raise ValueError('ship identity requires exactly one bounded RELS.arc')
+        stream.seek(archives[0]['offset'])
+        archive = stream.read(archives[0]['size'])
+        if len(archive) != archives[0]['size']:
+            raise ValueError('ship identity RELS.arc is truncated')
+    members = [(name, data) for name, data in rarc(archive)
+               if PurePosixPath(name).name == 'd_a_ship.rel']
+    if len(members) != 1:
+        raise ValueError('ship identity requires exactly one disc archive member d_a_ship.rel')
+    name, data = members[0]
+    return yaz0(data), {'archive': 'RELS.arc', 'member': name}
 
 
 def verify_layout(raw, sections, chunks):
@@ -121,11 +146,21 @@ def relocate_ship(raw, sections, dol_ranges):
     return {index: bytes(data) for index, data in result.items()}
 
 
-def normal_contract(raw_dol, raw_ship, sections, chunks, dol_ranges):
-    verify_layout(raw_ship, sections, chunks)
+def normal_contract(raw_dol, processed_ship, sections, chunks, dol_ranges, identity_ship):
+    verify_layout(processed_ship, sections, chunks)
+    verify_layout(identity_ship, sections, chunks)
+    if (len(identity_ship) != len(processed_ship) or identity_ship[:0x40] != processed_ship[:0x40] or
+            identity_ship[0x44:] != processed_ship[0x44:]):
+        raise ValueError('ship identity and processed inputs differ outside header alignment word 0x40')
+    processed_alignment = struct.unpack_from('>I', processed_ship, 0x40)[0]
+    identity_alignment = struct.unpack_from('>I', identity_ship, 0x40)[0]
+    if processed_alignment != 4 or not identity_alignment or identity_alignment & (identity_alignment - 1):
+        raise ValueError('ship contract requires processed alignment 4 and a valid disc alignment')
     if not 0 < len(raw_dol) <= 0x800000:
         raise ValueError('ship contract requires a bounded full raw DOL')
-    canonical = relocate_ship(raw_ship, sections, dol_ranges)
+    canonical = relocate_ship(processed_ship, sections, dol_ranges)
+    if canonical != relocate_ship(identity_ship, sections, dol_ranges):
+        raise ValueError('ship disc section replay differs from processed canonical sections')
     for section in sections:
         if section['size'] and section['offset'] and not section['executable']:
             if canonical[section['index']] != section['bytes']:
@@ -137,18 +172,22 @@ def normal_contract(raw_dol, raw_ship, sections, chunks, dol_ranges):
     fields = {
         'version': 1, 'module_id': 168,
         'dol_size': len(raw_dol), 'dol_sha256': hashlib.sha256(raw_dol).hexdigest(),
-        'rel_size': len(raw_ship), 'rel_sha256': hashlib.sha256(raw_ship).hexdigest(),
+        'rel_size': len(identity_ship), 'rel_sha256': hashlib.sha256(identity_ship).hexdigest(),
+        'processed_rel_sha256': hashlib.sha256(processed_ship).hexdigest(),
+        'section_alignment': {'identity': identity_alignment, 'processed': processed_alignment},
         'exec': dict(zip(('index', 'offset', 'linked_start', 'size'), SHIP_EXEC)),
         'lifecycle': dict(zip(('prolog', 'epilog', 'unresolved'), SHIP_LIFECYCLE)),
         'ctors': SHIP_TABLES[0][1], 'dtors': SHIP_TABLES[1][1],
         'chunks': [list(chunk) for chunk in chunks],
         'section_count': len(canonical),
         'canonical_sections': [{key: section[key] for key in ('index', 'offset', 'linked_start', 'size')} |
-                               {'sha256': hashlib.sha256(canonical[section['index']]).hexdigest()}
+                               {'sha256': hashlib.sha256(canonical[section['index']]).hexdigest(),
+                                'raw_sha256': hashlib.sha256(identity_ship[section['offset']:
+                                    section['offset'] + section['size']]).hexdigest()}
                                for section in sections if section['size'] and section['offset']],
     }
     identity = hashlib.sha256(json.dumps(fields, sort_keys=True, separators=(',', ':')).encode()).hexdigest()
-    text = emit_contract(raw_dol, raw_ship, sections, canonical, identity)
+    text = emit_contract(raw_dol, identity_ship, sections, canonical, identity)
     fields['build_identity'] = identity
     fields['sha256'] = hashlib.sha256(text.encode()).hexdigest()
     return text, fields, canonical[SHIP_EXEC[0]]

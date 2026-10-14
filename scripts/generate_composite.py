@@ -349,6 +349,8 @@ def main():
     ap.add_argument("--rels-dir", required=True, help="DolRecomp REL output root")
     ap.add_argument("--rels-bin-dir", required=True, help="Extracted .rel binaries dir")
     ap.add_argument("--main-dol", required=True, help="Original main.dol path")
+    ap.add_argument('--ship-disc', help='Required original GZLE01 disc image for ship identity')
+    ap.add_argument('--ship-rel-sha256', help='Expected disc-member identity SHA-256, if pinned')
     ap.add_argument("--game-id", default="GZLE01")
     ap.add_argument("--output-dir", required=True)
     args = ap.parse_args()
@@ -361,6 +363,8 @@ def main():
     receipt_path = out_dir / 'generation_receipt.json'
     if receipt_path.exists():
         receipt_path.unlink()
+    if not args.ship_disc:
+        raise ValueError('ship contract requires a disc-member identity reference (--ship-disc)')
 
     # --- Parse DOL ---
     dol_h = (dol_dir / "generated.h").read_text()
@@ -435,6 +439,9 @@ def main():
                 rel_bin_cache[mid] = None
     if rel_bin_cache.get(168) is None:
         raise ValueError('ship contract requires raw module 168')
+    ship_identity, ship_identity_source = ship_contract.read_disc_member(args.ship_disc)
+    if args.ship_rel_sha256 is not None and hashlib.sha256(ship_identity).hexdigest() != args.ship_rel_sha256:
+        raise ValueError('ship disc-member identity SHA-256 mismatch')
 
     # Build linked section images before emitting the ABI tables. The entry
     # point is inside the executable section, so recover each REL's load base
@@ -466,7 +473,7 @@ def main():
         raise ValueError('ship contract requires module 168 executable sections')
     ship_text, ship_fields, ship_executable = ship_contract.normal_contract(
         Path(args.main_dol).read_bytes(), rel_bin_cache[168],
-        rel_section_maps[168]['sections'], ship_entry['chunks'], dol_ranges)
+        rel_section_maps[168]['sections'], ship_entry['chunks'], dol_ranges, ship_identity)
 
     rel_lifecycle = {}
     for e in rel_entries:
@@ -964,7 +971,7 @@ static inline DOLRECOMP_UNUSED int dolrecomp_run_blocks(CPUState* ctx, u32 max_b
     for fname, h_val in sorted(hashes.items()):
         print(f"  {fname}: {h_val[:16]}...")
     receipt = {'version': 1, 'game_id': args.game_id, 'ship_contract': ship_fields,
-               'output_sha256': hashes}
+               'ship_identity_source': ship_identity_source, 'output_sha256': hashes}
     write_lf(receipt_path, json.dumps(receipt, sort_keys=True, indent=2) + '\n')
 
     print(f"PASS: {n} chunks, {len(rel_module_info)} rel modules, "

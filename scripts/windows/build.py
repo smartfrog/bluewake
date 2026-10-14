@@ -514,6 +514,7 @@ int main(void) {
         shutil.rmtree(out, ignore_errors=True)
         self.run(name, [sys.executable, ROOT / "scripts/generate_composite.py", "--dol-dir", dol_dir,
                         "--rels-dir", rels_dir, "--rels-bin-dir", rels_bin, "--main-dol", main_dol,
+                        "--ship-disc", self.iso,
                         "--output-dir", out])
 
     # --- 6 generate ------------------------------------------------------
