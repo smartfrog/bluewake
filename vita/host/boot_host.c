@@ -601,6 +601,11 @@ static void fail_mmio_write(WwHost* host, const char* error, u32 address, u64 va
 
 static void mmio_write(CPUState* cpu, u32 address, u64 value, u8 size) {
     WwHost* host = owner(cpu);
+    const char* panic = ww_host_panic_marker(host, address, value, size);
+    if (panic != NULL) {
+        fail_mmio_write(host, panic, address, value, size);
+        return;
+    }
     if (in_range(address, size, 0xCC008000u, 0x20u)) {
         observe(cpu);
         if (host->error != NULL)
@@ -782,6 +787,12 @@ bool ww_host_edge(void* user, CPUState* cpu, u32 address) {
         }
     }
     if ((host->frontier.complete && !host->stream.enabled) || host->error != NULL) {
+        host->edge_stopped = true;
+        return true;
+    }
+    const char* game_stop = ww_host_observe_game_stop(host, address);
+    if (game_stop != NULL) {
+        ww_host_fail(host, game_stop, address, address);
         host->edge_stopped = true;
         return true;
     }

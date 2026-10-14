@@ -29,6 +29,28 @@ static int mmio_poll(CPUState* cpu, u32 address) {
 }
 
 static int dispatch(CPUState* cpu, u32 address) {
+    const char* game_stop = getenv("WW05_IO_GAME_STOP");
+    if (game_stop != NULL) {
+        cpu->msr |= PPC_MSR_DR;
+        if (address == 0x80001000u) {
+            cpu->gpr[1] = 0x80007000u;
+            cpu->gpr[3] = 0x80008000u;
+            cpu->gpr[4] = 321u;
+            cpu->gpr[5] = 0x80008100u;
+            memcpy(cpu->ram + 0x8000u, "synthetic_assert.cpp", 21u);
+            memcpy(cpu->ram + 0x8100u, "ship assertion %s:%u", 20u);
+            mem_write32(cpu, 0x80007004u, 0x80001004u);
+            cpu->pc = strcmp(game_stop, "panic") == 0 ? 0x80006C4Cu : 0x8030150Cu;
+            cpu->downcount -= 1;
+            return 1;
+        }
+        assert(address == 0x80006C4Cu);
+        cpu->gpr[3] = cpu->gpr[4] = cpu->gpr[5] = 0u;
+        cpu->pc = 0x80006D64u;
+        mem_write32(cpu, 0x01234567u, 0x01234567u);
+        cpu->downcount -= 1;
+        return 1;
+    }
     static bool polled;
     static u32 repeated_handlers;
     static bool init_started;

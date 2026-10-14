@@ -19,7 +19,8 @@ class MainIoTest(unittest.TestCase):
                     dispatch_trace=None, stale_dispatch=False, mmio_poll=False, aram_dma=False, dsp_init=False,
                     cpu_boundary=None, exi=False, cp_control=None, fifo=None, prior_aram_transfers=None,
                     cp_distance=None, cp_distance_high=None, cp_clear=None, consumer=False, wpar=None,
-                    continue_gx=None, memory_captures=None, defer_audio=None, memory_start=None, memory_end=None):
+                    continue_gx=None, memory_captures=None, defer_audio=None, memory_start=None, memory_end=None,
+                    game_stop=None):
         with tempfile.TemporaryDirectory(dir=OUT, prefix='io-') as directory:
             root = Path(directory)
             data = bytearray(260)
@@ -46,6 +47,8 @@ class MainIoTest(unittest.TestCase):
             if stale_dispatch:
                 (root / 'ww05.dispatch').write_text('preserve trace')
             environment = dict(os.environ, WW05_IO_FAILURE=failure)
+            if game_stop is not None:
+                environment['WW05_IO_GAME_STOP'] = game_stop
             if interrupt is not None:
                 environment['WW05_IO_IRQ'] = interrupt
             if exception:
@@ -82,6 +85,14 @@ class MainIoTest(unittest.TestCase):
                                     env=environment, capture_output=True, timeout=10)
             self.assertGreaterEqual(result.returncode, 0, result.stderr.decode())
             report = (root / 'ww05.report').read_text() if (root / 'ww05.report').exists() else None
+            if game_stop is not None:
+                log = result.stderr.decode()
+                self.assertIn('[halt] frame0 sp=0x80007000 back=0x00000000 lr=0x80001004', log)
+                if game_stop == 'panic':
+                    self.assertIn('file="synthetic_assert.cpp" format_text="ship assertion %s:%u"', log)
+                    self.assertLess(log.index('[panic] OSPanic file='), log.index('[halt] OSPanic marker'))
+                else:
+                    self.assertIn('[halt] PPCHalt entry', log)
             if progress:
                 line = next(line for line in result.stderr.decode().splitlines()
                             if line.startswith('[progress] turns=1 '))

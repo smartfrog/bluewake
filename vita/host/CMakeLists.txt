@@ -44,7 +44,7 @@ target_compile_options(gxruntime PRIVATE -ffp-contract=off -fno-fast-math -fstac
 
 add_library(ww05_services STATIC boot_host.c gx_checkpoint.c gx_stream.c fifo_gather.c fifo_consumer.c
     code_guard.c dsp_interface.c bat_contract.c disc_service.c rel_provider.c rel_service.c rel_link.c ship_contract.c
-    scheduler_observation.c vi_clock.c gx_draw_observation.c gpu_finish.c frame_timing.c mem1_capture.c frame_capture.cpp
+    scheduler_observation.c game_stop.c vi_clock.c gx_draw_observation.c gpu_finish.c frame_timing.c mem1_capture.c frame_capture.cpp
     dsp_rom_mail.c dsp_deferred.c pad_input.c
     $<TARGET_OBJECTS:ww13_dvd_pin>
     "${BLUEWAKE_ROOT}/runtime/host/src/cycle_domain.c"
@@ -74,6 +74,10 @@ target_compile_options(ww05_services PRIVATE -O2 -ffp-contract=off -fno-fast-mat
 
 if(WW05_TESTS_ONLY)
     enable_testing()
+    add_executable(game_stop_probe game_stop_probe.c)
+    target_compile_options(game_stop_probe PRIVATE -UNDEBUG)
+    target_link_libraries(game_stop_probe PRIVATE ww05_services)
+    target_link_options(game_stop_probe PRIVATE -Wl,--wrap=fprintf)
     add_executable(pad_input_probe pad_input_probe.c)
     target_compile_options(pad_input_probe PRIVATE -UNDEBUG)
     target_link_libraries(pad_input_probe PRIVATE ww05_services)
