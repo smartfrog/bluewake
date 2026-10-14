@@ -52,7 +52,7 @@ def fixture(output):
     code = instructions()
     raw = bytearray(74960)
     for offset, value in ((0, 168), (0xC, 6), (0x10, 0x4C), (0x1C, 3), (0x20, 16),
-                          (0x28, 0x1A0), (0x2C, 16), (0x38, 44), (0x3C, 88)):
+                          (0x28, 0x1A0), (0x2C, 16), (0x38, 44), (0x3C, 88), (0x48, 0xE3B8)):
         struct.pack_into('>I', raw, offset, value)
     raw[0x30:0x33] = bytes([1, 1, 1])
     sections = [(1, 0xC1B100F4, 0x80, 96), (2, 0xC1B1D414, 0x100, 36),
@@ -119,7 +119,7 @@ class ShipPrologTest(unittest.TestCase):
     def setUpClass(cls):
         test_di_read.DiscReadTest.setUpClass()
 
-    def run_probe(self, scenario, ranges=None):
+    def run_probe(self, scenario, ranges=None, fix_size=None):
         output = test_host.OUT
         raw = bytearray((output / 'ship.rel').read_bytes())
         if scenario == 'bad-rel':
@@ -131,7 +131,9 @@ class ShipPrologTest(unittest.TestCase):
             struct.pack_into('>I', raw, 0, 169)
         if scenario == 'lifecycle-data':
             struct.pack_into('>I', raw, 0x54, 0x80)
-        with tempfile.TemporaryDirectory(dir='/tmp/opencode', prefix='ww63-disc-') as directory:
+        if fix_size is not None:
+            struct.pack_into('>I', raw, 0x48, fix_size)
+        with tempfile.TemporaryDirectory(dir='/tmp/opencode', prefix='ww74-disc-') as directory:
             root = Path(directory)
             archive = bytearray(0x80)
             archive[:4] = b'RARC'
@@ -157,13 +159,15 @@ class ShipPrologTest(unittest.TestCase):
                 if ranges is None:
                     ranges = [(start, start + 0x100) for start in range(0x81820000, 0x81F80000, 0x10000)]
                     if scenario == 'scratch-exhausted':
-                        ranges = [(0x81820000, 0x81F80000), (0x82000000, 0x82020000)]
+                        ranges = [(0x81820000, 0x81F80000), (0x81F90000, 0x82000000)]
                     if scenario == 'scratch-tagged-prefix':
-                        ranges.append((0xC2000000, 0xC2000040))
+                        ranges.append((0xC1F90000, 0xC1F90040))
                 occupancy = root / 'scratch-ranges.bin'
                 occupancy.write_bytes(struct.pack('>I', len(ranges)) + b''.join(
                     struct.pack('>II', start, end) for start, end in ranges))
                 command.append(str(occupancy))
+                if fix_size is not None:
+                    command.append(hex(fix_size))
             result = subprocess.run(command, cwd=root,
                                     capture_output=True, text=True, timeout=10)
             self.assertEqual(result.returncode, 0, result.stderr)
@@ -289,7 +293,34 @@ class ShipPrologTest(unittest.TestCase):
 
     def test_ship_materialization_uses_bounded_fallback_when_legacy_scratch_is_fragmented(self):
         log = self.run_probe('scratch-fragmented')
-        self.assertIn('PASS staging guest=82000000 bytes=74960 capacity=74976 controller=preserved', log)
+        self.assertIn('PASS staging guest=81F90000 bytes=74960 capacity=74976 controller=preserved', log)
+
+    def test_ship_fallback_skips_a_live_staging_reservation(self):
+        self.assertIn('PASS staging guest=81FA0020', self.run_probe('scratch-live-prefix'))
+
+    def test_ship_fix_size_word_is_preserved_in_the_staged_raw_image(self):
+        raw = (test_host.OUT / 'ship.rel').read_bytes()
+        fix_size = struct.unpack_from('>I', raw, 0x48)[0]
+        self.assertEqual(fix_size, 0xE3B8)
+        self.assertIn(f'PASS fix-size raw={fix_size:08X} staged={fix_size:08X}',
+                      self.run_probe('scratch-fragmented'))
+
+    def test_ship_fallback_rejects_a_fix_area_reaching_or_crossing_the_game_ceiling(self):
+        for fix_size in (0x20000, 0x20001, 0xFFFFFFFF):
+            with self.subTest(fix_size=fix_size):
+                log = self.run_probe('scratch-fix-rejected',
+                                     ranges=[(0x81820000, 0x81F80000), (0x81F90000, 0x81FE0000)],
+                                     fix_size=fix_size)
+                self.assertIn('ship REL staging fix area reaches the module-region ceiling', log)
+                self.assertIn('PASS rejected-before-publication', log)
+                self.assertNotIn('[rel-materialized]', log)
+
+    def test_ship_fallback_accepts_a_fix_area_one_byte_below_the_game_ceiling(self):
+        log = self.run_probe('scratch-fix-safe',
+                             ranges=[(0x81820000, 0x81F80000), (0x81F90000, 0x81FE0000)],
+                             fix_size=0x1FFFF)
+        self.assertIn('PASS staging guest=81FE0000', log)
+        self.assertIn('PASS fix-size raw=0001FFFF staged=0001FFFF', log)
 
     def test_ship_materialization_still_rejects_when_both_staging_windows_are_exhausted(self):
         self.assertIn('REL scratch has no bounded unoccupied range', self.run_probe('scratch-exhausted'))
@@ -298,7 +329,7 @@ class ShipPrologTest(unittest.TestCase):
         self.assertIn('REL scratch overlaps an existing alias owner', self.run_probe('scratch-alias'))
 
     def test_ship_fallback_reserves_folded_tagged_canonical_ranges(self):
-        self.assertIn('PASS staging guest=82000040', self.run_probe('scratch-tagged-prefix'))
+        self.assertIn('PASS staging guest=81F90040', self.run_probe('scratch-tagged-prefix'))
 
     def test_lifecycle_entries_require_executable_section_ownership(self):
         self.assertIn('lifecycle entries require owned translated executable sections', self.run_probe('lifecycle-data'))

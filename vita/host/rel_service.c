@@ -181,7 +181,7 @@ static const char* validate_rel(WwHost* host, const u8* image, u32 bytes, u32* m
     return "REL module identity is not owned by the compiled descriptor";
 }
 
-static const char* scratch_address(WwHost* host, u32 module_id, u32 bytes, u32* guest) {
+static const char* scratch_address(WwHost* host, u32 module_id, u32 bytes, u32 fix_size, u32* guest) {
     size_t count = host->module->num_code_ranges;
     if (count > 16384u - WW_REL_MAX_IMAGES)
         return "REL descriptor occupied-range count exceeds its bound";
@@ -217,12 +217,15 @@ static const char* scratch_address(WwHost* host, u32 module_id, u32 bytes, u32* 
     }
     bool found = bluewake_rel_scratch_first_fit(WW_REL_SCRATCH_BASE, WW_REL_SCRATCH_LIMIT,
                                                bytes, ranges, count, guest);
-    if (!found && module_id == 168u && host->ship_contract != NULL)
+    const bool ship_fallback = !found && module_id == 168u && host->ship_contract != NULL;
+    if (ship_fallback)
         found = bluewake_rel_scratch_first_fit(WW_REL_SHIP_SCRATCH_BASE, WW_REL_SHIP_SCRATCH_LIMIT,
                                                bytes, ranges, count, guest);
     free(ranges);
     if (!found)
         return "REL scratch has no bounded unoccupied range";
+    if (ship_fallback && (u64)*guest + fix_size >= WW_REL_MODULE_REGION_LIMIT)
+        return "ship REL staging fix area reaches the module-region ceiling";
     if (ww_host_linked_alias_overlaps(*guest, bytes) || ww_host_linked_alias_overlaps(*guest | 0x40000000u, bytes))
         return "REL scratch overlaps an existing alias owner";
     return NULL;
@@ -283,7 +286,7 @@ const char* ww_host_materialize_rel(WwHost* host, u32 owner, const char* name) {
         }
     }
     if (error == NULL)
-        error = scratch_address(host, module_id, capacity, &guest);
+        error = scratch_address(host, module_id, capacity, bluewake_archive_be32(image + 0x48u), &guest);
     if (error == NULL && !ppc_guest_alias_add(guest, capacity, NULL))
         error = "REL scratch alias allocation failed";
     if (error == NULL) {

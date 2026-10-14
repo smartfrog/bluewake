@@ -331,6 +331,13 @@ class RelMaterializeTest(unittest.TestCase):
     def test_second_catalog_module_links_without_displacing_the_profile_list(self):
         self.run_probe('second')
 
+    def test_non_ship_actor_keeps_the_legacy_window_with_ship_opt_in(self):
+        log = self.run_probe('second-legacy-opt-in').stderr
+        self.assertIn('module=139 name=ww34_fixture_a bytes=256 guest=81820200', log)
+
+    def test_non_ship_actor_cannot_use_the_free_ship_window_when_legacy_is_full(self):
+        self.run_probe('second-scratch-full')
+
     def test_resident_profile_survives_expired_temporary_controller_storage(self):
         for scenario in ('second-profile-owner-expired', 'second-profile-owner-reused'):
             with self.subTest(scenario=scenario):

@@ -130,7 +130,7 @@ static int translated_dispatch(CPUState* cpu, u32 address) {
 }
 
 int main(int argc, char** argv) {
-    assert(argc == 2 || argc == 3);
+    assert(argc >= 2 && argc <= 4);
     scenario = argv[1];
     WwHost* host = calloc(1u, sizeof(*host));
     assert(host != NULL && ww_host_init(host));
@@ -145,7 +145,7 @@ int main(int argc, char** argv) {
     host->rel_data = fixture_data;
     host->rel_data_count = 2u;
     StaticRecompRange* scratch_ranges = NULL;
-    if (argc == 3) {
+    if (argc >= 3) {
         assert(strncmp(scenario, "scratch-", 8u) == 0);
         FILE* stream = fopen(argv[2], "rb");
         assert(stream != NULL);
@@ -187,6 +187,13 @@ int main(int argc, char** argv) {
             write_be32(raw + 0x54u, 0x80u);
             contract.rel_bytes = raw;
         }
+        if (argc == 4) {
+            char* end = NULL;
+            const unsigned long fix_size = strtoul(argv[3], &end, 0);
+            assert(end != argv[3] && *end == '\0' && fix_size <= UINT32_MAX);
+            write_be32(raw + 0x48u, (u32)fix_size);
+            contract.rel_bytes = raw;
+        }
         static BlueWakeShipContractV1 enabled_contract;
         enabled_contract = contract;
         const char* error = ww_host_enable_ship_contract(host, &enabled_contract, "synthetic.dol");
@@ -208,7 +215,16 @@ int main(int argc, char** argv) {
     for (u32 at = 0u; at < 2u; ++at)
         assert(ppc_guest_alias_add(fixture_data[at].linked_start, fixture_data[at].size, fixture_data[at].bytes));
     if (strcmp(scenario, "scratch-alias") == 0)
-        assert(ppc_guest_alias_add(0xC2000000u, 32u, NULL));
+        assert(ppc_guest_alias_add(0xC1F90000u, 32u, NULL));
+    if (strcmp(scenario, "scratch-live-prefix") == 0) {
+        host->rel_images[0] = (WwRelImage){.owner = 0x80002300u, .guest = 0x81F90000u,
+            .capacity = 0x10020u, .module_id = 999u};
+        host->rel_image_count = 1u;
+        host->alias_count = 1u;
+        host->alias_bytes = 0x10020u;
+        assert(ppc_guest_alias_add(0x81F90000u, 0x10020u, NULL));
+        mem_write32(&host->cpu, 0x81F90000u, 0x12345678u);
+    }
     CPUState* cpu = &host->cpu;
     cpu->gpr[1] = 0x80004000u;
     cpu->gpr[2] = 0x80300000u;
@@ -266,9 +282,17 @@ int main(int argc, char** argv) {
         free(host);
         return 0;
     }
-    if (strcmp(scenario, "scratch-exhausted") == 0 || strcmp(scenario, "scratch-alias") == 0) {
+    if (strcmp(scenario, "scratch-exhausted") == 0 || strcmp(scenario, "scratch-alias") == 0 ||
+        strcmp(scenario, "scratch-fix-rejected") == 0) {
         assert(host->error != NULL && cpu->pc == 0x80240744u);
         assert(mem_read32(cpu, 0x80002110u) == 0u && host->alias_count == 0u);
+        assert(host->alias_bytes == 0u && host->rel_image_count == 0u);
+        assert(ww_host_rel_owned(host, 0x80002100u) == NULL);
+        if (strcmp(scenario, "scratch-fix-rejected") == 0) {
+            assert(!ww_host_linked_alias_overlaps(0x81FE0000u, 74976u));
+            assert(!ww_host_linked_alias_overlaps(0xC1FE0000u, 74976u));
+        }
+        assert(mem_read32(cpu, 0x80002100u) == 0x80002200u && mem_read32(cpu, 0x8000211Cu) == 0x80003000u);
         fprintf(stderr, "PASS rejected-before-publication reason=%s\n", host->error);
         ww_host_shutdown(host);
         free(scratch_ranges);
@@ -295,9 +319,20 @@ int main(int argc, char** argv) {
     WwRelImage* image = ww_host_rel_live(host, 168u);
     assert(image != NULL && host->ship_prolog_owner == 0u && host->rel_constructor_owner == 0u);
     if (strncmp(scenario, "scratch-", 8u) == 0) {
-        const u32 expected = strcmp(scenario, "scratch-tagged-prefix") == 0 ? 0x82000040u : 0x82000000u;
+        const u32 expected = strcmp(scenario, "scratch-tagged-prefix") == 0 ? 0x81F90040u :
+            strcmp(scenario, "scratch-live-prefix") == 0 ? 0x81FA0020u :
+            strcmp(scenario, "scratch-fix-safe") == 0 ? 0x81FE0000u : 0x81F90000u;
         assert(image->guest == expected && image->bytes == 74960u && image->capacity == 74976u);
-        assert((u64)image->guest + image->capacity <= 0x82020000u);
+        assert(image->guest >= 0x81F90000u && (u64)image->guest + image->capacity <= 0x82000000u);
+        const u32 fix_size = mem_read32(cpu, image->guest + 0x48u);
+        assert(fix_size == read_be32(host->ship_contract->rel_bytes + 0x48u));
+        assert((u64)image->guest + fix_size < 0x82000000u);
+        fprintf(stderr, "PASS fix-size raw=%08X staged=%08X\n",
+                read_be32(host->ship_contract->rel_bytes + 0x48u), fix_size);
+        if (strcmp(scenario, "scratch-live-prefix") == 0) {
+            assert(mem_read32(cpu, 0x81F90000u) == 0x12345678u);
+            assert(host->rel_images[0].guest == 0x81F90000u && host->rel_images[0].capacity == 0x10020u);
+        }
         u8* storage = NULL;
         assert(ppc_guest_alias_get_storage(image->guest, image->capacity, &storage));
         assert(get_ram_ptr(cpu, image->guest, image->bytes, NULL) == storage);
