@@ -64,6 +64,10 @@ static void probe_rel_sections(WwHost* host, const char* site, const char* form)
         else if (strcmp(form, "bss-tagged") == 0) value = 0xC07FF620u;
         else { assert(strcmp(form, "bss-misaligned") == 0); value = 0x807FF622u; }
         mem_write32(cpu, bss, value);
+    } else if (strcmp(form, "empty") == 0) {
+        const u32 empty = image->section_count == 21u ? 7u : 0u;
+        assert(image->sections[empty].flags == 0u && image->sections[empty].size == 0u);
+        mem_write32(cpu, table + empty * 8u, 0x807FF620u);
     } else if (strcmp(form, "size") == 0)
         mem_write32(cpu, table + 12u, image->sections[1].size + 4u);
     else if (strcmp(form, "count") == 0)

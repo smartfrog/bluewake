@@ -37,6 +37,9 @@ class RelSectionGuardTest(unittest.TestCase):
         for form in ('bss-below', 'bss-end', 'bss-ship', 'bss-tagged', 'bss-misaligned'):
             self.check_form(form, False)
 
+    def test_empty_zero_offset_entry_rejects_an_aligned_main_ram_address(self):
+        self.check_form('empty', False)
+
     def test_tampered_size_fails_closed(self):
         self.check_form('size', False)
 
