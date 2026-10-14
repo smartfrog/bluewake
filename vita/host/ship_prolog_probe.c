@@ -195,8 +195,7 @@ int main(int argc, char** argv) {
         rel.module_id = 169u;
     StaticRecompModuleDesc module = {.code_ranges = fixture_ranges,
         .num_code_ranges = sizeof(fixture_ranges) / sizeof(fixture_ranges[0]),
-        .chunk_ranges = fixture_chunks, .chunk_hashes = fixture_hashes,
-        .num_chunk_ranges = sizeof(fixture_chunks) / sizeof(fixture_chunks[0]),
+        .chunk_ranges = fixture_chunks, .chunk_hashes = fixture_hashes, .num_chunk_ranges = 3u,
         .rel_modules = &rel, .num_rel_modules = 1u, .dispatch = translated_dispatch};
     host->module = &module;
     host->rel_data = fixture_data;
