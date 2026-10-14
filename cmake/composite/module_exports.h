@@ -37,11 +37,34 @@ typedef struct BlueWakeShipContractV1 {
     const char* build_identity;
 } BlueWakeShipContractV1;
 
+typedef struct BlueWakeRelInitContractV1 {
+    u32 module_id;
+    u32 rel_size;
+    const u8* rel_bytes;
+    const BlueWakeRelData* canonical_sections;
+    u32 section_count;
+    u32 ctor_table_section;
+    u32 ctor_table_offset;
+    u32 ctor_return_pc;
+    const BlueWakeRelLifecycleV2* lifecycle;
+    const char* build_identity;
+} BlueWakeRelInitContractV1;
+
+typedef struct BlueWakeRelInitContractSetV1 {
+    u32 version;
+    u32 dol_size;
+    const u8* dol_bytes;
+    const BlueWakeRelInitContractV1* contracts;
+    u32 contract_count;
+    const char* build_identity;
+} BlueWakeRelInitContractSetV1;
+
 const StaticRecompModuleDesc* staticrecomp_get_module(void);
 const BlueWakeRelData* staticrecomp_get_rel_data(u32* count);
 const BlueWakeRelLifecycle* staticrecomp_get_rel_lifecycle(u32* count);
 const BlueWakeRelLifecycleV2* staticrecomp_get_rel_lifecycle_v2(u32* count);
 const BlueWakeShipContractV1* staticrecomp_get_ship_contract_v1(void);
+const BlueWakeRelInitContractSetV1* staticrecomp_get_rel_init_contracts_v1(void);
 void bluewake_set_edge_service(BluewakeEdgeServiceFn fn, void* user);
 
 #endif

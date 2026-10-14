@@ -351,6 +351,8 @@ def main():
     ap.add_argument("--main-dol", required=True, help="Original main.dol path")
     ap.add_argument('--ship-disc', help='Required original GZLE01 disc image for ship identity')
     ap.add_argument('--ship-rel-sha256', help='Expected disc-member identity SHA-256, if pinned')
+    ap.add_argument('--selected-rel-provenance', help='Opt-in actual ship/title emitter-input binding manifest')
+    ap.add_argument('--title-rel-sha256', help='Required original loose title identity pin for selected certificates')
     ap.add_argument("--game-id", default="GZLE01")
     ap.add_argument("--output-dir", required=True)
     args = ap.parse_args()
@@ -408,6 +410,15 @@ def main():
     if len(ship_entries) != 1:
         raise ValueError('ship contract requires translated module 168 exactly once')
     ship_entry = ship_entries[0]
+    selected_entries = {168: ship_entry}
+    if args.selected_rel_provenance:
+        if not args.title_rel_sha256:
+            raise ValueError('selected contract requires original title identity pin (--title-rel-sha256)')
+        for mid in ship_contract.SELECTED_MODULES:
+            entries = [e for e in rel_entries if int(e['name'].rsplit('_', 1)[-1]) == mid]
+            if len(entries) != 1:
+                raise ValueError(f'selected contract requires translated module {mid} exactly once')
+            selected_entries[mid] = entries[0]
 
     # --- Merge ---
     all_chunks = sorted(dol_chunks + [c for e in rel_entries for c in e["chunks"]])
@@ -442,6 +453,15 @@ def main():
     ship_identity, ship_identity_source = ship_contract.read_disc_member(args.ship_disc)
     if args.ship_rel_sha256 is not None and hashlib.sha256(ship_identity).hexdigest() != args.ship_rel_sha256:
         raise ValueError('ship disc-member identity SHA-256 mismatch')
+    selected_identities = {168: ship_identity}
+    title_identity_source = None
+    if args.selected_rel_provenance:
+        if rel_bin_cache.get(400) is None:
+            raise ValueError('selected contract requires raw module 400')
+        title_identity, title_identity_source = ship_contract.read_disc_member(args.ship_disc, 400)
+        if hashlib.sha256(title_identity).hexdigest() != args.title_rel_sha256:
+            raise ValueError('title disc-member identity SHA-256 mismatch')
+        selected_identities[400] = title_identity
 
     # Build linked section images before emitting the ABI tables. The entry
     # point is inside the executable section, so recover each REL's load base
@@ -471,10 +491,6 @@ def main():
     apply_rel_data_relocations(rel_bin_cache, rel_section_maps)
     if 168 not in rel_section_maps:
         raise ValueError('ship contract requires module 168 executable sections')
-    ship_text, ship_fields, ship_executable = ship_contract.normal_contract(
-        Path(args.main_dol).read_bytes(), rel_bin_cache[168],
-        rel_section_maps[168]['sections'], ship_entry['chunks'], dol_ranges, ship_identity)
-
     rel_lifecycle = {}
     for e in rel_entries:
         mid = int(e["name"].rsplit("_", 1)[-1])
@@ -484,6 +500,24 @@ def main():
                     rel_bin_cache[mid], rel_section_maps[mid]["sections"], e["chunks"])
             except ValueError as exc:
                 raise ValueError(f"REL module {mid}: {exc}") from exc
+
+    raw_dol = Path(args.main_dol).read_bytes()
+    captures, provenance = {}, None
+    if args.selected_rel_provenance:
+        captures, provenance = ship_contract.producer_inputs(
+            args.selected_rel_provenance, raw_dol, rel_bin_cache, selected_entries, selected_identities)
+    contracts = {}
+    for mid, entry in sorted(selected_entries.items()):
+        if mid not in rel_section_maps:
+            raise ValueError(f'selected contract requires module {mid} executable sections')
+        contracts[mid] = ship_contract.normal_contract(
+            raw_dol, rel_bin_cache[mid], rel_section_maps[mid]['sections'], entry['chunks'],
+            dol_ranges, selected_identities[mid], module_id=mid, canonical_input=captures.get(mid))
+    ship_text, ship_fields, _ = contracts[168]
+    selected_fields = None
+    if args.selected_rel_provenance:
+        ship_text, selected_fields = ship_contract.emit_selected_set(
+            raw_dol, contracts, sorted(rel_lifecycle), provenance)
 
     chunk_hashes = []
     for start, end in all_chunks:
@@ -506,9 +540,10 @@ def main():
             if rel_data is None:
                 print(f"ERROR: no .rel binary for mid={mid}", file=sys.stderr)
                 sys.exit(1)
-            if mid == 168:
-                offset = start - ship_fields['exec']['linked_start']
-                data = ship_executable[offset:offset + end - start]
+            if mid in contracts:
+                _, fields, executable = contracts[mid]
+                offset = start - fields['exec']['linked_start']
+                data = executable[offset:offset + end - start]
             else:
                 data = read_rel_exec_range(rel_data, start, end, owner["entry_point"])
         chunk_hashes.append(fnv1a64(data))
@@ -972,6 +1007,9 @@ static inline DOLRECOMP_UNUSED int dolrecomp_run_blocks(CPUState* ctx, u32 max_b
         print(f"  {fname}: {h_val[:16]}...")
     receipt = {'version': 1, 'game_id': args.game_id, 'ship_contract': ship_fields,
                'ship_identity_source': ship_identity_source, 'output_sha256': hashes}
+    if selected_fields is not None:
+        receipt['selected_rel_contracts'] = selected_fields
+        receipt['title_identity_source'] = title_identity_source
     write_lf(receipt_path, json.dumps(receipt, sort_keys=True, indent=2) + '\n')
 
     print(f"PASS: {n} chunks, {len(rel_module_info)} rel modules, "

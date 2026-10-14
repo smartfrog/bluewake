@@ -234,6 +234,15 @@ RECOMP_MODULE_EXPORT const BlueWakeShipContractV1* staticrecomp_get_ship_contrac
 #endif
 }
 
+RECOMP_MODULE_EXPORT const BlueWakeRelInitContractSetV1* staticrecomp_get_rel_init_contracts_v1(void)
+{
+#ifdef MODULE_REL_INIT_CONTRACTS_PRESENT
+    return &s_rel_init_contract_set;
+#else
+    return NULL;
+#endif
+}
+
 /* Host-only diagnostics need to reach the runtime instance embedded here. */
 RECOMP_MODULE_EXPORT void bluewake_set_mem_write_journal(
     PPCMemWriteJournal fn, void* user)
