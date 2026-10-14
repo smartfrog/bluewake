@@ -224,13 +224,23 @@ static void request_rel(WwHost* host, u32 object, u32 text, const char* name) {
 
 static void second_module_case(WwHost* host, const char* scenario, StaticRecompRange* ranges) {
     CPUState* cpu = &host->cpu;
+    const bool profile_owner_expired = strncmp(scenario, "second-profile-", 15u) == 0;
+    const bool profile_global_changed = strcmp(scenario, "second-profile-global-cleared") == 0 ||
+        strcmp(scenario, "second-profile-global-replaced") == 0;
     const bool rejected = strstr(scenario, "bad-") != NULL || strstr(scenario, "reloc-") != NULL ||
                           strstr(scenario, "branch-") != NULL || strstr(scenario, "lifecycle-") != NULL ||
                           strstr(scenario, "materialize-") != NULL ||
                           strcmp(scenario, "second-dependency-unlinked") == 0 ||
                           strcmp(scenario, "second-dependency-unloaded") == 0 ||
-                          strcmp(scenario, "second-no-code") == 0 || strcmp(scenario, "second-missing-bss") == 0;
+                          strcmp(scenario, "second-no-code") == 0 || strcmp(scenario, "second-missing-bss") == 0 ||
+                          profile_global_changed;
     const WwRelImage profile = host->rel_images[0];
+    const u32 profile_owner_word = profile_owner_expired ?
+        (strcmp(scenario, "second-profile-owner-reused") == 0 ? 0xA5A5A5A5u : 0u) : profile.guest;
+    mem_write32(cpu, profile.owner + 0x10u, profile_owner_word);
+    const u32 profile_global = profile_global_changed ?
+        (strcmp(scenario, "second-profile-global-cleared") == 0 ? 0u : 0xC0997710u) : 0xC1F80178u;
+    mem_write32(cpu, 0x803F6A68u, profile_global);
     const bool dependency_live = strcmp(scenario, "second-dependency-live") == 0;
     const bool other_constructor_owner = strcmp(scenario, "second-ctor-wrong-owner") == 0 ||
         strcmp(scenario, "second-ctor-changed-table") == 0;
@@ -247,8 +257,8 @@ static void second_module_case(WwHost* host, const char* scenario, StaticRecompR
     fail_trace = strcmp(scenario, "second-materialize-trace") == 0;
     request_rel(host, 0x80002100u, 0x80003100u, "ww34_fixture_a");
     assert(memcmp(&profile, &host->rel_images[0], sizeof(profile)) == 0);
-    assert(mem_read32(cpu, 0x80002010u) == profile.guest);
-    assert(mem_read32(cpu, 0x803F6A68u) == 0xC1F80178u);
+    assert(mem_read32(cpu, 0x80002010u) == profile_owner_word);
+    assert(mem_read32(cpu, 0x803F6A68u) == profile_global);
     if (rejected) {
         assert(host->error != NULL && host->edge_stopped && cpu->pc == 0x80240744u);
         if (strcmp(scenario, "second-reloc-export-mismatch") == 0 ||
@@ -271,6 +281,8 @@ static void second_module_case(WwHost* host, const char* scenario, StaticRecompR
             assert(strstr(host->error, "lifecycle") != NULL);
         if (strcmp(scenario, "second-dependency-unlinked") == 0 || strcmp(scenario, "second-dependency-unloaded") == 0)
             assert(strstr(host->error, "live dependency") != NULL);
+        if (profile_global_changed)
+            assert(strstr(host->error, "publication") != NULL);
         assert(mem_read32(cpu, 0x80002110u) == 0u && host->alias_count == 1u && host->alias_bytes == 256u);
         assert(ww_host_rel_owned(host, 0x80002100u) == NULL);
         assert(mem_read8(cpu, 0xC0997700u) == 0xAAu && mem_read8(cpu, 0xC0997710u) == 0xAAu);
@@ -279,6 +291,7 @@ static void second_module_case(WwHost* host, const char* scenario, StaticRecompR
         return;
     }
     assert(host->error == NULL && cpu->pc == cpu->lr && cpu->gpr[3] == 1u);
+    assert(ww_host_rel_live(host, 1u) == &host->rel_images[0]);
     const u32 actor = mem_read32(cpu, 0x80002110u);
     assert(actor != 0u && actor != profile.guest && host->alias_count == (dependency_live || other_constructor_owner ? 3u : 2u));
     assert(host->alias_bytes == (dependency_live || other_constructor_owner ? 768u : 512u));

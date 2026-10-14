@@ -125,7 +125,7 @@ def rel_archive(scenario):
             struct.pack_into('>I', actor, 0xA0, 168)
             actor[0xCB] = 2
             struct.pack_into('>I', actor, 0xCC, 0)
-        if scenario == 'second-lifecycle-prolog':
+        if scenario in ('second-lifecycle-prolog', 'second-profile-lifecycle-prolog'):
             struct.pack_into('>I', actor, 0x34, 4)
         if scenario == 'second-lifecycle-prolog-zero-offset':
             actor[0x30] = 1
@@ -330,6 +330,19 @@ class RelMaterializeTest(unittest.TestCase):
 
     def test_second_catalog_module_links_without_displacing_the_profile_list(self):
         self.run_probe('second')
+
+    def test_resident_profile_survives_expired_temporary_controller_storage(self):
+        for scenario in ('second-profile-owner-expired', 'second-profile-owner-reused'):
+            with self.subTest(scenario=scenario):
+                self.run_probe(scenario)
+
+    def test_expired_profile_controller_does_not_authorize_a_missing_or_foreign_global(self):
+        for scenario in ('second-profile-global-cleared', 'second-profile-global-replaced'):
+            with self.subTest(scenario=scenario):
+                self.run_probe(scenario)
+
+    def test_second_rel_lifecycle_still_fails_closed_after_profile_controller_expires(self):
+        self.run_probe('second-profile-lifecycle-prolog')
 
     def test_actor_bss_and_data_are_initialized_independently_for_simultaneous_owners(self):
         self.run_probe('second-independent')

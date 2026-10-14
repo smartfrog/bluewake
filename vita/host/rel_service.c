@@ -45,11 +45,18 @@ bool ww_host_rel_linked(WwHost* host, u32 module_id) {
     return false;
 }
 
+static bool rel_publication_matches(WwHost* host, const WwRelImage* slot) {
+    if (slot->module_id == 1u) {
+        const BlueWakeRelData* profile = bluewake_rel_profile_list(host->rel_data, host->rel_data_count, 1u);
+        return profile != NULL && mem_read32(&host->cpu, BLUEWAKE_PROFILE_LIST_GLOBAL) == profile->linked_start;
+    }
+    return mem_read32(&host->cpu, slot->owner + 0x10u) == slot->guest;
+}
+
 WwRelImage* ww_host_rel_live(WwHost* host, u32 module_id) {
     for (u32 index = 0u; index < host->rel_image_count; ++index) {
         WwRelImage* slot = &host->rel_images[index];
-        if (slot->module_id == module_id && slot->linked &&
-            mem_read32(&host->cpu, slot->owner + 0x10u) == slot->guest)
+        if (slot->module_id == module_id && slot->linked && rel_publication_matches(host, slot))
             return slot;
     }
     return NULL;
@@ -111,12 +118,12 @@ const char* ww_host_collect_rels(WwHost* host) {
         WwRelImage* slot = &host->rel_images[index];
         if (slot->guest == 0u)
             continue;
-        const u32 published = mem_read32(&host->cpu, slot->owner + 0x10u);
         if (!slot->unlinked) {
-            if (slot->linked && published != slot->guest)
+            if (slot->linked && !rel_publication_matches(host, slot))
                 return "REL publication changed without completed unlink";
             continue;
         }
+        const u32 published = mem_read32(&host->cpu, slot->owner + 0x10u);
         if (published != 0u)
             return "REL owner changed to an unowned image";
         if (slot->module_id == 1u && mem_read32(&host->cpu, BLUEWAKE_PROFILE_LIST_GLOBAL) != 0u)
