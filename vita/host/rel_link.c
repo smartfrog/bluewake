@@ -420,6 +420,9 @@ bool ww_host_rel_sections_match_post_link(const WwRelImage* slot) {
             const u64 expected = ((u64)slot->guest + offset) | (section->flags & 1u);
             if (expected > UINT32_MAX || flags != expected)
                 return false;
+        } else if (section->size == 0u) {
+            if (flags != section->flags)
+                return false;
         } else if (flags != 0u && ((flags & 3u) != 0u || flags < GC_RAM_BASE ||
                    flags >= GC_RAM_BASE + GC_MAIN_RAM_SIZE)) {
             return false;

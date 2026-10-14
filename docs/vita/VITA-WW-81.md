@@ -50,13 +50,16 @@ Reads use the bounded snapshot table offset, never the current absolute pointer.
 Missing metadata/storage, malformed snapshot bounds and unlinked relocated
 images are refused. The existing strict helper remains the pristine fast path.
 
-For a zero snapshot offset, the relocated value must be zero or word-aligned
+For a nonempty BSS entry (zero snapshot offset and snapshot size greater than
+zero), the relocated value must be zero or word-aligned
 in **`[80000000,81800000)`**, the retail 24 MiB main RAM bound, expressed with
 `GC_RAM_BASE + GC_MAIN_RAM_SIZE`. WW80's `807FF620` is a separate game allocation,
 not within the ship staging window. This is an address allowance, not proof
-of allocator ownership or of an entire BSS extent. It applies to zero-offset
-entries only and does not admit tagged aliases, extended MEM1, the ship window,
-misalignment or any alternative address for a nonzero-offset section.
+of allocator ownership or of an entire BSS extent. It applies only to nonempty
+BSS entries. Empty zero-offset entries must preserve their snapshot flags
+exactly (zero in the ship fixture). The allowance does not admit tagged aliases,
+extended MEM1, the ship window, misalignment or any alternative address for a
+nonzero-offset section.
 
 All existing refusal texts remain unchanged. The WW79 capture and its bounded
 eight-entry loop are intact: genuine resolver mismatches still journal before
@@ -94,7 +97,7 @@ publication hash and prove relocation still fails that independent gate.
 unchanged. A later real run can therefore stop at that gate: acceptance of
 the section table is not constructor/prolog completion evidence.
 
-Candidate checks on Linux AArch64 workstation `fuzhou` passed: 134 focused
+Initial candidate checks on Linux AArch64 workstation `fuzhou` passed: 134 focused
 methods, 936 full host methods, 51 CTests and 12 real-fixture methods. Three
 existing DOL ICBI methods are also included in the final focused recheck.
 Checks and the exact clean implementation SHA
@@ -104,6 +107,17 @@ of both changed C translation units, exact real-fixture probe, repository
 audit, attribution and diff checks. All builds are serial; heavy outputs stay
 under this worktree's ignored `build-f5/ww81`. Pinned dependencies and existing
 private fixture inputs are borrowed read-only. Receipts contain no game bytes.
+
+Independent review found that the original bounded-address exception also
+accepted empty zero-offset entries. Corrective tests-first commit
+`da2fc8ad8190589b2715110977eb163d725d02bd` has exactly five expected failures
+in both synthetic and real-fixture red runs; nonempty-BSS acceptance still
+passes. The new probe substitutes aligned `807FF620` into the real empty
+entry 7 (flags and size both zero), checking refusal at all five post-link
+paths. The correction restricts the exception to nonempty BSS without changing
+any other guard, caller, dispatch, capture or constructor hash gate. Corrected
+clean-revision commands, results and SHA are recorded in
+`/tmp/opencode/ww81/correction/REPORT.md` and `checks.json`.
 
 No emulator trial, Windows CI, full VPK build or physical Vita gameplay was
 run. Independent review, integration and the separately dispatched real trial
