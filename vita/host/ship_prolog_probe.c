@@ -130,7 +130,7 @@ static int translated_dispatch(CPUState* cpu, u32 address) {
 }
 
 int main(int argc, char** argv) {
-    assert(argc == 2);
+    assert(argc == 2 || argc == 3);
     scenario = argv[1];
     WwHost* host = calloc(1u, sizeof(*host));
     assert(host != NULL && ww_host_init(host));
@@ -144,6 +144,30 @@ int main(int argc, char** argv) {
     host->module = &module;
     host->rel_data = fixture_data;
     host->rel_data_count = 2u;
+    StaticRecompRange* scratch_ranges = NULL;
+    if (argc == 3) {
+        assert(strncmp(scenario, "scratch-", 8u) == 0);
+        FILE* stream = fopen(argv[2], "rb");
+        assert(stream != NULL);
+        u8 word[4];
+        assert(fread(word, 1u, 4u, stream) == 4u);
+        const u32 count = read_be32(word);
+        assert(count != 0u && count <= 2048u);
+        scratch_ranges = calloc(module.num_code_ranges + count, sizeof(*scratch_ranges));
+        assert(scratch_ranges != NULL);
+        memcpy(scratch_ranges, fixture_ranges, sizeof(fixture_ranges));
+        for (u32 at = 0u; at < count; ++at) {
+            u8 pair[8];
+            assert(fread(pair, 1u, sizeof(pair), stream) == sizeof(pair));
+            const u32 start = read_be32(pair), end = read_be32(pair + 4u);
+            assert(start < end);
+            scratch_ranges[module.num_code_ranges + at] = (StaticRecompRange){start, end};
+        }
+        assert(fgetc(stream) == EOF && !ferror(stream));
+        assert(fclose(stream) == 0);
+        module.code_ranges = scratch_ranges;
+        module.num_code_ranges += count;
+    }
     if (strcmp(scenario, "missing-contract") == 0) {
         const char* error = ww_host_enable_ship_contract(host, NULL, "synthetic.dol");
         assert(error != NULL && host->ship_contract == NULL);
@@ -183,6 +207,8 @@ int main(int argc, char** argv) {
     }
     for (u32 at = 0u; at < 2u; ++at)
         assert(ppc_guest_alias_add(fixture_data[at].linked_start, fixture_data[at].size, fixture_data[at].bytes));
+    if (strcmp(scenario, "scratch-alias") == 0)
+        assert(ppc_guest_alias_add(0xC2000000u, 32u, NULL));
     CPUState* cpu = &host->cpu;
     cpu->gpr[1] = 0x80004000u;
     cpu->gpr[2] = 0x80300000u;
@@ -190,6 +216,7 @@ int main(int argc, char** argv) {
     cpu->gpr[31] = 0x12345678u;
     cpu->gpr[3] = 0x80002100u;
     cpu->lr = 0x80001004u;
+    mem_write32(cpu, 0x80002100u, 0x80002200u);
     mem_write32(cpu, 0x8000211Cu, 0x80003000u);
     memcpy(cpu->ram + 0x3000u, strcmp(scenario, "other-actor") == 0 ? "d_a_test" : "d_a_ship", 9u);
     cpu->pc = 0x80240EC0u;
@@ -239,6 +266,15 @@ int main(int argc, char** argv) {
         free(host);
         return 0;
     }
+    if (strcmp(scenario, "scratch-exhausted") == 0 || strcmp(scenario, "scratch-alias") == 0) {
+        assert(host->error != NULL && cpu->pc == 0x80240744u);
+        assert(mem_read32(cpu, 0x80002110u) == 0u && host->alias_count == 0u);
+        fprintf(stderr, "PASS rejected-before-publication reason=%s\n", host->error);
+        ww_host_shutdown(host);
+        free(scratch_ranges);
+        free(host);
+        return 0;
+    }
     if (strcmp(scenario, "ctor-mutated") == 0 || strcmp(scenario, "raw-mutated") == 0 ||
         strncmp(scenario, "entry-", 6u) == 0 || strncmp(scenario, "interrupt-invalid-", 18u) == 0) {
         assert(host->error != NULL);
@@ -258,6 +294,18 @@ int main(int argc, char** argv) {
     fprintf(stderr, "PASS caller-returned pc=%08X bss-init-calls=2\n", cpu->pc);
     WwRelImage* image = ww_host_rel_live(host, 168u);
     assert(image != NULL && host->ship_prolog_owner == 0u && host->rel_constructor_owner == 0u);
+    if (strncmp(scenario, "scratch-", 8u) == 0) {
+        const u32 expected = strcmp(scenario, "scratch-tagged-prefix") == 0 ? 0x82000040u : 0x82000000u;
+        assert(image->guest == expected && image->bytes == 74960u && image->capacity == 74976u);
+        assert((u64)image->guest + image->capacity <= 0x82020000u);
+        u8* storage = NULL;
+        assert(ppc_guest_alias_get_storage(image->guest, image->capacity, &storage));
+        assert(get_ram_ptr(cpu, image->guest, image->bytes, NULL) == storage);
+        assert(get_ram_ptr(cpu, image->guest | 0x40000000u, image->bytes, NULL) == storage);
+        assert(mem_read32(cpu, 0x80002100u) == 0x80002200u && mem_read32(cpu, 0x8000211Cu) == 0x80003000u);
+        fprintf(stderr, "PASS staging guest=%08X bytes=%u capacity=%u controller=preserved\n",
+                image->guest, image->bytes, image->capacity);
+    }
     if (strncmp(scenario, "interrupt-", 10u) == 0)
         assert(interrupt_restorations == interrupt_handoffs && interrupt_restorations != 0u);
     if (strcmp(scenario, "interrupt-expiry") == 0) {
@@ -313,6 +361,7 @@ int main(int argc, char** argv) {
         fprintf(stderr, "PASS rejected reason=%s\n", error);
     }
     ww_host_shutdown(host);
+    free(scratch_ranges);
     free(host);
     return 0;
 }

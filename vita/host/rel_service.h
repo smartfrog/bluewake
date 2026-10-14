@@ -32,6 +32,8 @@ typedef struct WwRelImage {
 #define WW_REL_MAX_IMAGES 512u
 #define WW_REL_SCRATCH_BASE 0x81820000u
 #define WW_REL_SCRATCH_LIMIT 0x81F80000u
+#define WW_REL_SHIP_SCRATCH_BASE 0x82000000u
+#define WW_REL_SHIP_SCRATCH_LIMIT 0x82020000u
 
 struct WwHost;
 bool ww_host_rel_raw_unchanged(const WwRelImage* image);
