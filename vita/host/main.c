@@ -236,7 +236,7 @@ int fixture_run(int argc, char** argv) {
             break;
         }
         const bool trace_dispatch = probe_dispatch || turns < 8u || (turns + 1u) % 1000u == 0u;
-        if (trace_dispatch && fprintf(stderr, "[dispatch] stage=enter turn=%llu pc=%08X cycles=%llu\n",
+        if (!WW05_QUIET_LOGGING && trace_dispatch && fprintf(stderr, "[dispatch] stage=enter turn=%llu pc=%08X cycles=%llu\n",
                                       (unsigned long long)(turns + 1u), host->cpu.pc,
                                       (unsigned long long)host->cycles.absolute_cycles) < 0) {
             error = 1;
@@ -263,21 +263,24 @@ int fixture_run(int argc, char** argv) {
         if (dispatched == 1 && !error && host->error == NULL)
             ww_host_dvd_complete(host);
         ++turns;
-        if (trace_dispatch)
+        if (trace_dispatch && (!WW05_QUIET_LOGGING || dispatched <= 0 || error ||
+                               host->error != NULL || host->cpu.exception != 0u))
             error |= fprintf(stderr, "[dispatch] stage=return turn=%llu pc=%08X cycles=%llu exception=%08X\n",
                              (unsigned long long)turns, host->cpu.pc,
                              (unsigned long long)host->cycles.absolute_cycles, host->cpu.exception) < 0;
         error |= log_handler_boundary(host, "returned");
         if (host->cycles.absolute_cycles >= next_progress || (turns & 0xFFFFu) == 0u) {
-            u64 wall_us = 0u;
-            error |= ww_host_wall_us(&wall_us) != NULL;
-            if (!error)
-                error |= fprintf(stderr, "[progress] turns=%llu edges=%llu cycles=%llu pc=%08X msr=%08X srr0=%08X exception=%08X resume=%llu us=%llu\n",
-                                 (unsigned long long)turns, (unsigned long long)host->edges,
-                                 (unsigned long long)host->cycles.absolute_cycles,
-                                  host->cpu.pc, host->cpu.msr, host->cpu.srr0, host->cpu.exception,
-                                  (unsigned long long)host->syscall_resumes,
-                                  (unsigned long long)wall_us) < 0;
+            if (!WW05_QUIET_LOGGING) {
+                u64 wall_us = 0u;
+                error |= ww_host_wall_us(&wall_us) != NULL;
+                if (!error)
+                    error |= fprintf(stderr, "[progress] turns=%llu edges=%llu cycles=%llu pc=%08X msr=%08X srr0=%08X exception=%08X resume=%llu us=%llu\n",
+                                     (unsigned long long)turns, (unsigned long long)host->edges,
+                                     (unsigned long long)host->cycles.absolute_cycles,
+                                      host->cpu.pc, host->cpu.msr, host->cpu.srr0, host->cpu.exception,
+                                      (unsigned long long)host->syscall_resumes,
+                                      (unsigned long long)wall_us) < 0;
+            }
             next_progress = host->cycles.absolute_cycles + 65536u;
         }
         if (!dispatched)

@@ -817,7 +817,7 @@ bool ww_host_edge(void* user, CPUState* cpu, u32 address) {
         return true;
     }
     if (host->cycles.absolute_cycles >= host->next_edge_progress || (host->edges & 0xFFFFu) == 0u) {
-        if (fprintf(stderr, "[edge-progress] edges=%llu cycles=%llu pc=%08X tb=%llu dec=%08X pending=%u ee=%u downcount=%lld budget=%lld\n",
+        if (!WW05_QUIET_LOGGING && fprintf(stderr, "[edge-progress] edges=%llu cycles=%llu pc=%08X tb=%llu dec=%08X pending=%u ee=%u downcount=%lld budget=%lld\n",
                     (unsigned long long)host->edges, (unsigned long long)host->cycles.absolute_cycles,
                     address, (unsigned long long)cpu->timebase, host->decrementer,
                     host->decrementer_pending, (cpu->msr & PPC_MSR_EE) != 0u,
@@ -1051,14 +1051,15 @@ int ww_host_dispatch(WwHost* host, u32 address) {
             ww_host_fail(host, "exception vector requires the exact observed program and physical exception state", address, cpu->pc);
             return 0;
         }
-        if (fprintf(stderr, "[exception-vector-dispatch] vector=%08X pc=%08X bytes=%u matched=1\n", vector->address, address, WW05_EXTERNAL_VECTOR_BYTES) < 0) {
+        if (!WW05_QUIET_LOGGING && fprintf(stderr, "[exception-vector-dispatch] vector=%08X pc=%08X bytes=%u matched=1\n", vector->address, address, WW05_EXTERNAL_VECTOR_BYTES) < 0) {
             ww_host_fail(host, "exception vector dispatch log write failed", address, cpu->pc);
             return -1;
         }
         if (cpu->cycle_budget <= 0 || cpu->downcount <= -cpu->cycle_budget)
             return 1;
         vector->dispatch(cpu);
-        if (fprintf(stderr, "[exception-vector-return] input=%08X pc=%08X srr0=%08X srr1=%08X msr=%08X downcount=%lld\n",
+        if ((!WW05_QUIET_LOGGING || host->error != NULL || cpu->exception != 0u) &&
+            fprintf(stderr, "[exception-vector-return] input=%08X pc=%08X srr0=%08X srr1=%08X msr=%08X downcount=%lld\n",
                     address, cpu->pc, cpu->srr0, cpu->srr1, cpu->msr, (long long)cpu->downcount) < 0) {
             ww_host_fail(host, "exception vector return log write failed", address, cpu->pc);
             return -1;

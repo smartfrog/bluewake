@@ -20,8 +20,9 @@ class MainIoTest(unittest.TestCase):
                     cpu_boundary=None, exi=False, cp_control=None, fifo=None, prior_aram_transfers=None,
                     cp_distance=None, cp_distance_high=None, cp_clear=None, consumer=False, wpar=None,
                     continue_gx=None, memory_captures=None, defer_audio=None, memory_start=None, memory_end=None,
-                    game_stop=None):
-        with tempfile.TemporaryDirectory(dir=OUT, prefix='io-') as directory:
+                    game_stop=None, output=None, quiet_logging=False, return_log=False):
+        output = OUT if output is None else output
+        with tempfile.TemporaryDirectory(dir=output, prefix='io-') as directory:
             root = Path(directory)
             data = bytearray(260)
             for offset, value in ((0, 256), (0x48, 0x80001000), (0x90, 4),
@@ -81,7 +82,7 @@ class MainIoTest(unittest.TestCase):
                 environment['WW05_IO_CP_DISTANCE_HIGH'] = str(cp_distance_high)
             if fifo is not None:
                 environment['WW05_IO_FIFO'] = fifo
-            result = subprocess.run([str(OUT / 'io_probe')], cwd=root,
+            result = subprocess.run([str(output / 'io_probe')], cwd=root,
                                     env=environment, capture_output=True, timeout=10)
             self.assertGreaterEqual(result.returncode, 0, result.stderr.decode())
             report = (root / 'ww05.report').read_text() if (root / 'ww05.report').exists() else None
@@ -99,14 +100,14 @@ class MainIoTest(unittest.TestCase):
                 self.assertRegex(line, r'^\[progress\] turns=1 edges=\d+ cycles=\d+ pc=[0-9A-F]{8} '
                                        r'msr=[0-9A-F]{8} srr0=[0-9A-F]{8} exception=[0-9A-F]{8} '
                                        r'resume=\d+ us=[1-9]\d*$')
-            if cpu_boundary is not None:
+            if cpu_boundary is not None and not quiet_logging:
                 pc = '80328F84' if cpu_boundary == 'restore' else '80303A50'
                 self.assertIn(f'[dispatch] stage=enter turn=2 pc={pc}', result.stderr.decode())
                 self.assertIn('[dispatch] stage=return turn=2 pc=80001004', result.stderr.decode())
             if syscall == 'valid':
                 self.assertIn('[exception-handoff] stage=guard', result.stderr.decode())
                 self.assertIn('[exception-handoff] stage=guard-result matched=1', result.stderr.decode())
-            if syscall == 'trace-window':
+            if syscall == 'trace-window' and not quiet_logging:
                 self.assertIn('[dispatch] stage=enter turn=2 pc=803077D0', result.stderr.decode())
                 self.assertIn('[dispatch] stage=return turn=2 pc=80001004', result.stderr.decode())
             if syscall == 'yielding-handler' and not failure and not stale_dispatch:
@@ -119,12 +120,13 @@ class MainIoTest(unittest.TestCase):
                 self.assertIn('[exception-vector] address=00000C00', log)
             if interrupt == 'decrementer':
                 self.assertIn('[decrementer] stage=delivered vector=00000900', result.stderr.decode())
-            if interrupt == 'vector' and not failure:
+            if interrupt == 'vector' and not failure and not quiet_logging:
                 self.assertIn('[exception-vector-dispatch] vector=00000500 pc=00000500 bytes=152 matched=1', result.stderr.decode())
                 self.assertIn('[exception-vector-return] input=00000510 pc=80001004', result.stderr.decode())
             if interrupt == 'fp-vector' and not failure:
                 self.assertIn('[fp-exception-resume] vector=00000800 matched=1 srr0=80001004', result.stderr.decode())
-                self.assertIn('[exception-vector-return] input=00000810 pc=80001004', result.stderr.decode())
+                if not quiet_logging:
+                    self.assertIn('[exception-vector-return] input=00000810 pc=80001004', result.stderr.decode())
             if interrupt == 'unsupported' and not failure:
                 log = result.stderr.decode()
                 self.assertIn('[exception] bits=00000001 pc=00000500 srr0=80001004', log)
@@ -143,6 +145,8 @@ class MainIoTest(unittest.TestCase):
                 self.assertIn('resume=1 srr0=80001004', log)
                 self.assertIn('resume=1000 srr0=80001004', log)
                 self.assertLess(log.count('[dispatch] stage=enter'), 12)
+            if return_log:
+                return result.returncode, report, result.stderr.decode()
             return result.returncode, report
 
     def test_synthetic_host_fixture_publishes_closed_report(self):
