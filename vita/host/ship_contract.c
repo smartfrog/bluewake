@@ -31,34 +31,11 @@ const char* ww_host_enable_ship_contract(WwHost* host, const BlueWakeShipContrac
 
 bool ww_host_ship_raw_matches(WwHost* host, const u8* raw, u32 bytes) {
     const BlueWakeShipContractV1* contract = host->ship_contract;
-    if (contract == NULL || bytes != contract->rel_size || bluewake_archive_be32(raw) != 168u)
-        return false;
-    const WwRelImage* live = ww_host_rel_live(host, 168u);
-    if (live == NULL)
-        return memcmp(raw, contract->rel_bytes, bytes) == 0;
-    if (memcmp(raw, contract->rel_bytes, 0x34u) != 0 ||
-        memcmp(raw + 0x40u, contract->rel_bytes + 0x40u, bytes - 0x40u) != 0)
-        return false;
-    for (u32 at = 0u; at < 3u; ++at) {
-        const u32 section = contract->rel_bytes[0x30u + at];
-        if (section >= live->section_count)
-            return false;
-        const u32 expected = live->guest + (live->sections[section].flags & ~1u) +
-            bluewake_archive_be32(contract->rel_bytes + 0x34u + at * 4u);
-        if (bluewake_archive_be32(raw + 0x34u + at * 4u) != expected)
-            return false;
-    }
-    return true;
+    return contract != NULL && bytes == contract->rel_size && bluewake_archive_be32(raw) == 168u &&
+        memcmp(raw, contract->rel_bytes, bytes) == 0;
 }
 
 void ww_host_ship_publish(WwHost* host, WwRelImage* image) {
-    for (u32 at = 0u; at < 3u; ++at) {
-        const u8* raw = host->ship_contract->rel_bytes;
-        const u32 section = raw[0x30u + at];
-        mem_write32(&host->cpu, image->guest + 0x34u + at * 4u,
-                    image->guest + (image->sections[section].flags & ~1u) +
-                    bluewake_archive_be32(raw + 0x34u + at * 4u));
-    }
     u8* raw = get_ram_ptr(&host->cpu, image->guest, image->bytes, NULL);
     image->raw_hash = ww_host_rel_raw_hash(raw, image->bytes);
 }

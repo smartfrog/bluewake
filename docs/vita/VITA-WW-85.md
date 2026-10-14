@@ -70,14 +70,86 @@ With pristine offsets preserved, one SDK fixup produces `81F900F4`.
 The unchanged owned-executable resolver maps that staging address to linked
 `C1B100F4` (canonical `81B100F4`), the standing approved prolog contract.
 
-## Bounded repair plan
+## Minimal repair and retained gates
 
-Remove the host's three lifecycle writes; leave all lifecycle offsets pristine
-until the SDK rebases them. Keep exact raw identity validation, publication's
-whole-image hash checkpoint, WW81 section validation, WW83 full-image ICBI,
-and every prolog/constructor/return gate fail-closed. Do not refresh the hash
-after simulated or real SDK mutations. The ship option remains off by default.
+The only production change is in `vita/host/ship_contract.c`: remove the three
+lifecycle writes from `ww_host_ship_publish`. Its existing whole-image hash
+checkpoint remains. `ww_host_ship_raw_matches` now requires the entire pristine
+image, including lifecycle offsets, on both first link and repeat link; it no
+longer expects host-rebased lifecycle words for a live image. This tightens the
+published form rather than accepting both forms.
 
-Tests and checks will be recorded below after a tests-first red/green cycle.
-No emulator run is authorized in this round. Independent review, integration,
-and the real trial remain separate coordinator gates.
+`rel_link.c`, `rel_service.c`, `boot_host.c`, WW81 section validation, WW83
+full-image ICBI, and every prolog/constructor/return gate are byte-identical to
+the base. No SDK mutation causes a hash refresh. The ship option remains off by
+default; no runtime/dependency change or wider dispatch allowance was added.
+
+## Tests-first evidence
+
+Diagnosis and tests-only commit:
+**`4102629749f10abb17d68589d6ca79ac041f267f`**. Production was unchanged.
+The clean red runs were:
+
+```text
+python3 -B /tmp/opencode/ww85/run_tests.py test_ship_prolog.ShipPrologTest.test_publication_preserves_the_exact_pristine_lifecycle_offsets test_ship_prolog.ShipPrologTest.test_publication_allows_one_sdk_rebase_to_the_approved_lifecycle_targets
+python3 -B /tmp/opencode/ww85/real_fixture.py red
+```
+
+Each has exactly two expected failures, zero setup errors: publication does not
+preserve pristine bytes, and one SDK fixup produces a double-rebased target.
+The real-fixture failure prints the exact `81F900F4 + 81F900F4 = 03F201E8`
+chain, as well as the analogous epilog/unresolved sums. `red-checks.json`
+records clean SHA, commands, exits and log hashes.
+
+After the production change, all six new publication methods pass. The common
+`ship_publication_probe.h` uses normal materialization/link/publication, models
+the inspected SDK section-table and lifecycle writebacks, and checks all three
+corrected targets. It also proves pristine repeat-link preserves initialized
+BSS, changed lifecycle offsets refuse repeat-link, and SDK mutation still
+fails both the prolog and constructor whole-image hash gates. It does not
+refresh the snapshot/hash, dispatch a real game instruction or run the SDK.
+
+The existing game-free lifecycle caller omitted the SDK and formerly relied
+on the bad host publication to supply an absolute header target. It now computes
+the target from pristine section/header offsets **in registers**, before the
+same indirect call at `80240EE4` with LR `80240EE8`. Scratch epilog/unresolved
+refusal probes similarly calculate their staging target from pristine offsets.
+Their lifecycle assertions remain intact. This synthetic caller preserves an
+unchanged image to exercise the independent entry/constructor/return rules; it
+is not evidence that the retail SDK's mutations pass those rules.
+
+The private real fixture reuses the verified raw DOL/REL, generated contract,
+compiled section catalog and chunk hashes from `build-f5/ww75/composite`.
+Large/private generated files remain under ignored `build-f5/ww85/`;
+receipts contain no raw game bytes. Dependencies are borrowed read-only:
+RecompCore `ddd031b2a7f45fcbda37a49daac9b308b8d95da1`, DolRecomp
+`b8b534591cba8ca7cd43943a655ee6e2591cf5de`.
+
+## Checks and limits
+
+Checks on Linux AArch64 workstation `fuzhou` (kernel
+`7.1.13-402.asahi.fc44.aarch64+16k`):
+
+| Check | Command | Result |
+| --- | --- | --- |
+| Focused host | `python3 -B /tmp/opencode/ww85/run_tests.py test_ship_prolog test_rel_section_guard test_rel_materialize test_host.StartupHostTest.test_instruction_cache_invalidation_accepts_unchanged_compiled_text test_host.StartupHostTest.test_instruction_cache_invalidation_accepts_data test_host.StartupHostTest.test_instruction_cache_invalidation_refuses_changed_compiled_code` | 150 methods pass |
+| Full host | `python3 -B /tmp/opencode/ww85/run_tests.py full` | 949 methods pass, no skips |
+| CTest | `build-vita-tools/local-stack/bin/ctest --test-dir build-f5/ww85/host --output-on-failure -j1` (tool from the original checkout) | 51/51 pass |
+| Real fixture | `python3 -B /tmp/opencode/ww85/real_fixture.py` | 22 methods / 26 native scenarios pass |
+| ARM compile | `python3 -B /tmp/opencode/ww85/arm_compile.py` | Changed production translation unit compiles for Cortex-A9/NEON hard-float |
+| Audit | `bash scripts/audit_repo.sh` | Pass |
+
+`/tmp/opencode/ww85/final_checks.py <HEAD>` records the final clean SHA,
+exact commands, exits and log hashes in `checks.json`, including serial host
+build, attribution, whitespace and byte-preservation checks. All builds use
+`-j1`; no emulator run, full VPK build, Windows CI, physical Vita or gameplay
+test was performed. Independent review and integration remain coordinator gates.
+
+**Next expected fail-closed boundary:** the correct staged prolog address now
+resolves to canonical `81B100F4`, but the SDK has mutated the raw image. The
+unchanged prolog gate can therefore refuse with
+`ship prolog entry requires its exact translated dynamic-link caller`, before
+an `entered` stamp. The constructor gate independently retains
+`REL constructor raw image changed after validation`. Offline contract tests
+demonstrate those refusals; a separately dispatched real trial must establish
+the next actual stop. No prolog/constructor/return or gameplay success is claimed.
