@@ -9,6 +9,8 @@ static bool fail_trace;
 static bool fail_alias;
 static bool fail_link_trace;
 static bool fail_sections;
+static bool fail_mismatch_trace;
+static u32 mismatch_trace_attempts;
 static bool track_sections;
 static void* section_allocations[WW_REL_MAX_IMAGES];
 static u32 live_section_allocations;
@@ -201,6 +203,13 @@ void __wrap_free(void* pointer) {
 }
 
 int __wrap_fprintf(FILE* stream, const char* format, ...) {
+    if (stream == stderr && strncmp(format, "[rel-section-mismatch]", 22u) == 0) {
+        mismatch_trace_attempts++;
+        if (fail_mismatch_trace) {
+            errno = ENOSPC;
+            return -1;
+        }
+    }
     if (stream == stderr && ((fail_trace && strncmp(format, "[rel-materialized]", 18u) == 0) ||
                             (fail_link_trace && strncmp(format, "[rel-link]", 10u) == 0))) {
         errno = ENOSPC;
@@ -298,9 +307,10 @@ static void second_module_case(WwHost* host, const char* scenario, StaticRecompR
     assert(host->error == NULL && cpu->pc == cpu->lr && cpu->gpr[3] == 1u);
     assert(ww_host_rel_live(host, 1u) == &host->rel_images[0]);
     const u32 actor = mem_read32(cpu, 0x80002110u);
-    assert(actor >= WW_REL_SCRATCH_BASE && (u64)actor + 256u <= WW_REL_SCRATCH_LIMIT);
+    const u32 actor_bytes = strcmp(scenario, "second-section-limit") == 0 ? 512u : 256u;
+    assert(actor >= WW_REL_SCRATCH_BASE && (u64)actor + actor_bytes <= WW_REL_SCRATCH_LIMIT);
     assert(actor != 0u && actor != profile.guest && host->alias_count == (dependency_live || other_constructor_owner ? 3u : 2u));
-    assert(host->alias_bytes == (dependency_live || other_constructor_owner ? 768u : 512u));
+    assert(host->alias_bytes == (dependency_live || other_constructor_owner ? 768u : 256u + actor_bytes));
     for (u32 offset = 0u; offset < 16u; ++offset)
         assert(mem_read8(cpu, 0xC0997700u + offset) == 0u);
     assert(mem_read32(cpu, 0xC0997710u) == (strncmp(scenario, "second-ctor-", 12u) == 0 ?
@@ -309,7 +319,44 @@ static void second_module_case(WwHost* host, const char* scenario, StaticRecompR
     assert(ww_host_rel_address(host, actor + 0x80u) == 0xC09900F4u);
     assert(ww_host_rel_address(host, (actor + 0x84u) | 0x40000000u) == 0xC09900F8u);
     mem_write8(cpu, 0xC0997700u, 0xBBu);
-    if (strcmp(scenario, "second-loop-live") == 0 || strcmp(scenario, "second-indirect-live") == 0) {
+    if (strncmp(scenario, "second-section-", 15u) == 0) {
+        WwRelImage* image = ww_host_rel_owned(host, 0x80002100u);
+        assert(image != NULL && ww_host_rel_sections_match(image));
+        if (strcmp(scenario, "second-section-count") == 0)
+            mem_write32(cpu, actor + 0xCu, UINT32_MAX);
+        else if (strcmp(scenario, "second-section-table") == 0)
+            mem_write32(cpu, actor + 0x10u, 0xFFFFFFFCu);
+        else if (strcmp(scenario, "second-section-limit") == 0) {
+            for (u32 index = 0u; index < image->section_count; ++index) {
+                mem_write32(cpu, actor + image->section_table + index * 8u, image->sections[index].flags ^ 4u);
+                mem_write32(cpu, actor + image->section_table + index * 8u + 4u, image->sections[index].size ^ 4u);
+            }
+        } else {
+            assert(strcmp(scenario, "second-section-words") == 0 ||
+                   strcmp(scenario, "second-section-trace-failure") == 0);
+            mem_write32(cpu, actor + 0x54u, 0x85u);
+            mem_write32(cpu, actor + 0x58u, 0x24u);
+            mem_write32(cpu, actor + 0x5Cu, 0x81F9E3C0u);
+        }
+        fail_mismatch_trace = strcmp(scenario, "second-section-trace-failure") == 0;
+        u8 before[512];
+        memcpy(before, get_ram_ptr(cpu, actor, actor_bytes, NULL), actor_bytes);
+        const WwRelImage image_before = *image;
+        WwRelSection sections_before[12];
+        memcpy(sections_before, image->sections, image->section_count * sizeof(*image->sections));
+        cpu->pc = 0x803031D8u;
+        cpu->gpr[3] = actor + 0x80u;
+        cpu->instruction_fallback(cpu, 0x7C001FACu, cpu->pc);
+        assert(host->error != NULL && cpu->exception == PPC_EXC_PROGRAM && cpu->pc == 0x803031D8u);
+        assert(strcmp(host->error, "REL owned section table changed after validation") == 0);
+        assert(host->error_address == actor + 0x80u && host->error_pc == cpu->pc);
+        assert(memcmp(before, get_ram_ptr(cpu, actor, actor_bytes, NULL), actor_bytes) == 0);
+        assert(memcmp(&image_before, image, sizeof(*image)) == 0);
+        assert(memcmp(sections_before, image->sections, image->section_count * sizeof(*image->sections)) == 0);
+        if (fail_mismatch_trace)
+            assert(mismatch_trace_attempts == 1u);
+        fprintf(stderr, "STOP reason=%s address=%08X pc=%08X\n", host->error, host->error_address, host->error_pc);
+    } else if (strcmp(scenario, "second-loop-live") == 0 || strcmp(scenario, "second-indirect-live") == 0) {
         const bool indirect = strcmp(scenario, "second-indirect-live") == 0;
         const u32 allocations_before = total_section_allocations;
         BwDvdIoStats before, after;
@@ -586,8 +633,10 @@ int main(int argc, char** argv) {
     const StaticRecompRelModule rels[] = {{.module_id = 1u, .version = 0u, .section_count = link_case ? 5u : 2u,
                                           .section_info_offset = 0x4Cu, .file_size = 256u,
                                           .sections = sections, .num_sections = link_case ? 2u : 1u},
-                                         {.module_id = 139u, .section_count = 4u, .section_info_offset = 0x4Cu,
-                                          .file_size = 256u, .sections = actor_sections, .num_sections = 3u},
+                                         {.module_id = 139u, .section_count = strcmp(scenario, "second-section-limit") == 0 ? 12u : 4u,
+                                          .section_info_offset = strcmp(scenario, "second-section-limit") == 0 ? 0x100u : 0x4Cu,
+                                          .file_size = strcmp(scenario, "second-section-limit") == 0 ? 512u : 256u,
+                                          .sections = actor_sections, .num_sections = 3u},
                                          {.module_id = 168u, .section_count = 4u, .section_info_offset = 0x4Cu,
                                           .file_size = 256u, .sections = ship_sections, .num_sections = 3u}};
     const StaticRecompModuleDesc module = {.code_ranges = ranges,

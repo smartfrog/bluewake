@@ -396,6 +396,43 @@ bool ww_host_rel_sections_match(const WwRelImage* slot) {
     return true;
 }
 
+static void trace_section_mismatch(const WwRelImage* slot) {
+    u8* raw = NULL;
+    if (slot->capacity < 0x14u || !ppc_guest_alias_get_storage(slot->guest, slot->capacity, &raw))
+        return;
+    const u32 count = bluewake_archive_be32(raw + 0xCu);
+    const u32 table = bluewake_archive_be32(raw + 0x10u);
+    // A failed diagnostic write ends capture, never replaces or bypasses the existing refusal.
+    if (count != slot->section_count &&
+        fprintf(stderr, "[rel-section-mismatch] field=section_count current=%08X snapshot=%08X\n",
+                count, slot->section_count) < 0)
+        return;
+    if (table != slot->section_table &&
+        fprintf(stderr, "[rel-section-mismatch] field=section_table current=%08X snapshot=%08X\n",
+                table, slot->section_table) < 0)
+        return;
+    if (slot->sections == NULL || slot->section_count > 256u || slot->bytes > slot->capacity ||
+        (u64)slot->section_table + (u64)slot->section_count * 8u > slot->bytes)
+        return;
+    u32 differences = 0u;
+    for (u32 at = 0u; at < slot->section_count && differences < 8u; ++at) {
+        const WwRelSection* section = &slot->sections[at];
+        const u32 flags = bluewake_archive_be32(raw + slot->section_table + at * 8u);
+        const u32 size = bluewake_archive_be32(raw + slot->section_table + at * 8u + 4u);
+        if (flags == section->flags && size == section->size)
+            continue;
+        differences++;
+        if (flags != section->flags &&
+            fprintf(stderr, "[rel-section-mismatch] field=section_flags index=%u current=%08X snapshot=%08X\n",
+                    at, flags, section->flags) < 0)
+            return;
+        if (size != section->size &&
+            fprintf(stderr, "[rel-section-mismatch] field=section_size index=%u current=%08X snapshot=%08X\n",
+                    at, size, section->size) < 0)
+            return;
+    }
+}
+
 static bool owned_executable(WwHost* host, const WwRelImage* image, u32 address) {
     if ((address & 3u) != 0u || !translated_section(host, address, 4u))
         return false;
@@ -514,6 +551,7 @@ u32 ww_host_rel_address(WwHost* host, u32 address) {
         if (!slot->linked || mem_read32(&host->cpu, slot->owner + 0x10u) != slot->guest)
             continue;
         if (!ww_host_rel_sections_match(slot)) {
+            trace_section_mismatch(slot);
             ww_host_fail(host, "REL owned section table changed after validation", address, host->cpu.pc);
             return address;
         }
