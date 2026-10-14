@@ -25,11 +25,11 @@ static bool pending_entry(void) {
 }
 
 static void assert_suspended_admission_cleared(WwHost* host) {
-    assert(host->error != NULL && !host->ship_prolog_return_ready && !host->ship_prolog_return_interrupted);
-    assert(host->ship_prolog_owner == 0u && !host->ship_prolog_ctor_completed);
-    assert(host->ship_prolog_stack == 0u && host->ship_prolog_r2 == 0u && host->ship_prolog_r13 == 0u);
+    assert(host->error != NULL && host->rel_pending_init.phase == WW_REL_INIT_NONE);
+    assert(host->rel_pending_init.owner == 0u && !host->rel_pending_init.constructor_completed);
+    assert(host->rel_pending_init.r1 == 0u && host->rel_pending_init.r2 == 0u && host->rel_pending_init.r13 == 0u);
     assert(mem_read32(&host->cpu, 0xC1B224D0u) == 2u);
-    assert(ww_host_ship_boundary(host, 0x80240EE8u) != NULL);
+    assert(ww_host_rel_lifecycle_boundary(host, 0x80240EE8u) != NULL);
     fprintf(stderr, "PASS suspended-admission-cleared reason=%s\n", host->error);
 }
 
@@ -52,7 +52,7 @@ static bool interrupt_return_edge(WwHost* host, CPUState* cpu, u32 address) {
         }
         if (host->error != NULL)
             fprintf(stderr, "STOP interrupted-return reason=%s\n", host->error);
-        assert(!stopped && host->error == NULL && host->ship_prolog_return_ready);
+        assert(!stopped && host->error == NULL && host->rel_pending_init.phase == WW_REL_INIT_RETURN_READY);
         fprintf(stderr, "[ship-test] stage=interrupt-restored return=%08X\n", address);
     }
     const u32 required = strcmp(scenario, "interrupt-repeated") == 0 ? 2u : 1u;
@@ -75,7 +75,7 @@ static bool interrupt_return_edge(WwHost* host, CPUState* cpu, u32 address) {
     ++interrupt_handoffs;
     assert(ww_host_edge(host, cpu, address));
     assert(host->error == NULL && cpu->pc == vector && cpu->srr0 == address && cpu->exception == 0u);
-    assert(host->ship_prolog_return_ready);
+    assert(host->rel_pending_init.phase == WW_REL_INIT_RETURN_SUSPENDED);
     if (external)
         cpu->external_write(cpu, DOL_SI_BASE + DOL_SI_COMCSR_OFF, 0xC0010300u, 4u);
     fprintf(stderr, "[ship-test] stage=interrupt-delivered vector=%08X return=%08X\n", vector, address);
@@ -89,7 +89,19 @@ static bool probe_edge(void* user, CPUState* cpu, u32 address) {
         assert_suspended_admission_cleared(host);
     if (canonical == 0x80240EE8u && strncmp(scenario, "interrupt-", 10u) == 0)
         return interrupt_return_edge(host, cpu, address);
+    if (canonical == 0x80240EE8u && strncmp(scenario, "return-", 7u) == 0) {
+        if (strcmp(scenario, "return-sp") == 0) cpu->gpr[1] += 16u;
+        if (strcmp(scenario, "return-r31") == 0) cpu->gpr[31] += 32u;
+        if (strcmp(scenario, "return-lr") == 0) cpu->lr = 0x80001004u;
+        if (strcmp(scenario, "return-r2") == 0) cpu->gpr[2] += 4u;
+        if (strcmp(scenario, "return-r13") == 0) cpu->gpr[13] += 4u;
+    }
     if (canonical == 0x80241178u) {
+        if (strcmp(scenario, "return-without-ctor") == 0) {
+            cpu->pc = cpu->lr = 0x80240EE8u;
+            cpu->gpr[1] = host->rel_pending_init.r1;
+            return ww_host_edge(host, cpu, cpu->pc);
+        }
         if (strcmp(scenario, "ctor-mutated") == 0)
             mem_write32(cpu, 0xC1B1DAF0u, 0x80001004u);
         if (strcmp(scenario, "raw-mutated") == 0) {
@@ -102,15 +114,16 @@ static bool probe_edge(void* user, CPUState* cpu, u32 address) {
 }
 
 static int translated_chunk(CPUState* cpu, u32 address) {
+    WwHost* host = cpu->external_user_data;
     switch (address & ~0x40000000u) {
     case 0x80007000u:
         if (diverted_restoration()) {
             const u32 target = strcmp(scenario, "interrupt-diverted") == 0 ? 0x80240EECu : 0xC1B100F4u;
             mem_write32(cpu, 0x80006198u, target);
             func_80007000(cpu);
-            assert(cpu->pc == target);
+            assert(host->error != NULL);
             restoration_dispatched = true;
-            fprintf(stderr, "[ship-test] stage=restoration-dispatched target=%08X\n", cpu->pc);
+            fprintf(stderr, "[ship-test] stage=restoration-dispatched target=%08X\n", target);
             return 1;
         }
         func_80007000(cpu); return 1;
@@ -231,6 +244,13 @@ int main(int argc, char** argv) {
         mem_write32(&host->cpu, 0x81F90000u, 0x12345678u);
     }
     CPUState* cpu = &host->cpu;
+    const u8 handler[] = {0x80,0xA4,0x01,0x98,0x7C,0xBA,0x03,0xA6,0x80,0xA4,0x01,0x9C,0x7C,0xBB,0x03,0xA6,
+                          0x80,0x64,0x00,0x0C,0x80,0x84,0x00,0x10,0x4C,0x00,0x00,0x64};
+    memcpy(cpu->ram + 0x7000u, handler, sizeof(handler));
+    DolLayout layout = {0};
+    layout.text_address[0] = 0x80007000u;
+    layout.text_size[0] = sizeof(handler);
+    assert(ww_code_guard_init(&host->code_guard, cpu, &layout));
     cpu->gpr[1] = 0x80004000u;
     cpu->gpr[2] = 0x80300000u;
     cpu->gpr[13] = 0x80400000u;
@@ -270,11 +290,11 @@ int main(int argc, char** argv) {
     }
     for (u32 turn = 0u; turn < 32u && cpu->pc != 0x80001004u && host->error == NULL; ++turn) {
         if (cpu->pc == 0x80007000u && pending_entry()) {
-            assert(host->ship_prolog_return_interrupted && host->ship_prolog_return_ready);
-            assert(cpu->lr == 0x80240EE8u && cpu->gpr[31] == host->ship_prolog_owner);
-            assert(cpu->gpr[1] == host->ship_prolog_stack);
+            assert(host->rel_pending_init.phase == WW_REL_INIT_RETURN_SUSPENDED);
+            assert(cpu->lr == 0x80240EE8u && cpu->gpr[31] == host->rel_pending_init.owner);
+            assert(cpu->gpr[1] == host->rel_pending_init.r1);
             cpu->pc = strcmp(scenario, "interrupt-reentry-pending") == 0 ? 0xC1B100F4u : 0x80240EE8u;
-            const char* error = ww_host_ship_boundary(host, cpu->pc);
+            const char* error = ww_host_rel_lifecycle_boundary(host, cpu->pc);
             assert(error != NULL);
             ww_host_fail(host, error, cpu->pc, cpu->pc);
             break;
@@ -285,6 +305,13 @@ int main(int argc, char** argv) {
         if ((cpu->pc & ~0x40000000u) == 0x81B100F4u) {
             if (strcmp(scenario, "entry-lr") == 0) cpu->lr = 0x80001004u;
             if (strcmp(scenario, "entry-r31") == 0) cpu->gpr[31] = 0x80002200u;
+        }
+        if (cpu->pc == 0x80240EB8u) {
+            WwRelImage* image = ww_host_rel_live(host, 168u);
+            assert(image != NULL);
+            mem_write32(cpu, image->owner + 0x14u, 0x807FF620u);
+            assert(ww_host_rel_sdk_prepare(host, image, true) == NULL);
+            ww_probe_sdk_append(host, image, true);
         }
         int result = ww_host_dispatch(host, cpu->pc);
         if (result == 0) {
@@ -331,9 +358,11 @@ int main(int argc, char** argv) {
         return 0;
     }
     if (strcmp(scenario, "ctor-mutated") == 0 || strcmp(scenario, "raw-mutated") == 0 ||
-        strncmp(scenario, "entry-", 6u) == 0 || strncmp(scenario, "interrupt-invalid-", 18u) == 0) {
+        strncmp(scenario, "entry-", 6u) == 0 || strncmp(scenario, "interrupt-invalid-", 18u) == 0 ||
+        strncmp(scenario, "return-", 7u) == 0) {
         assert(host->error != NULL);
-        assert(mem_read32(cpu, 0xC1B224D0u) == (strncmp(scenario, "interrupt-", 10u) == 0 ? 2u : 0u));
+        assert(mem_read32(cpu, 0xC1B224D0u) == (strncmp(scenario, "interrupt-", 10u) == 0 ||
+            (strncmp(scenario, "return-", 7u) == 0 && strcmp(scenario, "return-without-ctor") != 0) ? 2u : 0u));
         fprintf(stderr, "PASS rejected stage=%s\n",
                 strncmp(scenario, "interrupt-invalid-", 18u) == 0 ? "restored-return" : "before-constructor");
         ww_host_shutdown(host);
@@ -348,7 +377,7 @@ int main(int argc, char** argv) {
     assert(cpu->ctr == 0xC1B1D414u);
     fprintf(stderr, "PASS caller-returned pc=%08X bss-init-calls=2\n", cpu->pc);
     WwRelImage* image = ww_host_rel_live(host, 168u);
-    assert(image != NULL && host->ship_prolog_owner == 0u && host->rel_constructor_owner == 0u);
+    assert(image != NULL && host->rel_pending_init.phase == WW_REL_INIT_NONE && host->rel_constructor_owner == 0u);
     if (strncmp(scenario, "scratch-", 8u) == 0) {
         const u32 expected = strcmp(scenario, "scratch-tagged-prefix") == 0 ? 0x81F90040u :
             strcmp(scenario, "scratch-live-prefix") == 0 ? 0x81FA0020u :
@@ -356,10 +385,10 @@ int main(int argc, char** argv) {
         assert(image->guest == expected && image->bytes == 74960u && image->capacity == 74976u);
         assert(image->guest >= 0x81F90000u && (u64)image->guest + image->capacity <= 0x82000000u);
         const u32 fix_size = mem_read32(cpu, image->guest + 0x48u);
-        assert(fix_size == read_be32(host->ship_contract->rel_bytes + 0x48u));
-        assert((u64)image->guest + fix_size < 0x82000000u);
+        assert(fix_size == image->guest + read_be32(host->ship_contract->rel_bytes + 0x48u));
+        assert(fix_size < 0x82000000u);
         fprintf(stderr, "PASS fix-size raw=%08X staged=%08X\n",
-                read_be32(host->ship_contract->rel_bytes + 0x48u), fix_size);
+                 read_be32(host->ship_contract->rel_bytes + 0x48u), fix_size - image->guest);
         if (strcmp(scenario, "scratch-live-prefix") == 0) {
             assert(mem_read32(cpu, 0x81F90000u) == 0x12345678u);
             assert(host->rel_images[0].guest == 0x81F90000u && host->rel_images[0].capacity == 0x10020u);
@@ -375,7 +404,7 @@ int main(int argc, char** argv) {
     if (strncmp(scenario, "interrupt-", 10u) == 0)
         assert(interrupt_restorations == interrupt_handoffs && interrupt_restorations != 0u);
     if (strcmp(scenario, "interrupt-expiry") == 0) {
-        assert(!host->ship_prolog_return_ready);
+        assert(host->rel_pending_init.phase == WW_REL_INIT_NONE);
         fprintf(stderr, "PASS admission-expired pc=%08X\n", cpu->pc);
     }
     if (strcmp(scenario, "resume-without-prolog") == 0 || strcmp(scenario, "interrupt-expiry") == 0) {
@@ -399,9 +428,7 @@ int main(int argc, char** argv) {
         const bool epilog = strncmp(scenario, "epilog-", 7u) == 0;
         cpu->pc = epilog ? 0xC1B10120u : 0xC1B1014Cu;
         if (strstr(scenario, "scratch") != NULL) {
-            const u32 index = mem_read8(cpu, image->guest + (epilog ? 0x31u : 0x32u));
-            cpu->pc = image->guest + (image->sections[index].flags & ~1u) +
-                mem_read32(cpu, image->guest + (epilog ? 0x38u : 0x3Cu));
+            cpu->pc = mem_read32(cpu, image->guest + (epilog ? 0x38u : 0x3Cu));
         }
         if (strcmp(scenario, "native-unlink") == 0) {
             cpu->pc = 0x80240F54u;
@@ -409,27 +436,6 @@ int main(int argc, char** argv) {
         }
         assert(ww_host_dispatch(host, cpu->pc) == -1 && host->error != NULL && image->linked);
         fprintf(stderr, "PASS rejected reason=%s\n", host->error);
-    } else if (strncmp(scenario, "return-", 7u) == 0) {
-        cpu->pc = 0xC1B100F4u;
-        cpu->lr = 0x80240EE8u;
-        cpu->gpr[31] = image->owner;
-        cpu->gpr[3] = image->guest;
-        assert(ww_host_ship_boundary(host, 0xC1B100F4u) == NULL);
-        if (strcmp(scenario, "return-without-ctor") != 0) {
-            cpu->gpr[3] = 0xC1B1DAF0u;
-            cpu->lr = 0xC1B1010Cu;
-            assert(ww_host_rel_constructor_boundary(host, 0x80241178u) == NULL);
-            assert(ww_host_rel_constructor_boundary(host, 0xC1B1010Cu) == NULL);
-            cpu->lr = 0x80240EE8u;
-        }
-        if (strcmp(scenario, "return-sp") == 0) cpu->gpr[1] += 16u;
-        if (strcmp(scenario, "return-r31") == 0) cpu->gpr[31] += 32u;
-        if (strcmp(scenario, "return-lr") == 0) cpu->lr = 0x80001004u;
-        if (strcmp(scenario, "return-r2") == 0) cpu->gpr[2] += 4u;
-        if (strcmp(scenario, "return-r13") == 0) cpu->gpr[13] += 4u;
-        const char* error = ww_host_ship_boundary(host, 0x80240EE8u);
-        assert(error != NULL && host->ship_prolog_owner == image->owner);
-        fprintf(stderr, "PASS rejected reason=%s\n", error);
     }
     ww_host_shutdown(host);
     free(scratch_ranges);

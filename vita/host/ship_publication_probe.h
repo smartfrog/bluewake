@@ -107,34 +107,40 @@ static void probe_ship_publication(WwHost* host, const char* scenario) {
             return;
         }
         const bool after_tamper = strcmp(scenario, "publication-sdk-entry-after-tamper") == 0;
+        const bool after_progress = strcmp(scenario, "publication-sdk-entry-after-progress") == 0;
         const bool accepted = strcmp(scenario, "publication-sdk-entry") == 0 ||
-            strcmp(scenario, "publication-sdk-entry-unfixed") == 0 || after_tamper;
+            strcmp(scenario, "publication-sdk-entry-unfixed") == 0 || after_tamper || after_progress;
         const char* error = NULL;
         if (accepted) {
             assert(cpu->host_call(cpu, cpu->pc));
             error = host->error;
         } else {
-            error = ww_host_ship_boundary(host, entry);
+            error = ww_host_rel_lifecycle_boundary(host, entry);
         }
         if (accepted) {
             if (error != NULL) fprintf(stderr, "STOP SDK entry reason=%s pristine=%016llX live=%016llX\n",
                 error, (unsigned long long)materialized_hash, (unsigned long long)live_hash);
-            assert(error == NULL && host->ship_prolog_owner == owner && !host->ship_prolog_return_ready);
+            assert(error == NULL && host->rel_pending_init.owner == owner && host->rel_pending_init.phase == WW_REL_INIT_ACTIVE);
             assert(ww_host_rel_raw_unchanged(image));
             assert(cpu->pc == entry);
-            assert(ww_host_ship_boundary(host, entry) == NULL);
+            assert(ww_host_rel_lifecycle_boundary(host, entry) == NULL);
+            if (after_progress) {
+                assert(ww_host_rel_lifecycle_boundary(host, entry + 4u) == NULL);
+                assert(ww_host_rel_lifecycle_boundary(host, entry) != NULL);
+                return;
+            }
             if (after_tamper) {
                 const u64 admitted_hash = image->raw_hash;
                 mem_write8(cpu, image->guest + 0x14u, mem_read8(cpu, image->guest + 0x14u) ^ 1u);
-                error = ww_host_ship_boundary(host, entry + 24u);
-                assert(error != NULL && strcmp(error, "ship prolog continuation lost its exact live owner") == 0);
+                error = ww_host_rel_lifecycle_boundary(host, entry + 24u);
+                assert(error != NULL && strcmp(error, "REL prolog continuation lost its exact live owner") == 0);
                 assert(image->raw_hash == admitted_hash && !ww_host_rel_raw_unchanged(image));
                 fprintf(stderr, "PASS SDK continuation tampering refused\n");
                 return;
             }
         } else {
-            assert(error != NULL && strcmp(error, "ship prolog entry requires its exact translated dynamic-link caller") == 0);
-            assert(host->ship_prolog_owner == 0u && image->raw_hash == materialized_hash);
+            assert(error != NULL);
+            assert(host->rel_pending_init.phase == WW_REL_INIT_NONE && image->raw_hash == materialized_hash);
         }
         assert(host->error == NULL);
         assert(ww_host_rel_raw_hash(get_ram_ptr(cpu, image->guest, image->bytes, NULL), image->bytes) == live_hash);

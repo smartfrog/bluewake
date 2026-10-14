@@ -42,6 +42,9 @@ static void probe_rel_sections(WwHost* host, const char* site, const char* form)
     const u32 table = image->guest + image->section_table;
     const u32 bss = table + bss_section_index(image) * 8u;
     const bool constructor = strncmp(site, "ctor", 4u) == 0;
+    // These probes isolate the non-lifecycle structural walker contract, not initialization authority.
+    if (constructor)
+        image->certificate = NULL;
     const BlueWakeRelData* ctors = &host->rel_data[0];
     assert(ctors->bytes != NULL);
     cpu->lr = linked + 24u;

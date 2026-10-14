@@ -275,21 +275,20 @@ const char* ww_host_validate_rel_link(WwHost* host, const StaticRecompRelModule*
     return error;
 }
 
-bool ww_host_ship_sdk_hash(WwHost* host, const WwRelImage* image, u64* hash) {
-    if (host == NULL || image == NULL || hash == NULL || image->module_id != 168u ||
-        ww_host_rel_owned(host, image->owner) != image ||
-        ww_host_rel_sdk_finish(host, ww_host_rel_owned(host, image->owner)) != NULL)
-        return false;
-    *hash = image->raw_hash;
-    return true;
-}
-
 const char* ww_host_link_rel(WwHost* host, u32 object) {
     if (host == NULL || host->module == NULL || host->cpu.ram == NULL)
         return "REL link requires an owned host and compiled descriptor";
     WwRelImage* slot = ww_host_rel_owned(host, object);
     if (slot == NULL)
         return "REL link requires an owned materialized image";
+    if (slot->sdk_phase == WW_REL_SDK_CERTIFIED) {
+        if (ww_host_rel_live(host, slot->module_id) != slot || !ww_host_rel_sdk_integrity(host) ||
+            host->cpu.lr == 0u || (host->cpu.lr & 3u) != 0u)
+            return "REL certified relink requires unchanged SDK authority and an aligned return";
+        host->cpu.gpr[3] = 1u;
+        host->cpu.pc = host->cpu.lr;
+        return NULL;
+    }
     if (!ww_host_rel_sections_match(slot))
         return "REL owned section table changed after validation";
     if (slot->module_id == 1u)
@@ -454,7 +453,7 @@ static bool owned_executable(WwHost* host, const WwRelImage* image, u32 address)
     return false;
 }
 
-const char* ww_host_rel_constructor_boundary(WwHost* host, u32 address) {
+static const char* constructor_boundary(WwHost* host, u32 address) {
     CPUState* cpu = &host->cpu;
     if (host->rel_constructor_owner != 0u) {
         const WwRelImage* image = ww_host_rel_owned(host, host->rel_constructor_owner);
@@ -466,16 +465,17 @@ const char* ww_host_rel_constructor_boundary(WwHost* host, u32 address) {
         if (table == NULL || memcmp(table, host->rel_constructor_bytes, host->rel_constructor_size) != 0)
             return "REL constructor table changed during its owned walk";
         if ((address & ~0x40000000u) == (host->rel_constructor_return & ~0x40000000u)) {
-            if (image->module_id == 168u && host->ship_prolog_owner != 0u) {
-                if (fprintf(stderr, "[rel-prolog] module=168 stage=ctor-completed pc=%08X owner=%08X\n", address, image->owner) < 0)
-                    return "ship constructor completion trace failed";
-                host->ship_prolog_ctor_completed = true;
-            }
+            const char* error = ww_host_rel_constructor_complete(host, image, address);
+            if (error != NULL)
+                return error;
             host->rel_constructor_owner = 0u;
             host->rel_constructor_return = 0u;
             host->rel_constructor_table = 0u;
             host->rel_constructor_size = 0u;
             host->rel_constructor_bytes = NULL;
+            host->rel_constructor_observation_open = false;
+        } else if ((address & ~0x40000000u) != 0x80241178u) {
+            host->rel_constructor_observation_open = false;
         }
     }
     if ((address & ~0x40000000u) != 0x80241178u)
@@ -496,7 +496,8 @@ const char* ww_host_rel_constructor_boundary(WwHost* host, u32 address) {
     if (!ww_host_rel_sections_match_post_link(image) || !ww_host_rel_raw_unchanged(image))
         return "REL constructor raw image changed after validation";
     if (host->rel_constructor_owner != 0u &&
-        (host->rel_constructor_owner != image->owner || host->rel_constructor_return != caller))
+        (host->rel_constructor_owner != image->owner || host->rel_constructor_return != caller ||
+         !host->rel_constructor_observation_open))
         return "REL nested constructor walk requires an unsupported call contract";
     const u32 input = cpu->gpr[3];
     const BlueWakeRelData* table = NULL;
@@ -523,6 +524,11 @@ const char* ww_host_rel_constructor_boundary(WwHost* host, u32 address) {
     }
     if (table == NULL)
         return "REL constructor table is outside its caller's owned data sections";
+    const char* qualification = ww_host_rel_constructor_qualify(host, image, table->section_index, offset, caller);
+    if (qualification != NULL)
+        return qualification;
+    if (host->rel_constructor_owner != 0u && host->rel_constructor_table != table->linked_start + offset)
+        return "REL constructor observation changed its certified table";
     const u8* mapped = get_ram_ptr(cpu, table->linked_start, table->size, NULL);
     if (mapped == NULL)
         return "REL constructor table storage is unavailable";
@@ -539,10 +545,18 @@ const char* ww_host_rel_constructor_boundary(WwHost* host, u32 address) {
             host->rel_constructor_table = table->linked_start + offset;
             host->rel_constructor_size = at + 4u - offset;
             host->rel_constructor_bytes = table->bytes + offset;
+            host->rel_constructor_observation_open = true;
             return NULL;
         }
     }
     return "REL constructor table has no terminator within its owned section";
+}
+
+const char* ww_host_rel_constructor_boundary(WwHost* host, u32 address) {
+    const char* error = constructor_boundary(host, address);
+    if (error != NULL)
+        ww_host_rel_lifecycle_revoke(host);
+    return error;
 }
 
 static const WwRelImage* linked_image_at(WwHost* host, u32 address) {

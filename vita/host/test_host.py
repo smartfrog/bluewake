@@ -62,6 +62,11 @@ class StartupHostTest(unittest.TestCase):
         with (output / 'ship_translated.c').open('w') as stream:
             subprocess.run([str(generator / 'ww_ship_fixture_emit'), str(output / 'ship.instructions')],
                            check=True, stdout=stream)
+        from rel_lifecycle_fixture import fixture as lifecycle_fixture
+        lifecycle_fixture(output)
+        with (output / 'lifecycle_translated.c').open('w') as stream:
+            subprocess.run([str(generator / 'ww_ship_fixture_emit'), str(output / 'lifecycle.instructions')],
+                           check=True, stdout=stream)
         subprocess.run([str(STACK / 'bin/cmake'), '-S', str(ROOT / 'vita/host'), '-B', str(output),
                         '-G', 'Ninja', f'-DCMAKE_C_COMPILER={os.environ["CC"]}',
                         f'-DCMAKE_MAKE_PROGRAM={STACK}/bin/ninja',

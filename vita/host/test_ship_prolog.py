@@ -21,11 +21,8 @@ def instructions():
     return {
         0x80007000: [0x80A40198, 0x7CBA03A6, 0x80A4019C, 0x7CBB03A6,
                      0x8064000C, 0x80840010, 0x4C000064],
-        # This game-free caller computes the SDK result in registers without mutating the guarded image.
         0x80240EA0: [0x9421FFF0, 0x7C0802A6, 0x90010014, 0x93E1000C, 0x7C7F1B78,
-                     branch(0x80240EB4, 0x80240744), 0x807F0010, 0x80830010, 0x7C832214,
-                     0x88A30030, 0x54A51838, 0x7C84282E, 0x5484003C, 0x7C832214,
-                     0x81830034, 0x7D8C2214,
+                     branch(0x80240EB4, 0x80240744), 0x807F0010, *([0x60000000] * 8), 0x81830034,
                      0x7D8903A6, 0x4E800421, 0x83E1000C, 0x80010014, 0x7C0803A6,
                      0x38210010, 0x4E800020],
         0xC0241178: [0x9421FFF0, 0x7C0802A6, 0x90010014, 0x93E1000C, 0x7C7F1B78,
@@ -210,6 +207,9 @@ class ShipPrologTest(unittest.TestCase):
     def test_publication_sdk_image_cannot_refresh_its_hash_after_entry(self):
         self.assertIn('PASS SDK continuation tampering refused',
                       self.run_probe('publication-sdk-entry-after-tamper'))
+
+    def test_entry_after_observed_progress_is_not_a_duplicate_observation(self):
+        self.run_probe('publication-sdk-entry-after-progress')
 
     def test_publication_complete_sdk_image_cannot_enter_a_constructor_without_verified_prolog_entry(self):
         self.assertIn('PASS SDK constructor without entry refused',

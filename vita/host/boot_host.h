@@ -17,6 +17,7 @@
 #include "dvd_completion.h"
 #include "rel_service.h"
 #include "rel_contract.h"
+#include "rel_lifecycle.h"
 #include "pad_input.h"
 #include "gxruntime/di.h"
 #include "gxruntime/exi.h"
@@ -61,6 +62,7 @@ typedef struct WwHost {
     u32 rel_constructor_table;
     u32 rel_constructor_size;
     const u8* rel_constructor_bytes;
+    bool rel_constructor_observation_open;
     const BlueWakeShipContractV1* ship_contract;
     BlueWakeRelInitContractV1 ship_certificate;
     BlueWakeRelLifecycleV2 ship_lifecycle;
@@ -73,13 +75,7 @@ typedef struct WwHost {
 #if WW05_TESTS_ONLY
     bool rel_test_admission;
 #endif
-    u32 ship_prolog_owner;
-    u32 ship_prolog_stack;
-    u32 ship_prolog_r2;
-    u32 ship_prolog_r13;
-    bool ship_prolog_ctor_completed;
-    bool ship_prolog_return_ready;
-    bool ship_prolog_return_interrupted;
+    WwRelPendingInit rel_pending_init;
     WwDspInterface dsp;
     WwBatContract bat;
     const StaticRecompModuleDesc* module;
@@ -149,9 +145,6 @@ static inline bool ww_host_trace_syscall(u64 resume) {
 
 bool ww_host_init(WwHost* host);
 const char* ww_host_enable_ship_contract(WwHost* host, const BlueWakeShipContractV1* contract, const char* dol);
-const char* ww_host_ship_boundary(WwHost* host, u32 address);
-const char* ww_host_ship_exception_restored(WwHost* host, u32 address);
-bool ww_host_ship_sdk_hash(WwHost* host, const WwRelImage* image, u64* hash);
 void ww_host_shutdown(WwHost* host);
 bool ww_host_load(WwHost* host, const StaticRecompModuleDesc* module,
                    const BlueWakeRelData* data, u32 count, const char* dol);

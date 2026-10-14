@@ -46,11 +46,11 @@ def fixture(output):
     (output / 'synthetic.dol').write_bytes(bytes([1, 2, 3, 4]))
 
 
-def archive(scenario):
+def archive(scenario, title=None):
     profile = bytearray(test_rel_materialize.raw_rel())
     struct.pack_into('>I', profile, 0xC, 5)
     struct.pack_into('>II', profile, 0x6C, 0xB0, 16)
-    title = bytearray((test_host.OUT / 'title.rel').read_bytes())
+    title = bytearray((test_host.OUT / 'title.rel').read_bytes() if title is None else title)
     if scenario == 'raw-identity':
         title[-1] ^= 1
     if scenario == 'catalog-id':
@@ -106,7 +106,7 @@ class RelContractTest(unittest.TestCase):
     def test_registration_does_not_grant_lifecycle_admission(self):
         self.run_probe('registration-only')
 
-    def test_selected_admission_cannot_execute_a_title_initialization(self):
+    def test_selected_admission_alone_cannot_execute_a_title_lifecycle_entry(self):
         for entry in ('prolog', 'epilog', 'unresolved'):
             with self.subTest(entry=entry):
                 self.run_probe('execution-closed-' + entry)

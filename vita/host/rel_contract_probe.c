@@ -281,7 +281,7 @@ int main(int argc, char** argv) {
                 else if (strcmp(argv[1] + 17u, "epilog") == 0) host->cpu.pc = title_lifecycle.epilog_address;
                 else { assert(strcmp(argv[1] + 17u, "unresolved") == 0); host->cpu.pc = title_lifecycle.unresolved_address; }
                 assert(host->cpu.host_call(&host->cpu, host->cpu.pc));
-                assert(host->error != NULL && host->ship_prolog_owner == 0u);
+                assert(host->error != NULL && host->rel_pending_init.phase == WW_REL_INIT_NONE);
             } else {
                 assert(strcmp(argv[1], "selected-append") == 0 || strcmp(argv[1], "catalog-id") == 0 ||
                        strcmp(argv[1], "entry-observation") == 0 || strcmp(argv[1], "icbi-before-trim") == 0 ||

@@ -1,0 +1,262 @@
+#include "boot_host.h"
+
+#define WW_REL_CALLER_SUCCESSOR 0x80240EE8u
+
+void ww_host_rel_lifecycle_revoke(WwHost* host) {
+    memset(&host->rel_pending_init, 0, sizeof(host->rel_pending_init));
+    host->rel_constructor_owner = 0u;
+    host->rel_constructor_return = 0u;
+    host->rel_constructor_table = 0u;
+    host->rel_constructor_size = 0u;
+    host->rel_constructor_bytes = NULL;
+    host->rel_constructor_observation_open = false;
+}
+
+static bool policy_permits(const WwHost* host, const WwRelImage* image) {
+    if (host->ship_contract != NULL && image->certificate == &host->ship_certificate)
+        return true;
+#if WW05_TESTS_ONLY
+    if (host->rel_test_admission && host->rel_contracts != NULL)
+        for (u32 at = 0u; at < host->rel_contracts->contract_count; ++at)
+            if (image->certificate == &host->rel_contracts->contracts[at])
+                return true;
+#endif
+    return false;
+}
+
+static bool live_identity(WwHost* host, const WwRelPendingInit* pending) {
+    const WwRelImage* image = pending->image;
+    return image != NULL && ww_host_rel_owned(host, pending->owner) == image &&
+        ww_host_rel_live(host, pending->module_id) == image && image->certificate == pending->certificate &&
+        pending->certificate != NULL && pending->certificate->rel_bytes == pending->identity &&
+        pending->certificate->rel_size == pending->bytes && image->module_id == pending->module_id &&
+        image->owner == pending->owner && image->guest == pending->guest && image->bytes == pending->bytes &&
+        image->capacity == pending->capacity && image->sections == pending->sections && policy_permits(host, image) &&
+        image->sdk_phase == WW_REL_SDK_CERTIFIED && ww_host_rel_sections_match_post_link(image) &&
+        ww_host_rel_raw_unchanged(image) && ww_host_rel_sdk_integrity(host);
+}
+
+static bool caller_matches(const WwHost* host) {
+    const WwRelPendingInit* pending = &host->rel_pending_init;
+    const CPUState* cpu = &host->cpu;
+    return cpu->gpr[1] == pending->r1 && cpu->gpr[2] == pending->r2 && cpu->gpr[13] == pending->r13 &&
+        cpu->gpr[31] == pending->r31 && pending->r31 == pending->owner && cpu->lr == pending->successor;
+}
+
+bool ww_host_rel_return_qualified(WwHost* host, u32 address) {
+    const WwRelPendingInit* pending = &host->rel_pending_init;
+    return pending->phase == WW_REL_INIT_RETURN_READY && address == pending->successor &&
+        host->cpu.pc == address && pending->constructor_completed && host->rel_constructor_owner == 0u &&
+        caller_matches(host) && live_identity(host, pending);
+}
+
+static const char* boundary(WwHost* host, u32 address) {
+    WwRelPendingInit* pending = &host->rel_pending_init;
+    CPUState* cpu = &host->cpu;
+    const u32 canonical = address & ~0x40000000u;
+    WwRelImage* entering = NULL;
+    for (u32 at = 0u; at < host->rel_image_count; ++at) {
+        WwRelImage* image = &host->rel_images[at];
+        const BlueWakeRelInitContractV1* certificate = image->certificate;
+        if (certificate == NULL || certificate->lifecycle == NULL)
+            continue;
+        const BlueWakeRelLifecycleV2* lifecycle = certificate->lifecycle;
+        if (canonical == (lifecycle->epilog_address & ~0x40000000u) ||
+            canonical == (lifecycle->unresolved_address & ~0x40000000u))
+            return "REL epilog or unresolved entry has no supported lifecycle contract";
+        if (canonical == (lifecycle->prolog_address & ~0x40000000u)) {
+            if (entering != NULL)
+                return "REL initialization entry ownership is ambiguous";
+            entering = image;
+        }
+    }
+    if (pending->phase == WW_REL_INIT_RETURN_SUSPENDED) {
+        if (cpu->exception != 0u)
+            return "REL suspended return does not support a nested exception";
+        if (entering != NULL)
+            return "REL prolog entry is forbidden while its completed return is suspended";
+        if (canonical == pending->successor)
+            return "REL return requires its verified exception restoration";
+    }
+    if (pending->phase != WW_REL_INIT_NONE && !live_identity(host, pending))
+        return "REL prolog continuation lost its exact live owner";
+    if (pending->phase == WW_REL_INIT_RETURN_READY && canonical != pending->successor) {
+        if (entering == pending->image)
+            return "REL initialization cannot reenter a completed image";
+        ww_host_rel_lifecycle_revoke(host);
+    }
+    if (pending->phase == WW_REL_INIT_ACTIVE && canonical != pending->entry_pc)
+        pending->entry_observation_open = false;
+    if (canonical == WW_REL_CALLER_SUCCESSOR) {
+        if (pending->phase == WW_REL_INIT_NONE)
+            return "REL prolog return requires its completed translated call";
+        if (address != pending->successor || cpu->pc != pending->successor ||
+            !caller_matches(host) || !pending->constructor_completed ||
+            host->rel_constructor_owner != 0u)
+            return "REL prolog return did not preserve its translated caller";
+        if (pending->phase == WW_REL_INIT_ACTIVE) {
+            if (fprintf(stderr, "[rel-prolog] module=%u stage=caller-returned pc=%08X owner=%08X\n",
+                        pending->module_id, address, pending->owner) < 0)
+                return "REL prolog return trace failed";
+            pending->image->initialization_completed = true;
+            pending->phase = WW_REL_INIT_RETURN_READY;
+        }
+        return NULL;
+    }
+    if (entering == NULL)
+        return NULL;
+    const BlueWakeRelInitContractV1* certificate = entering->certificate;
+    if (!policy_permits(host, entering) || ww_host_rel_live(host, entering->module_id) != entering ||
+        ww_host_rel_owned(host, entering->owner) != entering || certificate->module_id != entering->module_id ||
+        entering->bytes != certificate->rel_size || entering->initialization_completed ||
+        cpu->lr != WW_REL_CALLER_SUCCESSOR || cpu->gpr[31] != entering->owner || cpu->gpr[3] != entering->guest ||
+        (ww_host_rel_address(host, cpu->pc) & ~0x40000000u) != canonical ||
+        ww_rel_validate_certificate(host, certificate) != NULL)
+        return "REL prolog entry requires its exact translated dynamic-link caller";
+    if (pending->phase != WW_REL_INIT_NONE) {
+        if (pending->phase != WW_REL_INIT_ACTIVE || pending->image != entering || !pending->entry_observation_open ||
+            !caller_matches(host) || pending->constructor_completed || host->rel_constructor_owner != 0u)
+            return "REL prolog does not support a nested or progressed entry";
+        return NULL;
+    }
+    if (host->rel_constructor_owner != 0u)
+        return "REL prolog entry requires no outstanding constructor walk";
+    const char* error = ww_host_rel_sdk_finish(host, entering);
+    if (error != NULL)
+        return error;
+    if (entering->sdk_phase != WW_REL_SDK_CERTIFIED || !ww_host_rel_sdk_integrity(host))
+        return "REL prolog entry requires its exact translated dynamic-link caller";
+    if (fprintf(stderr, "[rel-prolog] module=%u stage=entered pc=%08X owner=%08X lr=%08X\n",
+                entering->module_id, address, entering->owner, cpu->lr) < 0)
+        return "REL prolog entry trace failed";
+    *pending = (WwRelPendingInit){.phase = WW_REL_INIT_ACTIVE, .image = entering, .certificate = certificate,
+        .identity = certificate->rel_bytes, .sections = entering->sections, .module_id = entering->module_id,
+        .owner = entering->owner, .guest = entering->guest, .bytes = entering->bytes, .capacity = entering->capacity,
+        .entry_pc = canonical, .successor = WW_REL_CALLER_SUCCESSOR, .r1 = cpu->gpr[1], .r2 = cpu->gpr[2],
+        .r13 = cpu->gpr[13], .r31 = cpu->gpr[31], .entry_observation_open = true};
+    return NULL;
+}
+
+const char* ww_host_rel_lifecycle_boundary(WwHost* host, u32 address) {
+    const char* error = host->error != NULL ? host->error : boundary(host, address);
+    if (error != NULL)
+        ww_host_rel_lifecycle_revoke(host);
+    return error;
+}
+
+const char* ww_host_rel_constructor_qualify(WwHost* host, const WwRelImage* image,
+                                          u32 section, u32 offset, u32 caller) {
+    if (image->certificate == NULL)
+        return NULL;
+    WwRelPendingInit* pending = &host->rel_pending_init;
+    const BlueWakeRelInitContractV1* certificate = image->certificate;
+    if (pending->phase != WW_REL_INIT_ACTIVE || pending->image != image || !live_identity(host, pending) ||
+        pending->constructor_completed || section != certificate->ctor_table_section ||
+        offset != certificate->ctor_table_offset || caller != certificate->ctor_return_pc)
+        return "REL constructor requires its matching active initialization and certified table/successor";
+    pending->entry_observation_open = false;
+    return NULL;
+}
+
+const char* ww_host_rel_constructor_complete(WwHost* host, const WwRelImage* image, u32 address) {
+    if (image->certificate == NULL)
+        return NULL;
+    WwRelPendingInit* pending = &host->rel_pending_init;
+    if (pending->phase != WW_REL_INIT_ACTIVE || pending->image != image || !live_identity(host, pending) ||
+        pending->constructor_completed || host->rel_constructor_owner != pending->owner ||
+        (ww_host_rel_address(host, host->cpu.pc) & ~0x40000000u) != (address & ~0x40000000u) ||
+        (address & ~0x40000000u) != (pending->certificate->ctor_return_pc & ~0x40000000u))
+        return "REL constructor completion requires its matching active initialization";
+    if (fprintf(stderr, "[rel-prolog] module=%u stage=ctor-completed pc=%08X owner=%08X\n",
+                image->module_id, address, image->owner) < 0)
+        return "REL constructor completion trace failed";
+    pending->constructor_completed = true;
+    pending->entry_observation_open = false;
+    return NULL;
+}
+
+static bool context_inputs_match(WwHost* host) {
+    const WwRelPendingInit* pending = &host->rel_pending_init;
+    return mem_read32(&host->cpu, 0x800000C0u) == pending->context &&
+        mem_read32(&host->cpu, 0x80003010u) == pending->handler;
+}
+
+const char* ww_host_rel_suspend_return(WwHost* host, u32 address, u32 exception, u32 vector) {
+    WwRelPendingInit* pending = &host->rel_pending_init;
+    if (pending->phase == WW_REL_INIT_RETURN_SUSPENDED)
+        return "REL suspended return does not support a nested interruption";
+    if (pending->phase != WW_REL_INIT_RETURN_READY || address != pending->successor)
+        return NULL;
+    if (!ww_host_rel_return_qualified(host, address) ||
+        !((exception == 0x40u && vector == 0x500u) || (exception == 0x80u && vector == 0x900u)))
+        return "REL interrupt delivery requires its qualified caller return";
+    const u32 context = mem_read32(&host->cpu, 0x800000C0u);
+    const u32 handler = mem_read32(&host->cpu, 0x80003010u);
+    if ((context & 3u) != 0u || context < GC_RAM_BASE ||
+        (u64)context - GC_RAM_BASE + 0x1A0u > host->cpu.ram_size ||
+        ww_host_linked_alias_overlaps(context, 0x1A0u) ||
+        !ww_host_module_contains_address(host->module, handler) ||
+        !ww_code_guard_copied_text_matches(&host->code_guard, &host->cpu, handler, handler, 4u))
+        return "REL interrupt delivery requires a validated context and DOL handler";
+    pending->exception = exception;
+    pending->vector = vector;
+    pending->caller_msr = host->cpu.msr & PPC_MSR_RFI_MASK;
+    pending->context = context;
+    pending->handler = handler;
+    pending->rfi_stage = WW_REL_RFI_VECTOR;
+    pending->phase = WW_REL_INIT_RETURN_SUSPENDED;
+    return NULL;
+}
+
+const char* ww_host_rel_rfi_prepare(WwHost* host, u32 cia, u32 verified_vector) {
+    WwRelPendingInit* pending = &host->rel_pending_init;
+    CPUState* cpu = &host->cpu;
+    if (pending->phase != WW_REL_INIT_RETURN_SUSPENDED)
+        return "REL RFI requires a suspended return";
+    if (cpu->exception != 0u || (cpu->msr & PPC_MSR_PR) != 0u || !live_identity(host, pending) ||
+        !context_inputs_match(host))
+        return "REL suspended RFI lost its context or live authority";
+    if (pending->rfi_stage == WW_REL_RFI_VECTOR) {
+        if (verified_vector != pending->vector || (cia & 3u) != 0u ||
+            mem_read32(cpu, cia) != 0x4C000064u || cpu->srr0 != pending->handler ||
+            cpu->gpr[4] != pending->context ||
+            mem_read32(cpu, pending->context + 0x198u) != pending->successor ||
+            mem_read32(cpu, pending->context + 0x19Cu) != pending->caller_msr)
+            return "REL RFI requires its verified vector handoff and frozen caller context";
+        pending->handoff_msr = cpu->srr1 & PPC_MSR_RFI_MASK;
+        return NULL;
+    }
+    if (verified_vector != 0u ||
+        !ww_host_module_contains_address(host->module, cia) ||
+        !ww_code_guard_copied_text_matches(&host->code_guard, cpu, cia, cia, 4u) ||
+        mem_read32(cpu, cia) != 0x4C000064u)
+        return "REL final RFI requires byte-verified mapped DOL text";
+    if ((pending->successor & 3u) != 0u || cpu->srr0 != pending->successor)
+        return "REL exception restoration changed the pending caller PC";
+    if ((cpu->srr1 & PPC_MSR_RFI_MASK) != pending->caller_msr)
+        return "REL exception restoration changed the restorable MSR";
+    if (!caller_matches(host) || !pending->constructor_completed || host->rel_constructor_owner != 0u)
+        return "REL prolog return did not preserve its translated caller";
+    return NULL;
+}
+
+const char* ww_host_rel_rfi_finish(WwHost* host, u32 cia, bool vector_handoff) {
+    WwRelPendingInit* pending = &host->rel_pending_init;
+    CPUState* cpu = &host->cpu;
+    if (pending->phase != WW_REL_INIT_RETURN_SUSPENDED || cpu->exception != 0u ||
+        (cpu->msr & PPC_MSR_POW) != 0u || !live_identity(host, pending) || !context_inputs_match(host))
+        return "REL architectural RFI failed its suspended return";
+    if (vector_handoff) {
+        if (pending->rfi_stage != WW_REL_RFI_VECTOR || cpu->pc != pending->handler ||
+            (cpu->msr & PPC_MSR_RFI_MASK) != pending->handoff_msr)
+            return "REL architectural RFI failed its verified vector handoff";
+        pending->rfi_stage = WW_REL_RFI_HANDLER;
+        return NULL;
+    }
+    if (pending->rfi_stage != WW_REL_RFI_HANDLER || cpu->pc != pending->successor ||
+        (cpu->msr & PPC_MSR_RFI_MASK) != pending->caller_msr || !caller_matches(host) ||
+        !ww_code_guard_copied_text_matches(&host->code_guard, cpu, cia, cia, 4u))
+        return "REL architectural RFI failed its qualified caller restoration";
+    pending->phase = WW_REL_INIT_RETURN_READY;
+    return NULL;
+}

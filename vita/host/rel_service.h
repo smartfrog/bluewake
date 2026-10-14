@@ -40,6 +40,7 @@ typedef struct WwRelImage {
     uint32_t section_table;
     bool linked;
     bool unlinked;
+    bool initialization_completed;
     uint32_t dependencies[WW_REL_MAX_IMPORTS];
     uint32_t dependency_count;
     char name[96];

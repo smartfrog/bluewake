@@ -44,7 +44,7 @@ add_subdirectory(dvd)
 target_compile_options(gxruntime PRIVATE -ffp-contract=off -fno-fast-math -fstack-usage)
 
 add_library(ww05_services STATIC boot_host.c gx_checkpoint.c gx_stream.c fifo_gather.c fifo_consumer.c
-    code_guard.c dsp_interface.c bat_contract.c disc_service.c rel_provider.c rel_service.c rel_link.c rel_contract.c rel_sdk.c ship_contract.c
+    code_guard.c dsp_interface.c bat_contract.c disc_service.c rel_provider.c rel_service.c rel_link.c rel_contract.c rel_sdk.c rel_lifecycle.c ship_contract.c
     scheduler_observation.c game_stop.c vi_clock.c gx_draw_observation.c gpu_finish.c frame_timing.c mem1_capture.c frame_capture.cpp
     dsp_rom_mail.c dsp_deferred.c pad_input.c
     $<TARGET_OBJECTS:ww13_dvd_pin>
@@ -171,6 +171,14 @@ if(WW05_TESTS_ONLY)
         target_include_directories(ship_prolog_probe PRIVATE "${CMAKE_CURRENT_BINARY_DIR}")
         target_compile_options(ship_prolog_probe PRIVATE -UNDEBUG)
         target_link_libraries(ship_prolog_probe PRIVATE ww05_services)
+        add_executable(rel_lifecycle_probe rel_lifecycle_probe.c)
+        target_include_directories(rel_lifecycle_probe PRIVATE "${CMAKE_CURRENT_BINARY_DIR}")
+        target_compile_options(rel_lifecycle_probe PRIVATE -UNDEBUG)
+        target_link_libraries(rel_lifecycle_probe PRIVATE ww05_services)
+        target_link_options(rel_lifecycle_probe PRIVATE -Wl,--wrap=fprintf)
+        add_test(NAME rel-lifecycle COMMAND python3 -B "${CMAKE_CURRENT_SOURCE_DIR}/test_rel_lifecycle.py"
+            --build-dir "${CMAKE_CURRENT_BINARY_DIR}")
+        set_tests_properties(rel-lifecycle PROPERTIES LABELS "synthetic;rel")
     endif()
     add_executable(scheduler_observation_probe scheduler_observation_probe.c)
     target_compile_options(scheduler_observation_probe PRIVATE -UNDEBUG)
