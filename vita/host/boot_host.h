@@ -137,6 +137,7 @@ static inline bool ww_host_trace_syscall(u64 resume) {
 bool ww_host_init(WwHost* host);
 const char* ww_host_enable_ship_contract(WwHost* host, const BlueWakeShipContractV1* contract, const char* dol);
 const char* ww_host_ship_boundary(WwHost* host, u32 address);
+const char* ww_host_ship_exception_restored(WwHost* host, u32 address);
 bool ww_host_ship_raw_matches(WwHost* host, const u8* raw, u32 bytes);
 void ww_host_ship_publish(WwHost* host, WwRelImage* image);
 void ww_host_shutdown(WwHost* host);

@@ -11,6 +11,24 @@
 static const char* scenario;
 static u32 interrupt_handoffs;
 static u32 interrupt_restorations;
+static bool restoration_dispatched;
+
+static bool diverted_restoration(void) {
+    return strcmp(scenario, "interrupt-diverted") == 0 || strcmp(scenario, "interrupt-reentry-rfi") == 0;
+}
+
+static bool pending_entry(void) {
+    return strcmp(scenario, "interrupt-reentry-pending") == 0 || strcmp(scenario, "interrupt-return-pending") == 0;
+}
+
+static void assert_suspended_admission_cleared(WwHost* host) {
+    assert(host->error != NULL && !host->ship_prolog_return_ready && !host->ship_prolog_return_interrupted);
+    assert(host->ship_prolog_owner == 0u && !host->ship_prolog_ctor_completed);
+    assert(host->ship_prolog_stack == 0u && host->ship_prolog_r2 == 0u && host->ship_prolog_r13 == 0u);
+    assert(mem_read32(&host->cpu, 0xC1B224D0u) == 2u);
+    assert(ww_host_ship_boundary(host, 0x80240EE8u) != NULL);
+    fprintf(stderr, "PASS suspended-admission-cleared reason=%s\n", host->error);
+}
 
 static bool interrupt_return_edge(WwHost* host, CPUState* cpu, u32 address) {
     if (interrupt_handoffs != 0u && interrupt_restorations < interrupt_handoffs) {
@@ -64,6 +82,8 @@ static bool interrupt_return_edge(WwHost* host, CPUState* cpu, u32 address) {
 static bool probe_edge(void* user, CPUState* cpu, u32 address) {
     WwHost* host = user;
     const u32 canonical = address & ~0x40000000u;
+    if (restoration_dispatched && diverted_restoration())
+        assert_suspended_admission_cleared(host);
     if (canonical == 0x80240EE8u && strncmp(scenario, "interrupt-", 10u) == 0)
         return interrupt_return_edge(host, cpu, address);
     if (canonical == 0x80241178u) {
@@ -80,8 +100,18 @@ static bool probe_edge(void* user, CPUState* cpu, u32 address) {
 
 static int translated_chunk(CPUState* cpu, u32 address) {
     switch (address & ~0x40000000u) {
-    case 0x80007000u: func_80007000(cpu); return 1;
-    case 0x80240EC0u: case 0x80240ED8u: case 0x80240EE8u:
+    case 0x80007000u:
+        if (diverted_restoration()) {
+            const u32 target = strcmp(scenario, "interrupt-diverted") == 0 ? 0x80240EECu : 0xC1B100F4u;
+            mem_write32(cpu, 0x80006198u, target);
+            func_80007000(cpu);
+            assert(cpu->pc == target);
+            restoration_dispatched = true;
+            fprintf(stderr, "[ship-test] stage=restoration-dispatched target=%08X\n", cpu->pc);
+            return 1;
+        }
+        func_80007000(cpu); return 1;
+    case 0x80240EC0u: case 0x80240ED8u: case 0x80240EE8u: case 0x80240EECu:
         func_80240EC0(cpu); return 1;
     case 0x80241178u: case 0x80241198u: case 0x802411ACu: case 0x802411B4u:
         func_C0241178(cpu); return 1;
@@ -165,6 +195,16 @@ int main(int argc, char** argv) {
     cpu->pc = 0x80240EC0u;
     cpu->cycle_budget = 200;
     for (u32 turn = 0u; turn < 32u && cpu->pc != 0x80001004u && host->error == NULL; ++turn) {
+        if (cpu->pc == 0x80007000u && pending_entry()) {
+            assert(host->ship_prolog_return_interrupted && host->ship_prolog_return_ready);
+            assert(cpu->lr == 0x80240EE8u && cpu->gpr[31] == host->ship_prolog_owner);
+            assert(cpu->gpr[1] == host->ship_prolog_stack);
+            cpu->pc = strcmp(scenario, "interrupt-reentry-pending") == 0 ? 0xC1B100F4u : 0x80240EE8u;
+            const char* error = ww_host_ship_boundary(host, cpu->pc);
+            assert(error != NULL);
+            ww_host_fail(host, error, cpu->pc, cpu->pc);
+            break;
+        }
         if (cpu->pc == 0x80240EE8u && interrupt_restorations < interrupt_handoffs &&
             interrupt_return_edge(host, cpu, cpu->pc))
             continue;
@@ -181,6 +221,13 @@ int main(int argc, char** argv) {
     if (host->error != NULL)
         fprintf(stderr, "STOP pc=%08X lr=%08X sp=%08X r31=%08X ctor-owner=%08X reason=%s\n",
                 cpu->pc, cpu->lr, cpu->gpr[1], cpu->gpr[31], host->rel_constructor_owner, host->error);
+    if (diverted_restoration() || pending_entry()) {
+        assert(pending_entry() || restoration_dispatched);
+        assert_suspended_admission_cleared(host);
+        ww_host_shutdown(host);
+        free(host);
+        return 0;
+    }
     if (strcmp(scenario, "default-off") == 0 || strcmp(scenario, "missing-contract") == 0 ||
         strcmp(scenario, "bad-rel") == 0 || strcmp(scenario, "stale-code") == 0 ||
         strcmp(scenario, "other-actor") == 0 || strcmp(scenario, "lifecycle-data") == 0 ||

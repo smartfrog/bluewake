@@ -63,17 +63,43 @@ void ww_host_ship_publish(WwHost* host, WwRelImage* image) {
     image->raw_hash = ww_host_rel_raw_hash(raw, image->bytes);
 }
 
+static void clear_ship_return(WwHost* host) {
+    host->ship_prolog_owner = 0u;
+    host->ship_prolog_stack = 0u;
+    host->ship_prolog_r2 = 0u;
+    host->ship_prolog_r13 = 0u;
+    host->ship_prolog_ctor_completed = false;
+    host->ship_prolog_return_ready = false;
+    host->ship_prolog_return_interrupted = false;
+}
+
+const char* ww_host_ship_exception_restored(WwHost* host, u32 address) {
+    if (!host->ship_prolog_return_interrupted)
+        return NULL;
+    if (address != 0x80240EE8u) {
+        clear_ship_return(host);
+        return "ship prolog exception restoration changed the pending caller PC";
+    }
+    host->ship_prolog_return_interrupted = false;
+    const char* error = ww_host_ship_boundary(host, address);
+    if (error != NULL)
+        clear_ship_return(host);
+    return error;
+}
+
 const char* ww_host_ship_boundary(WwHost* host, u32 address) {
     const u32 canonical = address & ~0x40000000u;
-    if (host->ship_prolog_return_ready && canonical != 0x80240EE8u &&
-        !host->ship_prolog_return_interrupted) {
-        host->ship_prolog_owner = 0u;
-        host->ship_prolog_stack = 0u;
-        host->ship_prolog_r2 = 0u;
-        host->ship_prolog_r13 = 0u;
-        host->ship_prolog_ctor_completed = false;
-        host->ship_prolog_return_ready = false;
+    if (canonical == 0x81B100F4u && host->ship_prolog_return_interrupted) {
+        clear_ship_return(host);
+        return "ship prolog entry is forbidden while its completed return is suspended";
     }
+    if (canonical == 0x80240EE8u && host->ship_prolog_return_interrupted) {
+        clear_ship_return(host);
+        return "ship prolog return requires its verified exception restoration";
+    }
+    if (host->ship_prolog_return_ready && canonical != 0x80240EE8u &&
+        !host->ship_prolog_return_interrupted)
+        clear_ship_return(host);
     if (canonical == 0x81B10120u || canonical == 0x81B1014Cu)
         return "ship epilog or unresolved entry has no supported lifecycle contract";
     if (host->ship_prolog_owner != 0u) {
@@ -90,7 +116,6 @@ const char* ww_host_ship_boundary(WwHost* host, u32 address) {
                 fprintf(stderr, "[rel-prolog] module=168 stage=caller-returned pc=%08X owner=%08X\n", address, image->owner) < 0)
                 return "ship prolog return trace failed";
             host->ship_prolog_return_ready = true;
-            host->ship_prolog_return_interrupted = false;
         }
     }
     if (canonical == 0x80240EE8u && host->ship_contract != NULL &&

@@ -253,6 +253,28 @@ class ShipPrologTest(unittest.TestCase):
         self.assertIn('PASS admission-expired pc=80001004', log)
         self.assertIn('completed translated call', log)
 
+    def test_diverted_rfi_restoration_rejects_and_clears_the_completed_return_contract(self):
+        log = self.run_probe('interrupt-diverted')
+        self.assertIn('stage=restoration-dispatched target=80240EEC', log)
+        self.assertIn('exception restoration changed the pending caller PC', log)
+        self.assertIn('PASS suspended-admission-cleared', log)
+
+    def test_rfi_cannot_reenter_the_prolog_with_the_suspended_owner_and_stack(self):
+        log = self.run_probe('interrupt-reentry-rfi')
+        self.assertIn('stage=restoration-dispatched target=C1B100F4', log)
+        self.assertIn('exception restoration changed the pending caller PC', log)
+        self.assertIn('PASS suspended-admission-cleared', log)
+
+    def test_prolog_entry_is_rejected_while_its_completed_return_is_still_suspended(self):
+        log = self.run_probe('interrupt-reentry-pending')
+        self.assertIn('prolog entry is forbidden while its completed return is suspended', log)
+        self.assertIn('PASS suspended-admission-cleared', log)
+
+    def test_suspended_return_cannot_resume_without_executing_the_restoration_rfi(self):
+        log = self.run_probe('interrupt-return-pending')
+        self.assertIn('return requires its verified exception restoration', log)
+        self.assertIn('PASS suspended-admission-cleared', log)
+
     def test_lifecycle_entries_require_executable_section_ownership(self):
         self.assertIn('lifecycle entries require owned translated executable sections', self.run_probe('lifecycle-data'))
 

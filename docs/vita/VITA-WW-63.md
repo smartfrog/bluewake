@@ -14,8 +14,8 @@ unresolved execution, explicit ship unlink and native actor unlink remain closed
 There are no host prolog, constructor or lifecycle success replacements.
 
 No emulator launch, integration, push, private game build, actual ship C execution
-or hardware gameplay occurred. The initial independent review failed on the
-interrupted-return finding below; corrective re-review is pending.
+or hardware gameplay occurred. The initial and first corrective reviews found
+the return-contract issues below; the second corrective re-review is pending.
 
 Initial worktree was clean at
 `accef5abe217a5868b4791717f8e965ac2c22b39`. Local branch:
@@ -140,8 +140,9 @@ boundaries do not expire that suspended contract. A restored `80240EE8` boundary
 revalidates the live owner, raw image and caller registers, and leaves suspension
 only after that validation succeeds. The next normal boundary after the caller
 executes expires the admission and clears its saved context. Repeated interrupts
-before caller execution remain supported; no unqualified return admission was
-added. Default-OFF, relocation certification and teardown gates are unchanged.
+before caller execution remain supported. These normal-path checks passed; the
+re-review below found a diverted-PC case they did not cover. Default-OFF,
+relocation certification and teardown gates are unchanged.
 
 The public fixture uses the existing exact synthetic `0x500`/`0x900` vectors,
 their guest-memory context saves, and an emitted PPC context-restoration handler
@@ -164,6 +165,52 @@ nor exception restoration is replaced by host success code.
 Same Linux AArch64 environment, pinned dependencies, `-j 1` and pre-compilation
 Vita3K checks as above. No emulator, integration or scope expansion; the original
 full-composite binding and device-verification limitations still apply.
+
+## Second review correction: verified restoration PC and suspended entry
+
+Review of `4854f8746e7f76b6b732cae50a6f34713c788d4b` confirmed normal
+restoration, but found that a saved SRR0 diverted past `80240EE8` could keep the
+completed invocation suspended indefinitely. The same-owner/stack prolog entry
+allowance could also reuse its constructor-completion state while suspended.
+
+The host now wraps the existing pinned `ppc_rfi` operation through the Vita
+aggregator's link options. The actual runtime RFI still executes. Its result is
+checked before the translated dispatch loop can execute the restored target.
+Only the existing byte-verified physical external/decrementer vector's first
+RFI, with EE still disabled, is a bootstrap handoff into the DOL handler rather
+than restoration of the interrupted caller. A handler's restoration RFI must
+restore **exactly `80240EE8`** and revalidate the held owner, raw image and saved
+register context. Any diverted restoration clears the owner, saved registers,
+constructor completion and both admission flags, and reports a host failure.
+
+Ordinary boundaries can no longer leave suspension merely by arriving at the
+pending return PC. Only the RFI-result check can do so. Prolog re-entry during
+suspension is rejected and clears the completion, including when owner and SP
+still match. The normal continuation still expires admission after advancing.
+Default-OFF, other actors, relocation certification and teardown gates are
+unchanged. No runtime source or dependency pin was changed, and no generic or
+nested exception-restoration contract was added.
+
+- Test-first red: **3/3** new scenarios failed: emitted restoration-handler RFI
+  to `80240EEC`, emitted restoration-handler RFI to `C1B100F4` with the original
+  owner/SP, and direct same-context entry while the handler was still pending.
+  `red-build-corrected-r3.log`, `red-tests-corrected-r3.log`. The corrected tests
+  stop at the missing rejection rather than later fixture invariants.
+- A further test-first check caught return-PC arrival without executing the
+  restoration RFI: the first three scenarios were green, this fourth was red.
+  `verified-return-red-build-r3.log`, `verified-return-red-tests-r3.log`.
+- Green: **95/95 ship+REL** (30 ship + 65 REL), `green-tests-r3.log`. Both altered
+  saved-SRR0 scenarios execute the emitted context-restoration handler and actual
+  RFI; no test sets an admission flag to simulate restoration. All normal,
+  repeated-interrupt, altered-register, unqualified-resume and expiry tests pass.
+- Final committed-revision rechecks: **95/95 ship+REL**, **880/880 host Python**,
+  **51/51 CTest**, serial build, audit, attribution and diff checks. Raw logs under
+  `/tmp/opencode/ww63`: `ship-rel-tests-r3.log`, `host-tests-r3.log`, `ctest-r3.log`,
+  `build-r3.log`, `audit-r3.log`, `attribution-r3.log`, `diff-check-r3.log` and
+  `restoration-green-r3.log`; `identity-r3.json` records the checked revision.
+
+No emulator, integration, private game build or hardware verification occurred.
+The original export-binding frontier and device limitations remain unchanged.
 
 ## Next frontier
 

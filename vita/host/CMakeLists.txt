@@ -61,6 +61,7 @@ target_include_directories(ww05_services PUBLIC "${CMAKE_CURRENT_SOURCE_DIR}"
     "${BLUEWAKE_ROOT}/apple/ios/src")
 target_include_directories(ww05_services PRIVATE "${BLUEWAKE_ROOT}/vita/feasibility/armv7")
 target_link_libraries(ww05_services PUBLIC ww13_dvd_io GXRuntime::runtime ww_renderer)
+target_link_options(ww05_services INTERFACE -Wl,--wrap=ppc_rfi)
 target_compile_definitions(ww05_services PRIVATE WW05_ENABLE_VI_CLOCK=$<BOOL:${WW05_ENABLE_VI_CLOCK}>)
 target_compile_definitions(ww05_services PUBLIC WW05_ENABLE_PAD_INPUT=$<BOOL:${WW05_ENABLE_PAD_INPUT}>)
 target_compile_definitions(ww05_services PUBLIC WW05_ENABLE_SHIP_PROLOG=$<BOOL:${WW05_ENABLE_SHIP_PROLOG}>)

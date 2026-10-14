@@ -939,6 +939,24 @@ static bool observed_vector_matches(const CPUState* cpu, const WwObservedVector*
            memcmp(cpu->ram + vector->address, vector->reference, WW05_EXTERNAL_VECTOR_BYTES) == 0;
 }
 
+void __real_ppc_rfi(CPUState* cpu, u32 cia);
+
+void __wrap_ppc_rfi(CPUState* cpu, u32 cia) {
+    WwHost* host = cpu->host_call == host_call ? owner(cpu) : NULL;
+    const bool suspended = host != NULL && host->ship_prolog_return_interrupted;
+    const WwObservedVector* vector = suspended ? observed_vector(cia) : NULL;
+    const bool vector_handoff = vector != NULL &&
+        (vector->address == WW05_EXTERNAL_VECTOR || vector->address == WW05_DECREMENTER_VECTOR) &&
+        observed_vector_matches(cpu, vector);
+    __real_ppc_rfi(cpu, cia);
+    // The byte-verified physical vector's first RFI enters the DOL handler, not the interrupted caller.
+    if (!suspended || cpu->exception != 0u || (vector_handoff && (cpu->msr & PPC_MSR_EE) == 0u))
+        return;
+    const char* error = ww_host_ship_exception_restored(host, cpu->pc);
+    if (error != NULL)
+        ww_host_fail(host, error, cpu->pc, cia);
+}
+
 bool ww_host_resume_exception(WwHost* host) {
     CPUState* cpu = &host->cpu;
     if (cpu->exception == PPC_EXC_FP_UNAVAILABLE && cpu->pc == WW05_FP_VECTOR && host->module != NULL) {
