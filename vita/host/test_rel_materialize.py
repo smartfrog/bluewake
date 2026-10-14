@@ -132,6 +132,11 @@ def rel_archive(scenario):
         if scenario == 'second-lifecycle-epilog':
             actor[0x31] = 1
             struct.pack_into('>I', actor, 0x38, 4)
+        if scenario == 'second-section-limit':
+            actor.extend(bytes(256))
+            actor[0x100:0x120] = actor[0x4C:0x6C]
+            struct.pack_into('>I', actor, 0xC, 12)
+            struct.pack_into('>I', actor, 0x10, 0x100)
         members = [(b'f_pc_profile_lst.rel', member), (b'ww34_fixture_a.rel', actor)]
         if scenario in ('second-independent', 'second-hole-reuse', 'second-ctor-wrong-owner', 'second-ctor-changed-table') or scenario.startswith('second-dependency-'):
             members.append((b'ww34_fixture_b.rel', actor_rel(168)))
@@ -448,6 +453,43 @@ class RelMaterializeTest(unittest.TestCase):
                          'second-loop-linked-offset', 'second-indirect-linked-flags'):
             with self.subTest(scenario=scenario):
                 self.run_probe(scenario)
+
+    def mismatch_lines(self, scenario):
+        log = self.run_probe(scenario).stderr
+        self.assertIn('STOP reason=REL owned section table changed after validation '
+                      'address=81820280 pc=803031D8', log)
+        return [line for line in log.splitlines() if line.startswith('[rel-section-mismatch]')]
+
+    def test_section_count_mismatch_logs_the_current_word_and_snapshot_without_changing_stop(self):
+        self.assertEqual(self.mismatch_lines('second-section-count'), [
+            '[rel-section-mismatch] field=section_count current=FFFFFFFF snapshot=00000004'])
+
+    def test_section_table_mismatch_uses_the_snapshot_offset_for_safe_observation(self):
+        self.assertEqual(self.mismatch_lines('second-section-table'), [
+            '[rel-section-mismatch] field=section_table current=FFFFFFFC snapshot=0000004C'])
+
+    def test_section_word_mismatches_log_each_changed_word_but_not_unchanged_entries(self):
+        self.assertEqual(self.mismatch_lines('second-section-words'), [
+            '[rel-section-mismatch] field=section_flags index=1 current=00000085 snapshot=00000081',
+            '[rel-section-mismatch] field=section_size index=1 current=00000024 snapshot=00000020',
+            '[rel-section-mismatch] field=section_flags index=2 current=81F9E3C0 snapshot=00000000'])
+
+    def test_section_mismatch_capture_is_capped_at_the_first_eight_differing_entries(self):
+        expected = []
+        snapshots = [(0, 0), (0x81, 0x20), (0, 16), (0xB0, 16)] + [(0, 0)] * 8
+        for index in range(8):
+            flags, size = snapshots[index]
+            for field, current, snapshot in (('section_flags', flags ^ 4, flags),
+                                             ('section_size', size ^ 4, size)):
+                expected.append(f'[rel-section-mismatch] field={field} index={index} '
+                                f'current={current:08X} snapshot={snapshot:08X}')
+        self.assertEqual(self.mismatch_lines('second-section-limit'), expected)
+
+    def test_section_mismatch_journal_failure_still_preserves_the_original_stop(self):
+        self.assertEqual(self.mismatch_lines('second-section-trace-failure'), [])
+
+    def test_matching_section_table_emits_no_mismatch_diagnostics(self):
+        self.assertNotIn('[rel-section-mismatch]', self.run_probe('second').stderr)
 
     def test_repeated_profile_link_does_not_read_or_materialize_again(self):
         self.run_probe('link-repeat')
