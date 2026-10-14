@@ -87,7 +87,7 @@ def setup(root):
     return manifest
 
 
-def compile_export_probe(root, body):
+def compile_export_probe(root, body, cpp=False, wrapped=False):
     (root / 'core').mkdir(exist_ok=True)
     (root / 'core/cpu.h').write_text('typedef struct CPUState CPUState;\n')
     (root / 'StaticRecompABI.h').write_text(
@@ -101,10 +101,25 @@ def compile_export_probe(root, body):
     source = root / 'view.c'
     source.write_text('#include <assert.h>\n#include <stddef.h>\n#include <string.h>\n'
         '#include "module_exports.h"\n#include "rel_data.inc"\n#define RECOMP_MODULE_EXPORT\n' + getters + '\n'
-        'int main(void) {\n' + body + '\nreturn 0;\n}\n')
-    subprocess.run(['cc', '-std=c11', '-Wall', '-Wextra', '-Werror', '-Wno-unused-const-variable',
+        + ('' if cpp else 'int main(void) {\n' + body + '\nreturn 0;\n}\n'))
+    command = ['cc', '-std=c11', '-Wall', '-Wextra', '-Werror', '-Wno-unused-const-variable',
         '-I', str(root), '-I', str(root / 'composite'), '-I', str(fixture.SCRIPTS_DIR.parent / 'cmake/composite'),
-        str(source), '-o', str(root / 'view')], check=True, capture_output=True, text=True)
+        str(source), '-o', str(root / ('view.o' if cpp else 'view'))]
+    if cpp:
+        command.append('-c')
+    subprocess.run(command, check=True, capture_output=True, text=True)
+    if cpp:
+        caller = root / 'caller.cpp'
+        include = '#include "module_exports.h"\n'
+        if wrapped:
+            include = 'extern "C" {\n' + include + '}\n'
+        caller.write_text('#include <cassert>\n#include <cstddef>\n' + include +
+                          'int main() {\n' + body + '\nreturn 0;\n}\n')
+        result = subprocess.run(['c++', '-std=c++11', '-Wall', '-Wextra', '-Werror',
+            '-I', str(root), '-I', str(fixture.SCRIPTS_DIR.parent / 'cmake/composite'), str(caller),
+            str(root / 'view.o'), '-o', str(root / 'view')], capture_output=True, text=True)
+        if result.returncode:
+            raise AssertionError(result.stderr)
     subprocess.run([str(root / 'view')], check=True)
 
 
@@ -314,6 +329,19 @@ class SelectedContracts(unittest.TestCase):
     def test_old_generated_module_getter_returns_no_selected_set(self):
         fixture.run_generator(self.root)
         compile_export_probe(self.root, 'assert(staticrecomp_get_rel_init_contracts_v1() == NULL);')
+
+    def test_cpp_normal_header_caller_links_to_c_defined_getter(self):
+        result = self.generate()
+        self.assertEqual(result.returncode, 0, result.stderr)
+        compile_export_probe(self.root,
+            'const auto* set = staticrecomp_get_rel_init_contracts_v1();\n'
+            'assert(set && set->version == 1u && set->contract_count == 2u);', cpp=True)
+
+    def test_cpp_wrapped_header_caller_links_to_c_defined_getter(self):
+        result = self.generate()
+        self.assertEqual(result.returncode, 0, result.stderr)
+        compile_export_probe(self.root,
+            'assert(staticrecomp_get_rel_init_contracts_v1() != nullptr);', cpp=True, wrapped=True)
 
     def test_original_title_pin_rejects_processed_identity(self):
         self.manifest['modules']['400']['raw_sha256'] = self.manifest['modules']['400']['processed_rel_sha256']

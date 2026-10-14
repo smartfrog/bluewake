@@ -64,6 +64,9 @@ const BlueWakeRelData* staticrecomp_get_rel_data(u32* count);
 const BlueWakeRelLifecycle* staticrecomp_get_rel_lifecycle(u32* count);
 const BlueWakeRelLifecycleV2* staticrecomp_get_rel_lifecycle_v2(u32* count);
 const BlueWakeShipContractV1* staticrecomp_get_ship_contract_v1(void);
+#ifdef __cplusplus
+extern "C"
+#endif
 const BlueWakeRelInitContractSetV1* staticrecomp_get_rel_init_contracts_v1(void);
 void bluewake_set_edge_service(BluewakeEdgeServiceFn fn, void* user);
 
