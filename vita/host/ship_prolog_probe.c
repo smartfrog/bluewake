@@ -409,8 +409,10 @@ int main(int argc, char** argv) {
         assert(ww_host_dispatch(host, cpu->pc) == -1 && host->error != NULL && image->linked);
         fprintf(stderr, "PASS rejected reason=%s\n", host->error);
     } else if (strncmp(scenario, "return-", 7u) == 0) {
+        cpu->pc = 0xC1B100F4u;
         cpu->lr = 0x80240EE8u;
         cpu->gpr[31] = image->owner;
+        cpu->gpr[3] = image->guest;
         assert(ww_host_ship_boundary(host, 0xC1B100F4u) == NULL);
         if (strcmp(scenario, "return-without-ctor") != 0) {
             cpu->gpr[3] = 0xC1B1DAF0u;

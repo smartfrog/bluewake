@@ -61,7 +61,7 @@ static bool raw_code_matches(WwHost* host, const StaticRecompRelSection* section
 }
 
 static const char* validate_relocations(WwHost* host, const StaticRecompRelModule* rel, const u8* raw,
-                                       u32 bytes, u8* relocated) {
+                                       u32 bytes, u8* relocated, const WwRelImage* sdk) {
     const bool ship = rel->module_id == 168u && host->ship_contract != NULL;
     const u32 imports = bluewake_archive_be32(raw + 0x28u);
     const u32 import_bytes = bluewake_archive_be32(raw + 0x2Cu);
@@ -71,6 +71,8 @@ static const char* validate_relocations(WwHost* host, const StaticRecompRelModul
         return "REL import count exceeds the bounded ownership contract";
     for (u32 at = imports; at < imports + import_bytes; at += 8u) {
         const u32 target_id = bluewake_archive_be32(raw + at);
+        if (sdk != NULL && target_id != 0u && target_id != rel->module_id)
+            return "ship SDK relocation requires only self and DOL imports";
         const StaticRecompRelModule* target = target_id == 0u ? NULL : ww_host_rel_descriptor(host, target_id);
         if (target_id != 0u && target == NULL)
             return "REL relocation imports an untranslated module";
@@ -128,15 +130,20 @@ static const char* validate_relocations(WwHost* host, const StaticRecompRelModul
             } else if (symbol < GC_RAM_BASE || (u64)symbol >= (u64)GC_RAM_BASE + host->cpu.ram_size) {
                 return "REL relocation DOL target is outside MEM1";
             }
+            const u32 translated = address;
+            if (sdk != NULL && destination != NULL) {
+                const u32 start = sdk->sections[section].flags & ~1u;
+                address = (start != 0u ? sdk->guest + start : mem_read32(&host->cpu, sdk->owner + 0x14u)) + symbol;
+            }
             u32 value = address;
             if (type == 10u || type == 11u) {
                 const u32 raw_word = bluewake_archive_be32(raw + patch_start + (u32)offset);
-                if ((address & 3u) != 0u || !translated_section(host, address, 4u) ||
+                if ((address & 3u) != 0u || !translated_section(host, translated, 4u) ||
                     (destination != NULL && (rel_data(host, target_id, section) != NULL ||
                                              (u64)symbol + 4u > destination->size)))
                     return "REL branch target requires aligned translated executable coverage";
-                const u32 patch_address = patch->linked_start + (u32)offset;
-                const u32 branch_address = address | (patch_address & 0x40000000u);
+                const u32 patch_address = (sdk != NULL ? sdk->guest + patch_start : patch->linked_start) + (u32)offset;
+                const u32 branch_address = sdk != NULL ? address : address | (patch_address & 0x40000000u);
                 const s64 displacement = (s64)(s32)(branch_address - patch_address);
                 const s64 minimum = type == 10u ? -0x02000000ll : -0x8000ll;
                 const s64 maximum = type == 10u ? 0x01FFFFFCll : 0x7FFCLL;
@@ -262,7 +269,7 @@ const char* ww_host_validate_rel_link(WwHost* host, const StaticRecompRelModule*
     if (relocated == NULL)
         return "REL prelinked verification allocation failed";
     memcpy(relocated, raw, bytes);
-    const char* error = validate_relocations(host, rel, raw, bytes, relocated);
+    const char* error = validate_relocations(host, rel, raw, bytes, relocated, NULL);
     if (ship && error == NULL) {
         u32 expected_count = 0u;
         for (u32 index = 0u; index < count && error == NULL; ++index) {
@@ -306,6 +313,78 @@ const char* ww_host_validate_rel_link(WwHost* host, const StaticRecompRelModule*
     }
     free(relocated);
     return error;
+}
+
+bool ww_host_ship_sdk_hash(WwHost* host, const WwRelImage* image, u64* hash) {
+    if (host == NULL || host->module == NULL || image == NULL || hash == NULL)
+        return false;
+    const BlueWakeShipContractV1* contract = host->ship_contract;
+    const StaticRecompRelModule* rel = ww_host_rel_descriptor(host, 168u);
+    u8* live = NULL;
+    if (contract == NULL || rel == NULL || image->module_id != 168u || !image->linked ||
+        image->bytes != contract->rel_size || !ww_host_rel_sections_match_post_link(image) ||
+        !ppc_guest_alias_get_storage(image->guest, image->capacity, &live) ||
+        mem_read32(&host->cpu, 0x800030CCu) != image->guest)
+        return false;
+    const u8* raw = contract->rel_bytes;
+    if (image->raw_hash != ww_host_rel_raw_hash(raw, image->bytes))
+        return false;
+    const u32 bss = mem_read32(&host->cpu, image->owner + 0x14u);
+    const u32 bss_size = bluewake_archive_be32(raw + 0x20u);
+    const u32 alignment = bluewake_archive_be32(raw + 0x44u);
+    if ((bss & 3u) != 0u || bss < GC_RAM_BASE || (u64)bss + bss_size > GC_RAM_BASE + GC_MAIN_RAM_SIZE)
+        return false;
+    if (alignment != 0u && bss % alignment != 0u)
+        return false;
+    u8* expected = malloc(image->bytes);
+    if (expected == NULL)
+        return false;
+    memcpy(expected, raw, image->bytes);
+    const char* error = validate_relocations(host, rel, raw, image->bytes, expected, image);
+    if (error == NULL) {
+        write_be32(expected + 0x4u, 0u);
+        write_be32(expected + 0x8u, image->ship_sdk_previous);
+        write_be32(expected + 0x14u, bluewake_archive_be32(raw + 0x14u) + image->ship_sdk_name_base);
+        const u32 fields[] = {0x10u, 0x24u, 0x28u, 0x48u};
+        for (u32 at = 0u; at < sizeof(fields) / sizeof(fields[0]); ++at)
+            write_be32(expected + fields[at], image->guest + bluewake_archive_be32(raw + fields[at]));
+        expected[0x33u] = 0u;
+        for (u32 at = 1u; at < image->section_count; ++at) {
+            const WwRelSection* section = &image->sections[at];
+            if (section->flags != 0u)
+                write_be32(expected + image->section_table + at * 8u, image->guest + section->flags);
+            else if (section->size != 0u) {
+                write_be32(expected + image->section_table + at * 8u, bss);
+                expected[0x33u] = (u8)at;
+            }
+        }
+        for (u32 at = 0u; at < 3u; ++at) {
+            const u32 index = raw[0x30u + at];
+            if (index != 0u)
+                write_be32(expected + 0x34u + at * 4u, bluewake_archive_be32(raw + 0x34u + at * 4u) +
+                    (bluewake_archive_be32(expected + image->section_table + index * 8u) & ~1u));
+        }
+        const u32 imports = bluewake_archive_be32(raw + 0x28u);
+        const u32 import_bytes = bluewake_archive_be32(raw + 0x2Cu);
+        for (u32 at = imports; at < imports + import_bytes; at += 8u)
+            write_be32(expected + at + 4u, image->guest + bluewake_archive_be32(raw + at + 4u));
+        const u64 current = ww_host_rel_raw_hash(live, image->bytes);
+        *hash = ww_host_rel_raw_hash(expected, image->bytes);
+        if (*hash != current) {
+            for (u32 at = imports; at < imports + import_bytes; at += 8u) {
+                const u32 module = bluewake_archive_be32(raw + at);
+                if (module == 0u || module == 168u) {
+                    write_be32(expected + 0x2Cu, at - imports);
+                    break;
+                }
+            }
+            *hash = ww_host_rel_raw_hash(expected, image->bytes);
+        }
+        if (*hash != current)
+            error = "ship SDK image differs from its expected relocation";
+    }
+    free(expected);
+    return error == NULL;
 }
 
 const char* ww_host_link_rel(WwHost* host, u32 object) {
@@ -645,7 +724,7 @@ const char* ww_host_link_profile_list(WwHost* host, u32 object) {
     const StaticRecompRelModule* descriptor = ww_host_rel_descriptor(host, slot->module_id);
     if (descriptor == NULL)
         return "REL profile-list descriptor is absent";
-    const char* relocation_error = validate_relocations(host, descriptor, raw, slot->bytes, NULL);
+    const char* relocation_error = validate_relocations(host, descriptor, raw, slot->bytes, NULL, NULL);
     if (relocation_error != NULL)
         return relocation_error;
     bool section_matches = false;

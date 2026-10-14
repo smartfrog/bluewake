@@ -55,31 +55,31 @@ def fixture(output):
     code = instructions()
     raw = bytearray(74960)
     for offset, value in ((0, 168), (0xC, 6), (0x10, 0x4C), (0x1C, 3), (0x20, 16),
-                          (0x28, 0x1A0), (0x2C, 16), (0x38, 44), (0x3C, 88), (0x48, 0xE3B8)):
+                          (0x24, 0x2B0), (0x28, 0x2A0), (0x2C, 16), (0x38, 44), (0x3C, 88), (0x48, 0xE3B8)):
         struct.pack_into('>I', raw, offset, value)
     raw[0x30:0x33] = bytes([1, 1, 1])
-    sections = [(1, 0xC1B100F4, 0x80, 96), (2, 0xC1B1D414, 0x100, 36),
-                (3, 0xC1B1016C, 0x130, 24), (4, 0xC1B1DAF0, 0x160, 12),
+    sections = [(1, 0xC1B100F4, 0xF4, 96), (2, 0xC1B1D414, 0x200, 36),
+                (3, 0xC1B1016C, 0x230, 24), (4, 0xC1B1DAF0, 0x260, 12),
                 (5, 0xC1B224D0, 0, 16)]
     for index, address, offset, size in sections:
         struct.pack_into('>II', raw, 0x4C + index * 8, offset | int(index < 4), size)
         if index < 4:
             raw[offset:offset + size] = struct.pack(f'>{len(code[address])}I', *code[address])
     canonical = bytearray(raw)
-    struct.pack_into('>I', canonical, 0x160, 0xC1B1D414)
-    struct.pack_into('>I', raw, 0x8C, 0x3C600000)
-    struct.pack_into('>I', raw, 0x90, 0x38630000)
-    struct.pack_into('>I', raw, 0x94, 0x48000001)
-    struct.pack_into('>I', raw, 0x98, 0x48000001)
+    struct.pack_into('>I', canonical, 0x260, 0xC1B1D414)
+    struct.pack_into('>I', raw, 0x100, 0x3C600000)
+    struct.pack_into('>I', raw, 0x104, 0x38630000)
+    struct.pack_into('>I', raw, 0x108, 0x48000001)
     struct.pack_into('>I', raw, 0x10C, 0x48000001)
-    struct.pack_into('>IIII', raw, 0x1A0, 168, 0x1B0, 0, 0x210)
+    struct.pack_into('>I', raw, 0x20C, 0x48000001)
+    struct.pack_into('>IIII', raw, 0x2A0, 168, 0x2B0, 0, 0x310)
     entries = [(0, 202, 4, 0), (0, 1, 2, 0), (0, 202, 1, 0), (14, 6, 4, 0),
                (4, 4, 4, 0), (0, 202, 2, 0), (12, 10, 3, 0), (0, 203, 0, 0)]
     for at, entry in enumerate(entries):
-        struct.pack_into('>HBBI', raw, 0x1B0 + at * 8, *entry)
+        struct.pack_into('>HBBI', raw, 0x2B0 + at * 8, *entry)
     entries = [(0, 202, 1, 0), (20, 10, 0, 0x80241178), (4, 10, 0, 0x802410B4), (0, 203, 0, 0)]
     for at, entry in enumerate(entries):
-        struct.pack_into('>HBBI', raw, 0x210 + at * 8, *entry)
+        struct.pack_into('>HBBI', raw, 0x310 + at * 8, *entry)
     (output / 'ship.rel').write_bytes(raw)
     emitter = bytearray()
     for address, words in code.items():
@@ -199,9 +199,41 @@ class ShipPrologTest(unittest.TestCase):
                 self.assertIn('PASS publication tampered refused',
                               self.run_probe(f'publication-tampered-{entry}'))
 
-    def test_publication_sdk_mutation_still_fails_the_prolog_whole_image_hash_gate(self):
-        self.assertIn('gate=ship prolog entry requires its exact translated dynamic-link caller',
-                      self.run_probe('publication-sdk-entry'))
+    def test_publication_sdk_image_enters_with_the_real_loader_context(self):
+        log = self.run_probe('publication-sdk-entry')
+        self.assertIn('PASS SDK entry accepted pc=81F900F4 lr=80240EE8 r3=81F90000 owner=80AE0918', log)
+        self.assertEqual(log.count('stage=entered'), 1, log)
+
+    def test_publication_non_fixed_sdk_image_enters_with_the_real_loader_context(self):
+        self.assertIn('PASS SDK entry accepted', self.run_probe('publication-sdk-entry-unfixed'))
+
+    def test_publication_sdk_image_cannot_refresh_its_hash_after_entry(self):
+        self.assertIn('PASS SDK continuation tampering refused',
+                      self.run_probe('publication-sdk-entry-after-tamper'))
+
+    def test_publication_complete_sdk_image_cannot_enter_a_constructor_without_verified_prolog_entry(self):
+        self.assertIn('PASS SDK constructor without entry refused',
+                      self.run_probe('publication-sdk-entry-ctor'))
+
+    def test_publication_sdk_entry_refuses_wrong_caller_context(self):
+        for register in ('pc', 'lr', 'r31', 'r3'):
+            with self.subTest(register=register):
+                log = self.run_probe(f'publication-sdk-entry-{register}')
+                self.assertIn('PASS SDK entry refused', log)
+                self.assertNotIn('stage=entered', log)
+
+    def test_publication_sdk_entry_refuses_tampering_anywhere_in_the_image(self):
+        for field in ('header', 'lifecycle', 'code', 'data', 'stream', 'bss', 'import'):
+            with self.subTest(field=field):
+                log = self.run_probe(f'publication-sdk-entry-tampered-{field}')
+                self.assertIn('PASS SDK entry refused', log)
+                self.assertNotIn('stage=entered', log)
+
+    def test_publication_sdk_entry_refuses_partial_sdk_writebacks(self):
+        self.assertIn('PASS SDK entry refused', self.run_probe('publication-sdk-entry-partial'))
+
+    def test_pristine_prolog_entry_refuses_a_different_pc(self):
+        self.assertIn('PASS SDK entry refused', self.run_probe('publication-entry-pc'))
 
     def test_publication_sdk_mutation_still_fails_the_constructor_whole_image_hash_gate(self):
         self.assertIn('gate=REL constructor raw image changed after validation',
