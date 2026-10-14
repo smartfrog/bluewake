@@ -233,6 +233,7 @@ static void second_module_case(WwHost* host, const char* scenario, StaticRecompR
                           strcmp(scenario, "second-dependency-unlinked") == 0 ||
                           strcmp(scenario, "second-dependency-unloaded") == 0 ||
                           strcmp(scenario, "second-no-code") == 0 || strcmp(scenario, "second-missing-bss") == 0 ||
+                          strcmp(scenario, "second-scratch-full") == 0 ||
                           profile_global_changed;
     const WwRelImage profile = host->rel_images[0];
     const u32 profile_owner_word = profile_owner_expired ?
@@ -255,6 +256,8 @@ static void second_module_case(WwHost* host, const char* scenario, StaticRecompR
     fail_sections = strcmp(scenario, "second-materialize-sections") == 0;
     fail_alias = strcmp(scenario, "second-materialize-alias") == 0;
     fail_trace = strcmp(scenario, "second-materialize-trace") == 0;
+    if (strcmp(scenario, "second-scratch-full") == 0)
+        ranges[2] = (StaticRecompRange){WW_REL_SCRATCH_BASE, WW_REL_SCRATCH_LIMIT};
     request_rel(host, 0x80002100u, 0x80003100u, "ww34_fixture_a");
     assert(memcmp(&profile, &host->rel_images[0], sizeof(profile)) == 0);
     assert(mem_read32(cpu, 0x80002010u) == profile_owner_word);
@@ -283,6 +286,8 @@ static void second_module_case(WwHost* host, const char* scenario, StaticRecompR
             assert(strstr(host->error, "live dependency") != NULL);
         if (profile_global_changed)
             assert(strstr(host->error, "publication") != NULL);
+        if (strcmp(scenario, "second-scratch-full") == 0)
+            assert(strstr(host->error, "no bounded unoccupied range") != NULL);
         assert(mem_read32(cpu, 0x80002110u) == 0u && host->alias_count == 1u && host->alias_bytes == 256u);
         assert(ww_host_rel_owned(host, 0x80002100u) == NULL);
         assert(mem_read8(cpu, 0xC0997700u) == 0xAAu && mem_read8(cpu, 0xC0997710u) == 0xAAu);
@@ -293,6 +298,7 @@ static void second_module_case(WwHost* host, const char* scenario, StaticRecompR
     assert(host->error == NULL && cpu->pc == cpu->lr && cpu->gpr[3] == 1u);
     assert(ww_host_rel_live(host, 1u) == &host->rel_images[0]);
     const u32 actor = mem_read32(cpu, 0x80002110u);
+    assert(actor >= WW_REL_SCRATCH_BASE && (u64)actor + 256u <= WW_REL_SCRATCH_LIMIT);
     assert(actor != 0u && actor != profile.guest && host->alias_count == (dependency_live || other_constructor_owner ? 3u : 2u));
     assert(host->alias_bytes == (dependency_live || other_constructor_owner ? 768u : 512u));
     for (u32 offset = 0u; offset < 16u; ++offset)
@@ -591,6 +597,10 @@ int main(int argc, char** argv) {
                                           .dispatch = constructors ? constructor_dispatch :
                                               strncmp(scenario, "second-loop-", 12u) == 0 ? composite_dispatch : rel_dispatch};
     host->module = &module;
+    if (strcmp(scenario, "second-legacy-opt-in") == 0 || strcmp(scenario, "second-scratch-full") == 0) {
+        static const BlueWakeShipContractV1 contract = {0};
+        host->ship_contract = &contract;
+    }
     const u8 profile_bytes[16] = {0x80u, 1u, 2u, 3u, 4u, 5u, 6u, 7u, 8u, 9u, 10u, 11u, 12u, 13u, 14u, 15u};
     const BlueWakeRelData profile = {1u, 4u, 0xC1F80178u, sizeof(profile_bytes), profile_bytes};
     const u8 dol_data[16] = {0x80u, 0u, 0x10u, 0u};
