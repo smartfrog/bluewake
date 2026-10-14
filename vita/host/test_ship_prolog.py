@@ -19,6 +19,8 @@ def branch(source, target, link=True):
 
 def instructions():
     return {
+        0x80007000: [0x80A40198, 0x7CBA03A6, 0x80A4019C, 0x7CBB03A6,
+                     0x8064000C, 0x80840010, 0x4C000064],
         0x80240EC0: [0x9421FFF0, 0x7C0802A6, 0x90010014, 0x93E1000C, 0x7C7F1B78,
                      branch(0x80240ED4, 0x80240744), 0x819F0010, 0x818C0034,
                      0x7D8903A6, 0x4E800421, 0x83E1000C, 0x80010014, 0x7C0803A6,
@@ -226,6 +228,30 @@ class ShipPrologTest(unittest.TestCase):
 
     def test_dynamic_caller_resume_requires_an_actual_prolog_return(self):
         self.assertIn('completed translated call', self.run_probe('resume-without-prolog'))
+
+    def test_completed_return_survives_supported_interrupt_handoff_and_restoration(self):
+        for interrupt in ('external', 'decrementer'):
+            with self.subTest(interrupt=interrupt):
+                log = self.run_probe(f'interrupt-{interrupt}')
+                self.assertIn('stage=interrupt-restored return=80240EE8', log)
+                self.assertIn('PASS caller-returned pc=80001004 bss-init-calls=2', log)
+                self.assertEqual(log.count('stage=caller-returned'), 1, log)
+
+    def test_completed_return_survives_repeated_interrupts_before_the_caller_advances(self):
+        log = self.run_probe('interrupt-repeated')
+        self.assertEqual(log.count('stage=interrupt-restored return=80240EE8'), 2, log)
+        self.assertIn('PASS caller-returned pc=80001004 bss-init-calls=2', log)
+
+    def test_interrupted_return_revalidates_the_restored_caller_context(self):
+        for register in ('sp', 'r31', 'lr', 'r2', 'r13'):
+            with self.subTest(register=register):
+                self.assertIn('preserve its translated caller', self.run_probe(f'interrupt-invalid-{register}'))
+
+    def test_completed_return_admission_expires_after_the_caller_continuation_advances(self):
+        log = self.run_probe('interrupt-expiry')
+        self.assertIn('stage=interrupt-restored return=80240EE8', log)
+        self.assertIn('PASS admission-expired pc=80001004', log)
+        self.assertIn('completed translated call', log)
 
     def test_lifecycle_entries_require_executable_section_ownership(self):
         self.assertIn('lifecycle entries require owned translated executable sections', self.run_probe('lifecycle-data'))

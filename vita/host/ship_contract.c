@@ -65,8 +65,15 @@ void ww_host_ship_publish(WwHost* host, WwRelImage* image) {
 
 const char* ww_host_ship_boundary(WwHost* host, u32 address) {
     const u32 canonical = address & ~0x40000000u;
-    if (canonical != 0x80240EE8u)
+    if (host->ship_prolog_return_ready && canonical != 0x80240EE8u &&
+        !host->ship_prolog_return_interrupted) {
+        host->ship_prolog_owner = 0u;
+        host->ship_prolog_stack = 0u;
+        host->ship_prolog_r2 = 0u;
+        host->ship_prolog_r13 = 0u;
+        host->ship_prolog_ctor_completed = false;
         host->ship_prolog_return_ready = false;
+    }
     if (canonical == 0x81B10120u || canonical == 0x81B1014Cu)
         return "ship epilog or unresolved entry has no supported lifecycle contract";
     if (host->ship_prolog_owner != 0u) {
@@ -79,14 +86,11 @@ const char* ww_host_ship_boundary(WwHost* host, u32 address) {
                 host->cpu.gpr[2] != host->ship_prolog_r2 || host->cpu.gpr[13] != host->ship_prolog_r13 ||
                 !host->ship_prolog_ctor_completed)
                 return "ship prolog return did not preserve its translated caller";
-            if (fprintf(stderr, "[rel-prolog] module=168 stage=caller-returned pc=%08X owner=%08X\n", address, image->owner) < 0)
+            if (!host->ship_prolog_return_ready &&
+                fprintf(stderr, "[rel-prolog] module=168 stage=caller-returned pc=%08X owner=%08X\n", address, image->owner) < 0)
                 return "ship prolog return trace failed";
-            host->ship_prolog_owner = 0u;
-            host->ship_prolog_stack = 0u;
-            host->ship_prolog_r2 = 0u;
-            host->ship_prolog_r13 = 0u;
-            host->ship_prolog_ctor_completed = false;
             host->ship_prolog_return_ready = true;
+            host->ship_prolog_return_interrupted = false;
         }
     }
     if (canonical == 0x80240EE8u && host->ship_contract != NULL &&

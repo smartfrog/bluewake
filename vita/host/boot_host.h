@@ -67,6 +67,7 @@ typedef struct WwHost {
     u32 ship_prolog_r13;
     bool ship_prolog_ctor_completed;
     bool ship_prolog_return_ready;
+    bool ship_prolog_return_interrupted;
     WwDspInterface dsp;
     WwBatContract bat;
     const StaticRecompModuleDesc* module;

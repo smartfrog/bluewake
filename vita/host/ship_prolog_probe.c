@@ -1,5 +1,6 @@
 #include "probe_support.h"
 #include "dispatch_loop.h"
+#include "external_vector.h"
 #include <stdlib.h>
 #include "ship_fixture.inc"
 #include "ship_contract.inc"
@@ -8,10 +9,63 @@
 #include "ship_translated.c"
 
 static const char* scenario;
+static u32 interrupt_handoffs;
+static u32 interrupt_restorations;
+
+static bool interrupt_return_edge(WwHost* host, CPUState* cpu, u32 address) {
+    if (interrupt_handoffs != 0u && interrupt_restorations < interrupt_handoffs) {
+        assert(cpu->pc == 0x80240EE8u && (cpu->msr & PPC_MSR_EE) != 0u);
+        assert(mem_read32(cpu, 0x80006198u) == cpu->pc);
+        assert(mem_read32(cpu, 0x8000619Cu) == cpu->msr);
+        ++interrupt_restorations;
+        if (strcmp(scenario, "interrupt-invalid-sp") == 0) cpu->gpr[1] += 16u;
+        if (strcmp(scenario, "interrupt-invalid-r31") == 0) cpu->gpr[31] += 32u;
+        if (strcmp(scenario, "interrupt-invalid-lr") == 0) cpu->lr = 0x80001004u;
+        if (strcmp(scenario, "interrupt-invalid-r2") == 0) cpu->gpr[2] += 4u;
+        if (strcmp(scenario, "interrupt-invalid-r13") == 0) cpu->gpr[13] += 4u;
+        const bool stopped = ww_host_edge(host, cpu, address);
+        if (strncmp(scenario, "interrupt-invalid-", 18u) == 0) {
+            assert(stopped && host->error != NULL);
+            fprintf(stderr, "PASS rejected restored-context reason=%s\n", host->error);
+            return true;
+        }
+        if (host->error != NULL)
+            fprintf(stderr, "STOP interrupted-return reason=%s\n", host->error);
+        assert(!stopped && host->error == NULL && host->ship_prolog_return_ready);
+        fprintf(stderr, "[ship-test] stage=interrupt-restored return=%08X\n", address);
+    }
+    const u32 required = strcmp(scenario, "interrupt-repeated") == 0 ? 2u : 1u;
+    if (interrupt_handoffs == required)
+        return false;
+    const bool external = strcmp(scenario, "interrupt-external") == 0 ||
+        (strcmp(scenario, "interrupt-repeated") == 0 && interrupt_handoffs == 0u);
+    const u32 vector = external ? WW05_EXTERNAL_VECTOR : WW05_DECREMENTER_VECTOR;
+    const u8* reference = external ? ww05_external_vector_reference : ww05_decrementer_vector_reference;
+    memcpy(cpu->ram + vector, reference, WW05_EXTERNAL_VECTOR_BYTES);
+    mem_write32(cpu, 0x800000C0u, 0x80006000u);
+    mem_write32(cpu, 0x80003010u, 0x80007000u);
+    cpu->msr |= PPC_MSR_EE;
+    if (external) {
+        cpu->external_write(cpu, DOL_PI_INTERRUPT_MASK, DOL_PI_CAUSE_SI, 4u);
+        cpu->external_write(cpu, DOL_SI_BASE + DOL_SI_COMCSR_OFF, 0xC0010301u, 4u);
+    } else {
+        host->decrementer_pending = true;
+    }
+    ++interrupt_handoffs;
+    assert(ww_host_edge(host, cpu, address));
+    assert(host->error == NULL && cpu->pc == vector && cpu->srr0 == address && cpu->exception == 0u);
+    assert(host->ship_prolog_return_ready);
+    if (external)
+        cpu->external_write(cpu, DOL_SI_BASE + DOL_SI_COMCSR_OFF, 0xC0010300u, 4u);
+    fprintf(stderr, "[ship-test] stage=interrupt-delivered vector=%08X return=%08X\n", vector, address);
+    return true;
+}
 
 static bool probe_edge(void* user, CPUState* cpu, u32 address) {
     WwHost* host = user;
     const u32 canonical = address & ~0x40000000u;
+    if (canonical == 0x80240EE8u && strncmp(scenario, "interrupt-", 10u) == 0)
+        return interrupt_return_edge(host, cpu, address);
     if (canonical == 0x80241178u) {
         if (strcmp(scenario, "ctor-mutated") == 0)
             mem_write32(cpu, 0xC1B1DAF0u, 0x80001004u);
@@ -26,6 +80,7 @@ static bool probe_edge(void* user, CPUState* cpu, u32 address) {
 
 static int translated_chunk(CPUState* cpu, u32 address) {
     switch (address & ~0x40000000u) {
+    case 0x80007000u: func_80007000(cpu); return 1;
     case 0x80240EC0u: case 0x80240ED8u: case 0x80240EE8u:
         func_80240EC0(cpu); return 1;
     case 0x80241178u: case 0x80241198u: case 0x802411ACu: case 0x802411B4u:
@@ -52,7 +107,8 @@ int main(int argc, char** argv) {
     StaticRecompRelModule rel = fixture_rel;
     if (strcmp(scenario, "other-actor") == 0)
         rel.module_id = 169u;
-    StaticRecompModuleDesc module = {.code_ranges = fixture_ranges, .num_code_ranges = 7u,
+    StaticRecompModuleDesc module = {.code_ranges = fixture_ranges,
+        .num_code_ranges = sizeof(fixture_ranges) / sizeof(fixture_ranges[0]),
         .chunk_ranges = fixture_chunks, .chunk_hashes = fixture_hashes, .num_chunk_ranges = 3u,
         .rel_modules = &rel, .num_rel_modules = 1u, .dispatch = translated_dispatch};
     host->module = &module;
@@ -109,6 +165,9 @@ int main(int argc, char** argv) {
     cpu->pc = 0x80240EC0u;
     cpu->cycle_budget = 200;
     for (u32 turn = 0u; turn < 32u && cpu->pc != 0x80001004u && host->error == NULL; ++turn) {
+        if (cpu->pc == 0x80240EE8u && interrupt_restorations < interrupt_handoffs &&
+            interrupt_return_edge(host, cpu, cpu->pc))
+            continue;
         if ((cpu->pc & ~0x40000000u) == 0x81B100F4u) {
             if (strcmp(scenario, "entry-lr") == 0) cpu->lr = 0x80001004u;
             if (strcmp(scenario, "entry-r31") == 0) cpu->gpr[31] = 0x80002200u;
@@ -134,9 +193,11 @@ int main(int argc, char** argv) {
         return 0;
     }
     if (strcmp(scenario, "ctor-mutated") == 0 || strcmp(scenario, "raw-mutated") == 0 ||
-        strncmp(scenario, "entry-", 6u) == 0) {
-        assert(host->error != NULL && mem_read32(cpu, 0xC1B224D0u) == 0u);
-        fprintf(stderr, "PASS rejected-before-constructor\n");
+        strncmp(scenario, "entry-", 6u) == 0 || strncmp(scenario, "interrupt-invalid-", 18u) == 0) {
+        assert(host->error != NULL);
+        assert(mem_read32(cpu, 0xC1B224D0u) == (strncmp(scenario, "interrupt-", 10u) == 0 ? 2u : 0u));
+        fprintf(stderr, "PASS rejected stage=%s\n",
+                strncmp(scenario, "interrupt-invalid-", 18u) == 0 ? "restored-return" : "before-constructor");
         ww_host_shutdown(host);
         free(host);
         return 0;
@@ -150,7 +211,13 @@ int main(int argc, char** argv) {
     fprintf(stderr, "PASS caller-returned pc=%08X bss-init-calls=2\n", cpu->pc);
     WwRelImage* image = ww_host_rel_live(host, 168u);
     assert(image != NULL && host->ship_prolog_owner == 0u && host->rel_constructor_owner == 0u);
-    if (strcmp(scenario, "resume-without-prolog") == 0) {
+    if (strncmp(scenario, "interrupt-", 10u) == 0)
+        assert(interrupt_restorations == interrupt_handoffs && interrupt_restorations != 0u);
+    if (strcmp(scenario, "interrupt-expiry") == 0) {
+        assert(!host->ship_prolog_return_ready);
+        fprintf(stderr, "PASS admission-expired pc=%08X\n", cpu->pc);
+    }
+    if (strcmp(scenario, "resume-without-prolog") == 0 || strcmp(scenario, "interrupt-expiry") == 0) {
         cpu->pc = cpu->lr = 0x80240EE8u;
         cpu->gpr[31] = image->owner;
         assert(ww_host_edge(host, cpu, cpu->pc) && host->error != NULL);

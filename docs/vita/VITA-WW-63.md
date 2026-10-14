@@ -14,7 +14,8 @@ unresolved execution, explicit ship unlink and native actor unlink remain closed
 There are no host prolog, constructor or lifecycle success replacements.
 
 No emulator launch, integration, push, private game build, actual ship C execution
-or hardware gameplay occurred. Independent review is next.
+or hardware gameplay occurred. The initial independent review failed on the
+interrupted-return finding below; corrective re-review is pending.
 
 Initial worktree was clean at
 `accef5abe217a5868b4791717f8e965ac2c22b39`. Local branch:
@@ -122,6 +123,47 @@ Logs and isolated runners are under `/tmp/opencode/ww63`. Generated code has the
 pinned emitter's existing inline/noinline attribute warning. Windows CI, real
 Vita ARM game compilation, actual ship generation/export binding and hardware
 gameplay were not tested.
+
+## Review correction: interrupted completed return
+
+The independent review of `5c9ae126d279cea5a7fb65b4392cd383568f5ff0`
+found one blocking correctness issue: the completed return at `80240EE8` lost
+its admission when an external/decrementer interrupt dispatched a vector before
+the caller's first instruction. The legitimate restored continuation then failed
+with `ship prolog return requires its completed translated call`.
+
+The correction retains the exact live owner, stack, LR expectation, r2/r13 and
+constructor-completion contract until the caller continuation advances. The
+existing interrupt-delivery path explicitly marks a completed return as
+interrupted before taking either supported interrupt. Vector and handler
+boundaries do not expire that suspended contract. A restored `80240EE8` boundary
+revalidates the live owner, raw image and caller registers, and leaves suspension
+only after that validation succeeds. The next normal boundary after the caller
+executes expires the admission and clears its saved context. Repeated interrupts
+before caller execution remain supported; no unqualified return admission was
+added. Default-OFF, relocation certification and teardown gates are unchanged.
+
+The public fixture uses the existing exact synthetic `0x500`/`0x900` vectors,
+their guest-memory context saves, and an emitted PPC context-restoration handler
+which loads saved SRR0/SRR1 and r3/r4 and executes `rfi`. Neither prolog completion
+nor exception restoration is replaced by host success code.
+
+- Red first: both interrupt variants and the expiry flow failed at the legitimate
+  restored return; the existing unqualified-resume rejection passed.
+  `red-build-r2.log`, `red-tests-r2.log` (three methods, three failing subcases).
+- Green: **91/91 ship+REL** (26 ship + 65 REL), `green-tests-r2.log`.
+  Added coverage for both interrupts, repeated handoffs, altered restored
+  SP/LR/r31/r2/r13, and expiry after the emitted caller advances to `80001004`.
+- Final committed-revision rechecks: **91/91 ship+REL**, **876/876 host Python**,
+  **51/51 CTest**, serial host build, repository audit, attribution and diff
+  checks. Raw logs: `ship-rel-tests-r2.log`, `host-tests-r2.log`, `ctest-r2.log`,
+  `build-r2.log`, `audit-r2.log`, `attribution-r2.log`, `diff-check-r2.log`.
+  `identity-r2.json` records the checked commit, branch, clean tree and pinned
+  dependency identities. All are under `/tmp/opencode/ww63`.
+
+Same Linux AArch64 environment, pinned dependencies, `-j 1` and pre-compilation
+Vita3K checks as above. No emulator, integration or scope expansion; the original
+full-composite binding and device-verification limitations still apply.
 
 ## Next frontier
 

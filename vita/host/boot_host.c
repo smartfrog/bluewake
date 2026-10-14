@@ -821,6 +821,8 @@ bool ww_host_edge(void* user, CPUState* cpu, u32 address) {
         if (external || host->decrementer_pending) {
             const u32 exception = external ? PPC_EXC_EXTERNAL : PPC_EXC_DECREMENTER;
             const u32 vector = external ? PPC_VECTOR_EXTERNAL : PPC_VECTOR_DECREMENTER;
+            if (address == 0x80240EE8u && host->ship_prolog_return_ready)
+                host->ship_prolog_return_interrupted = true;
             ppc_take_exception(cpu, exception, vector, address, 0u);
             cpu->exception &= ~exception;
             if (!external) {
