@@ -80,7 +80,7 @@ bool ww_host_rel_code_owned(WwHost* host, u32 address) {
             continue;
         const StaticRecompRelModule* rel = ww_host_rel_descriptor(host, slot->module_id);
         if (rel != NULL && rel_contains(rel, address)) {
-            if (!ww_host_rel_sections_match(slot)) {
+            if (!ww_host_rel_sections_match_post_link(slot)) {
                 ww_host_fail(host, "REL owned section table changed after validation", address, host->cpu.pc);
                 return false;
             }

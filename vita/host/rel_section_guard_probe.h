@@ -91,6 +91,12 @@ static void probe_rel_sections(WwHost* host, const char* site, const char* form)
         }
     }
     cpu->pc = 0x803031D8u;
+    const WwRelImage image_before = *image;
+    const u8* raw_before = get_ram_ptr(cpu, image->guest, image->bytes, NULL);
+    assert(raw_before != NULL);
+    const u64 raw_hash_before = ww_host_rel_raw_hash(raw_before, image->bytes);
+    const u64 sections_hash_before = ww_host_rel_raw_hash((const u8*)image->sections,
+        image->section_count * sizeof(*image->sections));
     const char* error = NULL;
     if (strcmp(site, "link") == 0) {
         valid = pristine;
@@ -125,6 +131,10 @@ static void probe_rel_sections(WwHost* host, const char* site, const char* form)
         if (error != NULL) fprintf(stderr, "STOP reason=%s\n", error);
         assert(error == NULL && host->error == NULL);
     }
+    assert(memcmp(&image_before, image, sizeof(*image)) == 0);
+    assert(ww_host_rel_raw_hash(raw_before, image->bytes) == raw_hash_before);
+    assert(ww_host_rel_raw_hash((const u8*)image->sections,
+        image->section_count * sizeof(*image->sections)) == sections_hash_before);
     assert(image->raw_hash == published_hash || (constructor && strcmp(form, "raw-hash") != 0));
     fprintf(stderr, "PASS sections site=%s form=%s %s\n", site, form, valid ? "accepted" : "refused");
 }
