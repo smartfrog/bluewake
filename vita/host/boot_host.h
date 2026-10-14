@@ -141,6 +141,7 @@ const char* ww_host_ship_boundary(WwHost* host, u32 address);
 const char* ww_host_ship_exception_restored(WwHost* host, u32 address);
 bool ww_host_ship_raw_matches(WwHost* host, const u8* raw, u32 bytes);
 void ww_host_ship_publish(WwHost* host, WwRelImage* image);
+bool ww_host_ship_sdk_hash(WwHost* host, const WwRelImage* image, u64* hash);
 void ww_host_shutdown(WwHost* host);
 bool ww_host_load(WwHost* host, const StaticRecompModuleDesc* module,
                    const BlueWakeRelData* data, u32 count, const char* dol);

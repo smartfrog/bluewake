@@ -204,6 +204,17 @@ class ShipPrologTest(unittest.TestCase):
         self.assertIn('PASS SDK entry accepted pc=81F900F4 lr=80240EE8 r3=81F90000 owner=80AE0918', log)
         self.assertEqual(log.count('stage=entered'), 1, log)
 
+    def test_publication_non_fixed_sdk_image_enters_with_the_real_loader_context(self):
+        self.assertIn('PASS SDK entry accepted', self.run_probe('publication-sdk-entry-unfixed'))
+
+    def test_publication_sdk_image_cannot_refresh_its_hash_after_entry(self):
+        self.assertIn('PASS SDK continuation tampering refused',
+                      self.run_probe('publication-sdk-entry-after-tamper'))
+
+    def test_publication_complete_sdk_image_cannot_enter_a_constructor_without_verified_prolog_entry(self):
+        self.assertIn('PASS SDK constructor without entry refused',
+                      self.run_probe('publication-sdk-entry-ctor'))
+
     def test_publication_sdk_entry_refuses_wrong_caller_context(self):
         for register in ('pc', 'lr', 'r31', 'r3'):
             with self.subTest(register=register):

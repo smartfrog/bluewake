@@ -38,6 +38,8 @@ bool ww_host_ship_raw_matches(WwHost* host, const u8* raw, u32 bytes) {
 void ww_host_ship_publish(WwHost* host, WwRelImage* image) {
     u8* raw = get_ram_ptr(&host->cpu, image->guest, image->bytes, NULL);
     image->raw_hash = ww_host_rel_raw_hash(raw, image->bytes);
+    image->ship_sdk_previous = mem_read32(&host->cpu, 0x800030CCu);
+    image->ship_sdk_name_base = mem_read32(&host->cpu, 0x800030D0u);
 }
 
 static void clear_ship_return(WwHost* host) {
@@ -100,16 +102,22 @@ const char* ww_host_ship_boundary(WwHost* host, u32 address) {
         return "ship prolog return requires its completed translated call";
     if (canonical != 0x81B100F4u)
         return NULL;
-    const WwRelImage* image = ww_host_rel_live(host, 168u);
+    WwRelImage* image = ww_host_rel_live(host, 168u);
+    u64 entry_hash = image == NULL ? 0u : image->raw_hash;
     if (host->ship_contract == NULL || image == NULL ||
         host->cpu.lr != 0x80240EE8u || host->cpu.gpr[31] != image->owner ||
-        !ww_host_rel_raw_unchanged(image))
+        host->cpu.gpr[3] != image->guest ||
+        (ww_host_rel_address(host, host->cpu.pc) & ~0x40000000u) != canonical ||
+        (!ww_host_rel_raw_unchanged(image) &&
+         (host->ship_prolog_owner != 0u || !ww_host_ship_sdk_hash(host, image, &entry_hash))))
         return "ship prolog entry requires its exact translated dynamic-link caller";
     if (host->ship_prolog_owner != 0u)
         return host->ship_prolog_owner == image->owner && host->ship_prolog_stack == host->cpu.gpr[1] ?
             NULL : "ship prolog does not support a nested entry";
     if (fprintf(stderr, "[rel-prolog] module=168 stage=entered pc=%08X owner=%08X lr=%08X\n", address, image->owner, host->cpu.lr) < 0)
         return "ship prolog entry trace failed";
+    // Transition only to independently reconstructed SDK bytes, never rebaseline guest mutations.
+    image->raw_hash = entry_hash;
     host->ship_prolog_owner = image->owner;
     host->ship_prolog_stack = host->cpu.gpr[1];
     host->ship_prolog_r2 = host->cpu.gpr[2];

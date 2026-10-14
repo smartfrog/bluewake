@@ -79,6 +79,8 @@ static void probe_ship_publication(WwHost* host, const char* scenario) {
             rebase_ship_lifecycle(host, image);
             if (strcmp(scenario, "publication-sdk-entry-partial") != 0)
                 relocate_ship_payload(host, image);
+            if (strcmp(scenario, "publication-sdk-entry-unfixed") == 0)
+                mem_write32(cpu, image->guest + 0x2Cu, read_be32(host->ship_contract->rel_bytes + 0x2Cu));
         }
         cpu->pc = image->guest + (image->sections[1].flags & ~1u);
         cpu->lr = 0x80240EE8u;
@@ -104,15 +106,41 @@ static void probe_ship_publication(WwHost* host, const char* scenario) {
             mem_write8(cpu, image->guest + offset, mem_read8(cpu, image->guest + offset) ^ 1u);
         }
         const u64 live_hash = ww_host_rel_raw_hash(get_ram_ptr(cpu, image->guest, image->bytes, NULL), image->bytes);
-        const char* error = ww_host_ship_boundary(host, entry);
-        const bool accepted = strcmp(scenario, "publication-sdk-entry") == 0;
+        if (strcmp(scenario, "publication-sdk-entry-ctor") == 0) {
+            cpu->lr = image->sections[1].linked_start + 24u;
+            cpu->gpr[3] = host->rel_data[0].linked_start;
+            const char* error = ww_host_rel_constructor_boundary(host, 0x80241178u);
+            assert(error != NULL && strcmp(error, "REL constructor raw image changed after validation") == 0);
+            assert(image->raw_hash == materialized_hash && host->rel_constructor_owner == 0u);
+            fprintf(stderr, "PASS SDK constructor without entry refused\n");
+            return;
+        }
+        const bool after_tamper = strcmp(scenario, "publication-sdk-entry-after-tamper") == 0;
+        const bool accepted = strcmp(scenario, "publication-sdk-entry") == 0 ||
+            strcmp(scenario, "publication-sdk-entry-unfixed") == 0 || after_tamper;
+        const char* error = NULL;
+        if (accepted) {
+            assert(cpu->host_call(cpu, cpu->pc));
+            error = host->error;
+        } else {
+            error = ww_host_ship_boundary(host, entry);
+        }
         if (accepted) {
             if (error != NULL) fprintf(stderr, "STOP SDK entry reason=%s pristine=%016llX live=%016llX\n",
                 error, (unsigned long long)materialized_hash, (unsigned long long)live_hash);
             assert(error == NULL && host->ship_prolog_owner == owner && !host->ship_prolog_return_ready);
             assert(ww_host_rel_raw_unchanged(image));
-            cpu->pc = entry;
+            assert(cpu->pc == entry);
             assert(ww_host_ship_boundary(host, entry) == NULL);
+            if (after_tamper) {
+                const u64 admitted_hash = image->raw_hash;
+                mem_write8(cpu, image->guest + 0x14u, mem_read8(cpu, image->guest + 0x14u) ^ 1u);
+                error = ww_host_ship_boundary(host, entry + 24u);
+                assert(error != NULL && strcmp(error, "ship prolog continuation lost its exact live owner") == 0);
+                assert(image->raw_hash == admitted_hash && !ww_host_rel_raw_unchanged(image));
+                fprintf(stderr, "PASS SDK continuation tampering refused\n");
+                return;
+            }
         } else {
             assert(error != NULL && strcmp(error, "ship prolog entry requires its exact translated dynamic-link caller") == 0);
             assert(host->ship_prolog_owner == 0u && image->raw_hash == materialized_hash);

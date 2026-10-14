@@ -19,6 +19,8 @@ typedef struct WwRelImage {
     uint32_t capacity;
     uint32_t module_id;
     uint64_t raw_hash;
+    uint32_t ship_sdk_previous;
+    uint32_t ship_sdk_name_base;
     WwRelSection* sections;
     uint32_t section_count;
     uint32_t section_table;
