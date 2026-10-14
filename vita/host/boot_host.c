@@ -302,6 +302,11 @@ static bool rel_execution_blocked(WwHost* host, u32 address, u32* linked) {
     *linked = ww_host_rel_address(host, address);
     if (host->error != NULL)
         return true;
+    const char* ship_error = ww_host_ship_boundary(host, *linked);
+    if (ship_error != NULL) {
+        ww_host_fail(host, ship_error, address, host->cpu.pc);
+        return true;
+    }
     const char* constructor_error = ww_host_rel_constructor_boundary(host, *linked);
     if (constructor_error != NULL) {
         ww_host_fail(host, constructor_error, address, host->cpu.pc);
@@ -816,6 +821,8 @@ bool ww_host_edge(void* user, CPUState* cpu, u32 address) {
         if (external || host->decrementer_pending) {
             const u32 exception = external ? PPC_EXC_EXTERNAL : PPC_EXC_DECREMENTER;
             const u32 vector = external ? PPC_VECTOR_EXTERNAL : PPC_VECTOR_DECREMENTER;
+            if (address == 0x80240EE8u && host->ship_prolog_return_ready)
+                host->ship_prolog_return_interrupted = true;
             ppc_take_exception(cpu, exception, vector, address, 0u);
             cpu->exception &= ~exception;
             if (!external) {
@@ -872,7 +879,10 @@ bool ww_host_edge(void* user, CPUState* cpu, u32 address) {
             return true;
         }
     }
-    const bool compiled_cpu_boundary = (address == 0x80328F84u || address == 0x80303A50u || observed_dsp_task || observed_card_probe ||
+    const WwRelImage* ship = host->ship_contract == NULL ? NULL : ww_host_rel_live(host, 168u);
+    const bool compiled_ship_resume = address == 0x80240EE8u && ship != NULL &&
+        cpu->lr == address && cpu->gpr[31] == ship->owner && host->ship_prolog_return_ready;
+    const bool compiled_cpu_boundary = (compiled_ship_resume || address == 0x80328F84u || address == 0x80303A50u || observed_dsp_task || observed_card_probe ||
                                        observed_retrace_sleep || observed_draw_done_sleep || observed_async_draw_done) &&
                                          ww_host_module_contains_address(host->module, address);
     const bool desktop_edge = bluewake_edge_maybe_intercept(address);
@@ -927,6 +937,24 @@ static bool observed_vector_matches(const CPUState* cpu, const WwObservedVector*
            (cpu->msr & (PPC_MSR_EE | PPC_MSR_PR | PPC_MSR_IR | PPC_MSR_DR | PPC_MSR_LE | PPC_MSR_IP | PPC_MSR_FP)) == 0u &&
            cpu->ram != NULL && cpu->ram_size >= vector->address + WW05_EXTERNAL_VECTOR_BYTES &&
            memcmp(cpu->ram + vector->address, vector->reference, WW05_EXTERNAL_VECTOR_BYTES) == 0;
+}
+
+void __real_ppc_rfi(CPUState* cpu, u32 cia);
+
+void __wrap_ppc_rfi(CPUState* cpu, u32 cia) {
+    WwHost* host = cpu->host_call == host_call ? owner(cpu) : NULL;
+    const bool suspended = host != NULL && host->ship_prolog_return_interrupted;
+    const WwObservedVector* vector = suspended ? observed_vector(cia) : NULL;
+    const bool vector_handoff = vector != NULL &&
+        (vector->address == WW05_EXTERNAL_VECTOR || vector->address == WW05_DECREMENTER_VECTOR) &&
+        observed_vector_matches(cpu, vector);
+    __real_ppc_rfi(cpu, cia);
+    // The byte-verified physical vector's first RFI enters the DOL handler, not the interrupted caller.
+    if (!suspended || cpu->exception != 0u || (vector_handoff && (cpu->msr & PPC_MSR_EE) == 0u))
+        return;
+    const char* error = ww_host_ship_exception_restored(host, cpu->pc);
+    if (error != NULL)
+        ww_host_fail(host, error, cpu->pc, cia);
 }
 
 bool ww_host_resume_exception(WwHost* host) {

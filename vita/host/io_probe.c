@@ -358,6 +358,10 @@ const BlueWakeRelData* staticrecomp_get_rel_data(u32* count) {
     return &data;
 }
 
+const BlueWakeShipContractV1* staticrecomp_get_ship_contract_v1(void) {
+    return NULL;
+}
+
 void bluewake_set_edge_service(BluewakeEdgeServiceFn callback, void* user) {
     edge = callback;
     edge_user = user;

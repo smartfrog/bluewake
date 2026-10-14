@@ -127,6 +127,15 @@ int fixture_run(int argc, char** argv) {
     const BlueWakeRelData* data = staticrecomp_get_rel_data(&count);
     error |= fprintf(stderr, "[host] stage=initialize\n") < 0;
     bool initialized = !error && ww_host_init(host);
+#if WW05_ENABLE_SHIP_PROLOG
+    if (initialized) {
+        const char* contract_error = ww_host_enable_ship_contract(host, staticrecomp_get_ship_contract_v1(), WW05_DOL_PATH);
+        if (contract_error != NULL) {
+            ww_host_fail(host, contract_error, 0u, host->cpu.pc);
+            initialized = false;
+        }
+    }
+#endif
 #if defined(__vita__) && WW05_ENABLE_PAD_INPUT
     if (initialized && ww_pad_vita_enable(host) < 0) {
         const int formatted = snprintf(host->pad_error, sizeof(host->pad_error),
