@@ -44,7 +44,7 @@ target_compile_options(gxruntime PRIVATE -ffp-contract=off -fno-fast-math -fstac
 
 add_library(ww05_services STATIC boot_host.c gx_checkpoint.c gx_stream.c fifo_gather.c fifo_consumer.c
     code_guard.c dsp_interface.c bat_contract.c disc_service.c rel_provider.c rel_service.c rel_link.c ship_contract.c
-    scheduler_observation.c vi_clock.c gx_draw_observation.c gpu_finish.c frame_timing.c mem1_capture.c frame_capture.cpp
+    scheduler_observation.c game_stop.c vi_clock.c gx_draw_observation.c gpu_finish.c frame_timing.c mem1_capture.c frame_capture.cpp
     dsp_rom_mail.c dsp_deferred.c pad_input.c
     $<TARGET_OBJECTS:ww13_dvd_pin>
     "${BLUEWAKE_ROOT}/runtime/host/src/cycle_domain.c"

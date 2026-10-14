@@ -120,6 +120,7 @@ typedef struct WwHost {
     bool post_card_idle_observed;
     bool dsp_task_boot_observed;
     bool card_probe_observed;
+    bool os_panic_reported;
     bool vi_clock_enabled;
     bool gpu_finish_committed;
     u64 gpu_finish_index;
@@ -171,6 +172,8 @@ bool ww_host_rel_sections_match(const WwRelImage* slot);
 const char* ww_host_observe_scheduler_idle(WwHost* host);
 const char* ww_host_observe_dsp_task_boot(WwHost* host);
 const char* ww_host_observe_card_probe(WwHost* host);
+const char* ww_host_observe_game_stop(WwHost* host, u32 address);
+const char* ww_host_panic_marker(WwHost* host, u32 address, u64 value, u8 width);
 void ww_host_vi_advance(WwHost* host, u64 cycles);
 void ww_gx_remember_command(WwGxStream* stream, const WwGxCheckpoint* command);
 const char* ww_gx_observe_first_draw(WwHost* host);
