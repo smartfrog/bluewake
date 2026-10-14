@@ -91,8 +91,8 @@ static void probe_ship_publication(WwHost* host, const char* scenario) {
         if (strcmp(scenario, "publication-sdk-entry-lr") == 0) cpu->lr += 4u;
         if (strcmp(scenario, "publication-sdk-entry-r31") == 0) cpu->gpr[31] += 4u;
         if (strcmp(scenario, "publication-sdk-entry-r3") == 0) cpu->gpr[3] += 4u;
-        if (strncmp(scenario, "publication-sdk-entry-tampered-", 30u) == 0) {
-            const char* field = scenario + 30u;
+        if (strncmp(scenario, "publication-sdk-entry-tampered-", 31u) == 0) {
+            const char* field = scenario + 31u;
             u32 offset = 0x14u;
             if (strcmp(field, "lifecycle") == 0) offset = 0x38u;
             else if (strcmp(field, "code") == 0) offset = (image->sections[1].flags & ~1u) + 4u;
