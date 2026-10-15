@@ -189,6 +189,15 @@ class ExportBindingTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, 'raw identity'):
             self.check()
 
+    def test_octal_raw_dol_byte_rejected(self):
+        original = 's_ship_raw_dol[] = {\n112,117,98,108,105,99,32,68,79,76,'
+        mutated = 's_ship_raw_dol[] = {\n0112,117,98,108,105,99,32,68,79,76,'
+        self.assertEqual(self.data.count(original), 1)
+        self.data = self.data.replace(original, mutated)
+        self.assertNotEqual(int('0112', 8), ord('p'))
+        with self.assertRaisesRegex(ValueError, 'array syntax'):
+            self.check()
+
     def test_wrong_exported_set_dol_size(self):
         self.data = self.data.replace('1u,10u,s_ship_raw_dol', '1u,11u,s_ship_raw_dol')
         with self.assertRaisesRegex(ValueError, 'set DOL'):
@@ -266,6 +275,35 @@ class ExportBindingTests(unittest.TestCase):
         self.policy = self.policy.replace('CERTIFIED_INLINE_ZERO', 'OWNER_PUBLISHED')
         with self.assertRaisesRegex(ValueError, 'input form'):
             self.check()
+
+
+class LiteralByteTests(unittest.TestCase):
+    def test_canonical_decimal_bytes(self):
+        for token, expected in [('0', 0), ('1', 1), ('74', 74), ('112', 112), ('255', 255)]:
+            with self.subTest(token=token):
+                text = 'static const u8 public_bytes[] = {\n' + token + ',\n};'
+                self.assertEqual(oracle.literal_bytes(text, 'public_bytes'), bytes([expected]))
+
+    def test_bounded_hex_bytes(self):
+        for token, expected in [('0x00', 0), ('0x00u', 0), ('0x4A', 74), ('0x70u', 112),
+                                ('0xff', 255), ('0xFFu', 255)]:
+            with self.subTest(token=token):
+                text = 'static const u8 public_bytes[] = {\n' + token + ',\n};'
+                self.assertEqual(oracle.literal_bytes(text, 'public_bytes'), bytes([expected]))
+
+    def test_leading_zero_decimal_spellings_rejected(self):
+        for token in ('00', '01', '0112', '000112', '08', '09', '000'):
+            with self.subTest(token=token):
+                text = 'static const u8 public_bytes[] = {\n' + token + ',\n};'
+                with self.assertRaisesRegex(ValueError, 'array syntax'):
+                    oracle.literal_bytes(text, 'public_bytes')
+
+    def test_decimal_byte_range_guard(self):
+        for token in ('256', '999'):
+            with self.subTest(token=token):
+                text = 'static const u8 public_bytes[] = {\n' + token + ',\n};'
+                with self.assertRaisesRegex(ValueError, 'array byte bounds'):
+                    oracle.literal_bytes(text, 'public_bytes')
 
 
 class SharedSetupTests(unittest.TestCase):

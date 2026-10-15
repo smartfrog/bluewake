@@ -353,7 +353,7 @@ def bind_full_contract_set(data_text, policy_text, contracts, expected_ids):
 
 def literal_bytes(data_text, name):
     body = block(data_text, 'u8', name)
-    require(re.fullmatch(r'\s*(?:(?:0x[0-9A-Fa-f]{2}u?|[0-9]+)\s*,\s*)+', body) is not None,
+    require(re.fullmatch(r'\s*(?:(?:0x[0-9A-Fa-f]{2}u?|0|[1-9][0-9]*)\s*,\s*)+', body) is not None,
             'array syntax')
     values = [int(value.strip().removesuffix('u'), 16 if value.strip().startswith('0x') else 10)
               for value in body.split(',') if value.strip()]
