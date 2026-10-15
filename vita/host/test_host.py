@@ -67,6 +67,11 @@ class StartupHostTest(unittest.TestCase):
         lifecycle_fixture(output)
         with (output / 'lifecycle_translated.c').open('w') as stream:
             subprocess.run([str(generator / 'ww_ship_fixture_emit'), str(output / 'lifecycle.instructions')],
+                            check=True, stdout=stream)
+        from rel_profile_block_fixture import fixture as profile_fixture
+        profile_fixture(output)
+        with (output / 'profile_translated.c').open('w') as stream:
+            subprocess.run([str(generator / 'ww_ship_fixture_emit'), str(output / 'profile.instructions')],
                            check=True, stdout=stream)
         subprocess.run([str(STACK / 'bin/cmake'), '-S', str(ROOT / 'vita/host'), '-B', str(output),
                         '-G', 'Ninja', f'-DCMAKE_C_COMPILER={os.environ["CC"]}',

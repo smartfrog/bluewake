@@ -46,10 +46,12 @@ def fixture(output):
     (output / 'synthetic.dol').write_bytes(bytes([1, 2, 3, 4]))
 
 
-def archive(scenario, title=None):
+def archive(scenario, title=None, resident=False):
     profile = bytearray(test_rel_materialize.raw_rel())
     struct.pack_into('>I', profile, 0xC, 5)
     struct.pack_into('>II', profile, 0x6C, 0xB0, 16)
+    if resident:
+        profile = (test_host.OUT / ('resident_profile_small.rel' if resident == 'small' else 'resident_profile.rel')).read_bytes()
     title = bytearray((test_host.OUT / 'title.rel').read_bytes() if title is None else title)
     if scenario == 'raw-identity':
         title[-1] ^= 1

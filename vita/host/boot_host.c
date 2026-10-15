@@ -345,6 +345,8 @@ static bool host_call(CPUState* cpu, u32 service) {
     u32 linked = address;
     if (rel_execution_blocked(host, address, &linked))
         return true;
+    if (ww_host_rel_profile_service(host, address) != WW_REL_PROFILE_MISSED)
+        return true;
     if (linked != address) {
         cpu->pc = linked;
         return true;
@@ -871,6 +873,11 @@ bool ww_host_edge(void* user, CPUState* cpu, u32 address) {
             return true;
         }
     }
+    const WwRelProfileService profile_service = ww_host_rel_profile_service(host, address);
+    if (profile_service != WW_REL_PROFILE_MISSED) {
+        host->edge_stopped = profile_service == WW_REL_PROFILE_ERROR;
+        return true;
+    }
     const bool observed_retrace_sleep = address == 0x80308A9Cu && cpu->lr == 0x80313A2Cu &&
         cpu->gpr[3] == 0x803F7B44u && cpu->gpr[13] - 26012u == cpu->gpr[3] &&
         cpu->ram != NULL && cpu->ram_size >= 0x003F7B4Cu &&
@@ -1075,6 +1082,9 @@ int ww_host_dispatch(WwHost* host, u32 address) {
     u32 linked = address;
     if (rel_execution_blocked(host, address, &linked))
         return -1;
+    const WwRelProfileService profile_service = ww_host_rel_profile_service(host, address);
+    if (profile_service != WW_REL_PROFILE_MISSED)
+        return profile_service == WW_REL_PROFILE_HANDLED ? 1 : -1;
     const WwObservedVector* vector = observed_vector(address);
     if (vector != NULL &&
         !ww_host_module_contains_address(host->module, address) &&
@@ -1157,6 +1167,8 @@ bool ww_host_init(WwHost* host) {
 
 void ww_host_shutdown(WwHost* host) {
     ww_host_rel_lifecycle_revoke(host);
+    free(host->rel_profile_block.raw);
+    memset(&host->rel_profile_block, 0, sizeof(host->rel_profile_block));
     // VITA-WW-17: the renderer resolves against this host's memory and CPU,
     // so it goes before they are freed.
     ww_renderer_destroy(host->renderer);

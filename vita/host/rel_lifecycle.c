@@ -3,6 +3,7 @@
 #define WW_REL_CALLER_SUCCESSOR 0x80240EE8u
 
 void ww_host_rel_lifecycle_revoke(WwHost* host) {
+    ww_host_rel_profile_revoke(host);
     memset(&host->rel_pending_init, 0, sizeof(host->rel_pending_init));
     host->rel_constructor_owner = 0u;
     host->rel_constructor_return = 0u;
@@ -49,6 +50,8 @@ static bool caller_matches(const WwHost* host) {
 }
 
 bool ww_host_rel_return_qualified(WwHost* host, u32 address) {
+    if (ww_host_rel_profile_return_qualified(host, address))
+        return true;
     const WwRelPendingInit* pending = &host->rel_pending_init;
     return pending->phase == WW_REL_INIT_RETURN_READY && address == pending->successor &&
         host->cpu.pc == address && pending->constructor_completed && host->rel_constructor_owner == 0u &&
@@ -59,6 +62,11 @@ static const char* boundary(WwHost* host, u32 address) {
     WwRelPendingInit* pending = &host->rel_pending_init;
     CPUState* cpu = &host->cpu;
     const u32 canonical = address & ~0x40000000u;
+    const char* profile_error = ww_host_rel_profile_lifecycle(host, address);
+    if (profile_error != NULL)
+        return profile_error;
+    if (pending->phase == WW_REL_INIT_NONE && ww_host_rel_profile_return_qualified(host, address))
+        return NULL;
     WwRelImage* entering = NULL;
     for (u32 at = 0u; at < host->rel_image_count; ++at) {
         WwRelImage* image = &host->rel_images[at];
@@ -155,7 +163,7 @@ const char* ww_host_rel_lifecycle_boundary(WwHost* host, u32 address) {
 const char* ww_host_rel_constructor_qualify(WwHost* host, const WwRelImage* image,
                                           u32 section, u32 offset, u32 caller) {
     if (image->certificate == NULL)
-        return NULL;
+        return ww_host_rel_profile_constructor(host, image, section, offset, caller, false);
     WwRelPendingInit* pending = &host->rel_pending_init;
     const BlueWakeRelInitContractV1* certificate = image->certificate;
     if (pending->phase != WW_REL_INIT_ACTIVE || pending->image != image || !live_identity(host, pending) ||
@@ -168,7 +176,7 @@ const char* ww_host_rel_constructor_qualify(WwHost* host, const WwRelImage* imag
 
 const char* ww_host_rel_constructor_complete(WwHost* host, const WwRelImage* image, u32 address) {
     if (image->certificate == NULL)
-        return NULL;
+        return ww_host_rel_profile_constructor(host, image, 0u, 0u, address, true);
     WwRelPendingInit* pending = &host->rel_pending_init;
     if (pending->phase != WW_REL_INIT_ACTIVE || pending->image != image || !live_identity(host, pending) ||
         pending->constructor_completed || host->rel_constructor_owner != pending->owner ||

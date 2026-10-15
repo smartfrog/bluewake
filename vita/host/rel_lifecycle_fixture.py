@@ -8,7 +8,7 @@ def load(register, value):
             0x60000000 | register << 21 | register << 16 | value & 0xFFFF]
 
 
-def sdk_program(raw):
+def sdk_program(raw, resident=False, fixed=True):
     word = lambda at: struct.unpack_from('>I', raw, at)[0]
     code = [0x3CC08000, 0x80E630CC, 0x2C070000, 0x4182000C, 0x90670004,
             0x48000008, 0x906630C8, 0x90E30008, 0x38A00000, 0x90A30004, 0x906630CC]
@@ -34,13 +34,14 @@ def sdk_program(raw):
         section = raw[0x30 + index]
         if section:
             store(0x34 + index * 4, (word(table + section * 8) & ~1) + word(0x34 + index * 4), True)
-    store(0x14, word(0x14))
+    code.extend([0x3CC08000, 0x80C630D0, *load(5, word(0x14)), 0x7CA53214, 0x90A30014])
     imports = word(0x28)
+    trimmed = False
     for at in range(imports, imports + word(0x2C), 8):
         module = word(at)
         cursor = word(at + 4)
         patch = 0
-        while True:
+        while not resident or module in (0, word(0)):
             delta, kind, section, symbol = struct.unpack_from('>HBBI', raw, cursor)
             cursor += 8
             if kind == 203:
@@ -63,7 +64,9 @@ def sdk_program(raw):
                              *load(6, word(patch) & ~0x03FFFFFC), 0x7CA53378])
             code.append((0xB0A30000 if kind in (4, 6) else 0x90A30000) | patch)
         store(at + 4, word(at + 4), True)
-    store(0x2C, 0)
+        if fixed and not trimmed and module in (0, word(0)):
+            store(0x2C, at - imports)
+            trimmed = True
     code.append(0x4E800020)
     return code
 
@@ -158,12 +161,32 @@ def fixture(output):
     walker[:0] = [0x3CC08000, 0x80A65000, 0x38A50001, 0x90A65000]
     walker[9] = branch(0xC024119C, 0xC02411A8, False)
     walker[18] = branch(0xC02411C0, 0xC02411A8, False)
+    from rel_profile_block_fixture import fixture as profile_fixture
+    profile_code, profile_raw = profile_fixture(output)
+    small = bytearray(profile_raw[:256])
+    for field in (0x24, 0x28, 0x2C):
+        struct.pack_into('>I', small, field, 0)
+    (output / 'resident_profile_small.rel').write_bytes(small)
+    for address in (0xC1F800D4, 0x80240C9C, 0x80240D2C, 0x80240D6C,
+                    0x80241044, 0x802B07EC, 0x802B0704):
+        code[address] = profile_code[address]
+    code[0x80240D6C][-1] = branch(0x80240D80, 0x80240B00, False)
+    code[0x80240B00] = [branch(0x80240B00, 0x80241044), 0x807F0010,
+                        branch(0x80240B08, 0x80240EDC, False)]
+    code[0x80305448] = [0x80A30000, 0x2C050001, 0x40820008,
+                       branch(0x80305454, 0x8000A000, False), 0x2C0500A8, 0x41820008,
+                       branch(0x80305460, 0x80009000, False), branch(0x80305464, 0x80008000, False)]
+    sdk = sdk_program(small, resident=True)
+    sdk[-1:-1] = [0x38600001]
+    for at in range(0, len(sdk), 60):
+        code[0x8000A000 + at * 4] = sdk[at:at + 60]
     emitter = bytearray()
     for address, words in code.items():
         emitter.extend(struct.pack('>II', address, len(words)))
         emitter.extend(struct.pack(f'>{len(words)}I', *words))
     (output / 'lifecycle.instructions').write_bytes(emitter)
-    lines = [f'static const u8 lifecycle_title_raw[] = {{{",".join(map(str, raw))}}};',
+    lines = [f'static const u64 lifecycle_profile_hash=0x{fnv(small[0x80:0xAC]):016X}ull;',
+             f'static const u8 lifecycle_title_raw[] = {{{",".join(map(str, raw))}}};',
              f'static const u8 lifecycle_title_code[] = {{{",".join(map(str, canonical))}}};',
              'static const u8 lifecycle_title_ctors[4];',
              'static const BlueWakeRelData lifecycle_title_canonical[] = {',

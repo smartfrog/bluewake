@@ -22,6 +22,7 @@ static u32 return_yields;
 static bool trace_failure;
 static u32 requested_owner;
 static BlueWakeRelInitContractV1 copied_certificate;
+static bool profile_call;
 
 int __wrap_fprintf(FILE* stream, const char* format, ...) {
     if (trace_failure && strstr(format, "[rel-prolog]") != NULL)
@@ -105,7 +106,9 @@ static bool probe_edge(void* user, CPUState* cpu, u32 address) {
     WwHost* host = user;
     selected = ww_host_rel_owned(host, requested_owner);
     const u32 pc = ww_host_rel_address(host, address) & ~0x40000000u;
-    const u32 entry = selected == NULL ? 0u : selected->certificate->lifecycle->prolog_address & ~0x40000000u;
+    const u32 entry = selected == NULL || selected->certificate == NULL ? 0u : selected->certificate->lifecycle->prolog_address & ~0x40000000u;
+    if (profile_call)
+        return ww_host_edge(host, cpu, address);
     if (selected != NULL && pc == entry && stop_before_entry)
         return true;
     if (selected != NULL && pc == entry && !injected) {
@@ -268,6 +271,9 @@ static void run_call(WwHost* host, u32 owner, const char* name) {
     cpu->pc = 0x80240EA0u;
     cpu->msr = PPC_MSR_FP | PPC_MSR_EE | PPC_MSR_POW;
     for (u32 turn = 0u; turn < 128u && cpu->pc != 0x80001004u && host->error == NULL; ++turn) {
+        ww_host_end_dispatch(host);
+        bluewake_cycle_domain_begin_turn(&host->cycles, cpu);
+        bluewake_cycle_domain_prepare_dispatch(&host->cycles, cpu);
         cpu->cycle_budget = 80;
         cpu->downcount = 0;
         if (probe_edge(host, cpu, cpu->pc)) {
@@ -290,26 +296,31 @@ static void run_call(WwHost* host, u32 owner, const char* name) {
 int main(int argc, char** argv) {
     assert(argc == 2);
     scenario = argv[1];
+    const bool resident = is("title-enabled") || is("title-copy") || is("title-catalog-id");
     WwHost* host = calloc(1u, sizeof(*host));
     assert(host != NULL && ww_host_init(host));
-    StaticRecompRelSection profile_sections[] = {{1u,1u,0xC1F80000u,32u},{1u,4u,0xC1F80178u,16u}};
+    StaticRecompRelSection profile_sections[] = {{1u,1u,0xC1F80000u,32u},{1u,4u,0xC1F80178u,16u},
+                                                {1u,2u,0xC1F80170u,4u}};
+    if (resident) profile_sections[0] = (StaticRecompRelSection){1u,1u,0xC1F800D4u,44u};
     StaticRecompRelModule descriptors[] = {fixture_rel,
         {.module_id=400u,.section_count=8u,.section_info_offset=0x4Cu,.file_size=sizeof(lifecycle_title_raw),
          .sections=lifecycle_title_sections,.num_sections=2u},
         {.module_id=1u,.section_count=5u,.section_info_offset=0x4Cu,.file_size=256u,
-         .sections=profile_sections,.num_sections=2u}};
-    StaticRecompRange chunks[] = {fixture_chunks[0],fixture_chunks[1],fixture_chunks[2],{0xC1E000DCu,0xC1E0013Cu}};
-    u64 hashes[] = {fixture_hashes[0],fixture_hashes[1],fixture_hashes[2],lifecycle_title_hash};
+          .sections=profile_sections,.num_sections=resident ? 3u : 2u}};
+    StaticRecompRange chunks[] = {fixture_chunks[0],fixture_chunks[1],fixture_chunks[2],{0xC1E000DCu,0xC1E0013Cu},
+                                 {0xC1F800D4u,0xC1F80100u}};
+    u64 hashes[] = {fixture_hashes[0],fixture_hashes[1],fixture_hashes[2],lifecycle_title_hash,lifecycle_profile_hash};
     StaticRecompModuleDesc module = {.code_ranges=lifecycle_ranges,
         .num_code_ranges=sizeof(lifecycle_ranges)/sizeof(lifecycle_ranges[0]), .chunk_ranges=chunks,
-        .chunk_hashes=hashes,.num_chunk_ranges=4u,.rel_modules=descriptors,.num_rel_modules=3u,
+        .chunk_hashes=hashes,.num_chunk_ranges=resident ? 5u : 4u,.rel_modules=descriptors,.num_rel_modules=3u,
         .dispatch=translated_dispatch};
     static const u8 profile_bytes[16];
+    static const u8 profile_ctors[4];
     BlueWakeRelData data[] = {fixture_data[0],fixture_data[1],lifecycle_title_canonical[1],
-                             {1u,4u,0xC1F80178u,16u,profile_bytes}};
+                              {1u,4u,0xC1F80178u,16u,profile_bytes},{1u,2u,0xC1F80170u,4u,profile_ctors}};
     host->module = &module;
     host->rel_data = data;
-    host->rel_data_count = 4u;
+    host->rel_data_count = resident ? 5u : 4u;
     BlueWakeRelLifecycleV2 ship_lifecycle = {168u,0xC1B100F4u,0xC1B10120u,0xC1B1014Cu};
     BlueWakeRelLifecycleV2 title_lifecycle = {400u,0xC1E000DCu,0xC1E00108u,0xC1E00134u};
     BlueWakeRelInitContractV1 certificates[] = {
@@ -354,7 +365,7 @@ int main(int argc, char** argv) {
         assert(ww_host_rel_test_admission(host) == NULL);
     if (is("legacy") || is("ship-only") || title_policy)
         assert(ww_host_enable_ship_contract(host, &s_ship_contract, "synthetic.dol") == NULL);
-    for (u32 at = 0u; at < 4u; ++at)
+    for (u32 at = 0u; at < host->rel_data_count; ++at)
         assert(ppc_guest_alias_add(data[at].linked_start, data[at].size, data[at].bytes));
     DolLayout layout = {0};
     lifecycle_dol_text(&host->cpu, &layout);
@@ -364,8 +375,36 @@ int main(int argc, char** argv) {
     assert(ww_host_link_rel(host, 0x80002400u) == NULL);
     WwRelImage* profile = ww_host_rel_live(host, 1u);
     assert(profile != NULL);
-    mem_write32(&host->cpu, 0x800030C8u, profile->guest);
-    mem_write32(&host->cpu, 0x800030CCu, profile->guest);
+    if (resident) {
+        CPUState* cpu = &host->cpu;
+        requested_owner = profile->owner;
+        profile_call = true;
+        cpu->pc = 0x80240C9Cu;
+        cpu->gpr[1] = 0x80003FF0u;
+        cpu->gpr[2] = 0x80300000u;
+        cpu->gpr[13] = 0x80400000u;
+        cpu->gpr[31] = profile->owner;
+        mem_write32(cpu, 0x80003FFCu, 0x12345678u);
+        mem_write32(cpu, 0x80004004u, 0x80001004u);
+        for (u32 turn = 0u; turn < 128u && cpu->pc != 0x80001004u && host->error == NULL; ++turn) {
+            ww_host_end_dispatch(host);
+            bluewake_cycle_domain_begin_turn(&host->cycles, cpu);
+            bluewake_cycle_domain_prepare_dispatch(&host->cycles, cpu);
+            cpu->cycle_budget = 80;
+            cpu->downcount = 0;
+            if (!ww_host_edge(host, cpu, cpu->pc))
+                assert(ww_host_dispatch(host, cpu->pc) != 0);
+        }
+        if (host->error != NULL || !profile->initialization_completed)
+            fprintf(stderr, "resident completion: %s pc=%08X lr=%08X\n",
+                    host->error == NULL ? "incomplete" : host->error, cpu->pc, cpu->lr);
+        assert(host->error == NULL && profile->initialization_completed && profile->certificate == NULL);
+        assert(!host->rel_sdk_seeded && host->rel_pending_init.phase == WW_REL_INIT_NONE);
+        profile_call = false;
+    } else {
+        mem_write32(&host->cpu, 0x800030C8u, profile->guest);
+        mem_write32(&host->cpu, 0x800030CCu, profile->guest);
+    }
     mem_write32(&host->cpu, 0x80002214u, 0x807FF620u);
     if (is("registered-only") || is("ship-only")) {
         run_call(host, 0x80002300u, "d_a_title");
@@ -383,7 +422,7 @@ int main(int argc, char** argv) {
     neighbor = ww_host_rel_live(host, 168u);
     assert(neighbor != NULL && neighbor->initialization_completed);
     assert(neighbor->guest == 0x81820100u && neighbor->raw_hash == lifecycle_expected_ship_hash);
-    assert(mem_read32(&host->cpu, 0xC1B224D0u) == 2u && mem_read32(&host->cpu, 0x80005000u) == 1u);
+    assert(mem_read32(&host->cpu, 0xC1B224D0u) == 2u && mem_read32(&host->cpu, 0x80005000u) == 1u + (u32)resident);
     assert(host->rel_pending_init.phase == WW_REL_INIT_NONE && host->rel_constructor_owner == 0u);
     scenario = requested;
     selected = NULL;
@@ -401,7 +440,7 @@ int main(int argc, char** argv) {
             assert(strcmp(host->error, is("title-disabled") ? "title initialization is disabled" :
                 "REL prolog entry requires its exact translated dynamic-link caller") == 0);
             assert(host->rel_pending_init.phase == WW_REL_INIT_NONE && host->rel_constructor_owner == 0u);
-            assert(mem_read32(&host->cpu, 0x80005000u) == 1u);
+            assert(mem_read32(&host->cpu, 0x80005000u) == 1u + (u32)resident);
             goto done;
         }
     }
@@ -435,11 +474,14 @@ int main(int argc, char** argv) {
         is("expiry") || is("repeat-init") || strncmp(scenario, "epilog-", 7u) == 0 ||
         strncmp(scenario, "unresolved-", 11u) == 0 || is("unlink") || is("native-unlink");
     if (positive) {
-        if (host->error != NULL) fprintf(stderr, "lifecycle: %s pc=%08X\n", host->error, host->cpu.pc);
+        if (host->error != NULL || host->cpu.pc != 0x80001004u)
+            fprintf(stderr, "lifecycle: %s pc=%08X exception=%08X budget=%lld downcount=%lld\n",
+                    host->error == NULL ? "incomplete" : host->error, host->cpu.pc, host->cpu.exception,
+                    (long long)host->cpu.cycle_budget, (long long)host->cpu.downcount);
         assert(host->error == NULL && host->cpu.pc == 0x80001004u);
-        assert(selected->initialization_completed && neighbor->initialization_completed && !profile->initialization_completed);
+        assert(selected->initialization_completed && neighbor->initialization_completed && profile->initialization_completed == resident);
         assert(host->rel_pending_init.phase == WW_REL_INIT_NONE && host->rel_constructor_owner == 0u);
-        assert(mem_read32(&host->cpu, 0x80005000u) == 2u && mem_read32(&host->cpu, 0xC1B224D0u) == 2u);
+        assert(mem_read32(&host->cpu, 0x80005000u) == 2u + (u32)resident && mem_read32(&host->cpu, 0xC1B224D0u) == 2u);
         assert(ww_host_rel_sdk_integrity(host) && selected->sdk_previous == neighbor->guest && neighbor->sdk_next == selected->guest);
         assert(host->cpu.gpr[1] == 0x80004000u && host->cpu.gpr[2] == 0x80300000u &&
                host->cpu.gpr[13] == 0x80400000u && host->cpu.gpr[31] == 0x12345678u);
@@ -467,7 +509,7 @@ int main(int argc, char** argv) {
             is("partial") || is("pristine") || is("failed-sdk") || is("walker-without-active") ||
             is("no-pending") || is("walker-table") || is("walker-successor") || is("ctor-terminator") ||
             is("entry-after-progress") || is("return-without-walker") || strncmp(scenario, "active-tamper-", 14u) == 0)
-            assert(mem_read32(&host->cpu, 0x80005000u) == 1u);
+            assert(mem_read32(&host->cpu, 0x80005000u) == 1u + (u32)resident);
         if (is("rfi-misaligned")) {
             assert(host->cpu.srr0 == 0x80240EE9u && host->cpu.pc != 0x80240EE8u);
             assert(host->cpu.msr != (PPC_MSR_FP | PPC_MSR_EE));

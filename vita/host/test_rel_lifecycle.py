@@ -21,7 +21,8 @@ class RelLifecycleTest(unittest.TestCase):
             (root / 'synthetic.dol').write_bytes(bytes([1, 2, 3, 4]))
             image = bytearray(test_di_read.DiscReadTest.image.build_image())
             content = archive('catalog-id' if scenario == 'title-catalog-id' else 'success',
-                              (test_host.OUT / 'lifecycle_title.rel').read_bytes())
+                              (test_host.OUT / 'lifecycle_title.rel').read_bytes(),
+                              resident='small' if scenario in ('title-enabled', 'title-copy', 'title-catalog-id') else False)
             fst = test_di_read.DiscReadTest.image.FST_OFFSET
             image[fst + 5 * 12 + 1:fst + 5 * 12 + 9] = b'RELS.arc'
             struct.pack_into('>II', image, fst + 16, len(image), len(content))

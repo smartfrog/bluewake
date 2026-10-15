@@ -60,8 +60,8 @@ bool ww_rel_code_matches(WwHost* host, const StaticRecompRelSection* section, co
     return cursor == end;
 }
 
-const char* ww_rel_replay(WwHost* host, const StaticRecompRelModule* rel, const u8* raw,
-                          u32 bytes, u8* relocated, const WwRelImage* sdk, bool certified) {
+static const char* replay(WwHost* host, const StaticRecompRelModule* rel, const u8* raw,
+                          u32 bytes, u8* relocated, const WwRelImage* sdk, bool certified, bool resident) {
     const u32 imports = bluewake_archive_be32(raw + 0x28u);
     const u32 import_bytes = bluewake_archive_be32(raw + 0x2Cu);
     if ((u64)imports + import_bytes > bytes || (import_bytes & 7u) != 0u)
@@ -70,6 +70,8 @@ const char* ww_rel_replay(WwHost* host, const StaticRecompRelModule* rel, const 
         return "REL import count exceeds the bounded ownership contract";
     for (u32 at = imports; at < imports + import_bytes; at += 8u) {
         const u32 target_id = bluewake_archive_be32(raw + at);
+        if (resident && target_id != 0u && target_id != 1u)
+            continue;
         if (certified && target_id != 0u && target_id != rel->module_id)
             return "REL certificate requires only self and DOL imports";
         const StaticRecompRelModule* target = target_id == 0u ? NULL : ww_host_rel_descriptor(host, target_id);
@@ -156,7 +158,7 @@ const char* ww_rel_replay(WwHost* host, const StaticRecompRelModule* rel, const 
             } else if (type == 6u) {
                 value = (value + 0x8000u) >> 16u;
             }
-            if (relocated != NULL && ((patch_flags & 1u) == 0u || certified)) {
+            if (relocated != NULL && ((patch_flags & 1u) == 0u || certified || resident)) {
                 u8* write = relocated + patch_start + (u32)offset;
                 if (width == 2u) {
                     write[0] = (u8)(value >> 8u);
@@ -172,6 +174,21 @@ const char* ww_rel_replay(WwHost* host, const StaticRecompRelModule* rel, const 
             return "REL relocation stream has no bounded end";
     }
     return NULL;
+}
+
+const char* ww_rel_replay(WwHost* host, const StaticRecompRelModule* rel, const u8* raw,
+                          u32 bytes, u8* relocated, const WwRelImage* sdk, bool certified) {
+    return replay(host, rel, raw, bytes, relocated, sdk, certified, false);
+}
+
+const char* ww_rel_replay_resident(WwHost* host, const StaticRecompRelModule* rel, const u8* raw,
+                                  u32 bytes, u8* relocated, const WwRelImage* sdk) {
+    if (rel == NULL || rel->module_id != 1u || sdk == NULL || sdk->module_id != 1u || sdk->certificate != NULL ||
+        !sdk->sdk_fixed || sdk->sdk_previous != 0u || bytes < 0x4Cu || sdk->bytes != bytes || bytes > sdk->capacity ||
+        bluewake_archive_be32(raw) != 1u || bluewake_archive_be32(raw + 0x1Cu) != 3u ||
+        bluewake_archive_be32(raw + 0x20u) != 0u)
+        return "REL resident reconstruction requires the uncertified profile";
+    return replay(host, rel, raw, bytes, relocated, sdk, false, true);
 }
 
 const char* ww_host_validate_rel_link(WwHost* host, const StaticRecompRelModule* rel, const u8* raw, u32 bytes) {
@@ -661,6 +678,9 @@ const char* ww_host_link_profile_list(WwHost* host, u32 object) {
     mem_write32(cpu, object + 0x10u, slot->guest);
     mem_write32(cpu, BLUEWAKE_PROFILE_LIST_GLOBAL, profile->linked_start);
     slot->linked = true;
+    const char* block_error = ww_host_rel_profile_expose(host, slot);
+    if (block_error != NULL)
+        return block_error;
     cpu->gpr[3] = 1u;
     cpu->pc = cpu->lr;
     return NULL;

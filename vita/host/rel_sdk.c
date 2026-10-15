@@ -24,6 +24,59 @@ static bool inputs_match(WwHost* host, const WwRelImage* image) {
         mem_read32(&host->cpu, WW_REL_SDK_NAMES) == image->sdk_name_base;
 }
 
+const char* ww_rel_sdk_structure(const WwRelImage* image, const u8* raw, u8* expected, u32 next) {
+    write_be32(expected + 4u, next);
+    write_be32(expected + 8u, image->sdk_previous);
+    const u64 name = (u64)bluewake_archive_be32(raw + 0x14u) + image->sdk_name_base;
+    if (name > UINT32_MAX)
+        return "REL SDK name reconstruction overflow";
+    write_be32(expected + 0x14u, (u32)name);
+    const u32 fields[] = {0x10u, 0x24u, 0x28u, 0x48u};
+    const u32 field_count = bluewake_archive_be32(raw + 0x1Cu) >= 3u ? 4u : 3u;
+    for (u32 at = 0u; at < field_count; ++at) {
+        const u32 offset = bluewake_archive_be32(raw + fields[at]);
+        if ((fields[at] != 0x48u && offset > image->bytes) || (u64)image->guest + offset > UINT32_MAX)
+            return "REL SDK header reconstruction exceeds its bounded image";
+        write_be32(expected + fields[at], image->guest + offset);
+    }
+    expected[0x33u] = 0u;
+    for (u32 at = 1u; at < image->section_count; ++at) {
+        const WwRelSection* section = &image->sections[at];
+        if (section->flags != 0u)
+            write_be32(expected + image->section_table + at * 8u, image->guest + section->flags);
+        else if (section->size != 0u) {
+            write_be32(expected + image->section_table + at * 8u, image->sdk_bss);
+            expected[0x33u] = (u8)at;
+        }
+    }
+    for (u32 at = 0u; at < 3u; ++at) {
+        const u32 index = raw[0x30u + at];
+        if (index == 0u)
+            continue;
+        if (index >= image->section_count || bluewake_archive_be32(raw + 0x34u + at * 4u) >= image->sections[index].size)
+            return "REL SDK lifecycle reconstruction exceeds its section";
+        write_be32(expected + 0x34u + at * 4u, bluewake_archive_be32(raw + 0x34u + at * 4u) +
+            (bluewake_archive_be32(expected + image->section_table + index * 8u) & ~1u));
+    }
+    const u32 imports = bluewake_archive_be32(raw + 0x28u);
+    const u32 bytes = bluewake_archive_be32(raw + 0x2Cu);
+    if ((u64)imports + bytes > image->bytes || (bytes & 7u) != 0u)
+        return "REL SDK reconstruction import table is invalid";
+    bool trimmed = false;
+    for (u32 at = imports; at < imports + bytes; at += 8u) {
+        const u32 stream = bluewake_archive_be32(raw + at + 4u);
+        if (stream >= image->bytes)
+            return "REL SDK reconstruction stream is outside its image";
+        write_be32(expected + at + 4u, image->guest + stream);
+        const u32 module = bluewake_archive_be32(raw + at);
+        if (image->sdk_fixed && !trimmed && (module == 0u || module == image->module_id)) {
+            write_be32(expected + 0x2Cu, at - imports);
+            trimmed = true;
+        }
+    }
+    return NULL;
+}
+
 static const char* expected_image(WwHost* host, const WwRelImage* image, u32 next, u64* hash) {
     const BlueWakeRelInitContractV1* certificate = image->certificate;
     const StaticRecompRelModule* rel = ww_host_rel_descriptor(host, image->module_id);
@@ -39,40 +92,9 @@ static const char* expected_image(WwHost* host, const WwRelImage* image, u32 nex
     memcpy(expected, raw, image->bytes);
     const char* error = ww_rel_replay(host, rel, raw, image->bytes, expected, image, true);
     if (error == NULL) {
-        write_be32(expected + 4u, next);
-        write_be32(expected + 8u, image->sdk_previous);
-        write_be32(expected + 0x14u, bluewake_archive_be32(raw + 0x14u) + image->sdk_name_base);
-        const u32 fields[] = {0x10u, 0x24u, 0x28u, 0x48u};
-        const u32 field_count = bluewake_archive_be32(raw + 0x1Cu) >= 3u ? 4u : 3u;
-        for (u32 at = 0u; at < field_count; ++at)
-            write_be32(expected + fields[at], image->guest + bluewake_archive_be32(raw + fields[at]));
-        expected[0x33u] = 0u;
-        for (u32 at = 1u; at < image->section_count; ++at) {
-            const WwRelSection* section = &image->sections[at];
-            if (section->flags != 0u)
-                write_be32(expected + image->section_table + at * 8u, image->guest + section->flags);
-            else if (section->size != 0u) {
-                write_be32(expected + image->section_table + at * 8u, image->sdk_bss);
-                expected[0x33u] = (u8)at;
-            }
-        }
-        for (u32 at = 0u; at < 3u; ++at) {
-            const u32 index = raw[0x30u + at];
-            if (index != 0u)
-                write_be32(expected + 0x34u + at * 4u, bluewake_archive_be32(raw + 0x34u + at * 4u) +
-                    (bluewake_archive_be32(expected + image->section_table + index * 8u) & ~1u));
-        }
-        const u32 imports = bluewake_archive_be32(raw + 0x28u);
-        const u32 bytes = bluewake_archive_be32(raw + 0x2Cu);
-        bool trimmed = false;
-        for (u32 at = imports; at < imports + bytes; at += 8u) {
-            write_be32(expected + at + 4u, image->guest + bluewake_archive_be32(raw + at + 4u));
-            const u32 module = bluewake_archive_be32(raw + at);
-            if (image->sdk_fixed && !trimmed && (module == 0u || module == image->module_id)) {
-                write_be32(expected + 0x2Cu, at - imports);
-                trimmed = true;
-            }
-        }
+        error = ww_rel_sdk_structure(image, raw, expected, next);
+    }
+    if (error == NULL) {
         *hash = ww_host_rel_raw_hash(expected, image->bytes);
         if (memcmp(expected, live, image->bytes) != 0)
             error = "REL SDK image differs from its independently reconstructed state";
@@ -184,10 +206,16 @@ const char* ww_host_rel_sdk_prepare(WwHost* host, WwRelImage* image, bool fixed)
                 bluewake_archive_be32(resident) != 1u || bluewake_archive_be32(resident + 4u) != 0u ||
                 bluewake_archive_be32(resident + 8u) != 0u)
                 return "REL SDK seed requires unchanged resident profile authority and singleton list";
+            if (ww_host_rel_profile_enabled(host) && !ww_host_rel_profile_completed(host, profile))
+                return "REL SDK resident profile requires its observed guest completion";
         }
     } else if (!ww_host_rel_sdk_integrity(host)) {
         return "REL SDK existing list authority changed before append";
     }
+    if (ww_host_rel_profile_enabled(host) && image->module_id == 168u &&
+        fprintf(stderr, "[rel-sdk] module=168 stage=prepared fixed=%u resident=%08X certificate=%s certified=0\n",
+                fixed, profile == NULL ? host->rel_sdk_head : profile->guest, image->certificate->build_identity) < 0)
+        return "REL SDK preparation trace failed";
     if (profile != NULL) {
         profile->sdk_phase = WW_REL_SDK_RESIDENT;
         host->rel_sdk_head = profile->guest;
@@ -218,6 +246,10 @@ const char* ww_host_rel_sdk_finish(WwHost* host, WwRelImage* image) {
         image->sdk_phase = WW_REL_SDK_FAILED;
         return "REL SDK complete image, neighbors or publications disagree with expected append";
     }
+    if (ww_host_rel_profile_enabled(host) && image->module_id == 168u &&
+        fprintf(stderr, "[rel-sdk] module=168 stage=verified fixed=%u resident=%08X whole_image=matched certificate=%s certified=1\n",
+                image->sdk_fixed, host->rel_sdk_head, image->certificate->build_identity) < 0)
+        return "REL SDK verification trace failed";
     WwRelImage* tail = image_at(host, host->rel_sdk_tail);
     if (tail != NULL) {
         tail->sdk_next = image->guest;
@@ -234,6 +266,9 @@ const char* ww_host_rel_sdk_finish(WwHost* host, WwRelImage* image) {
 }
 
 const char* ww_host_rel_sdk_observe(WwHost* host, u32 address) {
+    const char* profile_error = ww_host_rel_profile_observe(host, address);
+    if (profile_error != NULL)
+        return profile_error;
     if (address != 0x80305448u && address != 0x80305424u)
         return NULL;
     WwRelImage* image = image_at(host, host->cpu.gpr[3]);

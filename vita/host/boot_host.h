@@ -18,6 +18,7 @@
 #include "rel_service.h"
 #include "rel_contract.h"
 #include "rel_lifecycle.h"
+#include "rel_profile_block.h"
 #include "pad_input.h"
 #include "gxruntime/di.h"
 #include "gxruntime/exi.h"
@@ -77,6 +78,7 @@ typedef struct WwHost {
     bool rel_test_admission;
 #endif
     WwRelPendingInit rel_pending_init;
+    WwRelProfileBlock rel_profile_block;
     WwDspInterface dsp;
     WwBatContract bat;
     const StaticRecompModuleDesc* module;
