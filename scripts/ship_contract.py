@@ -11,8 +11,9 @@ SHIP_TABLES = ((2, 0xC1B1DAF0), (3, 0xC1B1DAF8))
 SELECTED_MODULES = (168, 400)
 IKADA_SELECTED_MODULES = (60, 168, 400)
 ACTOR_BATCHES = {'opening-a': (60, 84, 168, 400), 'opening-b': (19, 60, 84, 168, 400),
-                 'opening-c': (9, 19, 60, 84, 168, 400)}
-ACTOR_CAPTURE_GROUPS = {'opening-a': (84,), 'opening-b': (19,), 'opening-c': (9,)}
+                 'opening-c': (9, 19, 60, 84, 168, 400),
+                 'opening-d': (9, 19, 60, 81, 84, 168, 400)}
+ACTOR_CAPTURE_GROUPS = {'opening-a': (84,), 'opening-b': (19,), 'opening-c': (9,), 'opening-d': (81,)}
 APPROVED_MODULES = {
     9: {'name': 'bridge', 'basename': 'd_a_bridge.rel', 'capture_group': 'opening-c',
         'exec': (1, 0xE4, 0xC06500E4, 19636),
@@ -41,6 +42,17 @@ APPROVED_MODULES = {
          'tables': ((2, 0xC1555950), (3, 0xC1555958)), 'table_sizes': (8, 8),
          'ctor_return_pc': 0xC155010C, 'magic': b'IKADA60\0',
          'section_count': 21, 'bss': (6, 0xC15581A0, 532), 'basename': 'd_a_obj_ikada.rel'},
+    81: {'name': 'toripost', 'basename': 'd_a_obj_toripost.rel', 'capture_group': 'opening-d',
+         'exec': (1, 0xF4, 0xC18A00F4, 9292),
+         'lifecycle': (0xC18A00F4, 0xC18A0120, 0xC18A014C),
+         'tables': ((2, 0xC18A2540), (3, 0xC18A2548)), 'table_sizes': (8, 8),
+         'ctor_return_pc': 0xC18A010C, 'magic': b'TPOST81\0',
+         'section_count': 21, 'raw_size': 14960, 'bss_alignment': 8,
+         'section_layout': ((1, 0xF4, 9292), (2, 0x2540, 8), (3, 0x2548, 8),
+                            (4, 0x2550, 613), (5, 0x27B8, 888), (6, 0, 45)),
+         'raw_sha256': 'f114d53d71760c3b2aa760783d91b06ce2cb3bf32b16d1c27bea599b362c436c',
+         'processed_sha256': '4443dc52f6cfb1364af7954675a65e3e9761bf45f043d3f79f0d804f90fd611d',
+         'stored_sha256': '1bb19a6f99e9907f90808cf7a648ce7f73154d1fb0dbe44eae9c470b383e0e50'},
     84: {'name': 'wood', 'basename': 'd_a_obj_wood.rel', 'capture_group': 'opening-a',
          'exec': (1, 0xD4, 0xC19A00D4, 1164),
          'lifecycle': (0xC19A00D4, 0xC19A0100, 0xC19A012C),
@@ -260,7 +272,7 @@ def normal_contract(raw_dol, processed_rel, sections, chunks, dol_ranges, identi
     identity_alignment = struct.unpack_from('>I', identity_rel, 0x40)[0]
     if processed_alignment != 4 or not identity_alignment or identity_alignment & (identity_alignment - 1):
         raise ValueError(f'{module_name} contract requires processed alignment 4 and a valid disc alignment')
-    if module_id in (9, 19, 60, 84) and identity_alignment != 8:
+    if module_id in (9, 19, 60, 81, 84) and identity_alignment != 8:
         raise ValueError(f'{module_name} contract requires original disc alignment 8')
     if not 0 < len(raw_dol) <= 0x800000:
         raise ValueError(f'{module_name} contract requires a bounded full raw DOL')

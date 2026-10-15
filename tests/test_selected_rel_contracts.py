@@ -227,6 +227,7 @@ class SelectedContracts(unittest.TestCase):
         root = self.root
         members = [(basename, path.read_bytes()) for basename, path in (
             ('d_a_bridge.rel', root / 'input/bridge-disc.rel'),
+            ('d_a_obj_toripost.rel', root / 'input/toripost-disc.rel'),
             ('d_a_grass.rel', root / 'input/grass-disc.rel'),
             ('d_a_obj_ikada.rel', root / 'input/ikada-disc.rel'),
             ('d_a_obj_wood.rel', root / 'input/wood-disc.rel')) if path.exists()]
@@ -253,7 +254,7 @@ class SelectedContracts(unittest.TestCase):
         if (root / 'input/wood-disc.rel').exists():
             specs = {mid: {'raw_sha256': self.manifest['modules'].get(str(mid), {}).get('raw_sha256'),
                            'processed_sha256': self.manifest['modules'].get(str(mid), {}).get('processed_rel_sha256')}
-                     for mid in (9, 19, 84) if (root / f'input/{sc.selected_module(mid)["name"]}-disc.rel').exists()}
+                     for mid in (9, 19, 81, 84) if (root / f'input/{sc.selected_module(mid)["name"]}-disc.rel').exists()}
             command[2:3] = ['-c', 'import sys; sys.path.insert(0, ' + repr(str(fixture.SCRIPTS_DIR)) + '); '
                 'import generate_composite as gc; '
                 '[(gc.ship_contract.APPROVED_MODULES[mid].pop("stored_sha256"), '

@@ -13,7 +13,7 @@
      const char* batch_dir = getenv("DOLRECOMP_ACTOR_BATCH_DIR");
      ShipCodeInput ship_capture = {.module_id=168u, .magic="SHIP168"};
      ActorCapture actor_captures[] = {
--        {.capture={.module_id=9u, .magic="BRIDGE9"}, .basename="bridge9.ship-code-input"}
+-        {.capture={.module_id=81u, .magic="TPOST81"}, .basename="toripost81.ship-code-input"}
 +#include "actor_bulk_entries.h"
      };
      const u32 actor_count = sizeof(actor_captures) / sizeof(actor_captures[0]);

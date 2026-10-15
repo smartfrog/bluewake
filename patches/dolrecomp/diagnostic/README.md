@@ -14,19 +14,20 @@ In an owned source copy of DolRecomp `b8b534591cba8ca7cd43943a655ee6e2591cf5de`:
    fresh absolute private directory outside the generated-output tree. Emit the
    **entire unchanged REL directory**, with `--rel-base 0xC0400000 -j 1`.
 
-The compiled `opening-c` delta is **9 (bridge) only**. The review ceiling is eight new
+The compiled `opening-d` delta is **81 (toripost) only**. The review ceiling is eight new
 modules; it is not a runtime selector. Every reviewed ID must occur exactly
 once before emission. Captures publish exclusively after all emission succeeds;
 `complete.json` publishes last. A failed or incomplete batch is not consumable.
 Legacy and batch capture controls cannot be combined. No capture is made for an
 unselected module.
 
-The generator's immutable `--actor-rel-batch opening-c` selection is
-`{9,19,60,84,168,400}` and requires explicit existing provenance/title/ikada inputs.
-The earlier `opening-a` and `opening-b` selections remain reproducible with their
-original capture groups. Bridge has 88 bytes of BSS aligned to 8 and 4/4-byte
-ctor/dtor tables; its SDK policy is `OWNER_PUBLISHED`. Grass retains
-`OWNER_PUBLISHED` with its independent 4/8-byte ctor/dtor tables. Wood retains
+The generator's immutable `--actor-rel-batch opening-d` selection is
+`{9,19,60,81,84,168,400}` and requires explicit existing provenance/title/ikada inputs.
+The earlier `opening-a`, `opening-b` and `opening-c` selections remain reproducible
+with their original capture groups. Toripost has 45 bytes of BSS aligned to 8
+and 8/8-byte ctor/dtor tables; its SDK policy is `OWNER_PUBLISHED`. Bridge retains
+`OWNER_PUBLISHED` with 4/4-byte tables; grass retains `OWNER_PUBLISHED` with its
+independent 4/8-byte tables. Wood retains
 `CERTIFIED_INLINE_ZERO`. No destructor execution is authorized.
 Captures, generated code, manifests containing private paths, and composites
 stay private. Acquisition and registration do not authorize execution: the
@@ -41,7 +42,7 @@ eight-member ceiling is not a ceiling on cumulative registered membership.
 For the frozen 399-new-module acquisition, additionally apply `actor-bulk.patch`
 after `actor-batch.patch` and copy `actor_bulk_entries.h` into `src/app/`. This
 overlay replaces the acquisition table, sets the exact 399-entry compile-time
-bound and names its completion group `bulk-ww149a`. The ordinary opening-c table
+bound and names its completion group `bulk-ww149a`. The ordinary opening-d table
 and its eight-new-entry bound remain reproducible without this overlay. The old
 review cap is deliberately lifted **only for this bulk producer unit**, not for
 runtime admission. No generator or host selection changes are included.
@@ -56,7 +57,10 @@ The generator requires WW147A's exact frozen spec SHA-256, the full ordered
 1..415 census and its explicit membership flags. The table excludes
 `{1,26,46,129,188,189,214,224,276,379}` and leaves inherited
 `{9,19,60,84,168,400}` untouched: exactly 399 new captures, never a selected-only
-producer input directory. Each entry has its own seen counter, dynamically
+producer input directory. This partition is frozen relative to WW149A's original
+base: module 81 stays in the bulk table with `REL00081`, independently of the
+per-wave toripost capture's `TPOST81` magic and opening-d completion group.
+Each entry has its own seen counter, dynamically
 allocated capture buffer, private basename and expected executable payload size.
 The buffer includes the 12-byte header and one 16-byte section record in addition
 to that payload. Publication refuses any unexpected total size.

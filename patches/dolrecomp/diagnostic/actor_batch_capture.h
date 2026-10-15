@@ -4,7 +4,7 @@
 #define ACTOR_CAPTURE_MAX 8u
 #endif
 #ifndef ACTOR_CAPTURE_BATCH
-#define ACTOR_CAPTURE_BATCH "opening-c"
+#define ACTOR_CAPTURE_BATCH "opening-d"
 #endif
 
 typedef struct {
