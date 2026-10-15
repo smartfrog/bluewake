@@ -9,7 +9,7 @@ option(WW05_ENABLE_PAD_INPUT "Experimental Vita controls sampled only by guest S
 option(WW05_ENABLE_SHIP_PROLOG "Experimental exact-contract ship prolog through translated caller" OFF)
 option(WW05_ENABLE_TITLE_CONTRACT "Experimental registered exact-contract title initialization" OFF)
 option(WW05_ENABLE_IKADA_CONTRACT "Experimental registered exact-contract ikada initialization" OFF)
-option(WW05_ENABLE_ACTOR_BATCH_CONTRACTS "Experimental reviewed opening-a actor certificate batch" OFF)
+option(WW05_ENABLE_ACTOR_BATCH_CONTRACTS "Experimental reviewed opening-b actor certificate batch" OFF)
 if(WW05_ENABLE_ACTOR_BATCH_CONTRACTS AND (NOT WW05_ENABLE_SHIP_PROLOG OR NOT WW05_ENABLE_TITLE_CONTRACT OR NOT WW05_ENABLE_IKADA_CONTRACT))
     message(FATAL_ERROR "Actor batch admission requires explicit ship, title and ikada options")
 endif()

@@ -2,6 +2,8 @@ import os
 import json
 from pathlib import Path
 import shlex
+import re
+import struct
 import subprocess
 import tempfile
 import unittest
@@ -13,6 +15,49 @@ import test_rel_lifecycle
 
 OPTIONS = ('-DWW05_ENABLE_SHIP_PROLOG=ON', '-DWW05_ENABLE_TITLE_CONTRACT=ON',
            '-DWW05_ENABLE_IKADA_CONTRACT=ON', '-DWW05_ENABLE_ACTOR_BATCH_CONTRACTS=ON')
+
+
+class ActorBatchProductionPolicy(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        source = test_host.ROOT / 'vita/host'
+        enum = re.search(r'typedef enum WwActorSdkContract \{[^{}]+\} WwActorSdkContract;',
+                         (source / 'boot_host.h').read_text())[0]
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            path = root / 'policy.c'
+            path.write_text('#include <stdint.h>\n#include <stdbool.h>\n#include <stdio.h>\n'
+                'typedef uint32_t u32;\n' + enum + '\n#define WW05_TESTS_ONLY 0\n'
+                '#include "actor_batch_policy.h"\nint main(void) {\n'
+                'printf("%u %u %u %llx %s %s\\n", WW_ACTOR_FULL_COUNT, WW_ACTOR_COUNT, '
+                'WW_ACTOR_POLICY_REVISION, WW_ACTOR_POLICY_PIN, WW_ACTOR_POLICY_IDENTITY, WW_ACTOR_SET_IDENTITY);\n'
+                'for (u32 i=0; i<WW_ACTOR_FULL_COUNT; ++i) printf("%u %u %u %s\\n", '
+                'ww_actor_expected[i].id, ww_actor_expected[i].actor, '
+                'ww_actor_expected[i].sdk_contract, ww_actor_expected[i].identity);\nreturn 0; }\n')
+            subprocess.run([os.environ.get('CC', 'cc'), '-std=c11', '-Wall', '-Wextra', '-Werror',
+                '-I' + str(source), str(path), '-o', str(root / 'policy')], check=True, capture_output=True)
+            lines = subprocess.check_output([str(root / 'policy')], text=True).splitlines()
+        cls.header = lines[0].split()
+        cls.rows = [line.split() for line in lines[1:]]
+
+    def test_grass_is_owner_published_and_wood_stays_inline_zero(self):
+        self.assertEqual([(int(r[0]), int(r[1]), int(r[2])) for r in self.rows],
+                         [(19, 1, 1), (60, 0, 0), (84, 1, 2), (168, 0, 0), (400, 0, 0)])
+        self.assertEqual(self.header[:2], ['5', '2'])
+
+    def test_production_policy_checksum_binds_every_exact_row(self):
+        data = struct.pack('>I', int(self.header[2]))
+        for mid, actor, contract, identity in self.rows:
+            data += struct.pack('>III', int(mid), int(actor), int(contract)) + identity.encode()
+        value = 0xCBF29CE484222325
+        for byte in data:
+            value = ((value ^ byte) * 0x100000001B3) & 0xFFFFFFFFFFFFFFFF
+        self.assertEqual(value, int(self.header[3], 16))
+        self.assertEqual(self.header[4], f'inline-zero-v1-fnv1a64-{value:016x}')
+
+    def test_grass_certificate_and_cumulative_set_have_new_pins(self):
+        self.assertEqual(self.rows[0][3], 'fe2149f8e76f6529960061997e0f01f3cf43bd8142f78a5fa879d07738cec97b')
+        self.assertEqual(self.header[5], 'c2b47ecd3c90b498efc3f01b597f319e5af49385e76750f3d1240b0a3784d181')
 
 
 class ActorBatchConfiguration(unittest.TestCase):

@@ -1,5 +1,6 @@
 from pathlib import Path
 import io
+import json
 import os
 import shutil
 import struct
@@ -122,6 +123,15 @@ int main(int argc, char** argv) {
 
 class ActorBatchEmitter(unittest.TestCase):
     @classmethod
+    def build_producer(cls, source, name):
+        build = cls.root / name
+        subprocess.run(['cmake', '-S', str(source), '-B', str(build), '-G', 'Ninja',
+            '-DCMAKE_BUILD_TYPE=Release', '-DDOLRECOMP_ENABLE_LLVM=OFF', '-DCMAKE_DISABLE_FIND_PACKAGE_ZLIB=ON'],
+            check=True, capture_output=True)
+        subprocess.run(['cmake', '--build', str(build), '--target', 'dolrecomp', '-j1'], check=True, capture_output=True)
+        return build / 'dolrecomp'
+
+    @classmethod
     def setUpClass(cls):
         (ROOT / 'build-f5').mkdir(exist_ok=True)
         cls.temporary = tempfile.TemporaryDirectory(dir=ROOT / 'build-f5', prefix='actor-batch-producer-')
@@ -136,19 +146,15 @@ class ActorBatchEmitter(unittest.TestCase):
             subprocess.run(['git', 'apply', str(ROOT / 'patches/dolrecomp' / patch)], cwd=source,
                 env={**os.environ, 'GIT_CEILING_DIRECTORIES': str(source.parent)}, check=True, capture_output=True)
         shutil.copy2(ROOT / 'patches/dolrecomp/diagnostic/actor_batch_capture.h', source / 'src/app')
+        cls.production_executable = cls.build_producer(source, 'production-build')
         pipeline = source / 'src/app/pipeline.c'
         text = pipeline.read_text()
-        row = '{.capture={.module_id=84u, .magic="WOOD84\\0"}, .basename="wood84.ship-code-input"}'
+        row = '{.capture={.module_id=19u, .magic="GRASS19"}, .basename="grass19.ship-code-input"}'
         if text.count(row) != 1:
             raise AssertionError('reviewed production table changed')
-        pipeline.write_text(text.replace(row, row + ',\n'
+        pipeline.write_text(text.replace(row, '{.capture={.module_id=84u, .magic="WOOD84\\0"}, .basename="wood84.ship-code-input"},\n'
             '        {.capture={.module_id=85u, .magic="TEST85\\0"}, .basename="test85.ship-code-input"}'))
-        build = cls.root / 'build'
-        subprocess.run(['cmake', '-S', str(source), '-B', str(build), '-G', 'Ninja',
-            '-DCMAKE_BUILD_TYPE=Release', '-DDOLRECOMP_ENABLE_LLVM=OFF', '-DCMAKE_DISABLE_FIND_PACKAGE_ZLIB=ON'],
-            check=True, capture_output=True)
-        subprocess.run(['cmake', '--build', str(build), '--target', 'dolrecomp', '-j1'], check=True, capture_output=True)
-        cls.executable = build / 'dolrecomp'
+        cls.executable = cls.build_producer(source, 'build')
 
     @classmethod
     def tearDownClass(cls):
@@ -170,10 +176,40 @@ class ActorBatchEmitter(unittest.TestCase):
     def tearDown(self):
         self.temporary.cleanup()
 
-    def emit(self, label, controls):
-        return subprocess.run([str(self.executable), '--gamecube', '--backend', 'c', '--cpu', 'gekko',
+    def emit(self, label, controls, executable=None):
+        return subprocess.run([str(executable or self.executable), '--gamecube', '--backend', 'c', '--cpu', 'gekko',
             '--rel-base', '0xC0400000', str(self.inputs), str(self.case / label), '-j', '1'],
             env={**os.environ, **controls}, capture_output=True, text=True)
+
+    def test_production_wave_captures_only_grass_without_changing_ordinary_outputs(self):
+        raw = bytearray((self.inputs / '0084.rel').read_bytes())
+        struct.pack_into('>I', raw, 0, 19)
+        (self.inputs / '0019.rel').write_bytes(raw)
+        captures = self.case / 'captures'
+        result = self.emit('grass', {'DOLRECOMP_ACTOR_BATCH_DIR': str(captures)}, self.production_executable)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        ordinary = self.emit('ordinary', {}, self.production_executable)
+        self.assertEqual(ordinary.returncode, 0, ordinary.stderr)
+        maps = [{str(p.relative_to(self.case / name)): p.read_bytes() for p in (self.case / name).rglob('*') if p.is_file()}
+                for name in ('grass', 'ordinary')]
+        self.assertEqual(*maps)
+        self.assertEqual({p.name for p in captures.iterdir()}, {'grass19.ship-code-input', 'complete.json'})
+        self.assertEqual((captures / 'grass19.ship-code-input').read_bytes()[:8], b'GRASS19\0')
+        self.assertEqual(json.loads((captures / 'complete.json').read_text()), {'version': 1, 'batch': 'opening-b',
+            'modules': [{'id': 19, 'capture': 'grass19.ship-code-input', 'size': 44}]})
+
+    def test_production_missing_or_duplicate_grass_cannot_publish_a_subset(self):
+        for scenario in ('missing', 'duplicate'):
+            with self.subTest(scenario=scenario):
+                if scenario == 'duplicate':
+                    raw = bytearray((self.inputs / '0084.rel').read_bytes())
+                    struct.pack_into('>I', raw, 0, 19)
+                    (self.inputs / '0019.rel').write_bytes(raw)
+                    (self.inputs / 'copy.rel').write_bytes(raw)
+                captures = self.case / ('captures-' + scenario)
+                result = self.emit(scenario, {'DOLRECOMP_ACTOR_BATCH_DIR': str(captures)}, self.production_executable)
+                self.assertNotEqual(result.returncode, 0)
+                self.assertFalse(captures.exists())
 
     def test_two_selected_modules_share_one_full_directory_pass_without_changing_outputs(self):
         captures = self.case / 'captures'

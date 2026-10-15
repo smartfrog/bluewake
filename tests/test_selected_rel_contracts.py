@@ -84,7 +84,30 @@ def capture_binding(root, mid, prefix, start, offset, magic):
             'processed_rel_sha256': hashlib.sha256(raw).hexdigest(), 'capture': path.name,
             'capture_sha256': hashlib.sha256(sidecar).hexdigest(),
             'translation_sha256': {str(p.relative_to(translated)): hashlib.sha256(p.read_bytes()).hexdigest()
-                                   for p in sorted(translated.rglob('*')) if p.is_file()}}
+                                    for p in sorted(translated.rglob('*')) if p.is_file()}}
+
+
+def grass_fixture(root):
+    raw = bytearray(8016)
+    for offset, value in ((0, 19), (0xC, 20), (0x10, 0x4C), (0x1C, 3), (0x20, 1330),
+                          (0x24, 0x16C0), (0x28, 0x16B0), (0x2C, 16), (0x38, 44),
+                          (0x3C, 88), (0x40, 4), (0x44, 8), (0x48, 0x16C0)):
+        struct.pack_into('>I', raw, offset, value)
+    raw[0x30:0x33] = bytes([1, 1, 1])
+    for index, pair in enumerate(((0, 0), (0xED, 5404), (0x1608, 4), (0x160C, 8),
+                                   (0x1618, 8), (0x1620, 144), (0, 1330))):
+        struct.pack_into('>II', raw, 0x4C + index * 8, *pair)
+    raw[0xEC:0x1608] = bytes((i * 13 + 1) & 255 for i in range(5404))
+    struct.pack_into('>I', raw, 0x100, 0x48000001)
+    struct.pack_into('>4I', raw, 0x16B0, 19, 0x16C0, 0, 0x16D8)
+    for index, record in enumerate(((0, 202, 3, 0), (0, 1, 1, 96), (0, 203, 0, 0))):
+        struct.pack_into('>HBBI', raw, 0x16C0 + index * 8, *record)
+    for index, record in enumerate(((0, 202, 1, 0), (20, 10, 0, 0x80241178), (0, 203, 0, 0))):
+        struct.pack_into('>HBBI', raw, 0x16D8 + index * 8, *record)
+    (root / 'rels_bin/0019.rel').write_bytes(raw)
+    struct.pack_into('>I', raw, 0x40, 8)
+    (root / 'input/grass-disc.rel').write_bytes(raw)
+    fixture.write_rel_module(root / 'rels_out', 19, [(0xC08D00EC, 0xC08D1608)])
 
 
 def title_fixture(root):
@@ -203,6 +226,7 @@ class SelectedContracts(unittest.TestCase):
     def generate(self, extra_args=(), omit=()):
         root = self.root
         members = [(basename, path.read_bytes()) for basename, path in (
+            ('d_a_grass.rel', root / 'input/grass-disc.rel'),
             ('d_a_obj_ikada.rel', root / 'input/ikada-disc.rel'),
             ('d_a_obj_wood.rel', root / 'input/wood-disc.rel')) if path.exists()]
         disc = fixture.write_ship_disc(root, members)
@@ -226,11 +250,13 @@ class SelectedContracts(unittest.TestCase):
             '--ship-disc', str(disc), '--title-rel-sha256', self.manifest['modules']['400']['raw_sha256'],
             '--selected-rel-provenance', str(root / 'provenance.json'), '--output-dir', str(root / 'composite')]
         if (root / 'input/wood-disc.rel').exists():
-            item = self.manifest['modules'].get('84', {})
+            specs = {mid: {'raw_sha256': self.manifest['modules'].get(str(mid), {}).get('raw_sha256'),
+                           'processed_sha256': self.manifest['modules'].get(str(mid), {}).get('processed_rel_sha256')}
+                     for mid in (19, 84) if (root / f'input/{"grass" if mid == 19 else "wood"}-disc.rel').exists()}
             command[2:3] = ['-c', 'import sys; sys.path.insert(0, ' + repr(str(fixture.SCRIPTS_DIR)) + '); '
-                'import generate_composite as gc; s=gc.ship_contract.APPROVED_MODULES[84]; '
-                's.pop("stored_sha256"); s.update(' + repr({'raw_sha256': item.get('raw_sha256'),
-                'processed_sha256': item.get('processed_rel_sha256')}) + '); gc.main()']
+                'import generate_composite as gc; '
+                '[(gc.ship_contract.APPROVED_MODULES[mid].pop("stored_sha256"), '
+                'gc.ship_contract.APPROVED_MODULES[mid].update(pins)) for mid,pins in ' + repr(specs) + '.items()]; gc.main()']
         for flag in omit:
             index = command.index(flag)
             del command[index:index + 2]
@@ -738,7 +764,7 @@ class ActorBatchContracts(unittest.TestCase):
             self.contract(84)
 
     def test_unknown_or_empty_batch_does_not_fall_back_to_the_triple(self):
-        for name in ('', 'all', '84', 'opening-b'):
+        for name in ('', 'all', '84', 'opening-c'):
             with self.subTest(name=name):
                 result = self.generate(('--actor-rel-batch', name))
                 self.assertNotEqual(result.returncode, 0)
@@ -783,6 +809,139 @@ class ActorBatchContracts(unittest.TestCase):
             (self.root / 'complete.json').unlink()
             with self.assertRaises(FileNotFoundError):
                 sc.verify_batch_completion(path, 'fixture-next')
+
+
+class GrassBatchContracts(unittest.TestCase):
+    def setUp(self):
+        ActorBatchContracts.setUp(self)
+        grass_fixture(self.root)
+        item = capture_binding(self.root, 19, 'grass', 0xC08D00EC, 0xEC, b'GRASS19\0')
+        directory = self.root / 'grass-captures'
+        directory.mkdir()
+        (self.root / item['capture']).replace(directory / item['capture'])
+        item['capture'] = 'grass-captures/grass.ship-code-input'
+        self.manifest['modules']['19'] = item
+        (directory / 'complete.json').write_text(json.dumps({'version': 1, 'batch': 'opening-b',
+            'modules': [{'id': 19, 'capture': 'grass.ship-code-input', 'size': 5432}]}))
+        shutil.copy2(directory / 'grass.ship-code-input', self.root / 'grass.ship-code-input')
+
+    tearDown = SelectedContracts.tearDown
+    contract = SelectedContracts.contract
+
+    def generate(self, extra_args=(), omit=()):
+        return IkadaContracts.generate(self, ('--actor-rel-batch', 'opening-b', *extra_args), omit)
+
+    def test_cumulative_selection_exports_grass_and_every_prior_member(self):
+        result = self.generate()
+        self.assertEqual(result.returncode, 0, result.stderr)
+        output = self.root / 'composite'
+        selected = json.loads((output / 'generation_receipt.json').read_text())['selected_rel_contracts']
+        self.assertEqual(set(selected['contracts']), {'19', '60', '84', '168', '400'})
+        canonical = (self.root / 'grass.ship-code-input').read_bytes()
+        self.assertIn(f'0x{gc.fnv1a64(canonical[28:]):016X}ull', (output / 'module_tables.inc').read_text())
+
+    def test_unequal_ctor_dtor_tables_keep_their_independent_sizes(self):
+        _, fields, _ = self.contract(19)
+        self.assertEqual([(s['index'], s['size']) for s in fields['canonical_sections'] if s['index'] in (2, 3)],
+                         [(2, 4), (3, 8)])
+
+    def test_grass_layout_mutations_refuse(self):
+        for offset, value in ((0x20, 1338), (0x44, 4), (0x40, 4), (0x38, 48),
+                              (0x58, 5400), (0x60, 8), (0x68, 4), (0x80, 1328)):
+            with self.subTest(offset=offset):
+                path = self.root / 'input/grass-disc.rel'
+                original = path.read_bytes()
+                data = bytearray(original)
+                struct.pack_into('>I', data, offset, value)
+                path.write_bytes(data)
+                with self.assertRaises(ValueError):
+                    self.contract(19)
+                path.write_bytes(original)
+
+    def test_grass_capture_mutations_refuse(self):
+        path = self.root / 'grass.ship-code-input'
+        original = path.read_bytes()
+        for at in (0, 11, 15, 19, 23, 27, 48, len(original), -1):
+            with self.subTest(at=at):
+                data = bytearray(original)
+                if at == len(original): data.append(0)
+                elif at == -1: data.pop()
+                else: data[at] ^= 1
+                path.write_bytes(data)
+                with self.assertRaises(ValueError):
+                    self.contract(19)
+
+    def test_each_grass_provenance_binding_is_required(self):
+        original = json.dumps(self.manifest)
+        for field in ('missing', 'extra', 'raw_sha256', 'processed_rel_sha256', 'capture_sha256',
+                      'translation_sha256'):
+            with self.subTest(field=field):
+                self.manifest = json.loads(original)
+                if field == 'missing': del self.manifest['modules']['19']
+                elif field == 'extra': self.manifest['modules']['20'] = self.manifest['modules']['19']
+                elif field == 'translation_sha256': self.manifest['modules']['19'][field] = {}
+                else: self.manifest['modules']['19'][field] = '0' * 64
+                result = self.generate()
+                self.assertNotEqual(result.returncode, 0)
+                self.assertFalse((self.root / 'composite/generation_receipt.json').exists())
+
+    def test_grass_wave_requires_the_inherited_wood_completion(self):
+        (self.root / 'complete.json').unlink()
+        result = self.generate()
+        self.assertNotEqual(result.returncode, 0)
+        self.assertFalse((self.root / 'composite/generation_receipt.json').exists())
+
+    def test_grass_wave_rejects_duplicate_provenance(self):
+        result = self.generate()
+        self.assertEqual(result.returncode, 0, result.stderr)
+        path = self.root / 'provenance.json'
+        path.write_text(path.read_text().replace('"19":', '"19": {}, "19":', 1))
+        result = subprocess.run(result.args, capture_output=True, text=True)
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn('duplicate producer provenance key: 19', result.stderr)
+
+    def test_grass_dtor_target_must_still_be_owned_executable(self):
+        for suffix in ('rels_bin/0019.rel', 'input/grass-disc.rel'):
+            path = self.root / suffix
+            data = bytearray(path.read_bytes())
+            struct.pack_into('>I', data, 0x16CC, 5404)
+            path.write_bytes(data)
+        with self.assertRaises(ValueError):
+            self.contract(19)
+
+    def test_grass_dtor_table_requires_its_own_terminator(self):
+        for suffix in ('rels_bin/0019.rel', 'input/grass-disc.rel'):
+            path = self.root / suffix
+            data = bytearray(path.read_bytes())
+            struct.pack_into('>I', data, 0x1610, 1)
+            path.write_bytes(data)
+        with self.assertRaisesRegex(ValueError, 'dtors requires'):
+            self.contract(19)
+
+    def test_grass_successor_requires_the_actual_walker_call(self):
+        for suffix in ('rels_bin/0019.rel', 'input/grass-disc.rel'):
+            path = self.root / suffix
+            data = bytearray(path.read_bytes())
+            struct.pack_into('>I', data, 0x16E4, fixture.DOL_TEXT_ADDR)
+            path.write_bytes(data)
+        capture_binding(self.root, 19, 'grass', 0xC08D00EC, 0xEC, b'GRASS19\0')
+        with self.assertRaisesRegex(ValueError, 'constructor successor'):
+            self.contract(19)
+
+    def test_grass_capture_group_cannot_be_missing_or_misbound(self):
+        path = self.root / 'grass-captures/complete.json'
+        for data in ({}, {'version': 1, 'batch': 'opening-a', 'modules': []}):
+            with self.subTest(data=data):
+                path.write_text(json.dumps(data))
+                result = self.generate()
+                self.assertNotEqual(result.returncode, 0)
+                self.assertFalse((self.root / 'composite/generation_receipt.json').exists())
+
+    def test_grass_archive_member_must_be_unique(self):
+        raw = (self.root / 'input/grass-disc.rel').read_bytes()
+        disc = fixture.write_ship_disc(self.root, [('d_a_grass.rel', raw), ('nested/d_a_grass.rel', raw)])
+        with self.assertRaisesRegex(ValueError, 'exactly one disc archive member d_a_grass.rel'):
+            sc.read_disc_member(disc, 19)
 
 
 if __name__ == '__main__':

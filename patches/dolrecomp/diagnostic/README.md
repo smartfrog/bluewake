@@ -14,15 +14,19 @@ In an owned source copy of DolRecomp `b8b534591cba8ca7cd43943a655ee6e2591cf5de`:
    fresh absolute private directory outside the generated-output tree. Emit the
    **entire unchanged REL directory**, with `--rel-base 0xC0400000 -j 1`.
 
-The compiled `opening-a` delta is **84 only**. The review ceiling is eight new
+The compiled `opening-b` delta is **19 (grass) only**. The review ceiling is eight new
 modules; it is not a runtime selector. Every reviewed ID must occur exactly
 once before emission. Captures publish exclusively after all emission succeeds;
 `complete.json` publishes last. A failed or incomplete batch is not consumable.
 Legacy and batch capture controls cannot be combined. No capture is made for an
 unselected module.
 
-The generator's immutable `--actor-rel-batch opening-a` selection is
-`{60,84,168,400}` and requires explicit existing provenance/title/ikada inputs.
+The generator's immutable `--actor-rel-batch opening-b` selection is
+`{19,60,84,168,400}` and requires explicit existing provenance/title/ikada inputs.
+The earlier `opening-a` selection `{60,84,168,400}` remains reproducible with its
+original capture group. Grass has 1,330 bytes of BSS aligned to 8 and independent
+4/8-byte ctor/dtor tables; its SDK policy is `OWNER_PUBLISHED`. Wood retains
+`CERTIFIED_INLINE_ZERO`. No destructor execution is authorized.
 Captures, generated code, manifests containing private paths, and composites
 stay private. Acquisition and registration do not authorize execution: the
 default-OFF host option separately checks source-owned exact identities. This

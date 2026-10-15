@@ -10,29 +10,40 @@ SHIP_LIFECYCLE = (0xC1B100F4, 0xC1B10120, 0xC1B1014C)
 SHIP_TABLES = ((2, 0xC1B1DAF0), (3, 0xC1B1DAF8))
 SELECTED_MODULES = (168, 400)
 IKADA_SELECTED_MODULES = (60, 168, 400)
-ACTOR_BATCHES = {'opening-a': (60, 84, 168, 400)}
-ACTOR_CAPTURE_GROUPS = {'opening-a': (84,)}
+ACTOR_BATCHES = {'opening-a': (60, 84, 168, 400), 'opening-b': (19, 60, 84, 168, 400)}
+ACTOR_CAPTURE_GROUPS = {'opening-a': (84,), 'opening-b': (19,)}
 APPROVED_MODULES = {
+    19: {'name': 'grass', 'basename': 'd_a_grass.rel', 'capture_group': 'opening-b',
+         'exec': (1, 0xEC, 0xC08D00EC, 5404),
+         'lifecycle': (0xC08D00EC, 0xC08D0118, 0xC08D0144),
+         'tables': ((2, 0xC08D1608), (3, 0xC08D160C)), 'table_sizes': (4, 8),
+         'ctor_return_pc': 0xC08D0104, 'magic': b'GRASS19\0',
+         'section_count': 20, 'raw_size': 8016, 'bss_alignment': 8,
+         'section_layout': ((1, 0xEC, 5404), (2, 0x1608, 4), (3, 0x160C, 8),
+                            (4, 0x1618, 8), (5, 0x1620, 144), (6, 0, 1330)),
+         'raw_sha256': '12d61ff3ce0caec4435e295d78f3f61312e39ed68264129a5e4724b5019d0c6b',
+         'processed_sha256': '3d56f6a9c01db115ecffde892f333e8955afe9b838a79c2dac0b1ecb0b20d18c',
+         'stored_sha256': '8bc00a6726773d76f292b3edeb01d4ce118df66735d0068a19470909eda3a971'},
     60: {'name': 'ikada', 'exec': (1, 244, 0xC15500F4, 22620),
          'lifecycle': (0xC15500F4, 0xC1550120, 0xC155014C),
-         'tables': ((2, 0xC1555950), (3, 0xC1555958)), 'table_size': 8,
+         'tables': ((2, 0xC1555950), (3, 0xC1555958)), 'table_sizes': (8, 8),
          'ctor_return_pc': 0xC155010C, 'magic': b'IKADA60\0',
          'section_count': 21, 'bss': (6, 0xC15581A0, 532), 'basename': 'd_a_obj_ikada.rel'},
     84: {'name': 'wood', 'basename': 'd_a_obj_wood.rel', 'capture_group': 'opening-a',
          'exec': (1, 0xD4, 0xC19A00D4, 1164),
          'lifecycle': (0xC19A00D4, 0xC19A0100, 0xC19A012C),
-         'tables': ((2, 0xC19A0560), (3, 0xC19A0564)), 'table_size': 4,
+         'tables': ((2, 0xC19A0560), (3, 0xC19A0564)), 'table_sizes': (4, 4),
          'ctor_return_pc': 0xC19A00EC, 'magic': b'WOOD84\0\0',
          'section_count': 17, 'raw_size': 2596,
          'raw_sha256': '93b9977b0a8eb519e9b4e17f811b9c271b41762e3adbe8857b410099b74bffc3',
          'processed_sha256': 'a3d4442e2a35a405339670f9102cb83775823cf422a9c2d8e74a7fcf5442e70c',
          'stored_sha256': '5cad58ee92ae0e40f3ad30c371377a39f58f1b744356930a074777f7078b9a39'},
     168: {'name': 'ship', 'exec': SHIP_EXEC, 'lifecycle': SHIP_LIFECYCLE,
-          'tables': SHIP_TABLES, 'table_size': 8, 'ctor_return_pc': 0xC1B1010C,
+          'tables': SHIP_TABLES, 'table_sizes': (8, 8), 'ctor_return_pc': 0xC1B1010C,
           'magic': b'SHIP168\0', 'basename': 'd_a_ship.rel'},
     400: {'name': 'title', 'exec': (1, 220, 0xC1E000DC, 7756),
           'lifecycle': (0xC1E000DC, 0xC1E00108, 0xC1E00134),
-          'tables': ((2, 0xC1E01F28), (3, 0xC1E01F2C)), 'table_size': 4,
+          'tables': ((2, 0xC1E01F28), (3, 0xC1E01F2C)), 'table_sizes': (4, 4),
           'ctor_return_pc': 0xC1E000F4, 'magic': b'TITLE400'},
 }
 
@@ -99,6 +110,14 @@ def verify_layout(raw, sections, chunks, module_id=168):
     bss_size = sum(section['size'] for section in sections if not section['offset'])
     if bss_size != struct.unpack_from('>I', raw, 0x20)[0]:
         raise ValueError(f'{name} contract BSS size differs from its raw header')
+    if 'section_layout' in spec:
+        layout = tuple((s['index'], s['offset'], s['size']) for s in sections if s['size'])
+        if (len(raw) != spec['raw_size'] or count != spec['section_count'] or
+                struct.unpack_from('>I', raw, 0x44)[0] != spec['bss_alignment'] or
+                layout != spec['section_layout'] or
+                any(not s['size'] and (s['offset'] or s['executable']) for s in sections) or
+                any(s['executable'] for s in sections if s['index'] != spec['exec'][0])):
+            raise ValueError(f'{name} contract approved section/BSS layout mismatch')
     if module_id == 60:
         backed = [section['index'] for section in sections if section['size'] and section['offset']]
         bss = [(section['index'], section['linked_start'], section['size'])
@@ -123,9 +142,9 @@ def verify_layout(raw, sections, chunks, module_id=168):
         if (section != executable_layout[0] or offset & 3 or offset + 4 > sections[section]['size'] or
                 sections[section]['linked_start'] + offset != expected):
             raise ValueError(f'{name} contract {entry_name} address mismatch')
-    for (index, expected), table_name in zip(spec['tables'], ('ctors', 'dtors')):
+    for (index, expected), table_size, table_name in zip(spec['tables'], spec['table_sizes'], ('ctors', 'dtors')):
         section = sections[index]
-        if (section['executable'] or section['size'] != spec['table_size'] or not section['offset'] or
+        if (section['executable'] or section['size'] != table_size or not section['offset'] or
                 section['linked_start'] != expected or
                 section['offset'] != expected - (executable_layout[2] - executable_layout[1])):
             raise ValueError(f'{name} contract {table_name} address/size mismatch')
@@ -229,7 +248,7 @@ def normal_contract(raw_dol, processed_rel, sections, chunks, dol_ranges, identi
     identity_alignment = struct.unpack_from('>I', identity_rel, 0x40)[0]
     if processed_alignment != 4 or not identity_alignment or identity_alignment & (identity_alignment - 1):
         raise ValueError(f'{module_name} contract requires processed alignment 4 and a valid disc alignment')
-    if module_id in (60, 84) and identity_alignment != 8:
+    if module_id in (19, 60, 84) and identity_alignment != 8:
         raise ValueError(f'{module_name} contract requires original disc alignment 8')
     if not 0 < len(raw_dol) <= 0x800000:
         raise ValueError(f'{module_name} contract requires a bounded full raw DOL')
@@ -253,8 +272,8 @@ def normal_contract(raw_dol, processed_rel, sections, chunks, dol_ranges, identi
         if section['size'] and section['offset'] and not section['executable']:
             if canonical[section['index']] != section['bytes']:
                 raise ValueError(f'{module_name} contract canonical data differs from normal relocated exports')
-    for (index, _), name in zip(spec['tables'], ('ctors', 'dtors')):
-        values = struct.unpack('>' + 'I' * (spec['table_size'] // 4), canonical[index])
+    for (index, _), table_size, name in zip(spec['tables'], spec['table_sizes'], ('ctors', 'dtors')):
+        values = struct.unpack('>' + 'I' * (table_size // 4), canonical[index])
         if values[-1] or any(target & 3 or not executable[2] <= target < executable[2] + executable[3]
                              for target in values[:-1]):
             raise ValueError(f'{module_name} contract {name} requires an owned executable target and terminator')

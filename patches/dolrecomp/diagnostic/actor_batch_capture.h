@@ -133,7 +133,7 @@ static int actor_batch_publish(ActorCapture* entries, u32 count, const char* dir
         goto done;
     }
     manifest_owned = 1;
-    int written = fprintf(stream, "{\"version\":1,\"batch\":\"opening-a\",\"modules\":[") >= 0;
+    int written = fprintf(stream, "{\"version\":1,\"batch\":\"opening-b\",\"modules\":[") >= 0;
     for (u32 i = 0u; i < count; ++i)
         if (fprintf(stream, "%s{\"id\":%u,\"capture\":\"%s\",\"size\":%zu}",
                     i ? "," : "", entries[i].capture.module_id, entries[i].basename,
