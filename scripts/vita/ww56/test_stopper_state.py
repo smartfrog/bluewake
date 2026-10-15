@@ -11,7 +11,7 @@ from stopper_state import Memory, capture_vita, reverse_entries
 
 
 @unittest.skipUnless(platform.system() == 'Linux', 'Linux process memory capture')
-class VitaStateTests(unittest.TestCase):
+class VitaStateFixture(unittest.TestCase):
     def setUp(self):
         self.directory = tempfile.TemporaryDirectory(
             prefix='ww123-state-', dir='/tmp/opencode' if Path('/tmp/opencode').is_dir() else None)
@@ -56,6 +56,8 @@ class VitaStateTests(unittest.TestCase):
         data = struct.pack(fmt, *values)
         ctypes.memmove(address, data, len(data))
 
+
+class VitaStateTests(VitaStateFixture):
     def test_captures_guest_state_forward_reverse_maps_and_direct_rsb(self):
         result = capture_vita(self.memory, self.regs, self.code + 4)
         self.assertEqual(result['guest_regs'][15], 0x93f0d238)
