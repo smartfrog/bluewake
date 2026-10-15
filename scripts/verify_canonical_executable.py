@@ -123,7 +123,7 @@ def relocate(raw, sections, module_id, dol_text):
     return {index: bytes(image) for index, image in images.items()}, sorted(external)
 
 
-def block(text, ctype, name):
+def block(text, ctype, name, array=True):
     text = re.sub(r'//[^\n]*', '', text)
     for line in text.splitlines():
         if line.lstrip().startswith('#'):
@@ -133,10 +133,19 @@ def block(text, ctype, name):
                                 r'CHUNK_RANGE_COUNT) [0-9]+u?', line) is not None,
                     'unsupported preprocessor directive')
     require('/*' not in text, 'block commented C unsupported')
+    suffix = r'\[\]' if array else ''
     matches = re.findall(r'^static const ' + re.escape(ctype) + r'\s+' + re.escape(name) +
-                         r'\[\]\s*=\s*\{(.*?)\n?\};', text, re.S | re.M)
+                         suffix + r'\s*=\s*\{(.*?)\n?\};', text, re.S | re.M)
     require(len(matches) == 1, f'missing/duplicate C table {name}')
     return matches[0]
+
+
+def literal_definition(text, name):
+    text = re.sub(r'//[^\n]*', '', text)
+    values = re.findall(r'^#define ' + re.escape(name) + r' ([0-9]+)u?$', text, re.M)
+    require(len(values) == 1, f'missing/duplicate literal definition {name}')
+    require(re.fullmatch(r'0|[1-9][0-9]*', values[0]) is not None, f'noncanonical literal definition {name}')
+    return int(values[0])
 
 
 def rows(body, pattern):
@@ -185,10 +194,21 @@ def bind(row, expected, capture, data_text, table_text):
     require(len(associations) == 1 and associations[0][2:4] ==
             (prefix + '_raw_rel', prefix + '_canonical') and
             int(associations[0][4], 0) == len(descriptors), 'module canonical association mismatch')
+    require(literal_definition(data_text, 'MODULE_REL_INIT_CONTRACTS_PRESENT') == 1,
+            'invalid contract presence marker')
+    contract_set = block(data_text, 'BlueWakeRelInitContractSetV1', 's_rel_init_contract_set', array=False)
+    exported = re.fullmatch(r'\s*' + NUM + r',\s*' + NUM + r',\s*(\w+),\s*(\w+),\s*' +
+                            NUM + r',\s*"[^"\n]+"\s*', contract_set)
+    require(exported is not None, 'unsupported exported contract set syntax')
+    version, dol_size, dol_array, contract_array, count = exported.groups()
+    require(int(version, 0) == 1 and int(dol_size, 0) > 0 and dol_array == 's_ship_raw_dol' and
+            contract_array == 's_rel_init_contracts' and int(count, 0) == len(contracts),
+            'exported contract set association/count mismatch')
     ranges = [numbers(pair) for pair in rows(block(table_text, 'StaticRecompRange', 's_chunk_ranges'),
               r'\{\s*' + NUM + r'\s*,\s*' + NUM + r'\s*\},\s*')]
     hashes = rows(block(table_text, 'u64', 's_chunk_hashes'), r'\s*0x([0-9A-Fa-f]+)ull,\s*')
-    require(len(ranges) == len(hashes), 'runtime range/hash count')
+    require(literal_definition(table_text, 'MODULE_CHUNK_RANGE_COUNT') == len(ranges) == len(hashes),
+            'exported chunk count differs from runtime range/hash array lengths')
     frozen = [tuple(pair) for pair in row['translation']['chunk_ranges']]
     cursor = section['linked_start']
     chunks = []

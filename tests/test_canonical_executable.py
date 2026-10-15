@@ -152,13 +152,18 @@ static const BlueWakeRelData s_sample_canonical[] = {
 };
 static const BlueWakeRelInitContractV1 s_rel_init_contracts[] = {
 {7u,208u,s_sample_raw_rel,s_sample_canonical,1u,2u,0u,0xC0000098u,&s_rel_lifecycle_v2[0],"pin"},
+};
+#define MODULE_REL_INIT_CONTRACTS_PRESENT 1
+static const BlueWakeRelInitContractSetV1 s_rel_init_contract_set = {
+1u,264u,s_ship_raw_dol,s_rel_init_contracts,1u,"set-pin"
 };'''
         self.tables = '''static const StaticRecompRange s_chunk_ranges[] = {
 {0xC0000080u, 0xC0000084u},
 };
 static const u64 s_chunk_hashes[] = {
 0x401EFFAAB252C94Aull,
-};'''
+};
+#define MODULE_CHUNK_RANGE_COUNT 1u'''
 
     def check(self):
         return oracle.bind(self.row, self.expected, self.capture, self.data, self.tables)
@@ -252,8 +257,125 @@ static const u64 s_chunk_hashes[] = {
         self.assertIn('BLOCKED', oracle.coverage_status()['status'])
 
     def test_emitted_literal_count_defines_are_admitted(self):
-        self.tables = '#define MODULE_CHUNK_RANGE_COUNT 1u\n' + self.tables
         self.assertEqual(self.check()['chunks'][0]['fnv1a64'], '401EFFAAB252C94A')
+
+    def test_zero_exported_chunk_count(self):
+        self.tables = self.tables.replace('MODULE_CHUNK_RANGE_COUNT 1u', 'MODULE_CHUNK_RANGE_COUNT 0u')
+        with self.assertRaisesRegex(ValueError, 'exported chunk count'):
+            self.check()
+
+    def test_truncated_exported_chunk_count(self):
+        self.tables = self.tables.replace('{0xC0000080u, 0xC0000084u},',
+                                          '{0x80003100u, 0x80003104u},\n{0xC0000080u, 0xC0000084u},')
+        self.tables = self.tables.replace('0x401EFFAAB252C94Aull,',
+                                          '0x0000000000000000ull,\n0x401EFFAAB252C94Aull,')
+        with self.assertRaisesRegex(ValueError, 'exported chunk count'):
+            self.check()
+
+    def test_excessive_exported_chunk_count(self):
+        self.tables = self.tables.replace('MODULE_CHUNK_RANGE_COUNT 1u', 'MODULE_CHUNK_RANGE_COUNT 2u')
+        with self.assertRaisesRegex(ValueError, 'exported chunk count'):
+            self.check()
+
+    def test_missing_exported_chunk_count(self):
+        self.tables = self.tables.replace('#define MODULE_CHUNK_RANGE_COUNT 1u', '')
+        with self.assertRaisesRegex(ValueError, 'MODULE_CHUNK_RANGE_COUNT'):
+            self.check()
+
+    def test_duplicate_exported_chunk_count(self):
+        self.tables += '\n#define MODULE_CHUNK_RANGE_COUNT 1u\n'
+        with self.assertRaisesRegex(ValueError, 'MODULE_CHUNK_RANGE_COUNT'):
+            self.check()
+
+    def test_nonliteral_exported_chunk_count(self):
+        self.tables = self.tables.replace('MODULE_CHUNK_RANGE_COUNT 1u', 'MODULE_CHUNK_RANGE_COUNT (1u)')
+        with self.assertRaisesRegex(ValueError, 'preprocessor'):
+            self.check()
+
+    def test_noncanonical_exported_chunk_count(self):
+        self.tables = self.tables.replace('MODULE_CHUNK_RANGE_COUNT 1u', 'MODULE_CHUNK_RANGE_COUNT 01u')
+        with self.assertRaisesRegex(ValueError, 'literal definition'):
+            self.check()
+
+    def test_duplicate_noncanonical_exported_chunk_count(self):
+        self.tables += '\n#define MODULE_CHUNK_RANGE_COUNT 01u\n'
+        with self.assertRaisesRegex(ValueError, 'literal definition'):
+            self.check()
+
+    def test_full_exported_chunk_count(self):
+        self.tables = self.tables.replace('{0xC0000080u, 0xC0000084u},',
+                                          '{0x80003100u, 0x80003104u},\n{0xC0000080u, 0xC0000084u},')
+        self.tables = self.tables.replace('0x401EFFAAB252C94Aull,',
+                                          '0x0000000000000000ull,\n0x401EFFAAB252C94Aull,')
+        self.tables = self.tables.replace('MODULE_CHUNK_RANGE_COUNT 1u', 'MODULE_CHUNK_RANGE_COUNT 2u')
+        self.assertEqual(self.check()['chunks'][0]['fnv1a64'], '401EFFAAB252C94A')
+
+    def test_wrong_exported_contract_array(self):
+        self.data = self.data.replace('s_ship_raw_dol,s_rel_init_contracts,1u,',
+                                      's_ship_raw_dol,wrong,1u,')
+        with self.assertRaisesRegex(ValueError, 'exported contract set'):
+            self.check()
+
+    def test_truncated_exported_contract_count(self):
+        self.data = self.data.replace('static const BlueWakeRelInitContractV1 s_rel_init_contracts[] = {',
+                    'static const BlueWakeRelInitContractV1 s_rel_init_contracts[] = {\n'
+                    '{6u,208u,s_other_raw_rel,s_other_canonical,1u,2u,0u,0xC0000098u,'
+                    '&s_rel_lifecycle_v2[1],"other-pin"},')
+        with self.assertRaisesRegex(ValueError, 'exported contract set'):
+            self.check()
+
+    def test_excessive_exported_contract_count(self):
+        self.data = self.data.replace('s_ship_raw_dol,s_rel_init_contracts,1u,',
+                                      's_ship_raw_dol,s_rel_init_contracts,2u,')
+        with self.assertRaisesRegex(ValueError, 'exported contract set'):
+            self.check()
+
+    def test_full_exported_contract_count(self):
+        self.data = self.data.replace('static const BlueWakeRelInitContractV1 s_rel_init_contracts[] = {',
+                    'static const BlueWakeRelInitContractV1 s_rel_init_contracts[] = {\n'
+                    '{6u,208u,s_other_raw_rel,s_other_canonical,1u,2u,0u,0xC0000098u,'
+                    '&s_rel_lifecycle_v2[1],"other-pin"},')
+        self.data = self.data.replace('s_ship_raw_dol,s_rel_init_contracts,1u,',
+                                      's_ship_raw_dol,s_rel_init_contracts,2u,')
+        self.assertEqual(self.check()['chunks'][0]['fnv1a64'], '401EFFAAB252C94A')
+
+    def test_nonliteral_exported_contract_set(self):
+        self.data = self.data.replace('s_ship_raw_dol,s_rel_init_contracts,1u,',
+                                      's_ship_raw_dol,s_rel_init_contracts,(1u),')
+        with self.assertRaisesRegex(ValueError, 'contract set syntax'):
+            self.check()
+
+    def test_zero_exported_contract_count(self):
+        self.data = self.data.replace('s_ship_raw_dol,s_rel_init_contracts,1u,',
+                                      's_ship_raw_dol,s_rel_init_contracts,0u,')
+        with self.assertRaisesRegex(ValueError, 'exported contract set'):
+            self.check()
+
+    def test_missing_contract_set(self):
+        self.data = self.data[:self.data.index('static const BlueWakeRelInitContractSetV1')]
+        with self.assertRaisesRegex(ValueError, 's_rel_init_contract_set'):
+            self.check()
+
+    def test_missing_contract_presence_marker(self):
+        self.data = self.data.replace('#define MODULE_REL_INIT_CONTRACTS_PRESENT 1', '')
+        with self.assertRaisesRegex(ValueError, 'MODULE_REL_INIT_CONTRACTS_PRESENT'):
+            self.check()
+
+    def test_duplicate_contract_presence_marker(self):
+        self.data += '\n#define MODULE_REL_INIT_CONTRACTS_PRESENT 1\n'
+        with self.assertRaisesRegex(ValueError, 'MODULE_REL_INIT_CONTRACTS_PRESENT'):
+            self.check()
+
+    def test_invalid_contract_presence_marker(self):
+        self.data = self.data.replace('MODULE_REL_INIT_CONTRACTS_PRESENT 1',
+                                      'MODULE_REL_INIT_CONTRACTS_PRESENT 0')
+        with self.assertRaisesRegex(ValueError, 'presence marker'):
+            self.check()
+
+    def test_duplicate_contract_set(self):
+        self.data += '\n' + self.data[self.data.index('static const BlueWakeRelInitContractSetV1'):]
+        with self.assertRaisesRegex(ValueError, 's_rel_init_contract_set'):
+            self.check()
 
     def test_conditional_c_is_refused(self):
         self.data = '#if 0\n' + self.data + '\n#endif\n'
