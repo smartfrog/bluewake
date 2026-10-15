@@ -38,6 +38,7 @@ class NativeCaptureTests(VitaStateFixture):
         self.short_size = None
         self.short_attempts = None
         self.short_reads = []
+        self.short_return = None
         self.read_error = None
 
     def tearDown(self):
@@ -59,7 +60,8 @@ class NativeCaptureTests(VitaStateFixture):
                 self.short_attempts -= 1
             if self.read_error is not None:
                 raise self.read_error
-            return self.original_pread(fd, min(size // 2, 32), address)
+            length = self.short_return if self.short_return is not None else min(size // 2, 32)
+            return self.original_pread(fd, length, address)
         return self.original_pread(fd, size, address)
 
     def capture(self):
@@ -77,6 +79,7 @@ class NativeCaptureTests(VitaStateFixture):
         partial = self.receipt['partial_windows'][0]
         self.assertEqual(partial['tid'], self.other_tid)
         self.assertEqual(partial['status'], 'partial')
+        self.assertEqual(partial['cause'], 'boundary-bounded short read')
         self.assertEqual(partial['attempts'], 2)
         self.assertEqual(partial['size'], 32)
         self.assertGreater(partial['expected_size'], 32)
@@ -116,8 +119,44 @@ class NativeCaptureTests(VitaStateFixture):
         self.assertFalse(any(address == self.other_sp for address, _ in self.reads))
         self.assertEqual(len(self.short_reads), 1)
 
-    def test_faulting_thread_short_stack_read_remains_an_error(self):
-        self.expect_decisive_short_read_error(self.run_sp)
+    def test_faulting_thread_guard_short_stack_read_keeps_prefix_and_continues(self):
+        self.guard_stack = ctypes.create_string_buffer(0x20000)
+        self.fault_regs['sp'] = ctypes.addressof(self.guard_stack)
+        self.short_address, self.short_size, self.short_return = self.fault_regs['sp'], 65536, 0x5E40
+        self.capture()
+        self.assertTrue(self.receipt['decisive_capture_complete'])
+        self.assertTrue(self.receipt['capture_partial'])
+        window = self.receipt['threads'][0]['stack_window']
+        self.assertEqual(window['status'], 'partial')
+        self.assertEqual(window['expected_size'], 65536)
+        self.assertEqual(window['size'], 0x5E40)
+        self.assertEqual(window['attempts'], 1)
+        self.assertEqual(window['cause'], 'boundary-bounded short read')
+        self.assertIn('short process memory read', window['errors'][0])
+        self.assertEqual((self.out / window['file']).stat().st_size, 0x5E40)
+        partial = self.receipt['partial_windows'][0]
+        self.assertEqual((partial['tid'], partial['cause']), (self.fault_tid, 'boundary-bounded short read'))
+        self.assertIn((self.fault_regs['sp'], 65536), self.reads)
+        for name in ('native-load-code.bin', 'a32-jit-state.bin', 'forward-block-map-buckets.bin'):
+            self.assertTrue((self.out / name).is_file())
+        self.assertIn('rsb_candidate', self.receipt['vita'])
+
+    def test_faulting_thread_stack_eio_remains_fatal(self):
+        self.short_address = self.run_sp
+        self.read_error = OSError(errno.EIO, 'synthetic guard read failure')
+        with self.assertRaisesRegex(OSError, 'synthetic guard read failure') as caught:
+            self.capture()
+        self.receipt['fixture_expected_error'] = str(caught.exception)
+        self.assertFalse(self.receipt['decisive_capture_complete'])
+        self.assertEqual(self.receipt['partial_windows'], [])
+
+    def test_faulting_thread_unmapped_stack_start_remains_fatal(self):
+        self.fault_regs['sp'] = 0
+        with self.assertRaisesRegex(ValueError, 'unreadable capture start') as caught:
+            self.capture()
+        self.receipt['fixture_expected_error'] = str(caught.exception)
+        self.assertFalse(self.receipt['decisive_capture_complete'])
+        self.assertEqual(self.receipt['partial_windows'], [])
 
     def test_jit_state_short_read_remains_an_error(self):
         self.expect_decisive_short_read_error(self.state)

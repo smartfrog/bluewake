@@ -159,10 +159,21 @@ is recorded in `partial_backtraces`.
 Such failures print `STOPPER WARNING`, set `capture_partial=true`, and continue
 through remaining threads and the existing eu-stack/detach flow. The outcome
 can be `captured` with decisive data complete and non-decisive windows partial.
-Faulting-thread, JIT, block-map, Run/RSB and decisive code reads remain strict:
-failure raises an error and keeps `decisive_capture_complete=false`. Global
-memory/time bounds and dump-write failures are never downgraded to warnings.
-Trigger, ptrace, stop/detach, byte limits and successful capture bytes are unchanged.
+JIT, block-map, Run/RSB and decisive direct reads remain strict: failure raises
+an error and keeps `decisive_capture_complete=false`. Global memory/time bounds
+and dump-write failures are never downgraded to warnings. Trigger, ptrace,
+stop/detach, byte limits and successful capture bytes are unchanged.
+
+A short read bounded by an inaccessible page inside the window's own VMA is a
+legitimate partial, not an error (WW132). On this host the kernel installs
+thread-stack guards with the VM_GUARD flag without splitting the VMA, so
+adjacent stacks merge into one `rw-p` mapping and `/proc/pid/mem` stops a stack
+read at the next stack's guard (WW131: expected 65536, got 24128). The readable
+prefix is now kept, the window is marked `partial` with
+`cause='boundary-bounded short read'`, and the capture continues, including
+the faulting thread's stack window. The kernel stops such a read at the guard,
+so the prefix never crosses into the adjacent stack. EIO at the window start,
+an unmapped start and every direct decisive structure read stay fatal.
 
 - `receipt.json`: PID/starttime/exe/hash, trigger/hit TID, actual invalid
   address, exact native load PC (default) or callback return PC (fallback),

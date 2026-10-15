@@ -87,12 +87,20 @@ class Memory:
             try:
                 data = self.read(address, expected)
                 break
-            except (ShortReadError, OSError) as error:
+            except ShortReadError as error:
+                if error.data:
+                    result['cause'] = 'boundary-bounded short read'
+                    if len(error.data) > len(data):
+                        data = error.data
+                elif not allow_partial:
+                    raise
+                result['errors'].append(str(error))
+                if not allow_partial:
+                    break
+            except OSError as error:
                 if not allow_partial:
                     raise
                 result['errors'].append(str(error))
-                if isinstance(error, ShortReadError) and len(error.data) > len(data):
-                    data = error.data
         result.update(size=len(data), status='complete' if len(data) == expected else 'partial')
         if data or result['status'] == 'complete':
             result['file'] = name + '.bin'
