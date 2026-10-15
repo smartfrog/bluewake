@@ -15,6 +15,15 @@ from pathlib import Path
 
 SPEC_SHA256 = 'c89b1585a9e3e6ad7b3fa90e71caf8b692ab6be03f4a730e73d81353557736f3'
 DELIVERY = 'd08dbc8d1b8242d501a4d7599748ed08a1c6285e'
+COVERAGE_MANIFEST_SHA256 = 'a1e96bc3ffbf0d356b76e2e4fe638943334390e9074638b6945071c5418a5a51'
+COVERAGE_SOURCE = Path('/home/fred/projects/zeldaWWHDRecomp')
+COVERAGE_SOURCE_HEAD = '23a8f348ec6c9ef4ab22fb69f2df4e412ffc9d10'
+COVERAGE_CLAIM = 'Audited historical identity + structural derived coverage only'
+COVERAGE_TAGGED_SCOPE = 'C0000000 <= address < C0400000; clear 40000000; set ctx->pc; call_original after replacement/host hooks'
+
+
+class UnqualifiedCoverage(ValueError):
+    pass
 
 
 def require(condition, message):
@@ -252,10 +261,166 @@ def verify_receipts(row, binding, chunks, contract):
 
 def coverage_status():
     return dict(status='BLOCKED-incomplete', reason=(
-        'No independently reviewed pinned DOL translated inventory provenance is admitted. '
+        'No admitted DOL historical/structural coverage supplement was supplied. '
         'DOL text containment and current generated.h identity are not translated coverage proof. '
         'External REL24 targets and constructor walker require that evidence. '
         'Contract activation and independent method/code review remain pending.'))
+
+
+def pinned_file(path, pin):
+    data = path.read_bytes()
+    require(len(data) == pin['size'] and sha(data) == pin['sha256'], f'pinned file identity mismatch: {path}')
+    return data
+
+
+def check_coverage_source():
+    command = ['git', '-C', str(COVERAGE_SOURCE)]
+    require(subprocess.check_output(command + ['rev-parse', 'HEAD'], text=True).strip() ==
+            COVERAGE_SOURCE_HEAD, 'coverage SOURCE revision mismatch')
+    require(not subprocess.check_output(command + ['status', '--porcelain=v1'], text=True),
+            'coverage SOURCE tree not clean')
+
+
+def coverage_address(address):
+    require(address % 4 == 0, 'coverage target alignment')
+    if 0x80000000 <= address < 0x80400000:
+        return address
+    require(0xC0000000 <= address < 0xC0400000, 'address outside qualified alias scope')
+    return address - 0x40000000
+
+
+def coverage_dependency(directory, row, external, walker, dol, composite):
+    if directory is None:
+        return coverage_status()
+    import ship_contract
+
+    def decode(data):
+        return json.loads(data, object_pairs_hook=ship_contract.unique_json_object)
+
+    manifest_bytes = (directory / 'manifest.json').read_bytes()
+    if sha(manifest_bytes) != COVERAGE_MANIFEST_SHA256:
+        raise UnqualifiedCoverage('unadmitted coverage manifest identity')
+    manifest = decode(manifest_bytes)
+    require(manifest['schema'] == 'ww149b-dol-coverage-manifest-v1', 'coverage manifest schema')
+    check_coverage_source()
+    inputs = manifest['inputs']
+    for name, pin in inputs.items():
+        require(Path(name).is_absolute(), 'coverage input path must be absolute')
+        pinned_file(Path(name), pin)
+    outputs = manifest['scripts_and_outputs']
+    require(set(outputs) == {'inventory.py', 'test_inventory.py', 'REPORT.md', 'test-results.txt',
+                             'inventory.json', 'inputs.json'}, 'coverage dependency set mismatch')
+    checked = {name: pinned_file(directory / name, pin) for name, pin in outputs.items()}
+    require(decode(checked['inputs.json']) == inputs, 'coverage input inventory mismatch')
+    inventory = decode(checked['inventory.json'])
+    require(inventory['schema'] == 'ww149b-dol-coverage-supplement-v1' and
+            inventory['source_head'] == COVERAGE_SOURCE_HEAD and inventory['claim'] == COVERAGE_CLAIM and
+            inventory['partition_instruction_limit'] == 4096 and
+            inventory['aliases']['tagged_fallback'] == COVERAGE_TAGGED_SCOPE and
+            inventory['target_census']['canonical_replay_qualified'] is False and
+            inventory['target_census']['uncovered'] == 0, 'coverage admission scope mismatch')
+    spec_pins = [pin for name, pin in inputs.items() if Path(name).name == 'spec-table.json']
+    require(len(spec_pins) == 1 and spec_pins[0]['sha256'] == SPEC_SHA256, 'coverage spec identity')
+    dol_pins = [pin for name, pin in inputs.items() if name.endswith('/private/main.dol')]
+    require(len(dol_pins) == 1 and dol_pins[0] == {'sha256': sha(dol), 'size': len(dol)},
+            'coverage DOL identity mismatch')
+    sections = []
+    expected_chunks = []
+    dol_text = dol_text_sections(dol)
+    for index in range(7):
+        size = u32(dol, 0x90 + index * 4)
+        if not size:
+            continue
+        start = u32(dol, 0x48 + index * 4)
+        sections.append(dict(index=index, file_offset=u32(dol, index * 4),
+                             start=f'{start:08X}', end_exclusive=f'{start + size:08X}'))
+        for chunk_start in range(start, start + size, 4096 * 4):
+            expected_chunks.append((f'chunk_{len(expected_chunks):04d}_text{index}_{chunk_start:08X}.c',
+                                    chunk_start, min(chunk_start + 4096 * 4, start + size)))
+    require(inventory['text_sections'] == sections, 'coverage DOL text section mismatch')
+    chunks = inventory['chunks']
+    require(len(chunks) == len(expected_chunks), 'coverage derived partition count')
+    by_name = {}
+    for chunk, (name, start, end) in zip(chunks, expected_chunks):
+        slots = (end - start) // 4
+        require((chunk['basename'], chunk['start'], chunk['end_exclusive'], chunk['function']) ==
+                (name, f'{start:08X}', f'{end:08X}', f'func_{start:08X}') and
+                chunk['slots'] == chunk['labels'] == slots and
+                chunk['ordered_slots_sha256'] == sha(''.join(f'{pc:08X}\n' for pc in range(start, end, 4)).encode()),
+                'coverage chunk association mismatch')
+        by_name[name] = (start, end)
+    digest = sha(''.join(f'{chunk["sha256"]} {chunk["basename"]}\n' for chunk in
+                         sorted(chunks, key=lambda item: item['basename'])).encode())
+    require(inventory['dol_inventory_sha256'] == digest, 'coverage DOL inventory digest')
+    source_directories = {Path(name).parent for name in inputs if Path(name).suffix == '.c'}
+    require(len(source_directories) == 2 and all(
+        {path.name for path in directory.glob('*.c')} == set(by_name) for directory in source_directories),
+        'current source DOL inventory or delivered DOL inventory mismatch')
+    headers = [(name, pin) for name, pin in inputs.items() if name.endswith('/composite-batch/generated.h')]
+    require(len(headers) == 1, 'coverage delivered header association')
+    header_path, header_pin = headers[0]
+    pinned_file(composite / 'generated.h', header_pin)
+    delivered_directory = Path(header_path).parent / 'chunks_dol'
+    delivered_pins = {Path(name).name: pin for name, pin in inputs.items()
+                      if Path(name).parent == delivered_directory}
+    require(set(delivered_pins) == set(by_name) == {path.name for path in (composite / 'chunks_dol').glob('*.c')},
+            'actual delivered DOL inventory mismatch')
+    for chunk in chunks:
+        pin = delivered_pins[chunk['basename']]
+        require(pin['sha256'] == chunk['sha256'], 'coverage delivered hash association')
+        pinned_file(composite / 'chunks_dol' / chunk['basename'], pin)
+    modules = [module for module in inventory['rels'] if module['id'] == row['id']]
+    require(len(modules) == 1 and modules[0]['processed_sha256'] == row['processed_sha256'] and
+            modules[0]['raw_reverse_fixups_sha256'] == row['raw_sha256'] and
+            modules[0]['path'] == 'build-f5/ww05/private/rels/' + row['basename'] and
+            inputs[str(COVERAGE_SOURCE / modules[0]['path'])]['sha256'] == row['processed_sha256'],
+            'coverage module identity mismatch')
+
+    def containing(address):
+        physical = coverage_address(address)
+        require(any(start <= physical and physical + 4 <= end for start, end in dol_text),
+                'coverage target outside DOL text')
+        found = [(name, start) for name, (start, end) in by_name.items() if start <= physical < end]
+        require(len(found) == 1, 'coverage target missing qualified chunk')
+        name, start = found[0]
+        return physical, name, (physical - start) // 4
+
+    targets = {int(target['target'], 16): target for target in inventory['targets']}
+    require(len(targets) == len(inventory['targets']), 'duplicate coverage target')
+    module_targets = {pc for pc, target in targets.items()
+                      if any(record[0] == row['id'] for record in target['records'])}
+    require(set(external) == module_targets, 'independently derived module targets differ from inventory')
+    for address in external:
+        physical, name, slot = containing(address)
+        target = targets[physical]
+        require(target['chunk'] == name and target['slot'] == slot and target['label_line'] > 0 and
+                target['tagged_alias'] == f'{physical + 0x40000000:08X}', 'coverage target association mismatch')
+    physical, name, slot = containing(walker)
+    walker_inventory = inventory['walker']
+    require(walker_inventory['start'] == f'{physical:08X}' and physical in module_targets,
+            'constructor walker is outside admitted walker scope')
+    entries = [entry for entry in walker_inventory['entries'] if entry['pc'] == f'{physical:08X}']
+    require(len(entries) == 1 and entries[0]['tagged'] == f'{physical + 0x40000000:08X}' and
+            entries[0]['slot'] == slot, 'constructor walker entry association mismatch')
+    offset, size = walker_inventory['file_offset'], walker_inventory['size']
+    end = int(walker_inventory['end_exclusive'], 16)
+    spans = [section for section in sections if int(section['start'], 16) <= physical <
+             end <= int(section['end_exclusive'], 16)]
+    require(len(spans) == 1, 'constructor walker span outside admitted DOL text')
+    section = spans[0]
+    require(offset == section['file_offset'] + physical - int(section['start'], 16) and
+            size == end - physical and sha(dol[offset:offset + size]) == walker_inventory['span_sha256'],
+            'constructor walker DOL span identity mismatch')
+    check_coverage_source()
+    return dict(status='VERIFIED-candidate', claim=COVERAGE_CLAIM,
+                manifest_sha256=COVERAGE_MANIFEST_SHA256, source_revision=COVERAGE_SOURCE_HEAD,
+                consumed_input_count=len(inputs), dependencies=outputs, dol_inventory_sha256=digest,
+                delivered_dol_chunks=len(chunks), independently_derived_module_targets=len(external),
+                walker=f'{physical:08X}', limits=[
+                    'Historical identity and derived structural coverage only; not original emission-event proof.',
+                    'No instruction-to-C semantic equivalence, physical-alias qualification or runtime validation.',
+                    'Contract NOT ACTIVE; corrective review and explicit coordinator activation remain required.',
+                    'Not PASS-v2, report adoption, fresh emission or gameplay qualification.'])
 
 
 def dol_text_sections(dol):
@@ -298,6 +463,7 @@ def verify_inputs(row, raw, processed):
 def implementation_pins():
     root = Path(__file__).resolve().parents[1]
     files = ['scripts/verify_canonical_executable.py', 'tests/test_canonical_executable.py',
+             'tests/test_canonical_coverage.py',
              'scripts/ship_contract.py', 'scripts/bulk_rel_catalog.json', 'scripts/prepare.py',
              'scripts/wwhd/formats.py']
     return {name: sha((root / name).read_bytes()) for name in files}
@@ -366,13 +532,14 @@ def qualify(args):
     target = (walker_pc + displacement) & 0xFFFFFFFF
     require(word >> 26 == 18 and word & 3 == 1 and target == row['ctor']['walker_address'] and
             (target & ~0x40000000) in external, 'constructor walker branch mismatch')
-    return dict(status='BLOCKED-incomplete', module_id=args.module, delivery=head,
+    coverage = coverage_dependency(args.dol_coverage, row, external, target, dol, composite)
+    return dict(status=coverage['status'], module_id=args.module, delivery=head,
                 spec_sha256=sha(spec_bytes), dependencies=dependencies, binding=binding,
                 python=sys.version, implementation_revision=subprocess.check_output(
                     ['git', '-C', str(root), 'rev-parse', 'HEAD'], text=True).strip(),
                 translated_c=translated, external_branch_target_count=len(external),
                 dol_sha256=sha(dol), raw_rel_sha256=sha(raw), processed_rel_sha256=sha(processed),
-                coverage=coverage_status(), limits=[
+                coverage=coverage, limits=[
                     'Qualification candidate only; no PASS-v2 or report upgrade.',
                     'No fresh emission, runtime, gameplay, or hardware qualification.'])
 
@@ -384,14 +551,19 @@ def main():
     parser.add_argument('--iso', type=Path, required=True)
     parser.add_argument('--delivery', type=Path, required=True)
     parser.add_argument('--evidence', type=Path, required=True)
+    parser.add_argument('--dol-coverage', type=Path,
+                        help='Exact admitted historical/structural DOL supplement, not a trust override')
     args = parser.parse_args()
     try:
         result = qualify(args)
+    except UnqualifiedCoverage as error:
+        print(json.dumps(dict(status='BLOCKED-incomplete', reason=str(error)), sort_keys=True))
+        return 2
     except (ValueError, OSError, KeyError, struct.error, subprocess.CalledProcessError) as error:
         print(json.dumps(dict(status='FAIL-mismatch-or-unsupported', error=str(error)), sort_keys=True))
         return 1
     print(json.dumps(result, indent=2, sort_keys=True))
-    return 2
+    return 0 if result['status'] == 'VERIFIED-candidate' else 2
 
 
 if __name__ == '__main__':
