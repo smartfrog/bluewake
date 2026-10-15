@@ -137,6 +137,33 @@ hardware, external harness termination, disk errors or arbitrary process failure
 
 ## Capture and layout evidence
 
+### Decisive-first capture and partial unrelated stacks (WW128)
+
+WW125 hit and detached correctly, but a short read in an unrelated Wayland
+thread's stack aborted capture before the JIT evidence. Capture now reads the
+faulting thread's registers/FP state/stack first, then native load/caller bytes
+and `capture_vita` (JIT/guest state, both block maps, Run/RSB and code windows),
+**before** any other thread's stack window. `decisive_capture_complete` becomes
+true only after those reads finish for the selected profile.
+
+Only unrelated stack windows are best-effort: retry a short read or process-read
+OSError once, retaining the longest actually read prefix if both attempts fail.
+No padding or invented bytes. Unmapped windows are recorded without a retry.
+Their `stack_window`/`partial_windows` receipts give the address, requested and
+VMA-clipped expected sizes, actual size, attempts, errors and file (or null).
+The memory index also marks retained prefix files as partial. A recovered retry
+is complete but retains its first error and attempt count. Partial windows skip
+the optional frame-pointer walk; a separate unrelated frame-walk read failure
+is recorded in `partial_backtraces`.
+
+Such failures print `STOPPER WARNING`, set `capture_partial=true`, and continue
+through remaining threads and the existing eu-stack/detach flow. The outcome
+can be `captured` with decisive data complete and non-decisive windows partial.
+Faulting-thread, JIT, block-map, Run/RSB and decisive code reads remain strict:
+failure raises an error and keeps `decisive_capture_complete=false`. Global
+memory/time bounds and dump-write failures are never downgraded to warnings.
+Trigger, ptrace, stop/detach, byte limits and successful capture bytes are unchanged.
+
 - `receipt.json`: PID/starttime/exe/hash, trigger/hit TID, actual invalid
   address, exact native load PC (default) or callback return PC (fallback),
   **all-thread x0–x30/SP/PC/PSTATE**, bounded
@@ -246,7 +273,7 @@ Use-page-table is +0x118 and table pointer +0x120, confirmed by
 `MemoryRead+0x4e4..0x4fc`. Translation uses the captured absolute-offset page
 table when enabled, otherwise base+guest-address, per V `mem/ptr.h:57–64`.
 Each guest page is translated separately. Mapped/readable checks precede every
-read; unreadable state is a nonzero partial-capture result, not hidden failure.
+read; unreadable decisive state is a nonzero partial-capture result, not hidden failure.
 
 ## Real-run recipe — NOT executed in WW123
 
@@ -350,6 +377,9 @@ refusal without stop, and wrong-address fail-closed. Separate in-process
 synthetic structures test native-fault, direct and wrapped RSB recovery, guest/page-table
 translation, forward/reverse maps and rejected inconsistent layouts. They
 validate decoding, not the live Vita3K heap layout at the real fault.
+Injected process-read failures additionally prove decisive-first ordering,
+partial unrelated stacks, bounded retry/recovery and strict faulting-thread,
+JIT, forward/reverse map and RSB reads. These are synthetic controls, not a game re-capture.
 
 If native-fault stopping misses, report the timeout. The explicit callback
 breakpoint fallback is implemented and dry-tested, but carries the hard-kill

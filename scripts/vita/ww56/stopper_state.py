@@ -14,6 +14,12 @@ def write_json(path, value):
     temporary.replace(path)
 
 
+class ShortReadError(RuntimeError):
+    def __init__(self, address, expected, data):
+        super().__init__(f'short process memory read at {address:#x}: expected {expected}, got {len(data)}')
+        self.data = data
+
+
 class Memory:
     def __init__(self, pid, maps, out):
         self.fd = os.open(f'/proc/{pid}/mem', os.O_RDONLY)
@@ -46,9 +52,9 @@ class Memory:
         if not self.readable(address, size):
             raise ValueError(f'unreadable capture range {address:#x}+{size:#x}')
         result = os.pread(self.fd, size, address)
+        self.remaining -= len(result)
         if len(result) != size:
-            raise RuntimeError(f'short process memory read at {address:#x}')
-        self.remaining -= size
+            raise ShortReadError(address, size, result)
         return result
 
     def u64(self, address):
@@ -62,12 +68,36 @@ class Memory:
         (self.out / filename).write_bytes(data)
         self.files.append(dict(file=filename, address=address, size=len(data),
                                sha256=hashlib.sha256(data).hexdigest()))
+        return self.files[-1]
 
-    def window(self, name, address, size):
+    def window(self, name, address, size, *, allow_partial=False):
         end = next((end for start, end, perms in self.maps if start <= address < end and 'r' in perms), None)
+        result = dict(file=None, address=address, requested_size=size, expected_size=0,
+                      size=0, status='partial', attempts=0, errors=[])
         if end is None:
+            if allow_partial:
+                result['errors'].append(f'unreadable capture start {address:#x}')
+                return result
             raise ValueError(f'unreadable capture start {address:#x}')
-        self.dump(name, self.read(address, min(size, end - address)), address)
+        expected = min(size, end - address)
+        result['expected_size'] = expected
+        data = b''
+        for attempt in range(2 if allow_partial else 1):
+            result['attempts'] = attempt + 1
+            try:
+                data = self.read(address, expected)
+                break
+            except (ShortReadError, OSError) as error:
+                if not allow_partial:
+                    raise
+                result['errors'].append(str(error))
+                if isinstance(error, ShortReadError) and len(error.data) > len(data):
+                    data = error.data
+        result.update(size=len(data), status='complete' if len(data) == expected else 'partial')
+        if data or result['status'] == 'complete':
+            result['file'] = name + '.bin'
+            self.dump(name, data, address).update(result)
+        return result
 
 
 def reverse_entries(memory, space):

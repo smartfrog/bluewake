@@ -15,7 +15,7 @@ import subprocess
 import sys
 import time
 
-from stopper_state import Memory, capture_vita, write_json
+from stopper_state import Memory, ShortReadError, capture_vita, write_json
 
 
 VITA_SHA = 'cea2b91f05d9d03bb577b9c414e0da54d3b234f97dc4b23537561e800b1fbf30'
@@ -275,32 +275,54 @@ class Stopper:
         return result
 
 
+def capture_thread(memory, proc, tid, receipt, *, decisive):
+    regs = registers(tid)
+    entry = dict(tid=tid, registers=regs, comm=(proc / f'task/{tid}/comm').read_text().strip())
+    receipt['threads'].append(entry)
+    memory.dump(f'thread-{tid}-fpregs', regset(tid, 2), 0)
+    window = memory.window(f'thread-{tid}-stack', regs['sp'], 65536, allow_partial=not decisive)
+    entry['stack_window'] = window
+    frames = [regs['pc'], regs['x30']]
+    entry['frame_pointer_trace_not_complete_unwind'] = frames
+    if window['status'] == 'partial':
+        receipt['partial_windows'].append(dict(tid=tid, **window))
+        receipt['capture_partial'] = True
+        entry['frame_pointer_trace_error'] = 'not attempted after partial stack window'
+        print(f'STOPPER WARNING: thread {tid} stack window partial: {window}', file=sys.stderr)
+        return regs
+    frame = regs['x29']
+    for _ in range(64):
+        if not memory.readable(frame, 16):
+            break
+        try:
+            previous, lr = struct.unpack('<QQ', memory.read(frame, 16))
+        except (ShortReadError, OSError) as error:
+            if decisive:
+                raise
+            entry['frame_pointer_trace_error'] = str(error)
+            receipt['partial_backtraces'].append(dict(tid=tid, address=frame, error=str(error)))
+            receipt['capture_partial'] = True
+            print(f'STOPPER WARNING: thread {tid} frame-pointer trace partial: {error}', file=sys.stderr)
+            break
+        frames.append(lr)
+        if previous <= frame or previous - frame > 1024 * 1024:
+            break
+        frame = previous
+    return regs
+
+
 def native_capture(stopper, tid, receipt):
     proc = Path(f'/proc/{stopper.pid}')
     maps = (proc / 'maps').read_text()
     (stopper.out / 'maps.txt').write_text(maps)
     (stopper.out / 'status.txt').write_text((proc / 'status').read_text())
     receipt['threads'] = []
+    receipt['decisive_capture_complete'] = False
+    receipt['capture_partial'] = False
+    receipt['partial_windows'] = []
+    receipt['partial_backtraces'] = []
     with Memory(stopper.pid, maps, stopper.out) as memory:
-        for current in sorted(stopper.tasks):
-            regs = registers(current)
-            entry = dict(tid=current, registers=regs,
-                         comm=(proc / f'task/{current}/comm').read_text().strip())
-            receipt['threads'].append(entry)
-            memory.dump(f'thread-{current}-fpregs', regset(current, 2), 0)
-            memory.window(f'thread-{current}-stack', regs['sp'], 65536)
-            frames = [regs['pc'], regs['x30']]
-            frame = regs['x29']
-            for _ in range(64):
-                if not memory.readable(frame, 16):
-                    break
-                previous, lr = struct.unpack('<QQ', memory.read(frame, 16))
-                frames.append(lr)
-                if previous <= frame or previous - frame > 1024 * 1024:
-                    break
-                frame = previous
-            entry['frame_pointer_trace_not_complete_unwind'] = frames
-        fault = next(entry['registers'] for entry in receipt['threads'] if entry['tid'] == tid)
+        fault = capture_thread(memory, proc, tid, receipt, decisive=True)
         native_fault_trigger = stopper.trigger == 'native-fault'
         receipt['invalid_address'] = 0xd71 if native_fault_trigger else memory.u32(fault['sp'] + 0x6c)
         receipt['native_return_pc'] = None if native_fault_trigger else memory.u64(fault['sp'] + 8)
@@ -315,6 +337,10 @@ def native_capture(stopper, tid, receipt):
         if receipt['profile'] == 'vita':
             receipt['vita'] = capture_vita(memory, fault, receipt['native_return_pc'],
                                            stopper.native_faults.get(tid), at_native_fault=native_fault_trigger)
+        receipt['decisive_capture_complete'] = True
+        for current in sorted(stopper.tasks):
+            if current != tid:
+                capture_thread(memory, proc, current, receipt, decisive=False)
 
 
 def parse_args():
