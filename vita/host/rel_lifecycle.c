@@ -159,6 +159,11 @@ static const char* boundary(WwHost* host, u32 address) {
     }
     if (host->rel_constructor_owner != 0u)
         return "REL prolog entry requires no outstanding constructor walk";
+#if WW05_ENABLE_ACTOR_BATCH_CONTRACTS
+    if (ww_host_actor_sdk_contract(host, entering->module_id) == WW_ACTOR_SDK_CERTIFIED_INLINE_ZERO &&
+        !ww_host_rel_actor_accounted(host, entering))
+        return "REL actor prolog requires its completed fixed shrink and accounting sequence";
+#endif
     if (ww_host_rel_profile_enabled(host) && entering->module_id == 400u &&
         !ww_host_rel_title_accounted(host, entering))
         return "REL title prolog requires its completed fixed shrink and accounting sequence";

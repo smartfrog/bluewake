@@ -188,6 +188,15 @@ int main(int argc, char** argv) {
             WwRelImage* ship = publish(host, 0x80002200u, "d_a_ship");
             assert(ship->certificate == &certificates[0]);
             mem_write32(&host->cpu, ship->owner + 0x14u, 0x807FF620u);
+            if (strncmp(argv[1], "input-form-", 11u) == 0) {
+                ship->sdk_input_form = (WwRelSdkInputForm)strtoul(argv[1] + 11u, NULL, 10);
+                assert(ww_host_rel_sdk_prepare(host, ship, true) != NULL);
+                assert(!host->rel_sdk_seeded && ship->sdk_phase == WW_REL_SDK_NONE &&
+                    host->rel_sdk_pending_owner == 0u && ww_host_rel_raw_unchanged(ship));
+                ww_host_shutdown(host);
+                free(host);
+                return 0;
+            }
             if (strcmp(argv[1], "seed-missing-profile-list") == 0) {
                 mem_write32(&host->cpu, 0x800030C8u, 0u);
                 mem_write32(&host->cpu, 0x800030CCu, 0u);

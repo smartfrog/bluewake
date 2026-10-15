@@ -30,9 +30,21 @@ static bool ikada_call;
 static bool actor_call;
 static u32 sdk_allocations;
 static bool sdk_allocation_armed;
+static bool inline_injected;
+static bool flush_failure;
+static bool is(const char* value);
+
+int __real_fflush(FILE* stream);
+int __wrap_fflush(FILE* stream) {
+    if (stream == stderr && (is("batch-receipt-flush") || flush_failure))
+        return EOF;
+    return __real_fflush(stream);
+}
 
 void* __real_calloc(size_t count, size_t size);
 void* __wrap_calloc(size_t count, size_t size) {
+    if (is("batch-bookkeeping-allocation") && size == sizeof(WwRelBlock))
+        return NULL;
     if (ikada_call && strcmp(scenario, "materialize-allocation") == 0 && count == (actor_call ? 17u : 21u) && size == sizeof(WwRelSection))
         return NULL;
     return __real_calloc(count, size);
@@ -54,6 +66,14 @@ int __wrap_fprintf(FILE* stream, const char* format, ...) {
         (strcmp(scenario, "batch-receipt-final") == 0 && strstr(format, "[rel-batch-admission]") != NULL))
         return -1;
     if (ikada_call && strcmp(scenario, "materialize-trace") == 0 && strstr(format, "[rel-materialized]") != NULL)
+        return -1;
+    if (actor_call && strstr(format, "[rel-actor-block]") != NULL &&
+        ((is("inline-expose-trace") && strstr(format, "stage=exposed") != NULL) ||
+         (trace_failure && (is("inline-query-trace") || is("inline-shrink-trace") || is("inline-accounting-trace")))))
+        return -1;
+    if (actor_call && is("inline-expose-flush") && strstr(format, "[rel-actor-block] stage=exposed") != NULL)
+        flush_failure = true;
+    if (actor_call && is("inline-refusal-trace") && strstr(format, "[rel-sdk-input-refusal]") != NULL)
         return -1;
     if (trace_failure && (strstr(format, "[rel-prolog]") != NULL ||
         (ikada_call && (strstr(format, "[rel-sdk]") != NULL || strstr(format, "[rel-admission]") != NULL))))
@@ -140,7 +160,165 @@ static bool probe_edge(void* user, CPUState* cpu, u32 address) {
     const u32 entry = selected == NULL || selected->certificate == NULL ? 0u : selected->certificate->lifecycle->prolog_address & ~0x40000000u;
     if (profile_call)
         return ww_host_edge(host, cpu, address);
-    if (ikada_call && selected != NULL && pc == 0x80305424u) {
+#if WW05_ENABLE_ACTOR_BATCH_CONTRACTS
+    if (actor_call && selected != NULL && (is("inline-old-actor-input") || is("inline-old-actor-byte")) &&
+        selected->module_id == 85u && pc == 0x80240D4Cu && !inline_injected) {
+        WwRelImage* old = ww_host_rel_live(host, 84u);
+        if (is("inline-old-actor-input")) mem_write32(cpu, old->owner + 0x14u, 4u);
+        else mem_write8(cpu, old->guest + old->bytes - 1u, 1u);
+        inline_injected = true;
+    }
+    if (actor_call && selected != NULL && strncmp(scenario, "inline-positive-", 16u) == 0) {
+        if (pc == 0x802B07ECu && cpu->lr == 0x80240CC4u) {
+            WwRelBlock* block = ww_host_rel_actor_block(host, selected);
+            if (block->phase == WW_REL_PROFILE_EXPOSED)
+                memset(block->storage + block->bytes, 0xA5, block->capacity - block->bytes);
+            CPUState saved = *cpu;
+            cpu->gpr[3] = selected->guest + selected->capacity + 0x100u;
+            cpu->gpr[31] = 0u;
+            CPUState ordinary = *cpu;
+            assert(ww_host_rel_profile_service(host, pc) == WW_REL_PROFILE_MISSED);
+            assert(memcmp(&ordinary, cpu, sizeof(ordinary)) == 0);
+            *cpu = saved;
+        }
+        if (pc == 0x80305448u || pc == 0x80240D4Cu) {
+            assert(ww_host_rel_sdk_observe(host, address) == NULL);
+            assert(ww_host_rel_sdk_observe(host, address) == NULL);
+        }
+        if (pc == 0x802B07ECu || pc == 0x802B0704u) {
+            CPUState saved = *cpu;
+            if (is("inline-positive-host")) assert(cpu->host_call(cpu, address));
+            else if (is("inline-positive-dispatch")) assert(ww_host_dispatch(host, address) == 1);
+            else assert(ww_host_edge(host, cpu, address));
+            assert(host->error == NULL && !host->edge_stopped);
+            *cpu = saved;
+        }
+        if (pc == 0x80305448u) {
+            WwRelBlock saved = *ww_host_rel_actor_block(host, selected);
+            CPUState before = *cpu;
+            assert(ww_host_link_rel(host, selected->owner) == NULL);
+            assert(memcmp(&saved, ww_host_rel_actor_block(host, selected), sizeof(saved)) == 0);
+            *cpu = before;
+        }
+    }
+    if (actor_call && selected != NULL && strncmp(scenario, "inline-", 7u) == 0 && !inline_injected) {
+        WwRelBlock* block = ww_host_rel_actor_block(host, selected);
+        const char* error = NULL;
+        if (pc == 0x802B07ECu && cpu->lr == 0x80240CC4u) {
+            if (is("inline-direct-prepare")) {
+                error = ww_host_rel_sdk_prepare(host, selected, true);
+                assert(error != NULL && selected->sdk_input_form == 0u && selected->sdk_phase == WW_REL_SDK_NONE);
+            }
+            if (is("inline-missing-exposure")) block->phase = WW_REL_PROFILE_NONE;
+            if (is("inline-wrong-module")) {
+                selected->module_id = 1u;
+                assert(ww_host_rel_profile_service(host, pc) == WW_REL_PROFILE_ERROR);
+                selected->module_id = 84u;
+                assert(block->phase == WW_REL_PROFILE_FAILED);
+                return true;
+            }
+            if (is("inline-ambiguous-records")) {
+                host->rel_actor_blocks[1] = *block;
+                assert(ww_host_rel_profile_service(host, pc) == WW_REL_PROFILE_ERROR);
+                assert(block->phase == WW_REL_PROFILE_FAILED && host->rel_actor_blocks[1].phase == WW_REL_PROFILE_FAILED);
+                return true;
+            }
+            if (is("inline-query-trace")) trace_failure = true;
+            if (is("inline-query-flush")) flush_failure = true;
+        }
+        if (pc == 0x80305448u) {
+            if (is("inline-disabled-wrong-r3") || is("inline-copied-wrong-r3") || is("inline-copied-direct")) {
+                const BlueWakeRelInitContractV1* original_certificate = selected->certificate;
+                if (is("inline-disabled-wrong-r3")) host->rel_actor_batch_admission = false;
+                else {
+                    copied_certificate = *selected->certificate;
+                    selected->certificate = &copied_certificate;
+                }
+                if (!is("inline-copied-direct")) cpu->gpr[3] = 0x80000000u;
+                error = is("inline-copied-direct") ? ww_host_rel_sdk_prepare(host, selected, true) :
+                    ww_host_rel_sdk_observe(host, address);
+                assert(error != NULL);
+                selected->certificate = original_certificate;
+                assert(block->phase == WW_REL_PROFILE_FAILED && selected->sdk_phase == WW_REL_SDK_NONE &&
+                    selected->sdk_input_form == WW_REL_SDK_OWNER_PUBLISHED);
+            }
+            if (is("inline-unknown-form")) selected->sdk_input_form = 99u;
+            if (is("inline-prepare-flush")) flush_failure = true;
+            if (is("inline-title-form")) selected->sdk_input_form = WW_REL_SDK_TITLE_INLINE_ZERO;
+            if (is("inline-unprepared-finish")) {
+                error = ww_host_rel_sdk_finish(host, selected);
+                assert(error != NULL && selected->sdk_phase == WW_REL_SDK_NONE);
+            }
+            if (is("inline-title-transplant") || is("inline-ship-transplant") || is("inline-profile-transplant")) {
+                WwRelImage* other = ww_host_rel_live(host, is("inline-title-transplant") ? 400u : is("inline-ship-transplant") ? 168u : 1u);
+                other->sdk_input_form = WW_REL_SDK_CERTIFIED_INLINE_ZERO;
+                error = ww_host_rel_sdk_prepare(host, other, true);
+                assert(error != NULL);
+            }
+            if (is("inline-missing-query")) block->phase = WW_REL_PROFILE_EXPOSED;
+            if (is("inline-normal") || is("inline-zero-fallback") || is("inline-refusal-trace")) {
+                address = cpu->pc = 0x80305424u;
+                cpu->lr = 0x80240D0Cu;
+                cpu->gpr[4] = 0u;
+            }
+            if (is("inline-fallback-a")) cpu->lr = 0x80240DC0u;
+            if (is("inline-fallback-b")) cpu->lr = 0x80240E28u;
+            if (is("inline-r3")) cpu->gpr[3] = 0x80000000u;
+            if (is("inline-r31")) cpu->gpr[31] += 32u;
+            if (is("inline-conflicting-owner")) cpu->gpr[31] = host->rel_title_block.owner;
+            if (is("inline-interior")) cpu->gpr[3] += 4u;
+            if (is("inline-mirror")) cpu->gpr[3] |= 0x40000000u;
+            if (is("inline-one-past")) cpu->gpr[3] += selected->capacity;
+            if (is("inline-owner-bss")) mem_write32(cpu, selected->owner + 0x14u, 0x807FD000u);
+            if (is("inline-publication")) mem_write32(cpu, selected->owner + 0x10u, 0u);
+            if (is("inline-name-overflow")) mem_write32(cpu, 0x800030D0u, 0xFFFFFFFFu);
+            if (is("inline-name-unbounded")) mem_write32(cpu, 0x800030D0u, 0x81820000u);
+            if (is("inline-policy-identity")) host->rel_actor_policy_identity = "wrong";
+            if (is("inline-exception")) {
+                cpu->exception = PPC_EXC_PROGRAM;
+                error = ww_host_rel_sdk_prepare(host, selected, true);
+                assert(error != NULL);
+            }
+        }
+        if (pc == 0x80240D4Cu) {
+            if (is("inline-verify-flush")) flush_failure = true;
+            if (is("inline-direct-finish")) {
+                cpu->pc = entry;
+                error = ww_host_rel_sdk_finish(host, selected);
+                assert(error != NULL && selected->sdk_phase != WW_REL_SDK_CERTIFIED);
+            }
+            if (is("inline-result")) cpu->gpr[3] = 0u;
+            if (is("inline-frozen-form")) selected->sdk_input_form = 0u;
+            if (is("inline-frozen-unknown")) selected->sdk_input_form = 99u;
+            if (is("inline-frozen-title")) selected->sdk_input_form = 1u;
+        }
+        if (pc == 0x802B0704u) {
+            if (is("inline-resize")) cpu->gpr[4] += 32u;
+            if (is("inline-shrink-trace")) trace_failure = true;
+            if (is("inline-shrink-flush")) flush_failure = true;
+            if (is("inline-skip-shrink")) {
+                cpu->pc = address = 0x802B07ECu; cpu->lr = 0x80241058u; cpu->gpr[4] = 0u;
+            }
+            if (is("inline-return-replay")) {
+                cpu->pc = address = cpu->lr = 0x80240D4Cu; cpu->gpr[3] = 1u;
+            }
+        }
+        if (pc == 0x802B07ECu && cpu->lr == 0x80241058u) {
+            if (is("inline-accounting-trace")) trace_failure = true;
+            if (is("inline-accounting-flush")) flush_failure = true;
+            if (is("inline-skip-accounting")) {
+                cpu->pc = address = selected->guest + (selected->sections[1].flags & ~1u);
+                cpu->lr = 0x80240EE8u;
+            }
+        }
+        if (error != NULL) {
+            inline_injected = true;
+            ww_host_fail(host, error, address, cpu->pc);
+            return true;
+        }
+    }
+#endif
+    if (ikada_call && selected != NULL && (pc == 0x80305424u || (actor_call && pc == 0x80305448u))) {
         if (is("sdk-prepared-trace")) trace_failure = true;
         if (is("sdk-wrong-argument")) cpu->gpr[4] += 8u;
         if (is("sdk-null-bss")) cpu->gpr[4] = 0u;
@@ -156,7 +334,7 @@ static bool probe_edge(void* user, CPUState* cpu, u32 address) {
         if (is("sdk-missing-neighbor")) mem_write32(cpu, 0x800030CCu, 0u);
         if (is("sdk-owner-mismatch")) mem_write32(cpu, selected->owner + 0x10u, 0u);
     }
-    if (ikada_call && selected != NULL && pc == entry && !injected) {
+    if (ikada_call && selected != NULL && (actor_call ? pc == 0x80240D4Cu : pc == entry) && !injected) {
         if (is("sdk-allocation")) sdk_allocation_armed = true;
         if (is("sdk-verified-trace")) trace_failure = true;
         if (is("sdk-frozen-name")) mem_write32(cpu, 0x800030D0u, 0x80005000u);
@@ -345,7 +523,7 @@ static void run_call(WwHost* host, u32 owner, const char* name) {
     cpu->lr = 0x80001004u;
     cpu->pc = 0x80240EA0u;
     if (ww_host_rel_profile_enabled(host) && !(is("title-catalog-id") && strcmp(name, "d_a_title") == 0))
-        cpu->pc = strcmp(name, "d_a_title") == 0 ? 0x80240B40u : 0x80240B80u;
+        cpu->pc = strcmp(name, "d_a_title") == 0 || actor_call ? 0x80240B40u : 0x80240B80u;
     cpu->msr = PPC_MSR_FP | PPC_MSR_EE | PPC_MSR_POW;
     for (u32 turn = 0u; turn < 128u && cpu->pc != 0x80001004u && host->error == NULL; ++turn) {
         ww_host_end_dispatch(host);
@@ -460,7 +638,9 @@ static void run_actor_batch(WwHost* host, const char* requested) {
         return;
     }
     assert(selected != NULL && selected->module_id == 84u && selected->guest == 0x81832BE0u);
-    const bool positive = is("success") || is("epilog") || is("unresolved") || is("unlink");
+    const bool prior_mutation = is("inline-old-actor-input") || is("inline-old-actor-byte");
+    const bool positive = is("success") || is("epilog") || is("unresolved") || is("unlink") ||
+        prior_mutation || strncmp(scenario, "inline-positive-", 16u) == 0;
     if (!positive) {
         if (host->error == NULL) fprintf(stderr, "actor negative did not stop: %s\n", scenario);
         assert(host->error != NULL && !selected->initialization_completed);
@@ -473,8 +653,8 @@ static void run_actor_batch(WwHost* host, const char* requested) {
     }
     if (host->error != NULL) fprintf(stderr, "wood: %s pc=%08X\n", host->error, host->cpu.pc);
     assert(host->error == NULL && selected->initialization_completed && selected->sdk_phase == WW_REL_SDK_CERTIFIED);
-    assert(selected->raw_hash == lifecycle_expected_wood_hash && selected->sdk_bss == 0u &&
-           selected->sdk_input_form == WW_REL_SDK_OWNER_PUBLISHED && host->cpu.pc == 0x80001004u);
+    assert(selected->raw_hash == lifecycle_expected_wood_hash && selected->sdk_bss == 0x81832D80u &&
+           selected->sdk_input_form == 2u && selected->sdk_fixed && host->cpu.pc == 0x80001004u);
     assert(ikada->raw_hash == lifecycle_expected_ikada_with_wood_hash && ikada->sdk_next == selected->guest);
     if (is("epilog") || is("unresolved")) {
         host->cpu.pc = is("epilog") ? 0xC19A0100u : 0xC19A012Cu;
@@ -490,12 +670,28 @@ static void run_actor_batch(WwHost* host, const char* requested) {
     selected = NULL;
     injected = false;
     run_call(host, 0x80002800u, "d_a_batch_test");
+    if (prior_mutation) {
+        assert(host->error != NULL && selected != NULL && !selected->initialization_completed &&
+            selected->sdk_phase != WW_REL_SDK_CERTIFIED && wood->sdk_next == 0u &&
+            wood->raw_hash == lifecycle_expected_wood_hash && wood->initialization_completed &&
+            host->rel_sdk_tail == wood->guest);
+        return;
+    }
     if (host->error != NULL) fprintf(stderr, "next actor: %s pc=%08X\n", host->error, host->cpu.pc);
     assert(host->error == NULL && selected != NULL && selected->module_id == 85u && selected->initialization_completed);
     assert(selected->guest == 0x81832EE0u && selected->raw_hash == lifecycle_expected_next_actor_hash);
     assert(wood->raw_hash == lifecycle_expected_wood_with_next_hash && wood->sdk_next == selected->guest);
     assert(ikada->raw_hash == lifecycle_expected_ikada_with_wood_hash);
     assert(ship->raw_hash == ship_hash && title->raw_hash == title_hash && ww_host_rel_sdk_integrity(host));
+    if (strncmp(scenario, "inline-positive-", 16u) == 0) {
+        for (u32 at = 0u; at < host->rel_actor_block_count; ++at) {
+            const WwRelBlock* block = &host->rel_actor_blocks[at];
+            assert(block->phase == WW_REL_PROFILE_SHRUNK && block->accounting_observed &&
+                block->logical_size == block->extent && block->bytes <= block->capacity);
+            for (u32 byte = block->bytes; byte < block->capacity; ++byte)
+                assert(block->storage[byte] == 0xA5);
+        }
+    }
     assert(mem_read32(&host->cpu, 0xC19B0164u) == 1u && mem_read32(&host->cpu, 0x80005000u) == 6u);
     assert(host->cpu.pc == 0x80001004u && host->cpu.gpr[1] == 0x80004000u &&
            host->cpu.gpr[2] == 0x80300000u && host->cpu.gpr[13] == 0x80400000u &&
@@ -570,6 +766,25 @@ int main(int argc, char** argv) {
           "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"}};
     BlueWakeRelInitContractSetV1 set = {1u,s_ship_contract.dol_size,s_ship_contract.dol_bytes,certificates,
                                         ikada_requested && !is("ikada-missing-60") ? 3u : 2u,s_ship_contract.build_identity};
+#if WW05_ENABLE_ACTOR_BATCH_CONTRACTS
+    if (strncmp(scenario, "batch-layout-", 13u) == 0) {
+        u8 raw[sizeof(actor_84_raw)];
+        memcpy(raw, actor_84_raw, sizeof(raw));
+        certificates[3].rel_bytes = raw;
+        assert(ww_rel_inline_layout(&certificates[3]) == NULL);
+        if (is("batch-layout-version")) write_be32(raw + 0x1Cu, 2u);
+        if (is("batch-layout-header-bss")) write_be32(raw + 0x20u, 4u);
+        if (is("batch-layout-section-bss")) write_be32(raw + 0x54u, 0u);
+        if (is("batch-layout-fix-small")) write_be32(raw + 0x48u, 0x4Bu);
+        if (is("batch-layout-fix-overflow")) write_be32(raw + 0x48u, 0xFFFFFFFFu);
+        if (is("batch-layout-extent-at-bytes")) write_be32(raw + 0x48u, sizeof(raw));
+        if (is("batch-layout-metadata-tail")) write_be32(raw + 0x10u, 0x198u);
+        if (is("batch-layout-import-tail")) write_be32(raw + 0x28u, 0x198u);
+        if (is("batch-layout-section-tail")) write_be32(raw + 0x54u, 0x180u);
+        assert(ww_rel_inline_layout(&certificates[3]) != NULL && !host->rel_actor_batch_admission && host->rel_actor_blocks == NULL);
+        goto done;
+    }
+#endif
     BlueWakeShipContractV1 batch_ship = s_ship_contract;
     if (batch_requested) {
         certificates[0].build_identity = batch_ship.build_identity = "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd";
@@ -667,7 +882,7 @@ int main(int argc, char** argv) {
         }
         const char* error = ww_host_enable_actor_batch_contracts(host);
         if (!is("batch-enabled") && !is("batch-raw-identity") && strncmp(scenario, "batch-materialize-", 18u) != 0 &&
-            strncmp(scenario, "batch-sdk-", 10u) != 0 &&
+            strncmp(scenario, "batch-sdk-", 10u) != 0 && strncmp(scenario, "batch-inline-", 13u) != 0 &&
             strncmp(scenario, "batch-entry-", 12u) != 0 && !is("batch-copied-certificate") &&
             !is("batch-policy-disabled") && !is("batch-epilog") && !is("batch-unresolved") && !is("batch-unlink")) {
             if (is("batch-repeated")) {
@@ -675,6 +890,8 @@ int main(int argc, char** argv) {
                 assert(ww_host_enable_actor_batch_contracts(host) != NULL);
             } else {
                 assert(error != NULL && !host->rel_actor_batch_admission);
+                assert(host->rel_actor_blocks == NULL && host->rel_actor_block_count == 0u &&
+                    host->rel_actor_policy_identity == NULL);
                 assert(ww_host_actor_batch_certificate(host, 84u) == NULL);
             }
             host->rel_image_count = 0u;

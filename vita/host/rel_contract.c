@@ -274,6 +274,39 @@ const char* ww_host_enable_ikada_contract(WwHost* host) {
 
 #if WW05_ENABLE_ACTOR_BATCH_CONTRACTS
 #include "actor_batch_policy.h"
+static const char actor_policy_identity[] = WW_ACTOR_POLICY_IDENTITY;
+
+static const char* sdk_contract_name(WwActorSdkContract contract) {
+    switch (contract) {
+    case WW_ACTOR_SDK_EXISTING: return "EXISTING";
+    case WW_ACTOR_SDK_OWNER_PUBLISHED: return "OWNER_PUBLISHED";
+    case WW_ACTOR_SDK_CERTIFIED_INLINE_ZERO: return "CERTIFIED_INLINE_ZERO";
+    default: return NULL;
+    }
+}
+
+static bool actor_policy_valid(void) {
+    u8 mapping[4u + WW_ACTOR_FULL_COUNT * 76u];
+    write_be32(mapping, WW_ACTOR_POLICY_REVISION);
+    u32 actors = 0u;
+    for (u32 at = 0u; at < WW_ACTOR_FULL_COUNT; ++at) {
+        const WwActorSdkContract contract = ww_actor_expected[at].sdk_contract;
+        if (sdk_contract_name(contract) == NULL ||
+            ww_actor_expected[at].actor != (contract != WW_ACTOR_SDK_EXISTING) ||
+            !identity_valid(ww_actor_expected[at].identity) ||
+            (at != 0u && ww_actor_expected[at - 1u].id >= ww_actor_expected[at].id) ||
+            (ww_actor_expected[at].actor && (ww_actor_expected[at].id == 1u || ww_actor_expected[at].id == 60u ||
+             ww_actor_expected[at].id == 168u || ww_actor_expected[at].id == 400u)))
+            return false;
+        u8* row = mapping + 4u + at * 76u;
+        write_be32(row, ww_actor_expected[at].id);
+        write_be32(row + 4u, ww_actor_expected[at].actor);
+        write_be32(row + 8u, contract);
+        memcpy(row + 12u, ww_actor_expected[at].identity, 64u);
+        actors += ww_actor_expected[at].actor;
+    }
+    return actors == WW_ACTOR_COUNT && ww_host_rel_raw_hash(mapping, sizeof(mapping)) == WW_ACTOR_POLICY_PIN;
+}
 
 static const BlueWakeRelInitContractV1* registered_certificate(const WwHost* host, u32 id) {
     const BlueWakeRelInitContractV1* found = NULL;
@@ -291,8 +324,14 @@ const BlueWakeRelInitContractV1* ww_host_actor_batch_certificate(const WwHost* h
     if (host == NULL || !host->rel_actor_batch_admission || host->ship_contract == NULL ||
         !host->rel_title_admission || !host->rel_ikada_admission || host->rel_contracts == NULL ||
         host->rel_contracts->contracts == NULL || !identity_valid(host->rel_contracts->build_identity) ||
-        host->rel_contracts->contract_count != WW_ACTOR_FULL_COUNT ||
+        host->rel_contracts->contract_count != WW_ACTOR_FULL_COUNT || !actor_policy_valid() ||
+        host->rel_actor_policy_identity != actor_policy_identity ||
         strcmp(host->rel_contracts->build_identity, WW_ACTOR_SET_IDENTITY) != 0)
+        return NULL;
+    u32 inline_count = 0u;
+    for (u32 at = 0u; at < WW_ACTOR_FULL_COUNT; ++at)
+        inline_count += ww_actor_expected[at].sdk_contract == WW_ACTOR_SDK_CERTIFIED_INLINE_ZERO;
+    if (host->rel_actor_block_count != inline_count || (inline_count != 0u && host->rel_actor_blocks == NULL))
         return NULL;
     for (u32 at = 0u; at < WW_ACTOR_FULL_COUNT; ++at) {
         if (ww_actor_expected[at].actor && ww_actor_expected[at].id == module_id) {
@@ -305,11 +344,20 @@ const BlueWakeRelInitContractV1* ww_host_actor_batch_certificate(const WwHost* h
     return NULL;
 }
 
+WwActorSdkContract ww_host_actor_sdk_contract(const WwHost* host, u32 module_id) {
+    if (ww_host_actor_batch_certificate(host, module_id) != NULL)
+        for (u32 at = 0u; at < WW_ACTOR_FULL_COUNT; ++at)
+            if (ww_actor_expected[at].actor && ww_actor_expected[at].id == module_id)
+                return ww_actor_expected[at].sdk_contract;
+    return WW_ACTOR_SDK_EXISTING;
+}
+
 const char* ww_host_enable_actor_batch_contracts(WwHost* host) {
     if (host == NULL || host->rel_actor_batch_admission || host->ship_contract == NULL ||
         !host->rel_title_admission || !host->rel_ikada_admission || host->rel_contracts == NULL ||
         host->rel_contracts->contracts == NULL || host->rel_contracts->contract_count > WW_REL_MAX_IMAGES ||
-        host->rel_image_count != 0u || ww_host_rel_certificate(host, 60u) == NULL ||
+        host->rel_image_count != 0u || host->rel_actor_blocks != NULL || host->rel_actor_block_count != 0u ||
+        host->rel_actor_policy_identity != NULL || !actor_policy_valid() || ww_host_rel_certificate(host, 60u) == NULL ||
         ww_host_rel_certificate(host, 400u) == NULL)
         return "actor batch admission requires active ship/title/ikada before materialization";
     const BlueWakeRelInitContractSetV1* set = host->rel_contracts;
@@ -321,6 +369,7 @@ const char* ww_host_enable_actor_batch_contracts(WwHost* host) {
     const char* legacy_error = ww_rel_validate_certificate(host, &host->ship_certificate);
     if (legacy_error != NULL)
         return legacy_error;
+    u32 inline_count = 0u;
     for (u32 at = 0u; at < WW_ACTOR_FULL_COUNT; ++at) {
         const BlueWakeRelInitContractV1* certificate = registered_certificate(host, ww_actor_expected[at].id);
         if (certificate == NULL || !identity_valid(certificate->build_identity) ||
@@ -329,6 +378,12 @@ const char* ww_host_enable_actor_batch_contracts(WwHost* host) {
         const char* error = ww_rel_validate_certificate(host, certificate);
         if (error != NULL)
             return error;
+        if (ww_actor_expected[at].sdk_contract == WW_ACTOR_SDK_CERTIFIED_INLINE_ZERO) {
+            error = ww_rel_inline_layout(certificate);
+            if (error != NULL)
+                return error;
+            ++inline_count;
+        }
         if (certificate->module_id == 168u &&
             (strcmp(host->ship_certificate.build_identity, certificate->build_identity) != 0 ||
              certificate->rel_size != host->ship_certificate.rel_size ||
@@ -339,13 +394,29 @@ const char* ww_host_enable_actor_batch_contracts(WwHost* host) {
              certificate->ctor_return_pc != host->ship_certificate.ctor_return_pc ||
              memcmp(certificate->lifecycle, host->ship_certificate.lifecycle, sizeof(*certificate->lifecycle)) != 0))
             return "actor batch admission requires the unchanged legacy ship compatibility identity";
-        if (fprintf(stderr, "[rel-batch-member] batch=opening-a module=%u certificate=%s set=%s validated=1\n",
-                    certificate->module_id, certificate->build_identity, set->build_identity) < 0)
+        if (fprintf(stderr, "[rel-batch-member] batch=opening-a module=%u certificate=%s set=%s sdk_contract=%s policy_revision=%u policy=%s validated=1\n",
+                    certificate->module_id, certificate->build_identity, set->build_identity,
+                    sdk_contract_name(ww_actor_expected[at].sdk_contract), WW_ACTOR_POLICY_REVISION, WW_ACTOR_POLICY_IDENTITY) < 0)
             return "actor batch member validation receipt write failed";
     }
-    if (fprintf(stderr, "[rel-batch-admission] batch=opening-a actors=%u registered=%u set=%s active=1\n",
-                WW_ACTOR_COUNT, WW_ACTOR_FULL_COUNT, set->build_identity) < 0 || fflush(stderr) != 0)
+    if (inline_count > SIZE_MAX / sizeof(WwRelBlock))
+        return "actor batch inline bookkeeping size overflow";
+    WwRelBlock* blocks = inline_count == 0u ? NULL : calloc(inline_count, sizeof(*blocks));
+    if (inline_count != 0u && blocks == NULL)
+        return "actor batch inline bookkeeping allocation failed";
+    u32 index = 0u;
+    for (u32 at = 0u; at < WW_ACTOR_FULL_COUNT; ++at)
+        if (ww_actor_expected[at].sdk_contract == WW_ACTOR_SDK_CERTIFIED_INLINE_ZERO)
+            blocks[index++].certificate = registered_certificate(host, ww_actor_expected[at].id);
+    if (fprintf(stderr, "[rel-batch-admission] batch=opening-a actors=%u registered=%u set=%s policy_revision=%u policy=%s inline_records=%u active=1\n",
+                WW_ACTOR_COUNT, WW_ACTOR_FULL_COUNT, set->build_identity,
+                WW_ACTOR_POLICY_REVISION, WW_ACTOR_POLICY_IDENTITY, inline_count) < 0 || fflush(stderr) != 0) {
+        free(blocks);
         return "actor batch activation receipt write/flush failed";
+    }
+    host->rel_actor_blocks = blocks;
+    host->rel_actor_block_count = inline_count;
+    host->rel_actor_policy_identity = actor_policy_identity;
     host->rel_actor_batch_admission = true;
     return NULL;
 }

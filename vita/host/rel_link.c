@@ -322,6 +322,11 @@ const char* ww_host_link_rel(WwHost* host, u32 object) {
     if (slot->unlinked)
         return "REL relink requires destruction of its explicitly unlinked scratch first";
     if (slot->linked) {
+#if WW05_ENABLE_ACTOR_BATCH_CONTRACTS
+        if (ww_host_actor_sdk_contract(host, slot->module_id) == WW_ACTOR_SDK_CERTIFIED_INLINE_ZERO &&
+            !ww_host_rel_actor_published(host, slot))
+            return "REL repeated actor publication lost its frozen allocation identity";
+#endif
         if (ww_host_rel_profile_enabled(host) && slot->module_id == 400u && !ww_host_rel_title_published(host, slot))
             return "REL repeated title publication lost its frozen allocation identity";
         const u32 imports = bluewake_archive_be32(raw + 0x28u);
@@ -370,6 +375,10 @@ const char* ww_host_link_rel(WwHost* host, u32 object) {
         }
         slot->linked = true;
         error = ww_host_rel_title_expose(host, slot);
+#if WW05_ENABLE_ACTOR_BATCH_CONTRACTS
+        if (error == NULL)
+            error = ww_host_rel_actor_expose(host, slot);
+#endif
         if (error != NULL)
             return error;
     }

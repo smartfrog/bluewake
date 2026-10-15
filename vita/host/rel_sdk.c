@@ -6,6 +6,14 @@
 #define WW_REL_SDK_TAIL 0x800030CCu
 #define WW_REL_SDK_NAMES 0x800030D0u
 
+#if WW05_ENABLE_ACTOR_BATCH_CONTRACTS
+static const char* actor_diagnostic_failed(WwHost* host, const char* clause) {
+    const int size = snprintf(host->rel_actor_diagnostic_error, sizeof(host->rel_actor_diagnostic_error),
+        "%s; refusal diagnostic write/flush failed", clause);
+    return size >= 0 && (size_t)size < sizeof(host->rel_actor_diagnostic_error) ? host->rel_actor_diagnostic_error : clause;
+}
+#endif
+
 static WwRelImage* image_at(WwHost* host, u32 guest) {
     WwRelImage* found = NULL;
     for (u32 at = 0u; at < host->rel_image_count; ++at) {
@@ -24,9 +32,17 @@ static bool inputs_match(WwHost* host, const WwRelImage* image) {
         return false;
     switch (image->sdk_input_form) {
     case WW_REL_SDK_OWNER_PUBLISHED:
+#if WW05_ENABLE_ACTOR_BATCH_CONTRACTS
+        if (ww_host_actor_sdk_contract(host, image->module_id) == WW_ACTOR_SDK_CERTIFIED_INLINE_ZERO)
+            return false;
+#endif
         return mem_read32(&host->cpu, image->owner + 0x14u) == image->sdk_bss;
     case WW_REL_SDK_TITLE_INLINE_ZERO:
         return ww_host_rel_title_inputs(host, image);
+#if WW05_ENABLE_ACTOR_BATCH_CONTRACTS
+    case WW_REL_SDK_CERTIFIED_INLINE_ZERO:
+        return ww_host_rel_actor_inputs(host, image);
+#endif
     default:
         return false;
     }
@@ -83,27 +99,51 @@ static const char* ikada_refusal(WwHost* host, const WwRelImage* image, bool fix
         (u64)image->owner + 0x18u <= GC_RAM_BASE + GC_MAIN_RAM_SIZE;
     const u32 owner_bss = owner_bounded ? mem_read32(&host->cpu, image->owner + 0x14u) : 0u;
 #if WW05_ENABLE_ACTOR_BATCH_CONTRACTS
-    if (fprintf(stderr, "[rel-sdk-input-refusal] module=%u fixed=%u input_form=%u pc=%08X caller=%08X owner=%08X base=%08X actual_r3=%08X actual_r4=%08X owner_bss=%08X owner_bounded=%u bss_size=%u bss_alignment=%u name_base=%08X name=%016llX name_size=%u clause=%s\n",
+    WwRelBlock* block = ww_host_rel_actor_block(host, image);
+    if (block != NULL && block->input_refusal_reported)
+        return clause;
+    if (block != NULL)
+        block->input_refusal_reported = true;
+    if (fprintf(stderr, "[rel-sdk-input-refusal] module=%u fixed=%u input_form=%u pc=%08X caller=%08X owner=%08X base=%08X actual_r3=%08X actual_r4=%08X owner_bss=%08X owner_bounded=%u bss_size=%u bss_alignment=%u name_base=%08X name=%016llX name_size=%u expected_bss=%08X raw_fix=%u extent=%u certificate=%s policy=%s clause=%s\n",
         image->module_id,
 #else
     if (fprintf(stderr, "[rel-sdk-input-refusal] module=60 fixed=%u input_form=%u pc=%08X caller=%08X owner=%08X base=%08X actual_r3=%08X actual_r4=%08X owner_bss=%08X owner_bounded=%u bss_size=%u bss_alignment=%u name_base=%08X name=%016llX name_size=%u clause=%s\n",
 #endif
+#if WW05_ENABLE_ACTOR_BATCH_CONTRACTS
+        fixed, image->sdk_phase != WW_REL_SDK_NONE ? image->sdk_input_form :
+            ww_host_actor_sdk_contract(host, image->module_id) == WW_ACTOR_SDK_CERTIFIED_INLINE_ZERO ?
+            WW_REL_SDK_CERTIFIED_INLINE_ZERO : WW_REL_SDK_OWNER_PUBLISHED,
+        host->cpu.pc, host->cpu.lr, image->owner, image->guest,
+#else
         fixed, WW_REL_SDK_OWNER_PUBLISHED, host->cpu.pc, host->cpu.lr, image->owner, image->guest,
+#endif
         host->cpu.gpr[3], host->cpu.gpr[4], owner_bss, owner_bounded,
         raw == NULL ? 0u : bluewake_archive_be32(raw + 0x20u),
         raw == NULL ? 0u : bluewake_archive_be32(raw + 0x44u), name_base,
         (unsigned long long)((u64)name_base + (raw == NULL ? 0u : bluewake_archive_be32(raw + 0x14u))),
-        raw == NULL ? 0u : bluewake_archive_be32(raw + 0x18u), clause) < 0)
 #if WW05_ENABLE_ACTOR_BATCH_CONTRACTS
-        return "REL admitted actor SDK input refused; refusal diagnostic write failed";
+        raw == NULL ? 0u : bluewake_archive_be32(raw + 0x18u), block == NULL ? owner_bss : block->guest + block->extent,
+        block == NULL ? 0u : block->raw_fix, block == NULL ? 0u : block->extent,
+        valid ? certificate->build_identity : "invalid", host->rel_actor_policy_identity == NULL ? "inactive" : host->rel_actor_policy_identity,
+        clause) < 0 || fflush(stderr) != 0)
+#else
+        raw == NULL ? 0u : bluewake_archive_be32(raw + 0x18u), clause) < 0)
+#endif
+#if WW05_ENABLE_ACTOR_BATCH_CONTRACTS
+        return actor_diagnostic_failed(host, clause);
 #else
         return "REL ikada SDK input refused; refusal diagnostic write failed";
 #endif
     return clause;
 }
 
+#if WW05_ENABLE_ACTOR_BATCH_CONTRACTS
+static bool ikada_trace(WwHost* host, const WwRelImage* image, bool fixed, u32 bss, u32 name_base,
+                        const char* stage, const char* whole_image, u32 form) {
+#else
 static bool ikada_trace(WwHost* host, const WwRelImage* image, bool fixed, u32 bss, u32 name_base,
                         const char* stage, const char* whole_image) {
+#endif
 #if WW05_ENABLE_ACTOR_BATCH_CONTRACTS
     if (!((image->module_id == 60u && host->rel_ikada_admission) ||
           ww_host_actor_batch_certificate(host, image->module_id) != NULL))
@@ -113,18 +153,30 @@ static bool ikada_trace(WwHost* host, const WwRelImage* image, bool fixed, u32 b
         return true;
     const u8* raw = image->certificate->rel_bytes;
 #if WW05_ENABLE_ACTOR_BATCH_CONTRACTS
-    return fprintf(stderr, "[rel-sdk] module=%u stage=%s certificate=%s set=%s pc=%08X caller=%08X owner=%08X base=%08X actual_r3=%08X actual_r4=%08X fixed=%u input_form=%u owner_bss=%08X bss=%08X bss_size=%u bss_alignment=%u name_base=%08X name=%016llX name_size=%u previous=%08X head=%08X tail=%08X whole_image=%s\n",
+    const WwRelBlock* block = ww_host_rel_actor_block(host, image);
+    return fprintf(stderr, "[rel-sdk] module=%u stage=%s certificate=%s set=%s pc=%08X caller=%08X owner=%08X base=%08X actual_r3=%08X actual_r4=%08X fixed=%u input_form=%u owner_bss=%08X bss=%08X bss_size=%u bss_alignment=%u name_base=%08X name=%016llX name_size=%u previous=%08X head=%08X tail=%08X whole_image=%s raw_fix=%u extent=%u expected_bss=%08X policy=%s\n",
         image->module_id,
 #else
     return fprintf(stderr, "[rel-sdk] module=60 stage=%s certificate=%s set=%s pc=%08X caller=%08X owner=%08X base=%08X actual_r3=%08X actual_r4=%08X fixed=%u input_form=%u owner_bss=%08X bss=%08X bss_size=%u bss_alignment=%u name_base=%08X name=%016llX name_size=%u previous=%08X head=%08X tail=%08X whole_image=%s\n",
 #endif
         stage, image->certificate->build_identity, host->rel_contracts->build_identity,
         host->cpu.pc, host->cpu.lr, image->owner, image->guest, host->cpu.gpr[3], host->cpu.gpr[4],
+#if WW05_ENABLE_ACTOR_BATCH_CONTRACTS
+        fixed, form, mem_read32(&host->cpu, image->owner + 0x14u), bss,
+#else
         fixed, WW_REL_SDK_OWNER_PUBLISHED, mem_read32(&host->cpu, image->owner + 0x14u), bss,
+#endif
         bluewake_archive_be32(raw + 0x20u), bluewake_archive_be32(raw + 0x44u), name_base,
         (unsigned long long)((u64)name_base + bluewake_archive_be32(raw + 0x14u)),
         bluewake_archive_be32(raw + 0x18u), host->rel_sdk_tail,
+#if WW05_ENABLE_ACTOR_BATCH_CONTRACTS
+        mem_read32(&host->cpu, WW_REL_SDK_HEAD), mem_read32(&host->cpu, WW_REL_SDK_TAIL), whole_image,
+        block == NULL ? 0u : block->raw_fix, block == NULL ? 0u : block->extent,
+        block == NULL ? bss : block->guest + block->extent,
+        host->rel_actor_policy_identity == NULL ? "inactive" : host->rel_actor_policy_identity) >= 0 && fflush(stderr) == 0;
+#else
         mem_read32(&host->cpu, WW_REL_SDK_HEAD), mem_read32(&host->cpu, WW_REL_SDK_TAIL), whole_image) >= 0;
+#endif
 }
 #endif
 
@@ -267,10 +319,24 @@ static const char* prepare(WwHost* host, WwRelImage* image, bool fixed) {
         image->certificate != ww_host_rel_certificate(host, image->module_id))
         return "REL SDK preparation requires its exact admitted live image";
     const bool title = ww_host_rel_profile_enabled(host) && image->module_id == 400u;
+#if WW05_ENABLE_ACTOR_BATCH_CONTRACTS
+    const bool actor = ww_host_actor_sdk_contract(host, image->module_id) == WW_ACTOR_SDK_CERTIFIED_INLINE_ZERO;
+    const u32 form = title ? WW_REL_SDK_TITLE_INLINE_ZERO : actor ? WW_REL_SDK_CERTIFIED_INLINE_ZERO : WW_REL_SDK_OWNER_PUBLISHED;
+    if (image->sdk_input_form != WW_REL_SDK_OWNER_PUBLISHED && image->sdk_input_form != form)
+        return "REL SDK preparation has an unknown or transplanted frozen input form";
+    if (image->sdk_phase != WW_REL_SDK_NONE && image->sdk_input_form != form)
+        return "REL SDK preparation changed its frozen policy-selected input form";
+    if (actor) {
+        const char* error = ww_host_rel_actor_entry(host, image, fixed);
+        if (error != NULL)
+            return error;
+    }
+#else
     if (image->sdk_input_form != WW_REL_SDK_OWNER_PUBLISHED && image->sdk_input_form != WW_REL_SDK_TITLE_INLINE_ZERO)
         return "REL SDK preparation has an unknown frozen input form";
     if (image->sdk_input_form == WW_REL_SDK_TITLE_INLINE_ZERO && !title)
         return "REL SDK inline-zero input form requires the active admitted title";
+#endif
     if (title) {
         const char* error = ww_host_rel_title_entry(host, image, fixed);
         if (error != NULL)
@@ -283,7 +349,11 @@ static const char* prepare(WwHost* host, WwRelImage* image, bool fixed) {
         u64 candidate_hash = 0u, tail_hash = 0u;
         return host->rel_sdk_pending_owner == image->owner && image->sdk_phase == WW_REL_SDK_PENDING &&
             image->sdk_fixed == fixed && inputs_match(host, image) &&
+#if WW05_ENABLE_ACTOR_BATCH_CONTRACTS
+            (!(title || actor) || verify_list(host, NULL, &candidate_hash, &tail_hash)) &&
+#else
             (!title || verify_list(host, NULL, &candidate_hash, &tail_hash)) &&
+#endif
             memcmp(live, image->certificate->rel_bytes, image->bytes) == 0 ?
             NULL : "REL SDK supports only one unchanged pending append";
     }
@@ -292,7 +362,13 @@ static const char* prepare(WwHost* host, WwRelImage* image, bool fixed) {
         return "REL SDK preparation requires the certified original raw image";
     const u8* raw = image->certificate->rel_bytes;
     const u32 owner_bss = mem_read32(&host->cpu, image->owner + 0x14u);
+#if WW05_ENABLE_ACTOR_BATCH_CONTRACTS
+    WwRelBlock* actor_block = actor ? ww_host_rel_actor_block(host, image) : NULL;
+    const u32 bss = actor ? actor_block->guest + actor_block->extent :
+        title ? host->rel_title_block.guest + host->rel_title_block.extent : owner_bss;
+#else
     const u32 bss = title ? host->rel_title_block.guest + host->rel_title_block.extent : owner_bss;
+#endif
     const u32 bss_size = bluewake_archive_be32(raw + 0x20u);
     const u32 alignment = bluewake_archive_be32(raw + 0x44u);
     const u32 image_alignment = bluewake_archive_be32(raw + 0x40u);
@@ -300,14 +376,22 @@ static const char* prepare(WwHost* host, WwRelImage* image, bool fixed) {
     const u64 name = (u64)name_base + bluewake_archive_be32(raw + 0x14u);
     const u32 name_size = bluewake_archive_be32(raw + 0x18u);
     if ((image_alignment != 0u && image->guest % image_alignment != 0u) ||
+#if WW05_ENABLE_ACTOR_BATCH_CONTRACTS
+        (!(title || actor) && bss_size == 0u && bss != 0u) || (bss_size != 0u &&
+#else
         (!title && bss_size == 0u && bss != 0u) || (bss_size != 0u &&
+#endif
         ((bss & 3u) != 0u || bss < GC_RAM_BASE || (u64)bss + bss_size > GC_RAM_BASE + GC_MAIN_RAM_SIZE ||
          (alignment != 0u && bss % alignment != 0u) || ww_host_linked_alias_overlaps(bss, bss_size))) ||
         name > UINT32_MAX || (name != 0u && (name < GC_RAM_BASE || name >= GC_RAM_BASE + GC_MAIN_RAM_SIZE)) ||
         (name_size != 0u && (name < GC_RAM_BASE ||
         name + name_size > GC_RAM_BASE + GC_MAIN_RAM_SIZE || ww_host_linked_alias_overlaps((u32)name, name_size))))
         return input_refusal(host, image, fixed, bss,
+#if WW05_ENABLE_ACTOR_BATCH_CONTRACTS
+            form,
+#else
             title ? WW_REL_SDK_TITLE_INLINE_ZERO : WW_REL_SDK_OWNER_PUBLISHED,
+#endif
             "REL SDK name or BSS input is not a validated bounded MEM1 range");
     WwRelImage* profile = NULL;
     if (!host->rel_sdk_seeded) {
@@ -342,7 +426,11 @@ static const char* prepare(WwHost* host, WwRelImage* image, bool fixed) {
         host->rel_sdk_tail, image->certificate->build_identity) < 0)
         return "REL SDK title preparation trace failed";
 #if WW05_ENABLE_IKADA_CONTRACT
+#if WW05_ENABLE_ACTOR_BATCH_CONTRACTS
+    if (!ikada_trace(host, image, fixed, bss, name_base, "prepared", "not-verified", form))
+#else
     if (!ikada_trace(host, image, fixed, bss, name_base, "prepared", "not-verified"))
+#endif
 #if WW05_ENABLE_ACTOR_BATCH_CONTRACTS
         return "REL admitted actor SDK preparation trace failed";
 #else
@@ -358,18 +446,30 @@ static const char* prepare(WwHost* host, WwRelImage* image, bool fixed) {
     image->sdk_name_base = name_base;
     image->sdk_bss = bss;
     image->sdk_fixed = fixed;
+#if WW05_ENABLE_ACTOR_BATCH_CONTRACTS
+    image->sdk_input_form = form;
+#else
     image->sdk_input_form = title ? WW_REL_SDK_TITLE_INLINE_ZERO : WW_REL_SDK_OWNER_PUBLISHED;
+#endif
     image->sdk_previous = host->rel_sdk_tail;
     image->sdk_next = 0u;
     image->sdk_phase = WW_REL_SDK_PENDING;
     host->rel_sdk_pending_owner = image->owner;
     if (title)
         ww_host_rel_title_entered(host);
+#if WW05_ENABLE_ACTOR_BATCH_CONTRACTS
+    if (actor)
+        ww_host_rel_actor_entered(actor_block);
+#endif
     return NULL;
 }
 
 const char* ww_host_rel_sdk_prepare(WwHost* host, WwRelImage* image, bool fixed) {
     const char* error = prepare(host, image, fixed);
+#if WW05_ENABLE_ACTOR_BATCH_CONTRACTS
+    if (error != NULL && host != NULL)
+        ww_host_rel_actor_failed(host, image);
+#endif
 #if WW05_ENABLE_IKADA_CONTRACT
     if (error != NULL)
         error = ikada_refusal(host, image, fixed, error);
@@ -389,6 +489,19 @@ static const char* finish(WwHost* host, WwRelImage* image) {
     if (host->rel_sdk_pending_owner != image->owner || image->sdk_phase != WW_REL_SDK_PENDING)
         return "REL SDK certification requires its prepared append";
     const bool title = image->sdk_input_form == WW_REL_SDK_TITLE_INLINE_ZERO;
+#if WW05_ENABLE_ACTOR_BATCH_CONTRACTS
+    const bool actor = ww_host_actor_sdk_contract(host, image->module_id) == WW_ACTOR_SDK_CERTIFIED_INLINE_ZERO;
+    WwRelBlock* actor_block = actor ? ww_host_rel_actor_block(host, image) : NULL;
+    const u32 form = ww_host_rel_profile_enabled(host) && image->module_id == 400u ? WW_REL_SDK_TITLE_INLINE_ZERO :
+        actor ? WW_REL_SDK_CERTIFIED_INLINE_ZERO : WW_REL_SDK_OWNER_PUBLISHED;
+    if (image->sdk_input_form != form)
+        return "REL SDK certification requires its frozen policy-selected input form";
+    if (actor) {
+        const char* error = ww_host_rel_actor_return(host, image);
+        if (error != NULL)
+            return error;
+    }
+#endif
     if (ww_host_rel_profile_enabled(host) && image->module_id == 400u && !title)
         return "REL SDK active title requires its frozen inline-zero input contract";
     if (title) {
@@ -410,7 +523,11 @@ static const char* finish(WwHost* host, WwRelImage* image) {
         image->sdk_input_form, host->cpu.pc, host->cpu.lr, host->cpu.gpr[3], image->certificate->build_identity) < 0)
         return "REL SDK title verification trace failed";
 #if WW05_ENABLE_IKADA_CONTRACT
+#if WW05_ENABLE_ACTOR_BATCH_CONTRACTS
+    if (!ikada_trace(host, image, image->sdk_fixed, image->sdk_bss, image->sdk_name_base, "verified", "matched", image->sdk_input_form))
+#else
     if (!ikada_trace(host, image, image->sdk_fixed, image->sdk_bss, image->sdk_name_base, "verified", "matched"))
+#endif
 #if WW05_ENABLE_ACTOR_BATCH_CONTRACTS
         return "REL admitted actor SDK verification trace failed";
 #else
@@ -431,11 +548,19 @@ static const char* finish(WwHost* host, WwRelImage* image) {
     host->rel_sdk_pending_owner = 0u;
     if (title)
         ww_host_rel_title_returned(host);
+#if WW05_ENABLE_ACTOR_BATCH_CONTRACTS
+    if (actor)
+        ww_host_rel_actor_returned(actor_block);
+#endif
     return NULL;
 }
 
 const char* ww_host_rel_sdk_finish(WwHost* host, WwRelImage* image) {
     const char* error = finish(host, image);
+#if WW05_ENABLE_ACTOR_BATCH_CONTRACTS
+    if (error != NULL && host != NULL)
+        ww_host_rel_actor_failed(host, image);
+#endif
     if (error != NULL && host != NULL && image != NULL &&
         ww_host_rel_profile_enabled(host) && image->module_id == 400u)
         ww_host_rel_title_failed(host);
@@ -443,6 +568,12 @@ const char* ww_host_rel_sdk_finish(WwHost* host, WwRelImage* image) {
 }
 
 const char* ww_host_rel_sdk_observe(WwHost* host, u32 address) {
+#if WW05_ENABLE_ACTOR_BATCH_CONTRACTS
+    bool actor_handled = false;
+    const char* actor_error = ww_host_rel_actor_observe(host, address, &actor_handled);
+    if (actor_handled || actor_error != NULL)
+        return actor_error;
+#endif
     WwRelBlock* title = &host->rel_title_block;
     const bool active = ww_host_rel_profile_enabled(host);
     if (active && address != title->window)

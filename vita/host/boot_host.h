@@ -79,6 +79,10 @@ typedef struct WwHost {
 #endif
 #if WW05_ENABLE_ACTOR_BATCH_CONTRACTS
     bool rel_actor_batch_admission;
+    WwRelBlock* rel_actor_blocks;
+    u32 rel_actor_block_count;
+    const char* rel_actor_policy_identity;
+    char rel_actor_diagnostic_error[512];
 #endif
 #if WW05_TESTS_ONLY
     bool rel_test_admission;
@@ -161,6 +165,10 @@ const char* ww_host_enable_ikada_contract(WwHost* host);
 #if WW05_ENABLE_ACTOR_BATCH_CONTRACTS
 const char* ww_host_enable_actor_batch_contracts(WwHost* host);
 const BlueWakeRelInitContractV1* ww_host_actor_batch_certificate(const WwHost* host, u32 module_id);
+typedef enum WwActorSdkContract {
+    WW_ACTOR_SDK_EXISTING, WW_ACTOR_SDK_OWNER_PUBLISHED, WW_ACTOR_SDK_CERTIFIED_INLINE_ZERO
+} WwActorSdkContract;
+WwActorSdkContract ww_host_actor_sdk_contract(const WwHost* host, u32 module_id);
 #endif
 void ww_host_shutdown(WwHost* host);
 bool ww_host_load(WwHost* host, const StaticRecompModuleDesc* module,

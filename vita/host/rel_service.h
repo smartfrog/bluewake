@@ -16,6 +16,9 @@ typedef enum WwRelSdkPhase {
 typedef enum WwRelSdkInputForm {
     WW_REL_SDK_OWNER_PUBLISHED,
     WW_REL_SDK_TITLE_INLINE_ZERO
+#if WW05_ENABLE_ACTOR_BATCH_CONTRACTS
+    , WW_REL_SDK_CERTIFIED_INLINE_ZERO
+#endif
 } WwRelSdkInputForm;
 
 #define WW_REL_MAX_IMPORTS 32u

@@ -208,7 +208,7 @@ if(WW05_TESTS_ONLY)
         target_include_directories(rel_lifecycle_probe PRIVATE "${CMAKE_CURRENT_BINARY_DIR}")
         target_compile_options(rel_lifecycle_probe PRIVATE -UNDEBUG)
         target_link_libraries(rel_lifecycle_probe PRIVATE ww05_services)
-        target_link_options(rel_lifecycle_probe PRIVATE -Wl,--wrap=fprintf -Wl,--wrap=calloc -Wl,--wrap=malloc)
+        target_link_options(rel_lifecycle_probe PRIVATE -Wl,--wrap=fprintf -Wl,--wrap=calloc -Wl,--wrap=malloc -Wl,--wrap=fflush)
         add_test(NAME rel-lifecycle COMMAND python3 -B "${CMAKE_CURRENT_SOURCE_DIR}/test_rel_lifecycle.py"
             --build-dir "${CMAKE_CURRENT_BINARY_DIR}")
         set_tests_properties(rel-lifecycle PROPERTIES LABELS "synthetic;rel")

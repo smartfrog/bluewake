@@ -1186,6 +1186,13 @@ void ww_host_shutdown(WwHost* host) {
     free(host->rel_profile_block.raw);
     memset(&host->rel_profile_block, 0, sizeof(host->rel_profile_block));
     memset(&host->rel_title_block, 0, sizeof(host->rel_title_block));
+#if WW05_ENABLE_ACTOR_BATCH_CONTRACTS
+    free(host->rel_actor_blocks);
+    host->rel_actor_blocks = NULL;
+    host->rel_actor_block_count = 0u;
+    host->rel_actor_policy_identity = NULL;
+    host->rel_actor_batch_admission = false;
+#endif
     // VITA-WW-17: the renderer resolves against this host's memory and CPU,
     // so it goes before they are freed.
     ww_renderer_destroy(host->renderer);

@@ -183,10 +183,11 @@ def batch_actor_fixture(output, code, mid, nonempty):
             0x60000000, 0x60000000]
     code[pc], code[pc + 96] = words, ctor
     canonical = struct.pack('>32I', *(words + ctor))
-    raw = bytearray(768)
+    raw = bytearray(780 if nonempty else 768)
     for at, value in ((0, mid), (0xC, 17), (0x10, 0x4C), (0x1C, 3),
                       (0x24, 0x1A0), (0x28, 0x190), (0x2C, 16), (0x38, 44), (0x3C, 88),
-                      (0x40, 8), (0x44, 1), (0x48, 0x190)):
+                      (0x40, 16 if nonempty else 8), (0x44, 8 if nonempty else 1),
+                      (0x48, 0x1B4 if nonempty else 0x190)):
         struct.pack_into('>I', raw, at, value)
     raw[0x30:0x33] = bytes([1, 1, 1])
     sections = [(1, pc, 0xD4, 128), (2, base + ctor_offset, ctor_offset, table_size),
@@ -198,7 +199,7 @@ def batch_actor_fixture(output, code, mid, nonempty):
     for at, value in ((0xE0, 0x3C600000), (0xE4, 0x60630000), (0xE8, 0x48000001),
                       (0xEC, 0x48000001), (0x134, 0x3C800000), (0x138, 0x60840000)):
         struct.pack_into('>I', raw, at, value)
-    struct.pack_into('>4I', raw, 0x190, mid, 0x1A0, 0, 0x200)
+    struct.pack_into('>4I', raw, 0x190, *((0, 0x200, mid, 0x1A0) if nonempty else (mid, 0x1A0, 0, 0x200)))
     entries = ([(0, 202, 2, 0), (0, 1, 1, 96)] if nonempty else []) + [
         (0, 202, 1, 0), (14, 6, 2, 0), (4, 4, 2, 0), (80, 6, 4, 0), (4, 4, 4, 0), (0, 203, 0, 0)]
     for at, entry in enumerate(entries):
@@ -304,9 +305,18 @@ def fixture(output):
     sdk[-1:-1] = [0x38600001]
     for at in range(0, len(sdk), 60):
         code[0x8000C000 + at * 4] = sdk[at:at + 60]
-    code[0x80305448] = [0x80A30000, 0x2C050001, 0x40820008,
-                       branch(0x80305454, 0x8000A000, False), 0x2C0500A8, 0x41820008,
-                        branch(0x80305460, 0x80305500, False), branch(0x80305464, 0x80008000, False)]
+    code[0x80305448] = [branch(0x80305448, 0x80011800, False)]
+    code[0x80011800] = [0x80A30000, 0x2C050054, 0x40820008,
+                       branch(0x8001180C, 0x80012000, False), 0x2C050055, 0x40820008,
+                       branch(0x80011818, 0x80013000, False), branch(0x8001181C, 0x80305480, False)]
+    for image, start in zip(actors, (0x80012000, 0x80013000)):
+        sdk = sdk_program(image)
+        sdk[-1:-1] = [0x38600001]
+        for at in range(0, len(sdk), 60):
+            code[start + at * 4] = sdk[at:at + 60]
+    code[0x80305480] = [0x80A30000, 0x2C050001, 0x40820008,
+                        branch(0x8030548C, 0x8000A000, False), 0x2C0500A8, 0x41820008,
+                         branch(0x80305498, 0x80305500, False), branch(0x8030549C, 0x80008000, False)]
     code[0x80305500] = [0x7CA802A6, *load(6, 0x80240D4C), 0x7C053000, 0x41820008,
                        branch(0x80305514, 0x80009000, False), branch(0x80305518, 0x8000C000, False)]
     sdk = sdk_program(small, resident=True)
@@ -338,9 +348,9 @@ def fixture(output):
         lines.append(f'static const u64 lifecycle_expected_{name}_hash=0x{fnv(value):016X}ull;')
     for name, value in (
             ('ikada_with_wood', sdk_expected(ikada, 0x818327E0, 0x818325E0, 0x807FE000, 0x81832BE0, fixed=False)),
-            ('wood', sdk_expected(actors[0], 0x81832BE0, 0x818327E0, 0, fixed=False)),
-            ('wood_with_next', sdk_expected(actors[0], 0x81832BE0, 0x818327E0, 0, 0x81832EE0, fixed=False)),
-            ('next_actor', sdk_expected(actors[1], 0x81832EE0, 0x81832BE0, 0, fixed=False))):
+            ('wood', sdk_expected(actors[0], 0x81832BE0, 0x818327E0, 0x81832D80)),
+            ('wood_with_next', sdk_expected(actors[0], 0x81832BE0, 0x818327E0, 0x81832D80, 0x81832EE0)),
+            ('next_actor', sdk_expected(actors[1], 0x81832EE0, 0x81832BE0, 0x818330A0))):
         lines.append(f'static const u64 lifecycle_expected_{name}_hash=0x{fnv(value):016X}ull;')
     lines.append('static const StaticRecompRange lifecycle_ranges[] = { {0x80240744u,0x80240748u},')
     lines.extend(f'{{0x{address & ~0x40000000 if address < 0xC1000000 else address:08X}u,'

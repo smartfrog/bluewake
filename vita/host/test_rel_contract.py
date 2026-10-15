@@ -172,6 +172,10 @@ class RelContractTest(unittest.TestCase):
     def test_sdk_entry_freezes_inputs_without_changing_cpu_state(self):
         self.run_probe('entry-observation')
 
+    def test_owner_published_domain_refuses_inline_transplants_and_unknown_forms(self):
+        for form in (1, 2, 99):
+            with self.subTest(form=form): self.run_probe(f'input-form-{form}')
+
     def test_internal_icbi_does_not_certify_the_pre_trim_image(self):
         self.run_probe('icbi-before-trim')
 

@@ -21,6 +21,9 @@ typedef struct WwRelBlock {
     u32 owner, guest, bytes, capacity, raw_fix, extent, logical_size, window;
     bool accounting_observed;
     bool input_refusal_reported;
+#if WW05_ENABLE_ACTOR_BATCH_CONTRACTS
+    const StaticRecompRelModule* descriptor;
+#endif
 } WwRelBlock;
 
 typedef struct WwRelProfileBlock {
@@ -53,6 +56,20 @@ void ww_host_rel_title_returned(struct WwHost* host);
 bool ww_host_rel_title_accounted(struct WwHost* host, const WwRelImage* image);
 bool ww_host_rel_title_published(struct WwHost* host, const WwRelImage* image);
 void ww_host_rel_title_failed(struct WwHost* host);
+#if WW05_ENABLE_ACTOR_BATCH_CONTRACTS
+const char* ww_rel_inline_layout(const struct BlueWakeRelInitContractV1* certificate);
+WwRelBlock* ww_host_rel_actor_block(struct WwHost* host, const WwRelImage* image);
+const char* ww_host_rel_actor_expose(struct WwHost* host, WwRelImage* image);
+bool ww_host_rel_actor_published(struct WwHost* host, const WwRelImage* image);
+bool ww_host_rel_actor_inputs(struct WwHost* host, const WwRelImage* image);
+bool ww_host_rel_actor_accounted(struct WwHost* host, const WwRelImage* image);
+const char* ww_host_rel_actor_entry(struct WwHost* host, WwRelImage* image, bool fixed);
+const char* ww_host_rel_actor_return(struct WwHost* host, const WwRelImage* image);
+const char* ww_host_rel_actor_observe(struct WwHost* host, u32 address, bool* handled);
+void ww_host_rel_actor_failed(struct WwHost* host, const WwRelImage* image);
+void ww_host_rel_actor_entered(WwRelBlock* block);
+void ww_host_rel_actor_returned(WwRelBlock* block);
+#endif
 const char* ww_rel_replay_resident(struct WwHost* host, const StaticRecompRelModule* rel,
     const u8* raw, u32 bytes, u8* relocated, const WwRelImage* sdk);
 const char* ww_rel_sdk_structure(const WwRelImage* image, const u8* raw, u8* expected, u32 next);
