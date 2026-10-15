@@ -167,6 +167,11 @@ class ExportBindingTests(unittest.TestCase):
             's_rel_data_7_2[] = {\n0xc0,0x00,0x00,0x80,0x00,0x00,0x00,0x00,')
         self.assertEqual(self.check()['build_identity'], self.pin)
 
+    def test_literal_unsigned_hex_canonical_data(self):
+        self.data = self.data.replace('s_rel_data_7_2[] = {\n192,0,0,128,0,0,0,0,',
+            's_rel_data_7_2[] = {\n0xC0u,0x00u,0x00u,0x80u,0x00u,0x00u,0x00u,0x00u,')
+        self.assertEqual(self.check()['build_identity'], self.pin)
+
     def test_wrong_emitted_text_hash(self):
         self.receipt['sha256'] = '0' * 64
         with self.assertRaisesRegex(ValueError, 'emitted text'):
