@@ -20,6 +20,19 @@ COVERAGE_SOURCE = Path('/home/fred/projects/zeldaWWHDRecomp')
 COVERAGE_SOURCE_HEAD = '23a8f348ec6c9ef4ab22fb69f2df4e412ffc9d10'
 COVERAGE_CLAIM = 'Audited historical identity + structural derived coverage only'
 COVERAGE_TAGGED_SCOPE = 'C0000000 <= address < C0400000; clear 40000000; set ctx->pc; call_original after replacement/host hooks'
+INHERITED_CAPTURE_PATHS = {
+    9: 'inherited/bridge/bridge9.ship-code-input',
+    19: 'inherited/grass/grass19.ship-code-input',
+    60: 'inherited/inherited/ikada.ship-code-input',
+    81: 'inherited/toripost/toripost81.ship-code-input',
+    84: 'inherited/inherited/wood84.ship-code-input',
+    168: 'inherited/inherited/ship-inherited.ship-code-input',
+    400: 'inherited/inherited/title-recovered.ship-code-input',
+}
+INHERITED_ROOT_SHA256 = '66512728d80f0c396e72b86564119fbc4c6c205e93885a69968a8af8411dc7f8'
+INHERITED_PRIOR = COVERAGE_SOURCE / 'build-f5/preserved-worktrees/ww146-toripost-20261015'
+INHERITED_PRIOR_MANIFEST_SHA256 = '15a06a44293d2eb147c095801b51177785ef30bdddb905d16a636e8685633582'
+INHERITED_PRIOR_RECEIPT_SHA256 = '62d4a1e5de36a6836d2cace8f4826ef903740532004bb13991d3ceede594c3f7'
 
 
 class UnqualifiedCoverage(ValueError):
@@ -273,6 +286,84 @@ def pinned_file(path, pin):
     return data
 
 
+def capture_input(row, evidence):
+    if row['id'] not in INHERITED_CAPTURE_PATHS:
+        return (evidence / 'captures/bulk' / row['capture_basename']).read_bytes(), None
+    import ship_contract
+
+    root = pinned_json(evidence / 'MANIFEST.json', INHERITED_ROOT_SHA256)
+    expected = {str(mid) for mid in INHERITED_CAPTURE_PATHS}
+    require(root['source_delivery_sha'] == DELIVERY and
+            set(map(str, root['inherited_ids'])) == expected and len(root['inherited_ids']) == len(expected),
+            'inherited delivery membership mismatch')
+    relocation = root['relocated_manifests']['opening-d.json']
+    require(relocation['original_sha256'] == INHERITED_PRIOR_MANIFEST_SHA256,
+            'inherited prior manifest identity mismatch')
+    manifest = pinned_json(evidence / 'manifests/opening-d.json', relocation['preserved_sha256'])
+    prior = pinned_json(INHERITED_PRIOR / 'manifests/opening-d.json', INHERITED_PRIOR_MANIFEST_SHA256)
+    require(set(manifest['modules']) == set(prior['modules']) == expected,
+            'inherited producer membership mismatch')
+    require(manifest['version'] == prior['version'] == 1 and
+            manifest['dol_sha256'] == prior['dol_sha256'], 'inherited producer DOL identity mismatch')
+    entry, old = manifest['modules'][str(row['id'])], prior['modules'][str(row['id'])]
+    relative = INHERITED_CAPTURE_PATHS[row['id']]
+    path = evidence / 'captures' / relative
+    require(entry['capture'] == str(path) and path.resolve() == path.absolute() and
+            old['capture'] == str(INHERITED_PRIOR / 'captures' / relative.removeprefix('inherited/')),
+            'inherited capture path mismatch or alias')
+    require(entry['capture_sha256'] == old['capture_sha256'] == root['captures'][relative],
+            'inherited capture pin mismatch')
+    identities = {'raw_sha256': row['raw_sha256'], 'processed_rel_sha256': row['processed_sha256'],
+                  'translation_sha256': row['translation']['files_sha256']}
+    require(all(entry[key] == old[key] == value for key, value in identities.items()),
+            'inherited source identity mismatch')
+    capture = path.read_bytes()
+    require(len(capture) == row['expected_capture_size'] and sha(capture) == entry['capture_sha256'],
+            'inherited capture identity mismatch')
+    magic = ship_contract.selected_module(row['id'])['magic'].hex()
+    require(row['capture_magic_hex'] == (b'REL00081'.hex() if row['id'] == 81 else magic),
+            'unreviewed inherited capture namespace')
+    return capture, dict(capture_path=str(path), capture_sha256=sha(capture), capture_magic_hex=magic,
+                         dol_sha256=manifest['dol_sha256'],
+                         delivery_manifest_sha256=INHERITED_ROOT_SHA256,
+                         preserved_producer_manifest_sha256=relocation['preserved_sha256'],
+                         prior_producer_manifest_sha256=INHERITED_PRIOR_MANIFEST_SHA256)
+
+
+def pinned_json(path, pin):
+    import ship_contract
+
+    data = path.read_bytes()
+    require(sha(data) == pin, f'pinned JSON identity mismatch: {path}')
+    return json.loads(data, object_pairs_hook=ship_contract.unique_json_object)
+
+
+def inherited_pin_comparison(current, prior, policy, base_policy):
+    production = re.findall(r'#if WW05_TESTS_ONLY\n.*?\n#else\n(.*?)\n#endif\n};', base_policy, re.S)
+    require(len(production) == 1, 'inherited base production policy membership')
+    pattern = (r'^[ \t]*\{(\d+)u,\s*"([0-9a-f]{64})",\s*(true|false),\s*'
+               r'WW_ACTOR_SDK_(EXISTING|OWNER_PUBLISHED|CERTIFIED_INLINE_ZERO)\},?[ \t]*$')
+    base_rows = re.findall(pattern, production[0], re.M)
+    current_rows = re.findall(pattern, policy, re.M)
+    contracts = current['selected_rel_contracts']['contracts']
+    old = prior['selected_rel_contracts']['contracts']
+    require(set(old) == {str(mid) for mid in INHERITED_CAPTURE_PATHS} and
+            len(base_rows) == len(INHERITED_CAPTURE_PATHS), 'inherited prior/base membership mismatch')
+    result = {}
+    for mid in INHERITED_CAPTURE_PATHS:
+        key = str(mid)
+        base = [entry for entry in base_rows if entry[0] == key]
+        selected = [entry for entry in current_rows if entry[0] == key]
+        require(len(base) == len(selected) == 1, 'inherited policy membership mismatch')
+        pin = old[key]['build_identity']
+        require(base[0][1] == selected[0][1] == contracts[key]['build_identity'] == pin,
+                f'inherited pin mismatch: {mid}')
+        require(base[0][2:] == selected[0][2:], f'inherited policy assignment changed: {mid}')
+        result[key] = dict(prior_pin=pin, current_pin=selected[0][1], base_pin=base[0][1],
+                           actor=selected[0][2] == 'true', policy_sdk_contract=selected[0][3])
+    return result
+
+
 def check_coverage_source():
     command = ['git', '-C', str(COVERAGE_SOURCE)]
     require(subprocess.check_output(command + ['rev-parse', 'HEAD'], text=True).strip() ==
@@ -463,7 +554,7 @@ def verify_inputs(row, raw, processed):
 def implementation_pins():
     root = Path(__file__).resolve().parents[1]
     files = ['scripts/verify_canonical_executable.py', 'tests/test_canonical_executable.py',
-             'tests/test_canonical_coverage.py',
+             'tests/test_canonical_coverage.py', 'tests/test_canonical_inherited.py',
              'scripts/ship_contract.py', 'scripts/bulk_rel_catalog.json', 'scripts/prepare.py',
              'scripts/wwhd/formats.py']
     return {name: sha((root / name).read_bytes()) for name in files}
@@ -510,10 +601,22 @@ def qualify(args):
     require(canonical == again, 'raw/processed canonical mismatch')
     payload = canonical[row['exec']['index']]
     composite = args.evidence / 'composite-batch'
-    binding = bind(row, payload, (args.evidence / 'captures/bulk' / row['capture_basename']).read_bytes(),
+    capture, inherited = capture_input(row, args.evidence)
+    if inherited is not None:
+        require(inherited['dol_sha256'] == sha(dol), 'inherited capture DOL identity mismatch')
+    capture_row = row if inherited is None else row | {'capture_magic_hex': inherited['capture_magic_hex']}
+    binding = bind(capture_row, payload, capture,
                    (composite / 'rel_data.inc').read_text(), (composite / 'module_tables.inc').read_text())
     receipt = json.loads((composite / 'generation_receipt.json').read_text(),
                          object_pairs_hook=ship_contract.unique_json_object)
+    if inherited is not None:
+        prior = pinned_json(INHERITED_PRIOR / 'composite-batch/generation_receipt.json',
+                            INHERITED_PRIOR_RECEIPT_SHA256)
+        base = subprocess.check_output(['git', '-C', str(root), 'show',
+                                        COVERAGE_SOURCE_HEAD + ':vita/host/actor_batch_policy.h'], text=True)
+        inherited['prior_wave_pins'] = inherited_pin_comparison(
+            receipt, prior, (args.delivery / 'vita/host/bulk_actor_policy.inc').read_text(), base)
+        inherited['prior_generation_receipt_sha256'] = INHERITED_PRIOR_RECEIPT_SHA256
     chunk_receipts = json.loads((args.evidence / 'receipts/delivery-canonical-chunks.json').read_text(),
                                 object_pairs_hook=ship_contract.unique_json_object)
     verify_receipts(row, binding, chunk_receipts[str(args.module)],
@@ -533,7 +636,7 @@ def qualify(args):
     require(word >> 26 == 18 and word & 3 == 1 and target == row['ctor']['walker_address'] and
             (target & ~0x40000000) in external, 'constructor walker branch mismatch')
     coverage = coverage_dependency(args.dol_coverage, row, external, target, dol, composite)
-    return dict(status=coverage['status'], module_id=args.module, delivery=head,
+    result = dict(status=coverage['status'], module_id=args.module, delivery=head,
                 spec_sha256=sha(spec_bytes), dependencies=dependencies, binding=binding,
                 python=sys.version, implementation_revision=subprocess.check_output(
                     ['git', '-C', str(root), 'rev-parse', 'HEAD'], text=True).strip(),
@@ -542,6 +645,9 @@ def qualify(args):
                 coverage=coverage, limits=[
                     'Qualification candidate only; no PASS-v2 or report upgrade.',
                     'No fresh emission, runtime, gameplay, or hardware qualification.'])
+    if inherited is not None:
+        result['inherited_capture'] = inherited
+    return result
 
 
 def main():
