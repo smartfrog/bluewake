@@ -84,7 +84,8 @@ def relocate(raw, sections, module_id, dol_text):
     require(len(set(starts)) == len(starts), 'shared relocation streams unsupported')
     external = set()
     for imported, cursor in entries:
-        require(imported in (0, module_id), 'unsupported import')
+        if imported not in (0, module_id):
+            raise UnqualifiedCoverage('unsupported import')
         require(start <= cursor <= len(raw) - 8 and (cursor - start) % 8 == 0,
                 'relocation stream bounds/alignment')
         patch = None
@@ -104,7 +105,8 @@ def relocate(raw, sections, module_id, dol_text):
             require(offset <= patch['size'], 'delta exceeds section bounds')
             if kind == 201:
                 continue
-            require(kind in (1, 4, 6, 10), 'unsupported relocation type')
+            if kind not in (1, 4, 6, 10):
+                raise UnqualifiedCoverage('unsupported relocation type')
             width = 2 if kind in (4, 6) else 4
             require(patch['index'] in images and offset + width <= patch['size'] and
                     offset % width == 0 and (patch['linked_start'] + offset) % width == 0,
@@ -208,10 +210,7 @@ def bind(row, expected, capture, data_text, table_text):
             (row['id'], section['index'], section['linked_start'], section['size']) and
             selected[0][4] == array and all(int(d[0], 0) == row['id'] for d in descriptors),
             'canonical descriptor mismatch')
-    contracts = rows(block(data_text, 'BlueWakeRelInitContractV1', 's_rel_init_contracts'),
-                     r'\{\s*' + NUM + r'\s*,\s*' + NUM +
-                     r'\s*,\s*(\w+),\s*(\w+),\s*' + NUM + r',\s*' + NUM + r',\s*' +
-                     NUM + r',\s*' + NUM + r',\s*&s_rel_lifecycle_v2\[\d+\],\s*"[^"\n]+"\},\s*')
+    contracts = exported_contracts(data_text, strict=False)
     associations = [entry for entry in contracts if int(entry[0], 0) == row['id']]
     require(len(associations) == 1 and associations[0][2:4] ==
             (prefix + '_raw_rel', prefix + '_canonical') and
@@ -269,7 +268,143 @@ def verify_receipts(row, binding, chunks, contract):
                 if section['index'] == row['exec']['index']]
     require(len(sections) == 1 and
             all(sections[0].get(key) == value for key, value in row['exec'].items()) and
-            sections[0].get('sha256') == binding['executable_sha256'], 'canonical section receipt mismatch')
+             sections[0].get('sha256') == binding['executable_sha256'], 'canonical section receipt mismatch')
+
+
+def certificate_identity(fields):
+    return sha(json.dumps(fields, sort_keys=True, separators=(',', ':')).encode())
+
+
+def certificate_preimage(row, dol, raw, processed, canonical):
+    sections = row['sections']
+    backed = [s for s in sections if s['size'] and s['offset']]
+    require(set(canonical) == {s['index'] for s in backed}, 'canonical section inventory')
+    executable, = [s for s in sections if s['size'] and s['executable']]
+    fields = ('index', 'offset', 'linked_start', 'size')
+    require({k: executable[k] for k in fields} == row['exec'], 'certificate executable layout')
+    lifecycle = {}
+    for i, name in enumerate(('prolog', 'epilog', 'unresolved')):
+        index, offset = raw[0x30 + i], u32(raw, 0x34 + i * 4)
+        require(index == executable['index'] and offset % 4 == 0 and
+                offset + 4 <= executable['size'], 'certificate lifecycle bounds')
+        lifecycle[name] = sections[index]['linked_start'] + offset
+    tables = {}
+    for name, key in [('ctors', 'ctor'), ('dtors', 'dtor')]:
+        if row[key]['table_offset'] != 0:
+            raise UnqualifiedCoverage('certificate table offset semantics not qualified')
+        section = sections[row[key]['section_index']]
+        require(section['index'] in canonical and not section['executable'] and
+                section['size'] % 4 == 0, 'certificate table layout')
+        values = struct.unpack('>' + 'I' * (section['size'] // 4), canonical[section['index']])
+        require(values and values[-1] == 0 and all(value % 4 == 0 and
+                executable['linked_start'] <= value < executable['linked_start'] + executable['size']
+                for value in values[:-1]), 'certificate table targets/terminator')
+        tables[name] = section['linked_start']
+    return dict(version=1, module_id=row['id'], dol_size=len(dol), dol_sha256=sha(dol),
+                rel_size=len(raw), rel_sha256=sha(raw), processed_rel_sha256=sha(processed),
+                section_alignment={'identity': u32(raw, 0x40), 'processed': u32(processed, 0x40)},
+                exec={key: executable[key] for key in fields}, lifecycle=lifecycle, **tables,
+                chunks=[list(pair) for pair in row['translation']['chunk_ranges']],
+                section_count=len(backed), canonical_sections=[
+                    {key: s[key] for key in fields} | {'sha256': sha(canonical[s['index']]),
+                     'raw_sha256': sha(raw[s['offset']:s['offset'] + s['size']])} for s in backed])
+
+
+def compare_certificate_receipt(expected, receipt):
+    require(set(receipt) == set(expected) | {'build_identity', 'sha256'} and
+            certificate_identity({key: value for key, value in receipt.items()
+                                  if key not in ('build_identity', 'sha256')}) ==
+            certificate_identity(expected), 'complete certificate preimage mismatch')
+    identity = certificate_identity(expected)
+    require(receipt['build_identity'] == identity, 'certificate identity mismatch')
+    return identity
+
+
+def exported_contracts(data_text, strict=True):
+    identity = '[0-9a-f]{64}' if strict else '[^"\n]+'
+    return rows(block(data_text, 'BlueWakeRelInitContractV1', 's_rel_init_contracts'),
+                r'\{\s*' + NUM + r'\s*,\s*' + NUM + r'\s*,\s*(\w+),\s*(\w+),\s*' +
+                NUM + r',\s*' + NUM + r',\s*' + NUM + r',\s*' + NUM +
+                r',\s*&s_rel_lifecycle_v2\[(\d+)\],\s*"(' + identity + r')"\},\s*')
+
+
+def bind_full_contract_set(data_text, policy_text, contracts, expected_ids):
+    actual = exported_contracts(data_text)
+    policy_body = re.sub(r'^#define WW_ACTOR_(?:COUNT [0-9]+u|POLICY_PIN 0x[0-9a-f]{16}ull|'
+                         r'POLICY_IDENTITY "inline-zero-v1-fnv1a64-[0-9a-f]{16}"|'
+                         r'SET_IDENTITY "[0-9a-f]{64}")\n?', '', policy_text, flags=re.M)
+    policy = rows(policy_body, r'\{\s*([1-9][0-9]*)u,\s*"([0-9a-f]{64})",\s*(true|false),\s*'
+                  r'WW_ACTOR_SDK_(EXISTING|OWNER_PUBLISHED|CERTIFIED_INLINE_ZERO)\},?\s*')
+    ids = [int(entry[0], 0) for entry in actual]
+    policy_ids = [int(entry[0]) for entry in policy]
+    require(len(ids) == len(set(ids)) == len(expected_ids) and set(ids) == set(expected_ids),
+            'actual exported contract fullset membership mismatch')
+    require(len(policy_ids) == len(set(policy_ids)) == len(ids) and set(policy_ids) == set(ids),
+            'policy fullset membership mismatch')
+    require({int(entry[0]) for entry in policy if entry[2] == 'false'} ==
+            set(expected_ids) & {60, 168, 400}, 'policy nonactor fullset mismatch')
+    require(set(contracts) == {str(mid) for mid in expected_ids}, 'receipt fullset membership mismatch')
+    actual_pins = {int(entry[0], 0): entry[-1] for entry in actual}
+    require(actual_pins == {int(entry[0]): entry[1] for entry in policy} ==
+            {int(mid): value['build_identity'] for mid, value in contracts.items()},
+            'actual exported fullset/policy/receipt identity mismatch')
+    return actual, policy
+
+
+def literal_bytes(data_text, name):
+    body = block(data_text, 'u8', name)
+    require(re.fullmatch(r'\s*(?:[0-9]+\s*,\s*)+', body) is not None, 'array syntax')
+    values = [int(value) for value in body.split(',') if value.strip()]
+    require(all(0 <= value <= 255 for value in values), 'array byte bounds')
+    return bytes(values)
+
+
+def bind_certificate(row, expected, raw, dol, canonical, data_text, receipt, actual, policy):
+    import ship_contract
+
+    identity = compare_certificate_receipt(expected, receipt)
+    mid = row['id']
+    cert, = [entry for entry in actual if int(entry[0], 0) == mid]
+    selected, = [entry for entry in policy if int(entry[0]) == mid]
+    require(cert[-1] == selected[1] == identity, 'derived certificate/exported/policy identity mismatch')
+    prefix = 's_' + ship_contract.selected_module(mid)['name']
+    require(cert[2] == prefix + '_raw_rel' and cert[3] == prefix + '_canonical',
+            'certificate array association')
+    require(tuple(int(cert[i], 0) for i in (1, 4, 5, 6, 7)) ==
+            (len(raw), len(canonical), row['ctor']['section_index'], 0, row['ctor']['successor']),
+            'exported certificate fields mismatch')
+    exported_set = block(data_text, 'BlueWakeRelInitContractSetV1', 's_rel_init_contract_set', array=False)
+    require(re.fullmatch(r'\s*1u,\s*' + str(len(dol)) + r'u,\s*s_ship_raw_dol,\s*'
+                         r's_rel_init_contracts,\s*' + str(len(actual)) +
+                         r'u,\s*"[0-9a-f]{64}"\s*', exported_set) is not None,
+            'exported contract set DOL/count binding mismatch')
+    require(literal_bytes(data_text, cert[2]) == raw and
+            literal_bytes(data_text, 's_ship_raw_dol') == dol, 'exported raw identity mismatch')
+    descriptors = rows(block(data_text, 'BlueWakeRelData', cert[3]),
+                       r'\{\s*' + r'\s*,\s*'.join([NUM] * 4) + r'\s*,\s*(\w+)\s*\},\s*')
+    require([numbers(entry[:4]) for entry in descriptors] ==
+            [(mid, s['index'], s['linked_start'], s['size']) for s in row['sections']
+             if s['size'] and s['offset']], 'complete canonical descriptor mismatch')
+    for entry in descriptors:
+        require(literal_bytes(data_text, entry[4]) == canonical[int(entry[1], 0)],
+                'exported canonical section mismatch')
+    lifecycle = [numbers(entry) for entry in rows(
+        block(data_text, 'BlueWakeRelLifecycleV2', 's_rel_lifecycle_v2'),
+        r'\{\s*' + r'\s*,\s*'.join([NUM] * 4) + r'\s*\},\s*')]
+    index = int(cert[8])
+    require(index < len(lifecycle) and lifecycle[index] ==
+            (mid, *(expected['lifecycle'][name] for name in ('prolog', 'epilog', 'unresolved'))),
+            'exported certificate lifecycle association mismatch')
+    bss = sum(s['size'] for s in row['sections'] if not s['offset'])
+    form = 'EXISTING' if mid in (60, 168, 400) else (
+        'OWNER_PUBLISHED' if bss else 'CERTIFIED_INLINE_ZERO')
+    require(selected[2:] == ('false' if mid in (60, 168, 400) else 'true', form),
+            'policy actor/input form mismatch')
+    sections = [s | {'bytes': canonical.get(s['index'], b'')} for s in row['sections']]
+    emitted = ship_contract.emit_contract(dol, raw, sections, canonical, identity, mid)
+    require(receipt['sha256'] == sha(emitted.encode()), 'certificate emitted text receipt mismatch')
+    return dict(preimage=expected, build_identity=identity, fullset_count=len(actual),
+                policy_sdk_contract=form, bss_size=bss)
 
 
 def coverage_status():
@@ -362,6 +497,20 @@ def inherited_pin_comparison(current, prior, policy, base_policy):
         result[key] = dict(prior_pin=pin, current_pin=selected[0][1], base_pin=base[0][1],
                            actor=selected[0][2] == 'true', policy_sdk_contract=selected[0][3])
     return result
+
+
+def shared_prior_setup(receipt, policy_text, root):
+    path = INHERITED_PRIOR / 'composite-batch/generation_receipt.json'
+    prior = pinned_json(path, INHERITED_PRIOR_RECEIPT_SHA256)
+    base_path = 'vita/host/actor_batch_policy.h'
+    base = subprocess.check_output(['git', '-C', str(root), 'show',
+                                   COVERAGE_SOURCE_HEAD + ':' + base_path], text=True)
+    return dict(prior_wave_pins=inherited_pin_comparison(receipt, prior, policy_text, base),
+                prior_generation_receipt_path=str(path),
+                prior_generation_receipt_sha256=INHERITED_PRIOR_RECEIPT_SHA256,
+                base_policy_revision=COVERAGE_SOURCE_HEAD, base_policy_path=base_path,
+                base_policy_sha256=sha(base.encode()), status='VERIFIED-candidate',
+                automatic_module_admission=False)
 
 
 def check_coverage_source():
@@ -555,6 +704,7 @@ def implementation_pins():
     root = Path(__file__).resolve().parents[1]
     files = ['scripts/verify_canonical_executable.py', 'tests/test_canonical_executable.py',
              'tests/test_canonical_coverage.py', 'tests/test_canonical_inherited.py',
+             'tests/test_canonical_certificate.py',
              'scripts/ship_contract.py', 'scripts/bulk_rel_catalog.json', 'scripts/prepare.py',
              'scripts/wwhd/formats.py']
     return {name: sha((root / name).read_bytes()) for name in files}
@@ -608,14 +758,17 @@ def qualify(args):
     binding = bind(capture_row, payload, capture,
                    (composite / 'rel_data.inc').read_text(), (composite / 'module_tables.inc').read_text())
     receipt = json.loads((composite / 'generation_receipt.json').read_text(),
-                         object_pairs_hook=ship_contract.unique_json_object)
+                          object_pairs_hook=ship_contract.unique_json_object)
+    data_text = (composite / 'rel_data.inc').read_text()
+    policy_text = (args.delivery / 'vita/host/bulk_actor_policy.inc').read_text()
+    actual, policy = bind_full_contract_set(data_text, policy_text,
+        receipt['selected_rel_contracts']['contracts'], ship_contract.ACTOR_BATCHES['bulk'])
+    expected = certificate_preimage(row, dol, raw, bytes(processed), canonical)
+    certificate = bind_certificate(row, expected, raw, dol, canonical, data_text,
+        receipt['selected_rel_contracts']['contracts'][str(args.module)], actual, policy)
+    shared_setup = shared_prior_setup(receipt, policy_text, root)
     if inherited is not None:
-        prior = pinned_json(INHERITED_PRIOR / 'composite-batch/generation_receipt.json',
-                            INHERITED_PRIOR_RECEIPT_SHA256)
-        base = subprocess.check_output(['git', '-C', str(root), 'show',
-                                        COVERAGE_SOURCE_HEAD + ':vita/host/actor_batch_policy.h'], text=True)
-        inherited['prior_wave_pins'] = inherited_pin_comparison(
-            receipt, prior, (args.delivery / 'vita/host/bulk_actor_policy.inc').read_text(), base)
+        inherited['prior_wave_pins'] = shared_setup['prior_wave_pins']
         inherited['prior_generation_receipt_sha256'] = INHERITED_PRIOR_RECEIPT_SHA256
     chunk_receipts = json.loads((args.evidence / 'receipts/delivery-canonical-chunks.json').read_text(),
                                 object_pairs_hook=ship_contract.unique_json_object)
@@ -637,7 +790,8 @@ def qualify(args):
             (target & ~0x40000000) in external, 'constructor walker branch mismatch')
     coverage = coverage_dependency(args.dol_coverage, row, external, target, dol, composite)
     result = dict(status=coverage['status'], module_id=args.module, delivery=head,
-                spec_sha256=sha(spec_bytes), dependencies=dependencies, binding=binding,
+                 spec_sha256=sha(spec_bytes), dependencies=dependencies, binding=binding,
+                 certificate_binding=certificate, check5_shared_setup=shared_setup,
                 python=sys.version, implementation_revision=subprocess.check_output(
                     ['git', '-C', str(root), 'rev-parse', 'HEAD'], text=True).strip(),
                 translated_c=translated, external_branch_target_count=len(external),
