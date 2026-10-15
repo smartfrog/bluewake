@@ -353,8 +353,10 @@ def bind_full_contract_set(data_text, policy_text, contracts, expected_ids):
 
 def literal_bytes(data_text, name):
     body = block(data_text, 'u8', name)
-    require(re.fullmatch(r'\s*(?:[0-9]+\s*,\s*)+', body) is not None, 'array syntax')
-    values = [int(value) for value in body.split(',') if value.strip()]
+    require(re.fullmatch(r'\s*(?:(?:0x[0-9A-Fa-f]{2}|[0-9]+)\s*,\s*)+', body) is not None,
+            'array syntax')
+    values = [int(value.strip(), 16 if value.strip().startswith('0x') else 10)
+              for value in body.split(',') if value.strip()]
     require(all(0 <= value <= 255 for value in values), 'array byte bounds')
     return bytes(values)
 
