@@ -232,6 +232,11 @@ const BlueWakeRelInitContractV1* ww_host_rel_certificate(WwHost* host, u32 modul
         for (u32 at = 0u; at < host->rel_contracts->contract_count; ++at)
             if (host->rel_contracts->contracts[at].module_id == module_id)
                 return &host->rel_contracts->contracts[at];
+#if WW05_ENABLE_ACTOR_BATCH_CONTRACTS
+    const BlueWakeRelInitContractV1* actor = ww_host_actor_batch_certificate(host, module_id);
+    if (actor != NULL)
+        return actor;
+#endif
 #if WW05_TESTS_ONLY
     if (host->rel_test_admission && host->rel_contracts != NULL)
         for (u32 at = 0u; at < host->rel_contracts->contract_count; ++at)
@@ -263,6 +268,85 @@ const char* ww_host_enable_ikada_contract(WwHost* host) {
                 certificate->build_identity, host->rel_contracts->build_identity) < 0)
         return "ikada admission receipt write failed";
     host->rel_ikada_admission = true;
+    return NULL;
+}
+#endif
+
+#if WW05_ENABLE_ACTOR_BATCH_CONTRACTS
+#include "actor_batch_policy.h"
+
+static const BlueWakeRelInitContractV1* registered_certificate(const WwHost* host, u32 id) {
+    const BlueWakeRelInitContractV1* found = NULL;
+    for (u32 at = 0u; at < host->rel_contracts->contract_count; ++at) {
+        if (host->rel_contracts->contracts[at].module_id == id) {
+            if (found != NULL)
+                return NULL;
+            found = &host->rel_contracts->contracts[at];
+        }
+    }
+    return found;
+}
+
+const BlueWakeRelInitContractV1* ww_host_actor_batch_certificate(const WwHost* host, u32 module_id) {
+    if (host == NULL || !host->rel_actor_batch_admission || host->ship_contract == NULL ||
+        !host->rel_title_admission || !host->rel_ikada_admission || host->rel_contracts == NULL ||
+        host->rel_contracts->contracts == NULL || !identity_valid(host->rel_contracts->build_identity) ||
+        host->rel_contracts->contract_count != WW_ACTOR_FULL_COUNT ||
+        strcmp(host->rel_contracts->build_identity, WW_ACTOR_SET_IDENTITY) != 0)
+        return NULL;
+    for (u32 at = 0u; at < WW_ACTOR_FULL_COUNT; ++at) {
+        if (ww_actor_expected[at].actor && ww_actor_expected[at].id == module_id) {
+            const BlueWakeRelInitContractV1* certificate = registered_certificate(host, module_id);
+            return certificate != NULL && identity_valid(certificate->build_identity) &&
+                strcmp(certificate->build_identity, ww_actor_expected[at].identity) == 0
+                ? certificate : NULL;
+        }
+    }
+    return NULL;
+}
+
+const char* ww_host_enable_actor_batch_contracts(WwHost* host) {
+    if (host == NULL || host->rel_actor_batch_admission || host->ship_contract == NULL ||
+        !host->rel_title_admission || !host->rel_ikada_admission || host->rel_contracts == NULL ||
+        host->rel_contracts->contracts == NULL || host->rel_contracts->contract_count > WW_REL_MAX_IMAGES ||
+        host->rel_image_count != 0u || ww_host_rel_certificate(host, 60u) == NULL ||
+        ww_host_rel_certificate(host, 400u) == NULL)
+        return "actor batch admission requires active ship/title/ikada before materialization";
+    const BlueWakeRelInitContractSetV1* set = host->rel_contracts;
+    if (set->version != 1u || set->contracts == NULL || set->contract_count != WW_ACTOR_FULL_COUNT ||
+        !identity_valid(set->build_identity) || strcmp(set->build_identity, WW_ACTOR_SET_IDENTITY) != 0 ||
+        set->dol_bytes == NULL || set->dol_size != host->ship_contract->dol_size ||
+        memcmp(set->dol_bytes, host->ship_contract->dol_bytes, set->dol_size) != 0)
+        return "actor batch admission requires its exact registered set and DOL context";
+    const char* legacy_error = ww_rel_validate_certificate(host, &host->ship_certificate);
+    if (legacy_error != NULL)
+        return legacy_error;
+    for (u32 at = 0u; at < WW_ACTOR_FULL_COUNT; ++at) {
+        const BlueWakeRelInitContractV1* certificate = registered_certificate(host, ww_actor_expected[at].id);
+        if (certificate == NULL || !identity_valid(certificate->build_identity) ||
+            strcmp(certificate->build_identity, ww_actor_expected[at].identity) != 0)
+            return "actor batch admission requires exact full membership and certificate pins";
+        const char* error = ww_rel_validate_certificate(host, certificate);
+        if (error != NULL)
+            return error;
+        if (certificate->module_id == 168u &&
+            (strcmp(host->ship_certificate.build_identity, certificate->build_identity) != 0 ||
+             certificate->rel_size != host->ship_certificate.rel_size ||
+             memcmp(certificate->rel_bytes, host->ship_certificate.rel_bytes, certificate->rel_size) != 0 ||
+             certificate->section_count != host->ship_certificate.section_count ||
+             certificate->ctor_table_section != host->ship_certificate.ctor_table_section ||
+             certificate->ctor_table_offset != host->ship_certificate.ctor_table_offset ||
+             certificate->ctor_return_pc != host->ship_certificate.ctor_return_pc ||
+             memcmp(certificate->lifecycle, host->ship_certificate.lifecycle, sizeof(*certificate->lifecycle)) != 0))
+            return "actor batch admission requires the unchanged legacy ship compatibility identity";
+        if (fprintf(stderr, "[rel-batch-member] batch=opening-a module=%u certificate=%s set=%s validated=1\n",
+                    certificate->module_id, certificate->build_identity, set->build_identity) < 0)
+            return "actor batch member validation receipt write failed";
+    }
+    if (fprintf(stderr, "[rel-batch-admission] batch=opening-a actors=%u registered=%u set=%s active=1\n",
+                WW_ACTOR_COUNT, WW_ACTOR_FULL_COUNT, set->build_identity) < 0 || fflush(stderr) != 0)
+        return "actor batch activation receipt write/flush failed";
+    host->rel_actor_batch_admission = true;
     return NULL;
 }
 #endif

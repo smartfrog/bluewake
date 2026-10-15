@@ -1,4 +1,5 @@
 import hashlib
+from contextlib import contextmanager
 import json
 import shutil
 import re
@@ -8,6 +9,7 @@ import subprocess
 import sys
 import tempfile
 import unittest
+from unittest.mock import patch
 
 import test_composite as fixture
 
@@ -43,7 +45,28 @@ def ikada_fixture(root):
     (root / 'input/ikada-disc.rel').write_bytes(raw)
     fixture.write_rel_module(root / 'rels_out', 60,
                              [(IKADA_START, IKADA_START + 16384),
-                              (IKADA_START + 16384, IKADA_START + IKADA_SIZE)])
+                               (IKADA_START + 16384, IKADA_START + IKADA_SIZE)])
+
+
+def wood_fixture(root):
+    raw = bytearray(2596)
+    for offset, value in ((0, 84), (0xC, 17), (0x10, 0x4C), (0x1C, 3),
+                          (0x24, 0x6BC), (0x28, 0x6AC), (0x2C, 16), (0x38, 44),
+                          (0x3C, 88), (0x40, 4), (0x44, 1), (0x48, 0x6BC)):
+        struct.pack_into('>I', raw, offset, value)
+    raw[0x30:0x33] = bytes([1, 1, 1])
+    for index, pair in enumerate(((0, 0), (0xD5, 1164), (0x560, 4), (0x564, 4), (0x568, 324))):
+        struct.pack_into('>II', raw, 0x4C + index * 8, *pair)
+    raw[0xD4:0x560] = bytes((i * 11 + 1) & 255 for i in range(1164))
+    struct.pack_into('>I', raw, 0xE8, 0x48000001)
+    struct.pack_into('>4I', raw, 0x6AC, 84, 0x6BC, 0, 0x6C4)
+    struct.pack_into('>HBBI', raw, 0x6BC, 0, 203, 0, 0)
+    for index, record in enumerate(((0, 202, 1, 0), (20, 10, 0, 0x80241178), (0, 203, 0, 0))):
+        struct.pack_into('>HBBI', raw, 0x6C4 + index * 8, *record)
+    (root / 'rels_bin/0084.rel').write_bytes(raw)
+    struct.pack_into('>I', raw, 0x40, 8)
+    (root / 'input/wood-disc.rel').write_bytes(raw)
+    fixture.write_rel_module(root / 'rels_out', 84, [(0xC19A00D4, 0xC19A0560)])
 
 
 def capture_binding(root, mid, prefix, start, offset, magic):
@@ -179,8 +202,10 @@ class SelectedContracts(unittest.TestCase):
 
     def generate(self, extra_args=(), omit=()):
         root = self.root
-        ikada = root / 'input/ikada-disc.rel'
-        disc = fixture.write_ship_disc(root, [('d_a_obj_ikada.rel', ikada.read_bytes())] if ikada.exists() else ())
+        members = [(basename, path.read_bytes()) for basename, path in (
+            ('d_a_obj_ikada.rel', root / 'input/ikada-disc.rel'),
+            ('d_a_obj_wood.rel', root / 'input/wood-disc.rel')) if path.exists()]
+        disc = fixture.write_ship_disc(root, members)
         data = bytearray(disc.read_bytes())
         fst_at = struct.unpack_from('>I', data, 0x424)[0]
         archive_at, archive_size = struct.unpack_from('>II', data, fst_at + 16)
@@ -200,6 +225,12 @@ class SelectedContracts(unittest.TestCase):
             '--rels-bin-dir', str(root / 'rels_bin'), '--main-dol', str(root / 'input/main.dol'),
             '--ship-disc', str(disc), '--title-rel-sha256', self.manifest['modules']['400']['raw_sha256'],
             '--selected-rel-provenance', str(root / 'provenance.json'), '--output-dir', str(root / 'composite')]
+        if (root / 'input/wood-disc.rel').exists():
+            item = self.manifest['modules'].get('84', {})
+            command[2:3] = ['-c', 'import sys; sys.path.insert(0, ' + repr(str(fixture.SCRIPTS_DIR)) + '); '
+                'import generate_composite as gc; s=gc.ship_contract.APPROVED_MODULES[84]; '
+                's.pop("stored_sha256"); s.update(' + repr({'raw_sha256': item.get('raw_sha256'),
+                'processed_sha256': item.get('processed_rel_sha256')}) + '); gc.main()']
         for flag in omit:
             index = command.index(flag)
             del command[index:index + 2]
@@ -601,6 +632,157 @@ class IkadaContracts(unittest.TestCase):
                     'assert(set->contracts[0].lifecycle->module_id == 60u);\n' +
                     ('assert(set->dol_bytes == staticrecomp_get_ship_contract_v1()->dol_bytes);' if not cpp else
                      'assert(set->dol_bytes && set->dol_size);'), cpp=cpp, wrapped=wrapped)
+
+
+class ActorBatchContracts(unittest.TestCase):
+    def setUp(self):
+        IkadaContracts.setUp(self)
+        wood_fixture(self.root)
+        self.manifest['modules']['84'] = capture_binding(
+            self.root, 84, 'wood', 0xC19A00D4, 0xD4, b'WOOD84\0\0')
+        (self.root / 'complete.json').write_text(json.dumps({'version': 1, 'batch': 'opening-a',
+            'modules': [{'id': 84, 'capture': 'wood.ship-code-input', 'size': 1192}]}))
+
+    def generate(self, extra_args=(), omit=()):
+        return IkadaContracts.generate(self, ('--actor-rel-batch', 'opening-a', *extra_args), omit)
+
+    tearDown = SelectedContracts.tearDown
+    contract = SelectedContracts.contract
+
+    def test_quadruple_exports_exact_members_and_wood_canonical_hash(self):
+        result = self.generate()
+        self.assertEqual(result.returncode, 0, result.stderr)
+        output = self.root / 'composite'
+        selected = json.loads((output / 'generation_receipt.json').read_text())['selected_rel_contracts']
+        self.assertEqual(set(selected['contracts']), {'60', '84', '168', '400'})
+        text = (output / 'rel_data.inc').read_text()
+        self.assertIn('84u,2596u,s_wood_raw_rel,s_wood_canonical,4u,2u,0u,0xC19A00ECu,&s_rel_lifecycle_v2[1]', text)
+        self.assertNotIn('static const u8 s_wood_canonical_2', text)
+        self.assertEqual(text.count('static const u8 s_ship_raw_dol[]'), 1)
+        canonical = (self.root / 'wood.ship-code-input').read_bytes()
+        self.assertEqual(len(canonical), 1192)
+        self.assertIn(f'0x{gc.fnv1a64(canonical[28:]):016X}ull', (output / 'module_tables.inc').read_text())
+
+    def test_batch_requires_explicit_old_chain_arguments(self):
+        for omit in (('--selected-rel-provenance',), ('--title-rel-sha256',), ('--ikada-rel-sha256',)):
+            with self.subTest(omit=omit):
+                result = SelectedContracts.generate(self, ('--actor-rel-batch', 'opening-a',
+                    '--ikada-rel-sha256', self.ikada_pin) if '--ikada-rel-sha256' not in omit else
+                    ('--actor-rel-batch', 'opening-a'), tuple(x for x in omit if x != '--ikada-rel-sha256'))
+                self.assertNotEqual(result.returncode, 0)
+                self.assertFalse((self.root / 'composite/generation_receipt.json').exists())
+
+    def test_wood_capture_mutations_refuse(self):
+        path = self.root / 'wood.ship-code-input'
+        original = path.read_bytes()
+        for at in (0, 11, 15, 19, 23, 27, 48, len(original), -1):
+            with self.subTest(at=at):
+                data = bytearray(original)
+                if at == len(original): data.append(0)
+                elif at == -1: data.pop()
+                else: data[at] ^= 1
+                path.write_bytes(data)
+                with self.assertRaises(ValueError): self.contract(84)
+        path.write_bytes(original)
+
+    def test_wood_layout_and_original_alignment_mutations_refuse(self):
+        for at, value in ((0x40, 4), (0x38, 48), (0x58, 1160), (0x60, 8), (0x44, 4), (0x20, 4)):
+            with self.subTest(at=at):
+                path = self.root / 'input/wood-disc.rel'
+                original = path.read_bytes()
+                data = bytearray(original)
+                struct.pack_into('>I', data, at, value)
+                path.write_bytes(data)
+                with self.assertRaises(ValueError): self.contract(84)
+                path.write_bytes(original)
+
+    def test_batch_provenance_requires_exact_members_and_complete_wood_binding(self):
+        original = json.dumps(self.manifest)
+        for field in ('missing', 'extra', 'raw', 'processed', 'capture_sha256', 'translation_sha256',
+                      'translation-path', 'dol', 'producer_identity', 'version'):
+            with self.subTest(field=field):
+                self.manifest = json.loads(original)
+                item = self.manifest['modules']['84']
+                if field == 'missing': del self.manifest['modules']['84']
+                elif field == 'extra': self.manifest['modules']['85'] = item
+                elif field == 'raw': item['raw_sha256'] = 'b' * 64
+                elif field == 'processed': item['processed_rel_sha256'] = 'b' * 64
+                elif field == 'capture_sha256': item[field] = 'b' * 64
+                elif field == 'translation_sha256': item[field].pop(next(iter(item[field])))
+                elif field == 'translation-path': item['translation_sha256']['../foreign.c'] = 'b' * 64
+                elif field == 'dol': self.manifest['dol_sha256'] = 'b' * 64
+                elif field == 'producer_identity': self.manifest[field] = ''
+                else: self.manifest[field] = 2
+                result = self.generate()
+                self.assertNotEqual(result.returncode, 0, field)
+                self.assertFalse((self.root / 'composite/generation_receipt.json').exists())
+
+    def test_incomplete_batch_publication_cannot_generate_a_certificate(self):
+        path = self.root / 'complete.json'
+        for data in (None, {}, {'version': 1, 'batch': 'opening-a', 'modules': []}):
+            with self.subTest(data=data):
+                if data is None: path.unlink()
+                else: path.write_text(json.dumps(data))
+                result = self.generate()
+                self.assertNotEqual(result.returncode, 0)
+                self.assertFalse((self.root / 'composite/generation_receipt.json').exists())
+
+    def test_wood_successor_requires_the_actual_walker_call(self):
+        for suffix in ('rels_bin/0084.rel', 'input/wood-disc.rel'):
+            path = self.root / suffix
+            data = bytearray(path.read_bytes())
+            struct.pack_into('>I', data, 0x6D0, fixture.DOL_TEXT_ADDR)
+            path.write_bytes(data)
+        capture_binding(self.root, 84, 'wood', 0xC19A00D4, 0xD4, b'WOOD84\0\0')
+        with self.assertRaisesRegex(ValueError, 'constructor successor'):
+            self.contract(84)
+
+    def test_unknown_or_empty_batch_does_not_fall_back_to_the_triple(self):
+        for name in ('', 'all', '84', 'opening-b'):
+            with self.subTest(name=name):
+                result = self.generate(('--actor-rel-batch', name))
+                self.assertNotEqual(result.returncode, 0)
+                self.assertFalse((self.root / 'composite/generation_receipt.json').exists())
+
+    def test_quadruple_getter_preserves_c_and_cpp_abi_and_common_dol(self):
+        result = self.generate()
+        self.assertEqual(result.returncode, 0, result.stderr)
+        for cpp, wrapped in ((False, False), (True, False), (True, True)):
+            with self.subTest(cpp=cpp, wrapped=wrapped):
+                compile_export_probe(self.root,
+                    'const BlueWakeRelInitContractSetV1* set = staticrecomp_get_rel_init_contracts_v1();\n'
+                    'assert(set && set->contract_count == 4u);\n'
+                    'assert(set->contracts[0].module_id == 60u && set->contracts[1].module_id == 84u);\n'
+                    'assert(set->contracts[2].module_id == 168u && set->contracts[3].module_id == 400u);\n'
+                    'assert(set->contracts[1].lifecycle->prolog_address == 0xC19A00D4u);\n' +
+                    ('assert(set->dol_bytes == staticrecomp_get_ship_contract_v1()->dol_bytes);' if not cpp or wrapped else
+                     'assert(set->dol_bytes && set->dol_size);'), cpp=cpp, wrapped=wrapped)
+
+    @contextmanager
+    def later_wave(self):
+        directory = self.root / 'next-wave'
+        directory.mkdir()
+        capture = directory / 'fixture85.ship-code-input'
+        capture.write_bytes(b'game-free capture group fixture')
+        (directory / 'complete.json').write_text(json.dumps({'version': 1, 'batch': 'fixture-next',
+            'modules': [{'id': 85, 'capture': capture.name, 'size': capture.stat().st_size}]}))
+        self.manifest['modules']['85'] = {'capture': str(capture)}
+        path = self.root / 'provenance.json'
+        path.write_text(json.dumps(self.manifest))
+        with patch.dict(sc.ACTOR_BATCHES, {'fixture-next': (60, 84, 85, 168, 400)}), \
+             patch.dict(sc.ACTOR_CAPTURE_GROUPS, {'fixture-next': (85,)}), \
+             patch.dict(sc.APPROVED_MODULES, {85: {'capture_group': 'fixture-next'}}):
+            yield path
+
+    def test_later_wave_retains_the_prior_capture_group_without_recapturing_it(self):
+        with self.later_wave() as path:
+            sc.verify_batch_completion(path, 'fixture-next')
+
+    def test_later_wave_cannot_discard_an_inherited_capture_group_receipt(self):
+        with self.later_wave() as path:
+            (self.root / 'complete.json').unlink()
+            with self.assertRaises(FileNotFoundError):
+                sc.verify_batch_completion(path, 'fixture-next')
 
 
 if __name__ == '__main__':

@@ -38,6 +38,10 @@ static const char* input_refusal(WwHost* host, const WwRelImage* image, bool fix
     if (image->module_id == 60u && host->rel_ikada_admission)
         return clause;
 #endif
+#if WW05_ENABLE_ACTOR_BATCH_CONTRACTS
+    if (ww_host_actor_batch_certificate(host, image->module_id) != NULL)
+        return clause;
+#endif
     if (!ww_host_rel_profile_enabled(host))
         return clause;
     if (image->module_id == 400u && host->rel_title_block.input_refusal_reported)
@@ -61,32 +65,59 @@ static const char* input_refusal(WwHost* host, const WwRelImage* image, bool fix
 
 #if WW05_ENABLE_IKADA_CONTRACT
 static const char* ikada_refusal(WwHost* host, const WwRelImage* image, bool fixed, const char* clause) {
+#if WW05_ENABLE_ACTOR_BATCH_CONTRACTS
+    if (host == NULL || image == NULL ||
+        !((image->module_id == 60u && host->rel_ikada_admission) ||
+          ww_host_actor_batch_certificate(host, image->module_id) != NULL))
+        return clause;
+    const BlueWakeRelInitContractV1* certificate = ww_host_rel_certificate(host, image->module_id);
+#else
     if (host == NULL || image == NULL || image->module_id != 60u || !host->rel_ikada_admission)
         return clause;
     const BlueWakeRelInitContractV1* certificate = ww_host_rel_certificate(host, 60u);
+#endif
     const bool valid = certificate != NULL && certificate == image->certificate && certificate->rel_size >= 0x4Cu;
     const u8* raw = valid ? certificate->rel_bytes : NULL;
     const u32 name_base = mem_read32(&host->cpu, WW_REL_SDK_NAMES);
     const bool owner_bounded = image->owner >= GC_RAM_BASE &&
         (u64)image->owner + 0x18u <= GC_RAM_BASE + GC_MAIN_RAM_SIZE;
     const u32 owner_bss = owner_bounded ? mem_read32(&host->cpu, image->owner + 0x14u) : 0u;
+#if WW05_ENABLE_ACTOR_BATCH_CONTRACTS
+    if (fprintf(stderr, "[rel-sdk-input-refusal] module=%u fixed=%u input_form=%u pc=%08X caller=%08X owner=%08X base=%08X actual_r3=%08X actual_r4=%08X owner_bss=%08X owner_bounded=%u bss_size=%u bss_alignment=%u name_base=%08X name=%016llX name_size=%u clause=%s\n",
+        image->module_id,
+#else
     if (fprintf(stderr, "[rel-sdk-input-refusal] module=60 fixed=%u input_form=%u pc=%08X caller=%08X owner=%08X base=%08X actual_r3=%08X actual_r4=%08X owner_bss=%08X owner_bounded=%u bss_size=%u bss_alignment=%u name_base=%08X name=%016llX name_size=%u clause=%s\n",
+#endif
         fixed, WW_REL_SDK_OWNER_PUBLISHED, host->cpu.pc, host->cpu.lr, image->owner, image->guest,
         host->cpu.gpr[3], host->cpu.gpr[4], owner_bss, owner_bounded,
         raw == NULL ? 0u : bluewake_archive_be32(raw + 0x20u),
         raw == NULL ? 0u : bluewake_archive_be32(raw + 0x44u), name_base,
         (unsigned long long)((u64)name_base + (raw == NULL ? 0u : bluewake_archive_be32(raw + 0x14u))),
         raw == NULL ? 0u : bluewake_archive_be32(raw + 0x18u), clause) < 0)
+#if WW05_ENABLE_ACTOR_BATCH_CONTRACTS
+        return "REL admitted actor SDK input refused; refusal diagnostic write failed";
+#else
         return "REL ikada SDK input refused; refusal diagnostic write failed";
+#endif
     return clause;
 }
 
 static bool ikada_trace(WwHost* host, const WwRelImage* image, bool fixed, u32 bss, u32 name_base,
                         const char* stage, const char* whole_image) {
+#if WW05_ENABLE_ACTOR_BATCH_CONTRACTS
+    if (!((image->module_id == 60u && host->rel_ikada_admission) ||
+          ww_host_actor_batch_certificate(host, image->module_id) != NULL))
+#else
     if (image->module_id != 60u || !host->rel_ikada_admission)
+#endif
         return true;
     const u8* raw = image->certificate->rel_bytes;
+#if WW05_ENABLE_ACTOR_BATCH_CONTRACTS
+    return fprintf(stderr, "[rel-sdk] module=%u stage=%s certificate=%s set=%s pc=%08X caller=%08X owner=%08X base=%08X actual_r3=%08X actual_r4=%08X fixed=%u input_form=%u owner_bss=%08X bss=%08X bss_size=%u bss_alignment=%u name_base=%08X name=%016llX name_size=%u previous=%08X head=%08X tail=%08X whole_image=%s\n",
+        image->module_id,
+#else
     return fprintf(stderr, "[rel-sdk] module=60 stage=%s certificate=%s set=%s pc=%08X caller=%08X owner=%08X base=%08X actual_r3=%08X actual_r4=%08X fixed=%u input_form=%u owner_bss=%08X bss=%08X bss_size=%u bss_alignment=%u name_base=%08X name=%016llX name_size=%u previous=%08X head=%08X tail=%08X whole_image=%s\n",
+#endif
         stage, image->certificate->build_identity, host->rel_contracts->build_identity,
         host->cpu.pc, host->cpu.lr, image->owner, image->guest, host->cpu.gpr[3], host->cpu.gpr[4],
         fixed, WW_REL_SDK_OWNER_PUBLISHED, mem_read32(&host->cpu, image->owner + 0x14u), bss,
@@ -312,7 +343,11 @@ static const char* prepare(WwHost* host, WwRelImage* image, bool fixed) {
         return "REL SDK title preparation trace failed";
 #if WW05_ENABLE_IKADA_CONTRACT
     if (!ikada_trace(host, image, fixed, bss, name_base, "prepared", "not-verified"))
+#if WW05_ENABLE_ACTOR_BATCH_CONTRACTS
+        return "REL admitted actor SDK preparation trace failed";
+#else
         return "REL ikada SDK preparation trace failed";
+#endif
 #endif
     if (profile != NULL) {
         profile->sdk_phase = WW_REL_SDK_RESIDENT;
@@ -376,7 +411,11 @@ static const char* finish(WwHost* host, WwRelImage* image) {
         return "REL SDK title verification trace failed";
 #if WW05_ENABLE_IKADA_CONTRACT
     if (!ikada_trace(host, image, image->sdk_fixed, image->sdk_bss, image->sdk_name_base, "verified", "matched"))
+#if WW05_ENABLE_ACTOR_BATCH_CONTRACTS
+        return "REL admitted actor SDK verification trace failed";
+#else
         return "REL ikada SDK verification trace failed";
+#endif
 #endif
     WwRelImage* tail = image_at(host, host->rel_sdk_tail);
     if (tail != NULL) {

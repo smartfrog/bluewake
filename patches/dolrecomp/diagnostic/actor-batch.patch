@@ -1,0 +1,144 @@
+--- a/src/app/pipeline.c
++++ b/src/app/pipeline.c
+@@ -1333,7 +1333,7 @@
+         write_ok = 0;
+     if (fclose(manifest) != 0)
+         write_ok = 0;
+-    if (getenv("DOLRECOMP_SHIP_CODE_INPUT") && !write_ok) {
++    if ((getenv("DOLRECOMP_SHIP_CODE_INPUT") || getenv("DOLRECOMP_ACTOR_BATCH_DIR")) && !write_ok) {
+         fprintf(stderr, "error: failed writing split output\n");
+         return 0;
+     }
+@@ -1403,12 +1403,14 @@
+ typedef struct {
+     u8* data;
+     size_t size;
++    u32 module_id;
++    const char* magic;
+ } ShipCodeInput;
+ 
+ static int capture_ship_code_input(const RELFile* rel,
+                                    const LoadedCodeSection* sections,
+                                    u32 count, ShipCodeInput* capture) {
+-    if (rel->module_id != 168u || !count || capture->data) {
++    if (rel->module_id != capture->module_id || !count || capture->data) {
+         fprintf(stderr, "error: expected one ship module with executable sections\n");
+         return 0;
+     }
+@@ -1438,7 +1440,7 @@
+         return 0;
+     }
+     capture->size = size;
+-    memcpy(capture->data, "SHIP168", 8u);
++    memcpy(capture->data, capture->magic, 8u);
+     write_be32(capture->data + 8u, count);
+     u8* cursor = capture->data + 12u;
+     for (u32 i = 0; i < count; i++) {
+@@ -1477,6 +1479,8 @@
+     return ok;
+ }
+ 
++#include "actor_batch_capture.h"
++
+ static int emit_rel_split_impl(const RELFile* rel, const char* output_path,
+                            DolRecompCPU cpu, u32 jobs, int local_chunks_dir,
+                            const CliOptions* options, ShipCodeInput* capture) {
+@@ -1524,7 +1528,7 @@
+ int emit_rel_split(const RELFile* rel, const char* output_path,
+                    DolRecompCPU cpu, u32 jobs, int local_chunks_dir,
+                    const CliOptions* options) {
+-    if (getenv("DOLRECOMP_SHIP_CODE_INPUT")) {
++    if (getenv("DOLRECOMP_SHIP_CODE_INPUT") || getenv("DOLRECOMP_ACTOR_BATCH_DIR")) {
+         fprintf(stderr, "error: ship code input requires C REL directory emission\n");
+         return 0;
+     }
+@@ -1593,7 +1597,19 @@
+     int ok = 0;
+     u32 cursor = start_base;
+     const char* ship_path = getenv("DOLRECOMP_SHIP_CODE_INPUT");
+-    ShipCodeInput ship_capture = {0};
++    const char* batch_dir = getenv("DOLRECOMP_ACTOR_BATCH_DIR");
++    ShipCodeInput ship_capture = {.module_id=168u, .magic="SHIP168"};
++    ActorCapture actor_captures[] = {
++        {.capture={.module_id=84u, .magic="WOOD84\0"}, .basename="wood84.ship-code-input"}
++    };
++    const u32 actor_count = sizeof(actor_captures) / sizeof(actor_captures[0]);
++    _Static_assert(sizeof(actor_captures) / sizeof(actor_captures[0]) <= 8u, "actor delta exceeds review bound");
++    if (batch_dir && (ship_path || options->backend != DOLRECOMP_BACKEND_C || jobs != 1u ||
++                      !actor_batch_paths(actor_captures, actor_count, batch_dir) ||
++                      !actor_batch_separate(batch_dir, output_root))) {
++        fprintf(stderr, "error: actor batch requires serial C directory emission and no legacy capture control\n");
++        goto done;
++    }
+     if (ship_path) {
+         const char* suffix = ".ship-code-input";
+         size_t length = strlen(ship_path);
+@@ -1639,6 +1655,12 @@
+     }
+ 
+     RELModuleMap map = { map_entries, paths.count };
++    if (batch_dir) {
++        for (u32 i = 0u; i < paths.count; ++i)
++            actor_batch_match(actor_captures, actor_count, items[i].rel.module_id);
++        if (!actor_batch_complete(actor_captures, actor_count))
++            goto done;
++    }
+     if (ship_path) {
+         int found = 0;
+         for (u32 i = 0; i < paths.count; i++)
+@@ -1670,6 +1692,10 @@
+         printf("\nwriting output to: %s\n", rel_output_path);
+         ShipCodeInput* capture = ship_path && items[i].rel.module_id == 168u
+                                      ? &ship_capture : NULL;
++        if (batch_dir)
++            for (u32 at = 0u; at < actor_count; ++at)
++                if (actor_captures[at].capture.module_id == items[i].rel.module_id)
++                    capture = &actor_captures[at].capture;
+         if (!emit_rel_split_impl(&items[i].rel, rel_output_path, cpu, jobs, 1,
+                                  options, capture))
+             goto done;
+@@ -1677,10 +1703,14 @@
+ 
+     if (ship_path && !publish_ship_code_input(ship_path, &ship_capture))
+         goto done;
++    if (batch_dir && !actor_batch_publish(actor_captures, actor_count, batch_dir))
++        goto done;
+     ok = 1;
+ 
+ done:
+     free(ship_capture.data);
++    for (u32 at = 0u; at < actor_count; ++at)
++        free(actor_captures[at].capture.data);
+     free(map_entries);
+     rel_batch_free(items, paths.count);
+     path_list_free(&paths);
+--- a/src/backend/codegen.c
++++ b/src/backend/codegen.c
+@@ -46,7 +46,7 @@
+         return 0;
+     }
+ 
+-    int write_failed = getenv("DOLRECOMP_SHIP_CODE_INPUT") && ferror(chunk);
++    int write_failed = (getenv("DOLRECOMP_SHIP_CODE_INPUT") || getenv("DOLRECOMP_ACTOR_BATCH_DIR")) && ferror(chunk);
+     if (fclose(chunk) != 0)
+         write_failed = 1;
+     if (write_failed) {
+--- a/src/analysis/smc.c
++++ b/src/analysis/smc.c
+@@ -53,7 +53,10 @@
+                 smc->ranges[i].start, smc->ranges[i].end);
+     }
+ 
+-    if (fclose(report) != 0) {
++    int write_failed = getenv("DOLRECOMP_ACTOR_BATCH_DIR") && ferror(report);
++    if (fclose(report) != 0)
++        write_failed = 1;
++    if (write_failed) {
+         fprintf(stderr, "error: failed writing '%s'\n", path);
+         return 0;
+     }
+@@ -452,4 +455,3 @@
+         update_known_regs(regs, inst);
+     }
+ }
+-

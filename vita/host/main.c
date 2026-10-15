@@ -163,6 +163,15 @@ int fixture_run(int argc, char** argv) {
         }
     }
 #endif
+#if WW05_ENABLE_ACTOR_BATCH_CONTRACTS
+    if (initialized) {
+        const char* contract_error = ww_host_enable_actor_batch_contracts(host);
+        if (contract_error != NULL) {
+            ww_host_fail(host, contract_error, 0u, host->cpu.pc);
+            initialized = false;
+        }
+    }
+#endif
 #if defined(__vita__) && WW05_ENABLE_PAD_INPUT
     if (initialized && ww_pad_vita_enable(host) < 0) {
         const int formatted = snprintf(host->pad_error, sizeof(host->pad_error),

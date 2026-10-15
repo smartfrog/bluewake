@@ -34,6 +34,11 @@ static bool policy_permits(const WwHost* host, const WwRelImage* image) {
 #endif
                 image->certificate == &host->rel_contracts->contracts[at])
                 return true;
+#if WW05_ENABLE_ACTOR_BATCH_CONTRACTS
+    const BlueWakeRelInitContractV1* actor = ww_host_actor_batch_certificate(host, image->module_id);
+    if (actor != NULL && actor == image->certificate)
+        return true;
+#endif
 #if WW05_TESTS_ONLY
     if (host->rel_test_admission && host->rel_contracts != NULL)
         for (u32 at = 0u; at < host->rel_contracts->contract_count; ++at)
@@ -183,6 +188,21 @@ const char* ww_host_rel_lifecycle_boundary(WwHost* host, u32 address) {
             fprintf(stderr, "[rel-prolog-refusal] module=60 attempted_pc=%08X pc=%08X caller=%08X owner=%08X image_arg=%08X clause=%s\n",
                     address, host->cpu.pc, host->cpu.lr, host->cpu.gpr[31], host->cpu.gpr[3], error) < 0)
             error = "REL ikada prolog refusal diagnostic write failed";
+    }
+#endif
+#if WW05_ENABLE_ACTOR_BATCH_CONTRACTS
+    if (error != NULL && host->rel_actor_batch_admission && host->rel_pending_init.phase == WW_REL_INIT_NONE &&
+        host->rel_contracts != NULL && host->rel_contracts->contracts != NULL &&
+        host->rel_contracts->contract_count <= WW_REL_MAX_IMAGES) {
+        for (u32 at = 0u; at < host->rel_contracts->contract_count; ++at) {
+            const BlueWakeRelInitContractV1* certificate = &host->rel_contracts->contracts[at];
+            if (ww_host_actor_batch_certificate(host, certificate->module_id) == certificate &&
+                (address & ~0x40000000u) == (certificate->lifecycle->prolog_address & ~0x40000000u) &&
+                fprintf(stderr, "[rel-prolog-refusal] module=%u attempted_pc=%08X pc=%08X caller=%08X owner=%08X image_arg=%08X clause=%s\n",
+                        certificate->module_id, address, host->cpu.pc, host->cpu.lr,
+                        host->cpu.gpr[31], host->cpu.gpr[3], error) < 0)
+                error = "REL actor batch prolog refusal diagnostic write failed";
+        }
     }
 #endif
     if (error != NULL)

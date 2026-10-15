@@ -10,6 +10,8 @@
 #include "lifecycle_translated.c"
 #include "rel_lifecycle_fixture.inc"
 #include "ikada_fixture.inc"
+#include "actor_84_fixture.inc"
+#include "actor_85_fixture.inc"
 
 static const char* scenario;
 static WwRelImage* selected;
@@ -25,12 +27,13 @@ static u32 requested_owner;
 static BlueWakeRelInitContractV1 copied_certificate;
 static bool profile_call;
 static bool ikada_call;
+static bool actor_call;
 static u32 sdk_allocations;
 static bool sdk_allocation_armed;
 
 void* __real_calloc(size_t count, size_t size);
 void* __wrap_calloc(size_t count, size_t size) {
-    if (ikada_call && strcmp(scenario, "materialize-allocation") == 0 && count == 21u && size == sizeof(WwRelSection))
+    if (ikada_call && strcmp(scenario, "materialize-allocation") == 0 && count == (actor_call ? 17u : 21u) && size == sizeof(WwRelSection))
         return NULL;
     return __real_calloc(count, size);
 }
@@ -47,6 +50,9 @@ static u32 ctor_table(void) {
 }
 
 int __wrap_fprintf(FILE* stream, const char* format, ...) {
+    if ((strcmp(scenario, "batch-receipt-member") == 0 && strstr(format, "[rel-batch-member]") != NULL) ||
+        (strcmp(scenario, "batch-receipt-final") == 0 && strstr(format, "[rel-batch-admission]") != NULL))
+        return -1;
     if (ikada_call && strcmp(scenario, "materialize-trace") == 0 && strstr(format, "[rel-materialized]") != NULL)
         return -1;
     if (trace_failure && (strstr(format, "[rel-prolog]") != NULL ||
@@ -143,6 +149,10 @@ static bool probe_edge(void* user, CPUState* cpu, u32 address) {
         if (is("sdk-alias-bss")) cpu->gpr[4] = 0x81820100u;
         if (is("sdk-null-bss") || is("sdk-misaligned-bss") || is("sdk-out-of-range-bss") || is("sdk-alias-bss"))
             mem_write32(cpu, selected->owner + 0x14u, cpu->gpr[4]);
+        if (actor_call && is("sdk-nonzero-zero-bss")) {
+            cpu->gpr[4] = 0x807FD000u;
+            mem_write32(cpu, selected->owner + 0x14u, cpu->gpr[4]);
+        }
         if (is("sdk-missing-neighbor")) mem_write32(cpu, 0x800030CCu, 0u);
         if (is("sdk-owner-mismatch")) mem_write32(cpu, selected->owner + 0x10u, 0u);
     }
@@ -184,7 +194,13 @@ static bool probe_edge(void* user, CPUState* cpu, u32 address) {
             injected = true;
         }
 #if WW05_ENABLE_IKADA_CONTRACT
-        if (ikada_call && is("policy-disabled")) host->rel_ikada_admission = false;
+        if (ikada_call && is("policy-disabled")) {
+#if WW05_ENABLE_ACTOR_BATCH_CONTRACTS
+            if (actor_call) host->rel_actor_batch_admission = false;
+            else
+#endif
+                host->rel_ikada_admission = false;
+        }
 #endif
     }
     if (selected != NULL && pc == entry && host->rel_pending_init.phase == WW_REL_INIT_ACTIVE) {
@@ -426,10 +442,72 @@ static void run_ikada(WwHost* host, const char* requested, WwRelImage* profile) 
 }
 #endif
 
+#if WW05_ENABLE_ACTOR_BATCH_CONTRACTS
+static void run_actor_batch(WwHost* host, const char* requested) {
+    WwRelImage* ikada = ww_host_rel_live(host, 60u);
+    WwRelImage* ship = ww_host_rel_live(host, 168u);
+    WwRelImage* title = ww_host_rel_live(host, 400u);
+    const u64 ship_hash = ship->raw_hash, title_hash = title->raw_hash;
+    neighbor = ikada;
+    selected = NULL;
+    injected = false;
+    actor_call = ikada_call = true;
+    scenario = strcmp(requested, "enabled") == 0 ? "success" : requested;
+    run_call(host, 0x80002700u, "d_a_obj_wood");
+    if (is("raw-identity") || is("materialize-allocation") || is("materialize-trace")) {
+        assert(host->error != NULL && selected == NULL && host->rel_image_count == 4u && host->alias_count == 4u);
+        assert(ww_host_rel_live(host, 84u) == NULL && ikada->raw_hash == lifecycle_expected_ikada_hash);
+        return;
+    }
+    assert(selected != NULL && selected->module_id == 84u && selected->guest == 0x81832BE0u);
+    const bool positive = is("success") || is("epilog") || is("unresolved") || is("unlink");
+    if (!positive) {
+        if (host->error == NULL) fprintf(stderr, "actor negative did not stop: %s\n", scenario);
+        assert(host->error != NULL && !selected->initialization_completed);
+        if (selected->sdk_phase != WW_REL_SDK_CERTIFIED) {
+            assert(selected->raw_hash == ww_host_rel_raw_hash(actor_84_raw, sizeof(actor_84_raw)));
+            assert(ikada->raw_hash == lifecycle_expected_ikada_hash && ikada->sdk_next == 0u);
+        }
+        assert(ship->raw_hash == ship_hash && title->raw_hash == title_hash);
+        return;
+    }
+    if (host->error != NULL) fprintf(stderr, "wood: %s pc=%08X\n", host->error, host->cpu.pc);
+    assert(host->error == NULL && selected->initialization_completed && selected->sdk_phase == WW_REL_SDK_CERTIFIED);
+    assert(selected->raw_hash == lifecycle_expected_wood_hash && selected->sdk_bss == 0u &&
+           selected->sdk_input_form == WW_REL_SDK_OWNER_PUBLISHED && host->cpu.pc == 0x80001004u);
+    assert(ikada->raw_hash == lifecycle_expected_ikada_with_wood_hash && ikada->sdk_next == selected->guest);
+    if (is("epilog") || is("unresolved")) {
+        host->cpu.pc = is("epilog") ? 0xC19A0100u : 0xC19A012Cu;
+        assert(ww_host_dispatch(host, host->cpu.pc) == -1);
+        return;
+    }
+    if (is("unlink")) {
+        assert(ww_host_unlink_rel(host, selected->owner) != NULL);
+        return;
+    }
+    WwRelImage* wood = selected;
+    neighbor = wood;
+    selected = NULL;
+    injected = false;
+    run_call(host, 0x80002800u, "d_a_batch_test");
+    if (host->error != NULL) fprintf(stderr, "next actor: %s pc=%08X\n", host->error, host->cpu.pc);
+    assert(host->error == NULL && selected != NULL && selected->module_id == 85u && selected->initialization_completed);
+    assert(selected->guest == 0x81832EE0u && selected->raw_hash == lifecycle_expected_next_actor_hash);
+    assert(wood->raw_hash == lifecycle_expected_wood_with_next_hash && wood->sdk_next == selected->guest);
+    assert(ikada->raw_hash == lifecycle_expected_ikada_with_wood_hash);
+    assert(ship->raw_hash == ship_hash && title->raw_hash == title_hash && ww_host_rel_sdk_integrity(host));
+    assert(mem_read32(&host->cpu, 0xC19B0164u) == 1u && mem_read32(&host->cpu, 0x80005000u) == 6u);
+    assert(host->cpu.pc == 0x80001004u && host->cpu.gpr[1] == 0x80004000u &&
+           host->cpu.gpr[2] == 0x80300000u && host->cpu.gpr[13] == 0x80400000u &&
+           host->cpu.gpr[31] == 0x12345678u && !host->rel_test_admission);
+}
+#endif
+
 int main(int argc, char** argv) {
     assert(argc == 2);
     scenario = argv[1];
-    const bool ikada_requested = strncmp(scenario, "ikada-", 6u) == 0;
+    const bool batch_requested = strncmp(scenario, "batch-", 6u) == 0;
+    const bool ikada_requested = strncmp(scenario, "ikada-", 6u) == 0 || batch_requested;
     const bool resident = is("title-enabled") || is("title-copy") || is("title-catalog-id") || ikada_requested;
     WwHost* host = calloc(1u, sizeof(*host));
     assert(host != NULL && ww_host_init(host));
@@ -442,29 +520,40 @@ int main(int argc, char** argv) {
         {.module_id=1u,.section_count=5u,.section_info_offset=0x4Cu,.file_size=256u,
            .sections=profile_sections,.num_sections=resident ? 3u : 2u},
         {.module_id=60u,.section_count=21u,.section_info_offset=0x4Cu,.file_size=sizeof(ikada_raw),
-         .sections=ikada_sections,.num_sections=6u}};
+          .sections=ikada_sections,.num_sections=6u},
+        {.module_id=84u,.section_count=17u,.section_info_offset=0x4Cu,.file_size=sizeof(actor_84_raw),
+          .sections=actor_84_sections,.num_sections=4u},
+        {.module_id=85u,.section_count=17u,.section_info_offset=0x4Cu,.file_size=sizeof(actor_85_raw),
+          .sections=actor_85_sections,.num_sections=4u}};
     StaticRecompRange chunks[] = {fixture_chunks[0],fixture_chunks[1],fixture_chunks[2],{0xC1E000DCu,0xC1E0013Cu},
                                  {0xC1F800D4u,0xC1F80100u},
-                                 {0xC15500F4u,0xC1550154u},{0xC1550154u,0xC1550174u}};
+                                  {0xC15500F4u,0xC1550154u},{0xC1550154u,0xC1550174u},
+                                  {0xC19A00D4u,0xC19A0134u},{0xC19A0134u,0xC19A0154u},
+                                  {0xC19B00D4u,0xC19B0134u},{0xC19B0134u,0xC19B0154u}};
     u64 hashes[] = {fixture_hashes[0],fixture_hashes[1],fixture_hashes[2],lifecycle_title_hash,lifecycle_profile_hash,
-                    ikada_hashes[0],ikada_hashes[1]};
+                     ikada_hashes[0],ikada_hashes[1],actor_84_hashes[0],actor_84_hashes[1],
+                     actor_85_hashes[0],actor_85_hashes[1]};
     StaticRecompModuleDesc module = {.code_ranges=lifecycle_ranges,
         .num_code_ranges=sizeof(lifecycle_ranges)/sizeof(lifecycle_ranges[0]), .chunk_ranges=chunks,
-        .chunk_hashes=hashes,.num_chunk_ranges=ikada_requested ? 7u : resident ? 5u : 4u,
-        .rel_modules=descriptors,.num_rel_modules=ikada_requested ? 4u : 3u,
+        .chunk_hashes=hashes,.num_chunk_ranges=batch_requested ? 11u : ikada_requested ? 7u : resident ? 5u : 4u,
+        .rel_modules=descriptors,.num_rel_modules=batch_requested ? 6u : ikada_requested ? 4u : 3u,
         .dispatch=translated_dispatch};
     static const u8 profile_bytes[16];
     static const u8 profile_ctors[4];
     BlueWakeRelData data[] = {fixture_data[0],fixture_data[1],lifecycle_title_canonical[1],
                               {1u,4u,0xC1F80178u,16u,profile_bytes},{1u,2u,0xC1F80170u,4u,profile_ctors},
                               ikada_canonical[1],ikada_canonical[2],ikada_canonical[3],ikada_canonical[4],
-                              {60u,6u,0xC15581A0u,532u,NULL}};
+                               {60u,6u,0xC15581A0u,532u,NULL},
+                               actor_84_canonical[1],actor_84_canonical[2],actor_84_canonical[3],
+                               actor_85_canonical[1],actor_85_canonical[2],actor_85_canonical[3]};
     host->module = &module;
     host->rel_data = data;
-    host->rel_data_count = ikada_requested ? 10u : resident ? 5u : 4u;
+    host->rel_data_count = batch_requested ? 16u : ikada_requested ? 10u : resident ? 5u : 4u;
     BlueWakeRelLifecycleV2 ship_lifecycle = {168u,0xC1B100F4u,0xC1B10120u,0xC1B1014Cu};
     BlueWakeRelLifecycleV2 title_lifecycle = {400u,0xC1E000DCu,0xC1E00108u,0xC1E00134u};
     BlueWakeRelLifecycleV2 ikada_lifecycle = {60u,0xC15500F4u,0xC1550120u,0xC155014Cu};
+    BlueWakeRelLifecycleV2 wood_lifecycle = {84u,0xC19A00D4u,0xC19A0100u,0xC19A012Cu};
+    BlueWakeRelLifecycleV2 next_lifecycle = {85u,0xC19B00D4u,0xC19B0100u,0xC19B012Cu};
     BlueWakeRelInitContractV1 certificates[] = {
         {.module_id=168u,.rel_bytes=s_ship_contract.rel_bytes,.rel_size=s_ship_contract.rel_size,
          .canonical_sections=s_ship_contract.canonical_sections,.section_count=s_ship_contract.section_count,
@@ -474,9 +563,22 @@ int main(int argc, char** argv) {
           .ctor_return_pc=0xC1E000F4u,.lifecycle=&title_lifecycle,.build_identity=s_ship_contract.build_identity},
         {.module_id=60u,.rel_bytes=ikada_raw,.rel_size=sizeof(ikada_raw),.canonical_sections=ikada_canonical,
          .section_count=5u,.ctor_table_section=2u,.ctor_return_pc=0xC155010Cu,.lifecycle=&ikada_lifecycle,
-         .build_identity=s_ship_contract.build_identity}};
+          .build_identity=s_ship_contract.build_identity},
+        {84u,sizeof(actor_84_raw),actor_84_raw,actor_84_canonical,4u,2u,0u,0xC19A00ECu,&wood_lifecycle,
+          "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"},
+        {85u,sizeof(actor_85_raw),actor_85_raw,actor_85_canonical,4u,2u,0u,0xC19B00ECu,&next_lifecycle,
+          "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"}};
     BlueWakeRelInitContractSetV1 set = {1u,s_ship_contract.dol_size,s_ship_contract.dol_bytes,certificates,
-                                       ikada_requested && !is("ikada-missing-60") ? 3u : 2u,s_ship_contract.build_identity};
+                                        ikada_requested && !is("ikada-missing-60") ? 3u : 2u,s_ship_contract.build_identity};
+    BlueWakeShipContractV1 batch_ship = s_ship_contract;
+    if (batch_requested) {
+        certificates[0].build_identity = batch_ship.build_identity = "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd";
+        certificates[1].build_identity = "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee";
+        certificates[2].build_identity = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
+        set.build_identity = "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff";
+        set.contract_count = 5u;
+        if (is("batch-duplicate")) certificates[4].module_id = 84u;
+    }
     if (is("ikada-duplicate")) certificates[2].module_id = 168u;
     if (is("ikada-invalid-certificate")) certificates[2].ctor_return_pc = 0u;
     if (is("ikada-wrong-chunk-0")) hashes[5] ^= 1u;
@@ -510,7 +612,7 @@ int main(int argc, char** argv) {
         certificates[1].canonical_sections = catalog_canonical;
     }
     const char* registration = ww_host_register_rel_contracts(host, &set, "synthetic.dol");
-    if (is("ikada-duplicate") || is("ikada-invalid-certificate") || is("ikada-bad-dol") ||
+    if (is("batch-duplicate") || is("ikada-duplicate") || is("ikada-invalid-certificate") || is("ikada-bad-dol") ||
         is("ikada-wrong-chunk-0") || is("ikada-wrong-chunk-1")) {
         assert(registration != NULL && host->rel_contracts == NULL);
 #if WW05_ENABLE_IKADA_CONTRACT
@@ -520,7 +622,73 @@ int main(int argc, char** argv) {
     }
     if (registration != NULL) fprintf(stderr, "registration: %s\n", registration);
     assert(registration == NULL);
-    if (ikada_requested) {
+#if WW05_ENABLE_IKADA_CONTRACT && !WW05_ENABLE_ACTOR_BATCH_CONTRACTS
+    if (batch_requested) {
+        assert(ww_host_enable_ship_contract(host, &batch_ship, "synthetic.dol") == NULL);
+        host->rel_title_admission = true;
+        assert(ww_host_enable_ikada_contract(host) == NULL);
+        assert(ww_host_rel_certificate(host, 168u) == &host->ship_certificate);
+        assert(ww_host_rel_certificate(host, 400u) == &certificates[1]);
+        assert(ww_host_rel_certificate(host, 60u) == &certificates[2]);
+        assert(ww_host_rel_certificate(host, 84u) == NULL && ww_host_rel_certificate(host, 85u) == NULL);
+        const char* error = ww_host_materialize_rel(host, 0x80002700u, "d_a_obj_wood");
+        assert(error != NULL && strcmp(error, "REL prolog, epilog or unresolved entry requires an unsupported lifecycle contract") == 0);
+        assert(host->rel_image_count == 0u && !host->rel_test_admission);
+        goto done;
+    }
+#endif
+#if WW05_ENABLE_ACTOR_BATCH_CONTRACTS
+    if (batch_requested) {
+        if (!is("batch-missing-ship"))
+            assert(ww_host_enable_ship_contract(host, &batch_ship, "synthetic.dol") == NULL);
+        host->rel_title_admission = !is("batch-missing-title");
+        if (!is("batch-missing-ship") && !is("batch-missing-title") && !is("batch-missing-ikada"))
+            assert(ww_host_enable_ikada_contract(host) == NULL);
+        if (is("batch-missing-set")) host->rel_contracts = NULL;
+        if (is("batch-missing-member")) set.contract_count = 4u;
+        if (is("batch-missing-retained-member")) { certificates[3] = certificates[4]; set.contract_count = 4u; }
+        if (is("batch-extra-member")) certificates[4].module_id = 86u;
+        if (is("batch-bad-pin")) certificates[3].build_identity = certificates[2].build_identity;
+        if (strncmp(scenario, "batch-pin-", 10u) == 0) {
+            const u32 id = (u32)strtoul(scenario + 10u, NULL, 10);
+            for (u32 at = 0u; at < set.contract_count; ++at)
+                if (certificates[at].module_id == id)
+                    certificates[at].build_identity = "0000000000000000000000000000000000000000000000000000000000000000";
+        }
+        if (is("batch-invalid-certificate")) certificates[3].ctor_return_pc = 0u;
+        if (is("batch-wrong-chunk")) hashes[2] ^= 1u;
+        if (is("batch-bad-set")) set.build_identity = certificates[2].build_identity;
+        if (is("batch-bad-dol")) set.dol_bytes = actor_84_raw;
+        if (is("batch-prior-image")) host->rel_image_count = 1u;
+        if (is("batch-off")) {
+            assert(ww_host_rel_certificate(host, 84u) == NULL && ww_host_rel_certificate(host, 85u) == NULL);
+            assert(ww_host_materialize_rel(host, 0x80002700u, "d_a_obj_wood") != NULL && host->rel_image_count == 0u);
+            goto done;
+        }
+        const char* error = ww_host_enable_actor_batch_contracts(host);
+        if (!is("batch-enabled") && !is("batch-raw-identity") && strncmp(scenario, "batch-materialize-", 18u) != 0 &&
+            strncmp(scenario, "batch-sdk-", 10u) != 0 &&
+            strncmp(scenario, "batch-entry-", 12u) != 0 && !is("batch-copied-certificate") &&
+            !is("batch-policy-disabled") && !is("batch-epilog") && !is("batch-unresolved") && !is("batch-unlink")) {
+            if (is("batch-repeated")) {
+                assert(error == NULL && host->rel_actor_batch_admission);
+                assert(ww_host_enable_actor_batch_contracts(host) != NULL);
+            } else {
+                assert(error != NULL && !host->rel_actor_batch_admission);
+                assert(ww_host_actor_batch_certificate(host, 84u) == NULL);
+            }
+            host->rel_image_count = 0u;
+            goto done;
+        }
+        if (error != NULL) fprintf(stderr, "batch activation: %s\n", error);
+        assert(error == NULL && host->rel_actor_batch_admission && !host->rel_test_admission);
+        assert(ww_host_actor_batch_certificate(host, 84u) == &certificates[3]);
+        assert(ww_host_actor_batch_certificate(host, 85u) == &certificates[4]);
+        assert(ww_host_actor_batch_certificate(host, 86u) == NULL);
+        assert(ww_host_rel_certificate(host, 168u) == &host->ship_certificate);
+    }
+#endif
+    if (ikada_requested && !batch_requested) {
         const bool no_ship = is("ikada-registered-only") || is("ikada-title-only") || is("ikada-missing-ship");
         const bool no_title = is("ikada-registered-only") || is("ikada-ship-only") || is("ikada-missing-title");
         if (!no_ship)
@@ -579,7 +747,9 @@ int main(int argc, char** argv) {
     DolLayout layout = {0};
     lifecycle_dol_text(&host->cpu, &layout);
     assert(ww_code_guard_init(&host->code_guard, &host->cpu, &layout));
-    assert(ww_host_materialize_rel(host, 0x80002400u, "f_pc_profile_lst") == NULL);
+    const char* profile_materialization = ww_host_materialize_rel(host, 0x80002400u, "f_pc_profile_lst");
+    if (profile_materialization != NULL) fprintf(stderr, "profile materialization: %s\n", profile_materialization);
+    assert(profile_materialization == NULL);
     host->cpu.lr = 0x80001004u;
     assert(ww_host_link_rel(host, 0x80002400u) == NULL);
     WwRelImage* profile = ww_host_rel_live(host, 1u);
@@ -637,7 +807,10 @@ int main(int argc, char** argv) {
     scenario = requested;
 #if WW05_ENABLE_IKADA_CONTRACT
     if (ikada_requested) {
-        run_ikada(host, requested + 6u, profile);
+        run_ikada(host, batch_requested ? "enabled" : requested + 6u, profile);
+#if WW05_ENABLE_ACTOR_BATCH_CONTRACTS
+        if (batch_requested) run_actor_batch(host, requested + 6u);
+#endif
         goto done;
     }
 #endif

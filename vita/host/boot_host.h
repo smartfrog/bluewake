@@ -77,6 +77,9 @@ typedef struct WwHost {
 #if WW05_ENABLE_IKADA_CONTRACT
     bool rel_ikada_admission;
 #endif
+#if WW05_ENABLE_ACTOR_BATCH_CONTRACTS
+    bool rel_actor_batch_admission;
+#endif
 #if WW05_TESTS_ONLY
     bool rel_test_admission;
 #endif
@@ -154,6 +157,10 @@ bool ww_host_init(WwHost* host);
 const char* ww_host_enable_ship_contract(WwHost* host, const BlueWakeShipContractV1* contract, const char* dol);
 #if WW05_ENABLE_IKADA_CONTRACT
 const char* ww_host_enable_ikada_contract(WwHost* host);
+#endif
+#if WW05_ENABLE_ACTOR_BATCH_CONTRACTS
+const char* ww_host_enable_actor_batch_contracts(WwHost* host);
+const BlueWakeRelInitContractV1* ww_host_actor_batch_certificate(const WwHost* host, u32 module_id);
 #endif
 void ww_host_shutdown(WwHost* host);
 bool ww_host_load(WwHost* host, const StaticRecompModuleDesc* module,

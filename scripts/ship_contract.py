@@ -10,15 +10,26 @@ SHIP_LIFECYCLE = (0xC1B100F4, 0xC1B10120, 0xC1B1014C)
 SHIP_TABLES = ((2, 0xC1B1DAF0), (3, 0xC1B1DAF8))
 SELECTED_MODULES = (168, 400)
 IKADA_SELECTED_MODULES = (60, 168, 400)
+ACTOR_BATCHES = {'opening-a': (60, 84, 168, 400)}
+ACTOR_CAPTURE_GROUPS = {'opening-a': (84,)}
 APPROVED_MODULES = {
     60: {'name': 'ikada', 'exec': (1, 244, 0xC15500F4, 22620),
          'lifecycle': (0xC15500F4, 0xC1550120, 0xC155014C),
          'tables': ((2, 0xC1555950), (3, 0xC1555958)), 'table_size': 8,
          'ctor_return_pc': 0xC155010C, 'magic': b'IKADA60\0',
-         'section_count': 21, 'bss': (6, 0xC15581A0, 532)},
+         'section_count': 21, 'bss': (6, 0xC15581A0, 532), 'basename': 'd_a_obj_ikada.rel'},
+    84: {'name': 'wood', 'basename': 'd_a_obj_wood.rel', 'capture_group': 'opening-a',
+         'exec': (1, 0xD4, 0xC19A00D4, 1164),
+         'lifecycle': (0xC19A00D4, 0xC19A0100, 0xC19A012C),
+         'tables': ((2, 0xC19A0560), (3, 0xC19A0564)), 'table_size': 4,
+         'ctor_return_pc': 0xC19A00EC, 'magic': b'WOOD84\0\0',
+         'section_count': 17, 'raw_size': 2596,
+         'raw_sha256': '93b9977b0a8eb519e9b4e17f811b9c271b41762e3adbe8857b410099b74bffc3',
+         'processed_sha256': 'a3d4442e2a35a405339670f9102cb83775823cf422a9c2d8e74a7fcf5442e70c',
+         'stored_sha256': '5cad58ee92ae0e40f3ad30c371377a39f58f1b744356930a074777f7078b9a39'},
     168: {'name': 'ship', 'exec': SHIP_EXEC, 'lifecycle': SHIP_LIFECYCLE,
           'tables': SHIP_TABLES, 'table_size': 8, 'ctor_return_pc': 0xC1B1010C,
-          'magic': b'SHIP168\0'},
+          'magic': b'SHIP168\0', 'basename': 'd_a_ship.rel'},
     400: {'name': 'title', 'exec': (1, 220, 0xC1E000DC, 7756),
           'lifecycle': (0xC1E000DC, 0xC1E00108, 0xC1E00134),
           'tables': ((2, 0xC1E01F28), (3, 0xC1E01F2C)), 'table_size': 4,
@@ -60,12 +71,14 @@ def read_disc_member(path, module_id=168):
         archive = stream.read(archives[0]['size'])
         if len(archive) != archives[0]['size']:
             raise ValueError(f'{name} identity RELS.arc is truncated')
-    basename = 'd_a_obj_ikada.rel' if module_id == 60 else 'd_a_ship.rel'
+    basename = spec['basename']
     members = [(member, data) for member, data in rarc(archive)
                if PurePosixPath(member).name == basename]
     if len(members) != 1:
         raise ValueError(f'{name} identity requires exactly one disc archive member {basename}')
     name, data = members[0]
+    if 'stored_sha256' in spec and hashlib.sha256(data).hexdigest() != spec['stored_sha256']:
+        raise ValueError(f'{spec["name"]} stored disc-member identity SHA-256 mismatch')
     return yaz0(data), {'archive': 'RELS.arc', 'member': name}
 
 
@@ -93,6 +106,13 @@ def verify_layout(raw, sections, chunks, module_id=168):
         if (count != spec['section_count'] or backed != [1, 2, 3, 4, 5] or bss != [spec['bss']] or
                 any(not section['size'] and (section['offset'] or section['executable']) for section in sections)):
             raise ValueError('ikada contract approved section/BSS layout mismatch')
+    if module_id == 84:
+        backed = [(s['index'], s['offset'], s['size']) for s in sections if s['size']]
+        if (len(raw) != spec['raw_size'] or count != 17 or bss_size != 0 or raw[0x33] != 0 or
+                struct.unpack_from('>I', raw, 0x44)[0] != 1 or
+                backed != [(1, 0xD4, 1164), (2, 0x560, 4), (3, 0x564, 4), (4, 0x568, 324)] or
+                any(not s['size'] and (s['offset'] or s['executable']) for s in sections)):
+            raise ValueError('wood contract approved section/BSS layout mismatch')
     executable = [section for section in sections if section['executable'] and section['size']]
     if len(executable) != 1 or tuple(executable[0][key] for key in (
             'index', 'offset', 'linked_start', 'size')) != executable_layout:
@@ -209,8 +229,8 @@ def normal_contract(raw_dol, processed_rel, sections, chunks, dol_ranges, identi
     identity_alignment = struct.unpack_from('>I', identity_rel, 0x40)[0]
     if processed_alignment != 4 or not identity_alignment or identity_alignment & (identity_alignment - 1):
         raise ValueError(f'{module_name} contract requires processed alignment 4 and a valid disc alignment')
-    if module_id == 60 and identity_alignment != 8:
-        raise ValueError('ikada contract requires original disc alignment 8')
+    if module_id in (60, 84) and identity_alignment != 8:
+        raise ValueError(f'{module_name} contract requires original disc alignment 8')
     if not 0 < len(raw_dol) <= 0x800000:
         raise ValueError(f'{module_name} contract requires a bounded full raw DOL')
     canonical = relocate_ship(processed_rel, sections, dol_ranges, module_id)
@@ -328,7 +348,7 @@ def unique_json_object(pairs):
 
 
 def producer_inputs(manifest_path, raw_dol, rel_bins, entries, identities, selected_ids=SELECTED_MODULES):
-    if selected_ids not in (SELECTED_MODULES, IKADA_SELECTED_MODULES):
+    if selected_ids not in (SELECTED_MODULES, IKADA_SELECTED_MODULES, *ACTOR_BATCHES.values()):
         raise ValueError('producer requires an approved bounded selection')
     path = Path(manifest_path)
     manifest = json.loads(path.read_text(), object_pairs_hook=unique_json_object)
@@ -336,7 +356,8 @@ def producer_inputs(manifest_path, raw_dol, rel_bins, entries, identities, selec
             not re.fullmatch('[0-9a-f]{64}', manifest.get('producer_identity', ''))):
         raise ValueError('selected contract producer provenance header is invalid')
     if set(manifest.get('modules', {})) != {str(mid) for mid in selected_ids}:
-        label = '168 and 400' if selected_ids == SELECTED_MODULES else '60, 168 and 400'
+        label = ('168 and 400' if selected_ids == SELECTED_MODULES else
+                 '60, 168 and 400' if selected_ids == IKADA_SELECTED_MODULES else ', '.join(map(str, selected_ids)))
         raise ValueError(f'producer provenance requires exactly selected modules {label}')
     if manifest.get('dol_sha256') != hashlib.sha256(raw_dol).hexdigest():
         raise ValueError('selected contract producer DOL identity mismatch')
@@ -365,6 +386,34 @@ def producer_inputs(manifest_path, raw_dol, rel_bins, entries, identities, selec
             'raw_sha256', 'processed_rel_sha256', 'capture_sha256', 'translation_sha256')}
     return captures, {'version': 1, 'producer_identity': manifest['producer_identity'],
                       'dol_sha256': manifest['dol_sha256'], 'modules': bindings}
+
+
+def verify_batch_completion(manifest_path, batch_name):
+    selected_ids = ACTOR_BATCHES[batch_name]
+    path = Path(manifest_path)
+    manifest = json.loads(path.read_text(), object_pairs_hook=unique_json_object)
+    groups = {}
+    for mid in selected_ids:
+        if mid in IKADA_SELECTED_MODULES:
+            continue
+        capture = Path(manifest['modules'][str(mid)]['capture'])
+        if not capture.is_absolute():
+            capture = path.parent / capture
+        group = selected_module(mid)['capture_group']
+        groups.setdefault(group, {})[mid] = capture
+    for group, captures in groups.items():
+        members = ACTOR_CAPTURE_GROUPS[group]
+        if not 0 < len(members) <= 8 or set(captures) != set(members):
+            raise ValueError('actor batch requires every member of each reviewed capture group')
+        directories = {capture.parent.resolve(strict=True) for capture in captures.values()}
+        if len(directories) != 1:
+            raise ValueError('actor capture group requires one complete owned publication directory')
+        directory, = directories
+        expected = [{'id': mid, 'capture': captures[mid].name, 'size': captures[mid].stat().st_size}
+                    for mid in members]
+        completion = json.loads((directory / 'complete.json').read_text(), object_pairs_hook=unique_json_object)
+        if completion != {'version': 1, 'batch': group, 'modules': expected}:
+            raise ValueError('actor batch completion receipt does not match its exact selected capture group')
 
 
 def emit_selected_set(raw_dol, contracts, lifecycle_ids, provenance):

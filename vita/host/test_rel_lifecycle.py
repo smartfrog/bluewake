@@ -25,8 +25,8 @@ class RelLifecycleTest(unittest.TestCase):
             image = bytearray(test_di_read.DiscReadTest.image.build_image())
             content = archive('catalog-id' if scenario == 'title-catalog-id' else scenario,
                                (test_host.OUT / 'lifecycle_title.rel').read_bytes(),
-                               resident='small' if scenario in ('title-enabled', 'title-copy', 'title-catalog-id') or scenario.startswith('ikada-') else False,
-                               ikada=scenario.startswith('ikada-'))
+                                resident='small' if scenario in ('title-enabled', 'title-copy', 'title-catalog-id') or scenario.startswith(('ikada-', 'batch-')) else False,
+                                ikada=scenario.startswith(('ikada-', 'batch-')), batch=scenario.startswith('batch-'))
             fst = test_di_read.DiscReadTest.image.FST_OFFSET
             image[fst + 5 * 12 + 1:fst + 5 * 12 + 9] = b'RELS.arc'
             struct.pack_into('>II', image, fst + 16, len(image), len(content))

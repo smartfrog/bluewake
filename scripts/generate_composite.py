@@ -354,6 +354,7 @@ def main():
     ap.add_argument('--selected-rel-provenance', help='Opt-in actual ship/title emitter-input binding manifest')
     ap.add_argument('--title-rel-sha256', help='Required original loose title identity pin for selected certificates')
     ap.add_argument('--ikada-rel-sha256', help='Opt in to the fixed 60/168/400 selection with this original ikada identity pin')
+    ap.add_argument('--actor-rel-batch', help='Reviewed immutable actor selection (opening-a)')
     ap.add_argument("--game-id", default="GZLE01")
     ap.add_argument("--output-dir", required=True)
     args = ap.parse_args()
@@ -367,6 +368,12 @@ def main():
     if receipt_path.exists():
         receipt_path.unlink()
     ikada_selected = args.ikada_rel_sha256 is not None
+    batch_selected = args.actor_rel_batch is not None
+    if batch_selected:
+        if args.actor_rel_batch not in ship_contract.ACTOR_BATCHES:
+            raise ValueError('actor batch requires an approved nonempty selection name')
+        if not (args.selected_rel_provenance and args.title_rel_sha256 and ikada_selected):
+            raise ValueError('actor batch requires explicit provenance, title and ikada pins')
     if ikada_selected and not (args.selected_rel_provenance and args.title_rel_sha256):
         raise ValueError('ikada contract requires --selected-rel-provenance and --title-rel-sha256')
     if ikada_selected and not re.fullmatch('[0-9a-f]{64}', args.ikada_rel_sha256):
@@ -375,6 +382,8 @@ def main():
         raise ValueError('title identity pin requires --selected-rel-provenance')
     selected_ids = (ship_contract.IKADA_SELECTED_MODULES if ikada_selected
                     else ship_contract.SELECTED_MODULES)
+    if batch_selected:
+        selected_ids = ship_contract.ACTOR_BATCHES[args.actor_rel_batch]
     if not args.ship_disc:
         raise ValueError('ship contract requires a disc-member identity reference (--ship-disc)')
 
@@ -480,6 +489,19 @@ def main():
         if hashlib.sha256(ikada_identity).hexdigest() != args.ikada_rel_sha256:
             raise ValueError('ikada disc-member identity SHA-256 mismatch')
         selected_identities[60] = ikada_identity
+    if batch_selected:
+        for mid in selected_ids:
+            if mid in selected_identities:
+                continue
+            spec = ship_contract.selected_module(mid)
+            raw, _ = ship_contract.read_disc_member(args.ship_disc, mid)
+            processed = rel_bin_cache.get(mid)
+            if processed is None:
+                raise ValueError(f'selected contract requires raw module {mid}')
+            if (hashlib.sha256(raw).hexdigest() != spec['raw_sha256'] or
+                    hashlib.sha256(processed).hexdigest() != spec['processed_sha256']):
+                raise ValueError(f'{spec["name"]} original/processed identity SHA-256 mismatch')
+            selected_identities[mid] = raw
 
     # Build linked section images before emitting the ABI tables. The entry
     # point is inside the executable section, so recover each REL's load base
@@ -524,6 +546,8 @@ def main():
     if args.selected_rel_provenance:
         captures, provenance = ship_contract.producer_inputs(
             args.selected_rel_provenance, raw_dol, rel_bin_cache, selected_entries, selected_identities, selected_ids)
+        if batch_selected:
+            ship_contract.verify_batch_completion(args.selected_rel_provenance, args.actor_rel_batch)
     contracts = {}
     for mid, entry in sorted(selected_entries.items()):
         if mid not in rel_section_maps:

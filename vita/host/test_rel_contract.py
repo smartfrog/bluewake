@@ -46,7 +46,7 @@ def fixture(output):
     (output / 'synthetic.dol').write_bytes(bytes([1, 2, 3, 4]))
 
 
-def archive(scenario, title=None, resident=False, ikada=False):
+def archive(scenario, title=None, resident=False, ikada=False, batch=False):
     profile = bytearray(test_rel_materialize.raw_rel())
     struct.pack_into('>I', profile, 0xC, 5)
     struct.pack_into('>II', profile, 0x6C, 0xB0, 16)
@@ -66,18 +66,25 @@ def archive(scenario, title=None, resident=False, ikada=False):
         if scenario == 'ikada-raw-identity':
             candidate[-1] ^= 1
         members.append((b'd_a_obj_ikada.rel', candidate))
-    content = bytearray(0x100)
+    if batch:
+        for mid, name in ((84, b'd_a_obj_wood.rel'), (85, b'd_a_batch_test.rel')):
+            actor = bytearray((test_host.OUT / f'lifecycle_actor_{mid}.rel').read_bytes())
+            if mid == 84 and scenario == 'batch-raw-identity': actor[-1] ^= 1
+            members.append((name, actor))
+    names_at = max(0x90, 0x40 + len(members) * 20)
+    data_at = max(0x100, (names_at + sum(len(name) + 1 for name, _ in members) + 31) & ~31)
+    content = bytearray(data_at)
     content[:4] = b'RARC'
-    struct.pack_into('>I', content, 0xC, 0xE0)
+    struct.pack_into('>I', content, 0xC, data_at - 0x20)
     struct.pack_into('>II', content, 0x28, len(members), 0x20)
     names = bytearray()
     for index, (name, data) in enumerate(members):
         struct.pack_into('>III', content, 0x44 + index * 20,
-                         0x01000000 | len(names), len(content) - 0x100, len(data))
+                         0x01000000 | len(names), len(content) - data_at, len(data))
         names.extend(name + b'\0')
         content.extend(data)
-    struct.pack_into('>II', content, 0x30, len(names), 0x70)
-    content[0x90:0x90 + len(names)] = names
+    struct.pack_into('>II', content, 0x30, len(names), names_at - 0x20)
+    content[names_at:names_at + len(names)] = names
     struct.pack_into('>I', content, 4, len(content))
     return content
 
