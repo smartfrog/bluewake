@@ -149,7 +149,7 @@ class ActorBatchEmitter(unittest.TestCase):
         cls.production_executable = cls.build_producer(source, 'production-build')
         pipeline = source / 'src/app/pipeline.c'
         text = pipeline.read_text()
-        row = '{.capture={.module_id=9u, .magic="BRIDGE9"}, .basename="bridge9.ship-code-input"}'
+        row = '{.capture={.module_id=81u, .magic="TPOST81"}, .basename="toripost81.ship-code-input"}'
         if text.count(row) != 1:
             raise AssertionError('reviewed production table changed')
         pipeline.write_text(text.replace(row, '{.capture={.module_id=84u, .magic="WOOD84\\0"}, .basename="wood84.ship-code-input"},\n'
@@ -181,32 +181,32 @@ class ActorBatchEmitter(unittest.TestCase):
             '--rel-base', '0xC0400000', str(self.inputs), str(self.case / label), '-j', '1'],
             env={**os.environ, **controls}, capture_output=True, text=True)
 
-    def test_production_wave_captures_only_bridge_without_changing_ordinary_outputs(self):
+    def test_production_wave_captures_only_toripost_without_changing_ordinary_outputs(self):
         raw = bytearray((self.inputs / '0084.rel').read_bytes())
         struct.pack_into('>I', raw, 0, 19)
         (self.inputs / '0019.rel').write_bytes(raw)
-        struct.pack_into('>I', raw, 0, 9)
-        (self.inputs / '0009.rel').write_bytes(raw)
+        struct.pack_into('>I', raw, 0, 81)
+        (self.inputs / '0081.rel').write_bytes(raw)
         captures = self.case / 'captures'
-        result = self.emit('bridge', {'DOLRECOMP_ACTOR_BATCH_DIR': str(captures)}, self.production_executable)
+        result = self.emit('toripost', {'DOLRECOMP_ACTOR_BATCH_DIR': str(captures)}, self.production_executable)
         self.assertEqual(result.returncode, 0, result.stderr)
         ordinary = self.emit('ordinary', {}, self.production_executable)
         self.assertEqual(ordinary.returncode, 0, ordinary.stderr)
         maps = [{str(p.relative_to(self.case / name)): p.read_bytes() for p in (self.case / name).rglob('*') if p.is_file()}
-                for name in ('bridge', 'ordinary')]
+                for name in ('toripost', 'ordinary')]
         self.assertEqual(*maps)
-        self.assertEqual({p.name for p in captures.iterdir()}, {'bridge9.ship-code-input', 'complete.json'})
-        self.assertEqual((captures / 'bridge9.ship-code-input').read_bytes()[:8], b'BRIDGE9\0')
-        self.assertEqual(json.loads((captures / 'complete.json').read_text()), {'version': 1, 'batch': 'opening-c',
-            'modules': [{'id': 9, 'capture': 'bridge9.ship-code-input', 'size': 44}]})
+        self.assertEqual({p.name for p in captures.iterdir()}, {'toripost81.ship-code-input', 'complete.json'})
+        self.assertEqual((captures / 'toripost81.ship-code-input').read_bytes()[:8], b'TPOST81\0')
+        self.assertEqual(json.loads((captures / 'complete.json').read_text()), {'version': 1, 'batch': 'opening-d',
+            'modules': [{'id': 81, 'capture': 'toripost81.ship-code-input', 'size': 44}]})
 
-    def test_production_missing_or_duplicate_bridge_cannot_publish_a_subset(self):
+    def test_production_missing_or_duplicate_toripost_cannot_publish_a_subset(self):
         for scenario in ('missing', 'duplicate'):
             with self.subTest(scenario=scenario):
                 if scenario == 'duplicate':
                     raw = bytearray((self.inputs / '0084.rel').read_bytes())
-                    struct.pack_into('>I', raw, 0, 9)
-                    (self.inputs / '0009.rel').write_bytes(raw)
+                    struct.pack_into('>I', raw, 0, 81)
+                    (self.inputs / '0081.rel').write_bytes(raw)
                     (self.inputs / 'copy.rel').write_bytes(raw)
                 captures = self.case / ('captures-' + scenario)
                 result = self.emit(scenario, {'DOLRECOMP_ACTOR_BATCH_DIR': str(captures)}, self.production_executable)

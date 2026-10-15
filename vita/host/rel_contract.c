@@ -394,7 +394,7 @@ const char* ww_host_enable_actor_batch_contracts(WwHost* host) {
              certificate->ctor_return_pc != host->ship_certificate.ctor_return_pc ||
              memcmp(certificate->lifecycle, host->ship_certificate.lifecycle, sizeof(*certificate->lifecycle)) != 0))
             return "actor batch admission requires the unchanged legacy ship compatibility identity";
-        if (fprintf(stderr, "[rel-batch-member] batch=opening-c module=%u certificate=%s set=%s sdk_contract=%s policy_revision=%u policy=%s validated=1\n",
+        if (fprintf(stderr, "[rel-batch-member] batch=opening-d module=%u certificate=%s set=%s sdk_contract=%s policy_revision=%u policy=%s validated=1\n",
                     certificate->module_id, certificate->build_identity, set->build_identity,
                     sdk_contract_name(ww_actor_expected[at].sdk_contract), WW_ACTOR_POLICY_REVISION, WW_ACTOR_POLICY_IDENTITY) < 0)
             return "actor batch member validation receipt write failed";
@@ -408,7 +408,7 @@ const char* ww_host_enable_actor_batch_contracts(WwHost* host) {
     for (u32 at = 0u; at < WW_ACTOR_FULL_COUNT; ++at)
         if (ww_actor_expected[at].sdk_contract == WW_ACTOR_SDK_CERTIFIED_INLINE_ZERO)
             blocks[index++].certificate = registered_certificate(host, ww_actor_expected[at].id);
-    if (fprintf(stderr, "[rel-batch-admission] batch=opening-c actors=%u registered=%u set=%s policy_revision=%u policy=%s inline_records=%u active=1\n",
+    if (fprintf(stderr, "[rel-batch-admission] batch=opening-d actors=%u registered=%u set=%s policy_revision=%u policy=%s inline_records=%u active=1\n",
                 WW_ACTOR_COUNT, WW_ACTOR_FULL_COUNT, set->build_identity,
                 WW_ACTOR_POLICY_REVISION, WW_ACTOR_POLICY_IDENTITY, inline_count) < 0 || fflush(stderr) != 0) {
         free(blocks);

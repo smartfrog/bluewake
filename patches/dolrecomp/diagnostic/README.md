@@ -14,19 +14,20 @@ In an owned source copy of DolRecomp `b8b534591cba8ca7cd43943a655ee6e2591cf5de`:
    fresh absolute private directory outside the generated-output tree. Emit the
    **entire unchanged REL directory**, with `--rel-base 0xC0400000 -j 1`.
 
-The compiled `opening-c` delta is **9 (bridge) only**. The review ceiling is eight new
+The compiled `opening-d` delta is **81 (toripost) only**. The review ceiling is eight new
 modules; it is not a runtime selector. Every reviewed ID must occur exactly
 once before emission. Captures publish exclusively after all emission succeeds;
 `complete.json` publishes last. A failed or incomplete batch is not consumable.
 Legacy and batch capture controls cannot be combined. No capture is made for an
 unselected module.
 
-The generator's immutable `--actor-rel-batch opening-c` selection is
-`{9,19,60,84,168,400}` and requires explicit existing provenance/title/ikada inputs.
-The earlier `opening-a` and `opening-b` selections remain reproducible with their
-original capture groups. Bridge has 88 bytes of BSS aligned to 8 and 4/4-byte
-ctor/dtor tables; its SDK policy is `OWNER_PUBLISHED`. Grass retains
-`OWNER_PUBLISHED` with its independent 4/8-byte ctor/dtor tables. Wood retains
+The generator's immutable `--actor-rel-batch opening-d` selection is
+`{9,19,60,81,84,168,400}` and requires explicit existing provenance/title/ikada inputs.
+The earlier `opening-a`, `opening-b` and `opening-c` selections remain reproducible
+with their original capture groups. Toripost has 45 bytes of BSS aligned to 8
+and 8/8-byte ctor/dtor tables; its SDK policy is `OWNER_PUBLISHED`. Bridge retains
+`OWNER_PUBLISHED` with 4/4-byte tables; grass retains `OWNER_PUBLISHED` with its
+independent 4/8-byte tables. Wood retains
 `CERTIFIED_INLINE_ZERO`. No destructor execution is authorized.
 Captures, generated code, manifests containing private paths, and composites
 stay private. Acquisition and registration do not authorize execution: the
