@@ -142,9 +142,10 @@ def capture_vita(memory, regs, return_pc, native_fault=None, *, at_native_fault=
                   stored_descriptor=guest[15] | (memory.u32(state + 88) << 32))
     memory.record('vita-state', result)
     begin, end = memory.u64(space + 0x40), memory.u64(space + 0x48)
-    if end < begin or (end - begin) % 24 or end - begin > 32 * 1024 * 1024:
+    span = end - begin
+    if end < begin or span % 24 or span > memory.remaining:
         raise ValueError('invalid/oversize forward block-map bucket range')
-    buckets = memory.read(begin, end - begin) if end > begin else b''
+    buckets = memory.read(begin, span) if span else b''
     memory.dump('forward-block-map-buckets', buckets, begin)
     current_entries = [dict(descriptor=descriptor, entry=host)
                        for _, distance, _, descriptor, host in struct.iter_unpack('<IhHQQ', buckets)

@@ -1,9 +1,11 @@
+import ctypes
 import errno
 import json
 import os
 from pathlib import Path
 import platform
 import shutil
+import struct
 import threading
 from types import SimpleNamespace
 from unittest import mock
@@ -176,3 +178,45 @@ class NativeCaptureTests(VitaStateFixture):
             self.capture()
         self.assertTrue(self.receipt['decisive_capture_complete'])
         self.assertFalse(self.receipt['capture_partial'])
+
+    def test_48_mib_forward_map_completes_within_existing_capture_budget(self):
+        count = 2097152
+        size = count * 24
+        empty = struct.pack('<IhHQQ', 0, -1, 0, 0, 0)
+        self.large_buckets = ctypes.create_string_buffer(empty * count, size)
+        begin = ctypes.addressof(self.large_buckets)
+        self.pack(begin, '<IhHQQ', 0, 0, 0, self.descriptor, self.code)
+        self.pack(self.space + 0x40, '<QQ', begin, begin + size)
+        self.capture()
+        self.assertTrue(self.receipt['decisive_capture_complete'])
+        self.assertFalse(self.receipt['capture_partial'])
+        self.assertIn((begin, size), self.reads)
+        self.assertLess(sum(length for _, length in self.reads), 64 * 1024 * 1024)
+        self.assertEqual((self.out / 'forward-block-map-buckets.bin').stat().st_size, 48 * 1024 * 1024)
+        self.assertEqual(self.receipt['vita']['current_block_map']['count'], 1)
+        self.assertEqual(self.receipt['vita']['reverse_block_map']['count'], 1)
+        self.assertIn('rsb_candidate', self.receipt['vita'])
+
+    def test_forward_map_exceeding_total_capture_budget_is_rejected_before_read(self):
+        self.pack(self.space + 0x48, '<Q', self.buckets + 72 * 1024 * 1024)
+        with self.assertRaisesRegex(ValueError, 'invalid/oversize forward block-map bucket range') as caught:
+            self.capture()
+        self.receipt['fixture_expected_error'] = str(caught.exception)
+        self.assertFalse(self.receipt['decisive_capture_complete'])
+        self.assertFalse(any(address == self.buckets for address, _ in self.reads))
+
+    def test_forward_map_exceeding_remaining_capture_budget_is_rejected_before_read(self):
+        self.pack(self.space + 0x48, '<Q', self.buckets + 48 * 1024 * 1024)
+        memory_type = type(self.memory)
+
+        def memory_with_spent_budget(*args):
+            memory = memory_type(*args)
+            memory.remaining = 32 * 1024 * 1024
+            return memory
+
+        with mock.patch('native_stopper.Memory', side_effect=memory_with_spent_budget), \
+                self.assertRaisesRegex(ValueError, 'invalid/oversize forward block-map bucket range') as caught:
+            self.capture()
+        self.receipt['fixture_expected_error'] = str(caught.exception)
+        self.assertFalse(self.receipt['decisive_capture_complete'])
+        self.assertFalse(any(address == self.buckets for address, _ in self.reads))
