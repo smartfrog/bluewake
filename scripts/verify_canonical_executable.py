@@ -199,7 +199,7 @@ def bind(row, expected, capture, data_text, table_text):
     prefix = 's_' + inherited_names.get(row['id'], Path(row['basename']).stem)
     array = prefix + '_canonical_' + str(section['index'])
     body = block(data_text, 'u8', array)
-    require(re.fullmatch(r'\s*(?:[0-9]+\s*,\s*)+', body) is not None, 'array syntax')
+    require(re.fullmatch(r'\s*(?:(?:0|[1-9][0-9]*)\s*,\s*)+', body) is not None, 'array syntax')
     values = [int(value) for value in body.split(',') if value.strip()]
     require(all(0 <= value <= 255 for value in values) and bytes(values) == expected,
             'canonical array mismatch')

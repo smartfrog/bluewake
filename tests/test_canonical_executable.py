@@ -207,6 +207,22 @@ static const u64 s_chunk_hashes[] = {
         with self.assertRaisesRegex(ValueError, 'array'):
             self.check()
 
+    def test_octal_canonical_array_byte_rejected(self):
+        self.expected = bytes.fromhex('70018000')
+        self.capture = self.capture[:-4] + self.expected
+        self.data = self.data.replace('{128,1,128,0,}', '{112,1,128,0,}')
+        self.tables = self.tables.replace('401EFFAAB252C94A', '41C93D0FC187DBFA')
+        self.assertEqual(self.check()['executable_sha256'], hashlib.sha256(self.expected).hexdigest())
+        self.data = self.data.replace('{112,1,128,0,}', '{0112,1,128,0,}')
+        self.assertNotEqual(int('0112', 8), self.expected[0])
+        with self.assertRaisesRegex(ValueError, 'array syntax'):
+            self.check()
+
+    def test_canonical_array_remains_decimal_only(self):
+        self.data = self.data.replace('{128,1,128,0,}', '{0x80,1,128,0,}')
+        with self.assertRaisesRegex(ValueError, 'array syntax'):
+            self.check()
+
     def test_wrong_module_association(self):
         self.data = self.data.replace('s_sample_raw_rel,s_sample_canonical,', 's_sample_raw_rel,wrong,')
         with self.assertRaisesRegex(ValueError, 'association'):
