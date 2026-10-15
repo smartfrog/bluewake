@@ -10,9 +10,21 @@ SHIP_LIFECYCLE = (0xC1B100F4, 0xC1B10120, 0xC1B1014C)
 SHIP_TABLES = ((2, 0xC1B1DAF0), (3, 0xC1B1DAF8))
 SELECTED_MODULES = (168, 400)
 IKADA_SELECTED_MODULES = (60, 168, 400)
-ACTOR_BATCHES = {'opening-a': (60, 84, 168, 400), 'opening-b': (19, 60, 84, 168, 400)}
-ACTOR_CAPTURE_GROUPS = {'opening-a': (84,), 'opening-b': (19,)}
+ACTOR_BATCHES = {'opening-a': (60, 84, 168, 400), 'opening-b': (19, 60, 84, 168, 400),
+                 'opening-c': (9, 19, 60, 84, 168, 400)}
+ACTOR_CAPTURE_GROUPS = {'opening-a': (84,), 'opening-b': (19,), 'opening-c': (9,)}
 APPROVED_MODULES = {
+    9: {'name': 'bridge', 'basename': 'd_a_bridge.rel', 'capture_group': 'opening-c',
+        'exec': (1, 0xE4, 0xC06500E4, 19636),
+        'lifecycle': (0xC06500E4, 0xC0650110, 0xC065013C),
+        'tables': ((2, 0xC0654D98), (3, 0xC0654D9C)), 'table_sizes': (4, 4),
+        'ctor_return_pc': 0xC06500FC, 'magic': b'BRIDGE9\0',
+        'section_count': 19, 'raw_size': 25704, 'bss_alignment': 8,
+        'section_layout': ((1, 0xE4, 19636), (2, 0x4D98, 4), (3, 0x4D9C, 4),
+                           (4, 0x4DA0, 361), (5, 0x4F10, 456), (6, 0, 88)),
+        'raw_sha256': '0dba8c40df00c484a3ccf4ef6684463b7cb89aa676c9a0c6ed63ab212bf01745',
+        'processed_sha256': 'b23316cc018262b44819d7c49c0ef7a334ce8c8b14aeee1481a437e2bdb53d27',
+        'stored_sha256': '88659d10d2d608d8950cd2fbee0286e1b1971fc9b3f66d4e2c39a85bff41f17f'},
     19: {'name': 'grass', 'basename': 'd_a_grass.rel', 'capture_group': 'opening-b',
          'exec': (1, 0xEC, 0xC08D00EC, 5404),
          'lifecycle': (0xC08D00EC, 0xC08D0118, 0xC08D0144),
@@ -248,7 +260,7 @@ def normal_contract(raw_dol, processed_rel, sections, chunks, dol_ranges, identi
     identity_alignment = struct.unpack_from('>I', identity_rel, 0x40)[0]
     if processed_alignment != 4 or not identity_alignment or identity_alignment & (identity_alignment - 1):
         raise ValueError(f'{module_name} contract requires processed alignment 4 and a valid disc alignment')
-    if module_id in (19, 60, 84) and identity_alignment != 8:
+    if module_id in (9, 19, 60, 84) and identity_alignment != 8:
         raise ValueError(f'{module_name} contract requires original disc alignment 8')
     if not 0 < len(raw_dol) <= 0x800000:
         raise ValueError(f'{module_name} contract requires a bounded full raw DOL')

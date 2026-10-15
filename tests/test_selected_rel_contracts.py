@@ -226,6 +226,7 @@ class SelectedContracts(unittest.TestCase):
     def generate(self, extra_args=(), omit=()):
         root = self.root
         members = [(basename, path.read_bytes()) for basename, path in (
+            ('d_a_bridge.rel', root / 'input/bridge-disc.rel'),
             ('d_a_grass.rel', root / 'input/grass-disc.rel'),
             ('d_a_obj_ikada.rel', root / 'input/ikada-disc.rel'),
             ('d_a_obj_wood.rel', root / 'input/wood-disc.rel')) if path.exists()]
@@ -252,7 +253,7 @@ class SelectedContracts(unittest.TestCase):
         if (root / 'input/wood-disc.rel').exists():
             specs = {mid: {'raw_sha256': self.manifest['modules'].get(str(mid), {}).get('raw_sha256'),
                            'processed_sha256': self.manifest['modules'].get(str(mid), {}).get('processed_rel_sha256')}
-                     for mid in (19, 84) if (root / f'input/{"grass" if mid == 19 else "wood"}-disc.rel').exists()}
+                     for mid in (9, 19, 84) if (root / f'input/{sc.selected_module(mid)["name"]}-disc.rel').exists()}
             command[2:3] = ['-c', 'import sys; sys.path.insert(0, ' + repr(str(fixture.SCRIPTS_DIR)) + '); '
                 'import generate_composite as gc; '
                 '[(gc.ship_contract.APPROVED_MODULES[mid].pop("stored_sha256"), '
@@ -764,7 +765,7 @@ class ActorBatchContracts(unittest.TestCase):
             self.contract(84)
 
     def test_unknown_or_empty_batch_does_not_fall_back_to_the_triple(self):
-        for name in ('', 'all', '84', 'opening-c'):
+        for name in ('', 'all', '84', 'opening-d'):
             with self.subTest(name=name):
                 result = self.generate(('--actor-rel-batch', name))
                 self.assertNotEqual(result.returncode, 0)

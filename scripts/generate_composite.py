@@ -354,7 +354,7 @@ def main():
     ap.add_argument('--selected-rel-provenance', help='Opt-in actual ship/title emitter-input binding manifest')
     ap.add_argument('--title-rel-sha256', help='Required original loose title identity pin for selected certificates')
     ap.add_argument('--ikada-rel-sha256', help='Opt in to the fixed 60/168/400 selection with this original ikada identity pin')
-    ap.add_argument('--actor-rel-batch', help='Reviewed immutable actor selection (opening-a or opening-b)')
+    ap.add_argument('--actor-rel-batch', help='Reviewed immutable actor selection (opening-a, opening-b or opening-c)')
     ap.add_argument("--game-id", default="GZLE01")
     ap.add_argument("--output-dir", required=True)
     args = ap.parse_args()

@@ -60,7 +60,7 @@
 +    const char* batch_dir = getenv("DOLRECOMP_ACTOR_BATCH_DIR");
 +    ShipCodeInput ship_capture = {.module_id=168u, .magic="SHIP168"};
 +    ActorCapture actor_captures[] = {
-+        {.capture={.module_id=19u, .magic="GRASS19"}, .basename="grass19.ship-code-input"}
++        {.capture={.module_id=9u, .magic="BRIDGE9"}, .basename="bridge9.ship-code-input"}
 +    };
 +    const u32 actor_count = sizeof(actor_captures) / sizeof(actor_captures[0]);
 +    _Static_assert(sizeof(actor_captures) / sizeof(actor_captures[0]) <= 8u, "actor delta exceeds review bound");
