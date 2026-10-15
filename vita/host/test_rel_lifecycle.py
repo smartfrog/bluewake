@@ -4,6 +4,7 @@ import subprocess
 import sys
 import tempfile
 import unittest
+from unittest.mock import patch
 
 import test_di_read
 import test_host
@@ -19,10 +20,13 @@ class RelLifecycleTest(unittest.TestCase):
         with tempfile.TemporaryDirectory(dir=test_host.OUT, prefix='rel-lifecycle-') as directory:
             root = Path(directory)
             (root / 'synthetic.dol').write_bytes(bytes([1, 2, 3, 4]))
+            if scenario == 'ikada-bad-dol':
+                (root / 'synthetic.dol').write_bytes(bytes([1, 2, 3, 5]))
             image = bytearray(test_di_read.DiscReadTest.image.build_image())
-            content = archive('catalog-id' if scenario == 'title-catalog-id' else 'success',
-                              (test_host.OUT / 'lifecycle_title.rel').read_bytes(),
-                              resident='small' if scenario in ('title-enabled', 'title-copy', 'title-catalog-id') else False)
+            content = archive('catalog-id' if scenario == 'title-catalog-id' else scenario,
+                               (test_host.OUT / 'lifecycle_title.rel').read_bytes(),
+                               resident='small' if scenario in ('title-enabled', 'title-copy', 'title-catalog-id') or scenario.startswith('ikada-') else False,
+                               ikada=scenario.startswith('ikada-'))
             fst = test_di_read.DiscReadTest.image.FST_OFFSET
             image[fst + 5 * 12 + 1:fst + 5 * 12 + 9] = b'RELS.arc'
             struct.pack_into('>II', image, fst + 16, len(image), len(content))
@@ -33,6 +37,7 @@ class RelLifecycleTest(unittest.TestCase):
             result = subprocess.run([str(test_host.OUT / 'rel_lifecycle_probe'), scenario],
                                     cwd=root, capture_output=True, text=True, timeout=10)
             self.assertEqual(result.returncode, 0, result.stderr)
+            return result.stderr
 
     def test_translated_ship_then_title_empty_walker_preserves_all_three_owners(self):
         self.run_probe('success')
@@ -184,6 +189,82 @@ class RelLifecycleTest(unittest.TestCase):
         for entry in ('unlink', 'native-unlink'):
             with self.subTest(entry=entry):
                 self.run_probe(entry)
+
+    def test_registered_ikada_needs_its_own_production_admission(self):
+        for policy in ('registered-only', 'ship-only', 'title-only', 'off'):
+            with self.subTest(policy=policy):
+                self.run_probe('ikada-' + policy)
+
+
+class IkadaLifecycleTest(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        test_di_read.DiscReadTest.setUpClass()
+        cls.output = test_host.OUT.parent / 'ikada-enabled'
+        test_host.StartupHostTest.build(cls.output, ('-DWW05_ENABLE_SHIP_PROLOG=ON',
+            '-DWW05_ENABLE_TITLE_CONTRACT=ON', '-DWW05_ENABLE_IKADA_CONTRACT=ON'), ('rel_lifecycle_probe',))
+
+    def run_probe(self, scenario):
+        with patch('test_host.OUT', self.output):
+            return RelLifecycleTest.run_probe(self, scenario)
+
+    def test_ikada_startup_prerequisites_and_certificate_fail_closed(self):
+        for field in ('missing-ship', 'missing-title', 'missing-set', 'missing-60', 'duplicate',
+                      'invalid-certificate', 'bad-dol', 'wrong-chunk-0', 'wrong-chunk-1', 'admission-trace'):
+            with self.subTest(field=field):
+                self.run_probe('ikada-' + field)
+
+    def test_translated_profile_ship_title_ikada_nonempty_ctor_chain_uses_owner_published_bss(self):
+        log = self.run_probe('ikada-enabled')
+        self.assertIn('[rel-sdk] module=60 stage=prepared', log)
+        self.assertIn('actual_r4=807FE000 fixed=0 input_form=0', log)
+        self.assertIn('[rel-sdk] module=60 stage=verified', log)
+        for stage in ('entered', 'ctor-completed', 'caller-returned'):
+            self.assertEqual(log.count(f'[rel-prolog] module=60 stage={stage}'), 1, log)
+
+    def test_ikada_raw_identity_refuses_without_a_published_slot(self):
+        self.run_probe('ikada-raw-identity')
+
+    def test_ikada_materialization_failures_do_not_leave_orphan_images_or_aliases(self):
+        for field in ('allocation', 'trace'):
+            with self.subTest(field=field):
+                self.run_probe('ikada-materialize-' + field)
+
+    def test_ikada_sdk_inputs_and_complete_append_mutations_never_rebaseline_neighbors(self):
+        for field in ('wrong-argument', 'null-bss', 'misaligned-bss', 'out-of-range-bss', 'alias-bss',
+                      'missing-neighbor', 'owner-mismatch', 'frozen-name', 'frozen-bss', 'head', 'tail',
+                      'previous', 'next', 'neighbor-write', 'untouched-byte', 'header', 'relocation',
+                      'prepared-trace', 'verified-trace', 'allocation'):
+            with self.subTest(field=field):
+                log = self.run_probe('ikada-sdk-' + field)
+                self.assertNotIn('[rel-prolog] module=60 stage=entered', log)
+                if field in ('null-bss', 'misaligned-bss', 'out-of-range-bss', 'alias-bss', 'wrong-argument'):
+                    self.assertIn('[rel-sdk-input-refusal] module=60', log)
+                    self.assertNotIn('expected_bss=', log)
+
+    def test_ikada_uninitialized_or_copied_certificate_is_not_lifecycle_membership(self):
+        for field in ('link-only', 'skipped-prepare', 'uninitialized-execution', 'copied-certificate', 'policy-disabled'):
+            with self.subTest(field=field):
+                self.run_probe('ikada-' + field)
+
+    def test_ikada_lifecycle_keeps_exact_caller_constructor_and_return_gates(self):
+        for field in ('entry-pc', 'entry-lr', 'entry-r3', 'entry-r31', 'walker-table', 'walker-successor',
+                      'return-without-walker', 'entry-after-progress', 'entry-after-walker', 'entry-trace',
+                      'completion-trace', 'return-trace', 'return-r1', 'return-r2', 'return-r13',
+                      'return-r31', 'return-lr'):
+            with self.subTest(field=field):
+                self.run_probe('ikada-' + field)
+
+    def test_ikada_repeated_observation_and_interrupt_restoration_keep_existing_semantics(self):
+        for field in ('observations', 'interrupt-external', 'interrupt-decrementer', 'interrupt-sequential',
+                      'rfi-no-stage', 'rfi-misaligned', 'rfi-fp', 'rfi-ee', 'rfi-prolog', 'nested-handler'):
+            with self.subTest(field=field):
+                self.run_probe('ikada-' + field)
+
+    def test_initialized_ikada_keeps_epilog_unresolved_unlink_and_duplicate_owner_denied(self):
+        for field in ('epilog', 'unresolved', 'unlink', 'duplicate-owner'):
+            with self.subTest(field=field):
+                self.run_probe('ikada-' + field)
 
 
 if __name__ == '__main__':

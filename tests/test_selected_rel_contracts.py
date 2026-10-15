@@ -16,6 +16,52 @@ sc = gc.ship_contract
 TITLE_START = 0xC1E000DC
 TITLE_SIZE = 7756
 DOL_RANGES = [(fixture.DOL_TEXT_ADDR, fixture.DOL_TEXT_ADDR + 128), (0x80241178, 0x8024117C)]
+IKADA_START = 0xC15500F4
+IKADA_SIZE = 22620
+
+
+def ikada_fixture(root):
+    raw = bytearray(33184)
+    for offset, value in ((0, 60), (0xC, 21), (0x10, 0x4C), (0x1C, 3), (0x20, 532),
+                          (0x24, 0x6178), (0x28, 0x6168), (0x2C, 16), (0x38, 44),
+                          (0x3C, 88), (0x40, 4), (0x44, 8), (0x48, 0x6178)):
+        struct.pack_into('>I', raw, offset, value)
+    raw[0x30:0x33] = bytes([1, 1, 1])
+    for index, pair in enumerate(((0, 0), (245, IKADA_SIZE), (0x5950, 8), (0x5958, 8),
+                                  (0x5960, 765), (0x5C60, 1288), (0, 532))):
+        struct.pack_into('>II', raw, 0x4C + index * 8, *pair)
+    raw[244:0x5950] = bytes((i * 7 + 1) & 255 for i in range(IKADA_SIZE))
+    struct.pack_into('>I', raw, 264, 0x48000001)
+    struct.pack_into('>4I', raw, 0x6168, 60, 0x6178, 0, 0x61A0)
+    for index, record in enumerate(((0, 202, 2, 0), (0, 1, 1, 96),
+                                    (0, 202, 3, 0), (0, 1, 1, 100), (0, 203, 0, 0))):
+        struct.pack_into('>HBBI', raw, 0x6178 + index * 8, *record)
+    for index, record in enumerate(((0, 202, 1, 0), (20, 10, 0, 0x80241178), (0, 203, 0, 0))):
+        struct.pack_into('>HBBI', raw, 0x61A0 + index * 8, *record)
+    (root / 'rels_bin/0060.rel').write_bytes(raw)
+    struct.pack_into('>I', raw, 0x40, 8)
+    (root / 'input/ikada-disc.rel').write_bytes(raw)
+    fixture.write_rel_module(root / 'rels_out', 60,
+                             [(IKADA_START, IKADA_START + 16384),
+                              (IKADA_START + 16384, IKADA_START + IKADA_SIZE)])
+
+
+def capture_binding(root, mid, prefix, start, offset, magic):
+    raw = (root / f'rels_bin/{mid:04d}.rel').read_bytes()
+    sections = gc.rel_linked_sections(raw, start - offset)
+    canonical = sc.relocate_ship(raw, sections, DOL_RANGES, module_id=mid)
+    executable = [s for s in sections if s['executable'] and s['size']]
+    sidecar = magic + struct.pack('>I', len(executable))
+    for s in executable:
+        sidecar += struct.pack('>IIII', s['index'], s['offset'], s['linked_start'], s['size']) + canonical[s['index']]
+    path = root / f'{prefix}.ship-code-input'
+    path.write_bytes(sidecar)
+    translated = root / f'rels_out/d_a_test_{mid}'
+    return {'raw_sha256': hashlib.sha256((root / f'input/{prefix}-disc.rel').read_bytes()).hexdigest(),
+            'processed_rel_sha256': hashlib.sha256(raw).hexdigest(), 'capture': path.name,
+            'capture_sha256': hashlib.sha256(sidecar).hexdigest(),
+            'translation_sha256': {str(p.relative_to(translated)): hashlib.sha256(p.read_bytes()).hexdigest()
+                                   for p in sorted(translated.rglob('*')) if p.is_file()}}
 
 
 def title_fixture(root):
@@ -64,22 +110,8 @@ def setup(root):
         path.write_bytes(ship)
     inputs = {}
     for mid, prefix, start in ((168, 'ship', fixture.SHIP_START), (400, 'title', TITLE_START)):
-        raw = (root / f'rels_bin/{mid:04d}.rel').read_bytes()
-        sections = gc.rel_linked_sections(raw, start - (244 if mid == 168 else 220))
-        canonical = sc.relocate_ship(raw, sections, DOL_RANGES, module_id=mid)
-        sidecar = bytearray(b'SHIP168\0' if mid == 168 else b'TITLE400')
-        executable = [s for s in sections if s['executable'] and s['size']]
-        sidecar += struct.pack('>I', len(executable))
-        for s in executable:
-            sidecar += struct.pack('>IIII', s['index'], s['offset'], s['linked_start'], s['size']) + canonical[s['index']]
-        path = root / f'{prefix}.ship-code-input'
-        path.write_bytes(sidecar)
-        translated = root / f'rels_out/d_a_test_{mid}'
-        inputs[str(mid)] = {'raw_sha256': hashlib.sha256((root / f'input/{prefix}-disc.rel').read_bytes()).hexdigest(),
-            'processed_rel_sha256': hashlib.sha256(raw).hexdigest(), 'capture': str(path),
-            'capture_sha256': hashlib.sha256(sidecar).hexdigest(),
-            'translation_sha256': {str(p.relative_to(translated)): hashlib.sha256(p.read_bytes()).hexdigest()
-                                   for p in sorted(translated.rglob('*')) if p.is_file()}}
+        inputs[str(mid)] = capture_binding(root, mid, prefix, start, 244 if mid == 168 else 220,
+                                           b'SHIP168\0' if mid == 168 else b'TITLE400')
     manifest = {'version': 1, 'producer_identity': 'a' * 64,
                 'dol_sha256': hashlib.sha256((root / 'input/main.dol').read_bytes()).hexdigest(),
                 'modules': inputs}
@@ -135,8 +167,9 @@ class SelectedContracts(unittest.TestCase):
     def contract(self, mid=400):
         root = self.root
         processed = (root / f'rels_bin/{mid:04d}.rel').read_bytes()
-        prefix, start, offset, size = ('title', TITLE_START, 220, TITLE_SIZE) if mid == 400 else (
-            'ship', fixture.SHIP_START, 244, fixture.SHIP_SIZE)
+        spec = sc.selected_module(mid)
+        prefix = spec['name']
+        _, offset, start, size = spec['exec']
         sections = gc.rel_linked_sections(processed, start - offset)
         gc.apply_rel_data_relocations({mid: processed}, {mid: {'base': start - offset, 'sections': sections}})
         raw = (root / f'input/{prefix}-disc.rel').read_bytes()
@@ -144,9 +177,10 @@ class SelectedContracts(unittest.TestCase):
             [(start, start + size)], DOL_RANGES, raw,
             module_id=mid, canonical_input=(root / f'{prefix}.ship-code-input').read_bytes())
 
-    def generate(self):
+    def generate(self, extra_args=(), omit=()):
         root = self.root
-        disc = fixture.write_ship_disc(root)
+        ikada = root / 'input/ikada-disc.rel'
+        disc = fixture.write_ship_disc(root, [('d_a_obj_ikada.rel', ikada.read_bytes())] if ikada.exists() else ())
         data = bytearray(disc.read_bytes())
         fst_at = struct.unpack_from('>I', data, 0x424)[0]
         archive_at, archive_size = struct.unpack_from('>II', data, fst_at + 16)
@@ -166,7 +200,10 @@ class SelectedContracts(unittest.TestCase):
             '--rels-bin-dir', str(root / 'rels_bin'), '--main-dol', str(root / 'input/main.dol'),
             '--ship-disc', str(disc), '--title-rel-sha256', self.manifest['modules']['400']['raw_sha256'],
             '--selected-rel-provenance', str(root / 'provenance.json'), '--output-dir', str(root / 'composite')]
-        return subprocess.run(command, capture_output=True, text=True)
+        for flag in omit:
+            index = command.index(flag)
+            del command[index:index + 2]
+        return subprocess.run(command + list(extra_args), capture_output=True, text=True)
 
     def test_title_identity_retains_original_alignment(self):
         _, fields, _ = self.contract()
@@ -390,6 +427,180 @@ class SelectedContracts(unittest.TestCase):
             path.write_bytes(data)
         with self.assertRaisesRegex(ValueError, 'ctors requires'):
             self.contract()
+
+
+class IkadaContracts(unittest.TestCase):
+    def setUp(self):
+        SelectedContracts.setUp(self)
+        ikada_fixture(self.root)
+        self.manifest['modules']['60'] = capture_binding(
+            self.root, 60, 'ikada', IKADA_START, 244, b'IKADA60\0')
+        self.ikada_pin = self.manifest['modules']['60']['raw_sha256']
+
+    def generate(self, extra_args=(), omit=()):
+        return SelectedContracts.generate(self, ('--ikada-rel-sha256', self.ikada_pin, *extra_args), omit)
+
+    tearDown = SelectedContracts.tearDown
+    contract = SelectedContracts.contract
+
+    def test_triple_exports_exact_sorted_members_and_both_canonical_chunk_hashes(self):
+        result = self.generate()
+        self.assertEqual(result.returncode, 0, result.stderr)
+        output = self.root / 'composite'
+        receipt = json.loads((output / 'generation_receipt.json').read_text())['selected_rel_contracts']
+        self.assertEqual(set(receipt['contracts']), {'60', '168', '400'})
+        text = (output / 'rel_data.inc').read_text()
+        self.assertIn('60u,33184u,s_ikada_raw_rel,s_ikada_canonical,5u,2u,0u,0xC155010Cu,&s_rel_lifecycle_v2[0]', text)
+        for index in range(2, 6):
+            self.assertNotIn(f'static const u8 s_ikada_canonical_{index}[]', text)
+            self.assertIn(f's_rel_data_60_{index}', text)
+        self.assertEqual(text.count('static const u8 s_ship_raw_dol[]'), 1)
+        canonical = (self.root / 'ikada.ship-code-input').read_bytes()[28:]
+        table = (output / 'module_tables.inc').read_text()
+        for part in (canonical[:16384], canonical[16384:]):
+            self.assertIn(f'0x{gc.fnv1a64(part):016X}ull', table)
+
+    def test_triple_preserves_pair_contract_identities(self):
+        self.assertEqual(self.generate().returncode, 0)
+        path = self.root / 'composite/generation_receipt.json'
+        triple = json.loads(path.read_text())['selected_rel_contracts']['contracts']
+        del self.manifest['modules']['60']
+        result = SelectedContracts.generate(self)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        pair = json.loads(path.read_text())['selected_rel_contracts']['contracts']
+        self.assertEqual(pair, {mid: triple[mid] for mid in ('168', '400')})
+
+    def test_nonempty_ikada_constructor_requires_owned_target_and_walker_successor(self):
+        _, fields, _ = self.contract(60)
+        self.assertEqual(fields['ctors'], 0xC1555950)
+        path = self.root / 'ikada.ship-code-input'
+        data = bytearray(path.read_bytes())
+        data[48:52] = b'\x60\0\0\0'
+        path.write_bytes(data)
+        with self.assertRaisesRegex(ValueError, 'emitter input'):
+            self.contract(60)
+
+    def test_ikada_raw_alignment_is_exactly_eight(self):
+        path = self.root / 'input/ikada-disc.rel'
+        data = bytearray(path.read_bytes())
+        struct.pack_into('>I', data, 0x40, 4)
+        path.write_bytes(data)
+        with self.assertRaisesRegex(ValueError, 'original disc alignment 8'):
+            self.contract(60)
+
+    def test_ikada_bss_shape_cannot_expand_the_approved_specification(self):
+        for suffix in ('rels_bin/0060.rel', 'input/ikada-disc.rel'):
+            path = self.root / suffix
+            data = bytearray(path.read_bytes())
+            struct.pack_into('>I', data, 0x20, 540)
+            struct.pack_into('>I', data, 0x80, 540)
+            path.write_bytes(data)
+        with self.assertRaisesRegex(ValueError, 'ikada contract approved section/BSS layout'):
+            self.contract(60)
+
+    def test_ikada_section_table_or_executable_boundary_mutation_refuses(self):
+        for offset, value in ((0x58, IKADA_SIZE - 4), (0x5C, 0x5954)):
+            with self.subTest(offset=offset):
+                path = self.root / 'rels_bin/0060.rel'
+                original = path.read_bytes()
+                data = bytearray(original)
+                struct.pack_into('>I', data, offset, value)
+                path.write_bytes(data)
+                with self.assertRaises(ValueError):
+                    self.contract(60)
+                path.write_bytes(original)
+
+    def test_each_ikada_capture_corruption_refuses_and_removes_success_receipt(self):
+        path = self.root / 'ikada.ship-code-input'
+        original = path.read_bytes()
+        for label, offset, value in (('magic', 0, 0), ('count', 11, 2), ('section', 15, 2),
+                                      ('offset', 19, 248), ('address', 23, 248), ('size', 27, 88),
+                                      ('payload', 100, original[100] ^ 1), ('trailing', None, 0)):
+            with self.subTest(label=label):
+                self.assertEqual(self.generate().returncode, 0)
+                data = bytearray(original)
+                if offset is None:
+                    data.append(value)
+                else:
+                    data[offset] = value
+                path.write_bytes(data)
+                self.manifest['modules']['60']['capture_sha256'] = hashlib.sha256(data).hexdigest()
+                result = self.generate()
+                self.assertNotEqual(result.returncode, 0)
+                self.assertFalse((self.root / 'composite/generation_receipt.json').exists())
+                path.write_bytes(original)
+                self.manifest['modules']['60']['capture_sha256'] = hashlib.sha256(original).hexdigest()
+
+    def test_ikada_provenance_requires_exact_triple_and_complete_bindings(self):
+        original = json.dumps(self.manifest)
+        for field in ('missing-module', 'extra-module', 'dol', 'raw', 'processed', 'translation',
+                      'translation-path', 'capture-pin', 'version', 'producer-identity'):
+            with self.subTest(field=field):
+                self.manifest = json.loads(original)
+                item = self.manifest['modules']['60']
+                if field == 'missing-module': del self.manifest['modules']['60']
+                elif field == 'extra-module': self.manifest['modules']['61'] = item
+                elif field == 'dol': self.manifest['dol_sha256'] = 'b' * 64
+                elif field == 'raw': item['raw_sha256'] = 'b' * 64
+                elif field == 'processed': item['processed_rel_sha256'] = 'b' * 64
+                elif field == 'translation': item['translation_sha256'].pop(next(iter(item['translation_sha256'])))
+                elif field == 'translation-path': item['translation_sha256']['../foreign.c'] = 'b' * 64
+                elif field == 'capture-pin': item['capture_sha256'] = 'b' * 64
+                elif field == 'version': self.manifest['version'] = 2
+                else: self.manifest['producer_identity'] = 'untrusted'
+                result = self.generate()
+                self.assertNotEqual(result.returncode, 0, field)
+                self.assertFalse((self.root / 'composite/generation_receipt.json').exists())
+
+    def test_duplicate_provenance_module_is_not_silently_accepted(self):
+        result = self.generate()
+        self.assertEqual(result.returncode, 0, result.stderr)
+        path = self.root / 'provenance.json'
+        text = path.read_text().replace('"60":', '"60": {}, "60":', 1)
+        path.write_text(text)
+        result = subprocess.run(result.args, capture_output=True, text=True)
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn('duplicate producer provenance key: 60', result.stderr)
+        self.assertFalse((self.root / 'composite/generation_receipt.json').exists())
+
+    def test_ikada_selection_flags_cannot_imply_prerequisites(self):
+        for omit in (('--selected-rel-provenance',), ('--title-rel-sha256',),
+                     ('--selected-rel-provenance', '--title-rel-sha256')):
+            with self.subTest(omit=omit):
+                result = self.generate(omit=omit)
+                self.assertNotEqual(result.returncode, 0)
+                self.assertIn('ikada contract requires', result.stderr)
+                self.assertFalse((self.root / 'composite/generation_receipt.json').exists())
+
+    def test_empty_ikada_pin_is_not_a_request_for_the_old_pair(self):
+        del self.manifest['modules']['60']
+        result = SelectedContracts.generate(self, ('--ikada-rel-sha256', ''))
+        self.assertNotEqual(result.returncode, 0)
+        self.assertFalse((self.root / 'composite/generation_receipt.json').exists())
+
+    def test_ikada_archive_member_must_be_unique_by_exact_basename(self):
+        raw = (self.root / 'input/ikada-disc.rel').read_bytes()
+        disc = fixture.write_ship_disc(self.root, [('d_a_obj_ikada.rel', raw), ('nested/d_a_obj_ikada.rel', raw)])
+        with self.assertRaisesRegex(ValueError, 'exactly one disc archive member d_a_obj_ikada.rel'):
+            sc.read_disc_member(disc, 60)
+
+    def test_ikada_processed_identity_is_not_the_original_pin(self):
+        result = self.generate(('--ikada-rel-sha256', self.manifest['modules']['60']['processed_rel_sha256']))
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn('ikada disc-member identity SHA-256 mismatch', result.stderr)
+        self.assertFalse((self.root / 'composite/generation_receipt.json').exists())
+
+    def test_triple_getter_preserves_c_and_cpp_abi_and_common_dol(self):
+        self.assertEqual(self.generate().returncode, 0)
+        for cpp, wrapped in ((False, False), (True, False), (True, True)):
+            with self.subTest(cpp=cpp, wrapped=wrapped):
+                compile_export_probe(self.root,
+                    'const BlueWakeRelInitContractSetV1* set = staticrecomp_get_rel_init_contracts_v1();\n'
+                    'assert(set && set->contract_count == 3u);\n'
+                    'assert(set->contracts[0].module_id == 60u && set->contracts[1].module_id == 168u && set->contracts[2].module_id == 400u);\n'
+                    'assert(set->contracts[0].lifecycle->module_id == 60u);\n' +
+                    ('assert(set->dol_bytes == staticrecomp_get_ship_contract_v1()->dol_bytes);' if not cpp else
+                     'assert(set->dol_bytes && set->dol_size);'), cpp=cpp, wrapped=wrapped)
 
 
 if __name__ == '__main__':

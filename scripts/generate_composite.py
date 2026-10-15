@@ -353,6 +353,7 @@ def main():
     ap.add_argument('--ship-rel-sha256', help='Expected disc-member identity SHA-256, if pinned')
     ap.add_argument('--selected-rel-provenance', help='Opt-in actual ship/title emitter-input binding manifest')
     ap.add_argument('--title-rel-sha256', help='Required original loose title identity pin for selected certificates')
+    ap.add_argument('--ikada-rel-sha256', help='Opt in to the fixed 60/168/400 selection with this original ikada identity pin')
     ap.add_argument("--game-id", default="GZLE01")
     ap.add_argument("--output-dir", required=True)
     args = ap.parse_args()
@@ -365,6 +366,15 @@ def main():
     receipt_path = out_dir / 'generation_receipt.json'
     if receipt_path.exists():
         receipt_path.unlink()
+    ikada_selected = args.ikada_rel_sha256 is not None
+    if ikada_selected and not (args.selected_rel_provenance and args.title_rel_sha256):
+        raise ValueError('ikada contract requires --selected-rel-provenance and --title-rel-sha256')
+    if ikada_selected and not re.fullmatch('[0-9a-f]{64}', args.ikada_rel_sha256):
+        raise ValueError('ikada contract requires an explicit original REL SHA-256 pin')
+    if args.title_rel_sha256 and not args.selected_rel_provenance:
+        raise ValueError('title identity pin requires --selected-rel-provenance')
+    selected_ids = (ship_contract.IKADA_SELECTED_MODULES if ikada_selected
+                    else ship_contract.SELECTED_MODULES)
     if not args.ship_disc:
         raise ValueError('ship contract requires a disc-member identity reference (--ship-disc)')
 
@@ -414,7 +424,7 @@ def main():
     if args.selected_rel_provenance:
         if not args.title_rel_sha256:
             raise ValueError('selected contract requires original title identity pin (--title-rel-sha256)')
-        for mid in ship_contract.SELECTED_MODULES:
+        for mid in selected_ids:
             entries = [e for e in rel_entries if int(e['name'].rsplit('_', 1)[-1]) == mid]
             if len(entries) != 1:
                 raise ValueError(f'selected contract requires translated module {mid} exactly once')
@@ -462,6 +472,14 @@ def main():
         if hashlib.sha256(title_identity).hexdigest() != args.title_rel_sha256:
             raise ValueError('title disc-member identity SHA-256 mismatch')
         selected_identities[400] = title_identity
+    ikada_identity_source = None
+    if ikada_selected:
+        if rel_bin_cache.get(60) is None:
+            raise ValueError('selected contract requires raw module 60')
+        ikada_identity, ikada_identity_source = ship_contract.read_disc_member(args.ship_disc, 60)
+        if hashlib.sha256(ikada_identity).hexdigest() != args.ikada_rel_sha256:
+            raise ValueError('ikada disc-member identity SHA-256 mismatch')
+        selected_identities[60] = ikada_identity
 
     # Build linked section images before emitting the ABI tables. The entry
     # point is inside the executable section, so recover each REL's load base
@@ -505,7 +523,7 @@ def main():
     captures, provenance = {}, None
     if args.selected_rel_provenance:
         captures, provenance = ship_contract.producer_inputs(
-            args.selected_rel_provenance, raw_dol, rel_bin_cache, selected_entries, selected_identities)
+            args.selected_rel_provenance, raw_dol, rel_bin_cache, selected_entries, selected_identities, selected_ids)
     contracts = {}
     for mid, entry in sorted(selected_entries.items()):
         if mid not in rel_section_maps:
@@ -1010,6 +1028,8 @@ static inline DOLRECOMP_UNUSED int dolrecomp_run_blocks(CPUState* ctx, u32 max_b
     if selected_fields is not None:
         receipt['selected_rel_contracts'] = selected_fields
         receipt['title_identity_source'] = title_identity_source
+    if ikada_identity_source is not None:
+        receipt['ikada_identity_source'] = ikada_identity_source
     write_lf(receipt_path, json.dumps(receipt, sort_keys=True, indent=2) + '\n')
 
     print(f"PASS: {n} chunks, {len(rel_module_info)} rel modules, "

@@ -46,7 +46,7 @@ def fixture(output):
     (output / 'synthetic.dol').write_bytes(bytes([1, 2, 3, 4]))
 
 
-def archive(scenario, title=None, resident=False):
+def archive(scenario, title=None, resident=False, ikada=False):
     profile = bytearray(test_rel_materialize.raw_rel())
     struct.pack_into('>I', profile, 0xC, 5)
     struct.pack_into('>II', profile, 0x6C, 0xB0, 16)
@@ -60,7 +60,12 @@ def archive(scenario, title=None, resident=False):
         struct.pack_into('>I', title, struct.unpack_from('>I', title, 0x28)[0], 401)
     members = [(b'f_pc_profile_lst.rel', profile),
                (b'd_a_ship.rel', (test_host.OUT / 'ship.rel').read_bytes()),
-               (b'd_a_title.rel', title)]
+                (b'd_a_title.rel', title)]
+    if ikada:
+        candidate = bytearray((test_host.OUT / 'lifecycle_ikada.rel').read_bytes())
+        if scenario == 'ikada-raw-identity':
+            candidate[-1] ^= 1
+        members.append((b'd_a_obj_ikada.rel', candidate))
     content = bytearray(0x100)
     content[:4] = b'RARC'
     struct.pack_into('>I', content, 0xC, 0xE0)

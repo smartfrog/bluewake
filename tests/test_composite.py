@@ -157,7 +157,7 @@ def setup_fixture(td, dol_chunks=None, rel_specs=None):
     return td
 
 
-def write_ship_disc(td):
+def write_ship_disc(td, extra_members=()):
     raw = (td / 'input' / 'ship-disc.rel').read_bytes()
     names = b'ship\0d_a_ship.rel\0'
     archive = bytearray(128 + len(raw))
@@ -168,6 +168,22 @@ def write_ship_disc(td):
     struct.pack_into('>III', archive, 84, 0x11000005, 0, len(raw))
     archive[100:100 + len(names)] = names
     archive[128:] = raw
+    if extra_members:
+        members = [('d_a_ship.rel', raw), *extra_members]
+        names = bytearray()
+        archive = bytearray(256)
+        archive[:4] = b'RARC'
+        struct.pack_into('>II', archive, 8, 32, 224)
+        struct.pack_into('>6I', archive, 32, 1, 32, len(members), 48, 0, 128)
+        struct.pack_into('>HI', archive, 74, len(members), 0)
+        for index, (name, content) in enumerate(members):
+            struct.pack_into('>III', archive, 84 + index * 20,
+                             0x11000000 | len(names), len(archive) - 256, len(content))
+            names.extend(name.encode() + b'\0')
+            archive.extend(content)
+        archive[160:160 + len(names)] = names
+        struct.pack_into('>I', archive, 48, len(names))
+        struct.pack_into('>I', archive, 4, len(archive))
     dol = (td / 'input' / 'main.dol').read_bytes()
     fst_offset = gc.align_up(0x500 + len(dol), 32)
     fst = struct.pack('>6I', 0x01000000, 0, 2, 0, 0, len(archive)) + b'RELS.arc\0'

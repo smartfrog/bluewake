@@ -631,5 +631,57 @@ class TitleContractTest(unittest.TestCase):
                 self.assertNotIn('[dispatch]', log)
 
 
+class IkadaConfigurationTest(unittest.TestCase):
+    def test_requested_ikada_requires_each_explicit_prerequisite(self):
+        for ship, title in ((False, False), (True, False), (False, True)):
+            with self.subTest(ship=ship, title=title):
+                output = OUT.parent / f'ikada-invalid-{int(ship)}-{int(title)}'
+                result = subprocess.run([str(STACK / 'bin/cmake'), '-S', str(ROOT / 'vita/host'),
+                    '-B', str(output), '-G', 'Ninja', f'-DCMAKE_C_COMPILER={os.environ["CC"]}',
+                    f'-DCMAKE_MAKE_PROGRAM={STACK}/bin/ninja',
+                    f'-DRECOMPCORE_DIR={ROOT}/ref/vita-ww-01/RecompCore', '-DWW05_TESTS_ONLY=ON',
+                    '-DWW05_ENABLE_IKADA_CONTRACT=ON', f'-DWW05_ENABLE_SHIP_PROLOG={"ON" if ship else "OFF"}',
+                    f'-DWW05_ENABLE_TITLE_CONTRACT={"ON" if title else "OFF"}'], capture_output=True, text=True)
+                self.assertNotEqual(result.returncode, 0, result.stdout + result.stderr)
+                self.assertIn('Ikada admission requires explicit ship and title options', result.stderr)
+
+
+class IkadaStartupTest(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        cls.output = OUT.parent / 'ikada-enabled'
+        StartupHostTest.build(cls.output, ('-DWW05_ENABLE_SHIP_PROLOG=ON',
+            '-DWW05_ENABLE_TITLE_CONTRACT=ON', '-DWW05_ENABLE_IKADA_CONTRACT=ON'), ('io_probe', 'rel_lifecycle_probe'))
+
+    def test_valid_startup_admits_the_exact_registered_ikada_before_dispatch(self):
+        import test_io
+        with patch.dict(os.environ, {'WW05_IO_IKADA': 'valid'}):
+            status, report, log = test_io.MainIoTest().run_fixture(output=self.output, return_log=True)
+        self.assertEqual(status, 0, log)
+        self.assertIn('[rel-admission] module=60', log)
+        self.assertIn('[host] stage=load initialized=1', log)
+        self.assertLess(log.index('[rel-admission]'), log.index('[dispatch]'))
+
+    def test_requested_invalid_startup_stops_before_guest_dispatch(self):
+        import test_io
+        for mode in ('missing-set', 'missing-60', 'duplicate', 'invalid-certificate', 'bad-dol'):
+            with self.subTest(mode=mode), patch.dict(os.environ, {'WW05_IO_IKADA': mode}):
+                status, report, log = test_io.MainIoTest().run_fixture(output=self.output, return_log=True)
+                self.assertEqual(status, 1, log)
+                self.assertIn('edges=0 exception=00000001 cycles=0', report)
+                self.assertIn('[host] stage=load initialized=0', log)
+                self.assertNotIn('[rel-admission] module=60', log)
+                self.assertNotIn('[dispatch]', log)
+
+    def test_startup_admission_receipt_failure_is_fatal_before_guest_dispatch(self):
+        import test_io
+        with patch.dict(os.environ, {'WW05_IO_IKADA': 'valid'}):
+            status, report, log = test_io.MainIoTest().run_fixture(
+                failure='ikada-admission-log', output=self.output, return_log=True)
+        self.assertEqual(status, 1, log)
+        self.assertIn('STOP reason=ikada admission receipt write failed', report)
+        self.assertNotIn('[dispatch]', log)
+
+
 if __name__ == '__main__':
     unittest.main()

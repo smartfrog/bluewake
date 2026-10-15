@@ -9,6 +9,7 @@
 #define DOLRECOMP_C_LOOP_CYCLE_BUDGET (ctx->cycle_budget)
 #include "lifecycle_translated.c"
 #include "rel_lifecycle_fixture.inc"
+#include "ikada_fixture.inc"
 
 static const char* scenario;
 static WwRelImage* selected;
@@ -23,9 +24,33 @@ static bool trace_failure;
 static u32 requested_owner;
 static BlueWakeRelInitContractV1 copied_certificate;
 static bool profile_call;
+static bool ikada_call;
+static u32 sdk_allocations;
+static bool sdk_allocation_armed;
+
+void* __real_calloc(size_t count, size_t size);
+void* __wrap_calloc(size_t count, size_t size) {
+    if (ikada_call && strcmp(scenario, "materialize-allocation") == 0 && count == 21u && size == sizeof(WwRelSection))
+        return NULL;
+    return __real_calloc(count, size);
+}
+
+void* __real_malloc(size_t size);
+void* __wrap_malloc(size_t size) {
+    if (sdk_allocation_armed && selected != NULL && size == selected->bytes && sdk_allocations++ == 1u)
+        return NULL;
+    return __real_malloc(size);
+}
+
+static u32 ctor_table(void) {
+    return selected->sections[selected->certificate->ctor_table_section].linked_start;
+}
 
 int __wrap_fprintf(FILE* stream, const char* format, ...) {
-    if (trace_failure && strstr(format, "[rel-prolog]") != NULL)
+    if (ikada_call && strcmp(scenario, "materialize-trace") == 0 && strstr(format, "[rel-materialized]") != NULL)
+        return -1;
+    if (trace_failure && (strstr(format, "[rel-prolog]") != NULL ||
+        (ikada_call && (strstr(format, "[rel-sdk]") != NULL || strstr(format, "[rel-admission]") != NULL))))
         return -1;
     va_list args;
     va_start(args, format);
@@ -53,7 +78,7 @@ static void tamper(WwHost* host, const char* field) {
     if (strcmp(field, "owner") == 0) mem_write32(cpu, selected->owner + 0x10u, 0u);
     else if (strcmp(field, "neighbor") == 0) mem_write8(cpu, neighbor->guest + neighbor->bytes - 1u, 1u);
     else if (strcmp(field, "certificate") == 0) selected->certificate = neighbor->certificate;
-    else if (strcmp(field, "code") == 0) mem_write8(cpu, selected->guest + 0xA4u, 0u);
+    else if (strcmp(field, "code") == 0) mem_write8(cpu, selected->guest + (selected->sections[1].flags & ~1u) + 4u, 0u);
     else { assert(strcmp(field, "header") == 0); mem_write32(cpu, selected->guest + 0x14u, 1u); }
 }
 
@@ -109,6 +134,32 @@ static bool probe_edge(void* user, CPUState* cpu, u32 address) {
     const u32 entry = selected == NULL || selected->certificate == NULL ? 0u : selected->certificate->lifecycle->prolog_address & ~0x40000000u;
     if (profile_call)
         return ww_host_edge(host, cpu, address);
+    if (ikada_call && selected != NULL && pc == 0x80305424u) {
+        if (is("sdk-prepared-trace")) trace_failure = true;
+        if (is("sdk-wrong-argument")) cpu->gpr[4] += 8u;
+        if (is("sdk-null-bss")) cpu->gpr[4] = 0u;
+        if (is("sdk-misaligned-bss")) cpu->gpr[4] += 4u;
+        if (is("sdk-out-of-range-bss")) cpu->gpr[4] = 0x817FFFF8u;
+        if (is("sdk-alias-bss")) cpu->gpr[4] = 0x81820100u;
+        if (is("sdk-null-bss") || is("sdk-misaligned-bss") || is("sdk-out-of-range-bss") || is("sdk-alias-bss"))
+            mem_write32(cpu, selected->owner + 0x14u, cpu->gpr[4]);
+        if (is("sdk-missing-neighbor")) mem_write32(cpu, 0x800030CCu, 0u);
+        if (is("sdk-owner-mismatch")) mem_write32(cpu, selected->owner + 0x10u, 0u);
+    }
+    if (ikada_call && selected != NULL && pc == entry && !injected) {
+        if (is("sdk-allocation")) sdk_allocation_armed = true;
+        if (is("sdk-verified-trace")) trace_failure = true;
+        if (is("sdk-frozen-name")) mem_write32(cpu, 0x800030D0u, 0x80005000u);
+        if (is("sdk-frozen-bss")) mem_write32(cpu, selected->owner + 0x14u, 0x807FE008u);
+        if (is("sdk-head")) mem_write32(cpu, 0x800030C8u, selected->guest);
+        if (is("sdk-tail")) mem_write32(cpu, 0x800030CCu, neighbor->guest);
+        if (is("sdk-previous")) mem_write32(cpu, selected->guest + 8u, 0u);
+        if (is("sdk-next")) mem_write32(cpu, selected->guest + 4u, neighbor->guest);
+        if (is("sdk-neighbor-write")) mem_write8(cpu, neighbor->guest + neighbor->bytes - 1u, 1u);
+        if (is("sdk-untouched-byte")) mem_write8(cpu, selected->guest + selected->bytes - 1u, 1u);
+        if (is("sdk-header")) mem_write32(cpu, selected->guest + 0x18u, 4u);
+        if (is("sdk-relocation")) mem_write32(cpu, selected->guest + 0x174u, 0u);
+    }
     if (selected != NULL && pc == entry && stop_before_entry)
         return true;
     if (selected != NULL && pc == entry && !injected) {
@@ -126,7 +177,15 @@ static bool probe_edge(void* user, CPUState* cpu, u32 address) {
             injected = true;
         }
         if (is("entry-trace")) { trace_failure = true; injected = true; }
-        if (is("ctor-before-entry")) mem_write32(cpu, 0xC1E01F28u, 0xC1E000DCu);
+        if (is("ctor-before-entry")) mem_write32(cpu, ctor_table(), selected->certificate->lifecycle->prolog_address);
+        if (ikada_call && is("copied-certificate")) {
+            copied_certificate = *selected->certificate;
+            selected->certificate = &copied_certificate;
+            injected = true;
+        }
+#if WW05_ENABLE_IKADA_CONTRACT
+        if (ikada_call && is("policy-disabled")) host->rel_ikada_admission = false;
+#endif
     }
     if (selected != NULL && pc == entry && host->rel_pending_init.phase == WW_REL_INIT_ACTIVE) {
         if (is("observations") && entry_yields < 2u) {
@@ -136,7 +195,7 @@ static bool probe_edge(void* user, CPUState* cpu, u32 address) {
             ++entry_yields;
             return stopped;
         }
-        if (!injected && strncmp(scenario, "duplicate-", 10u) == 0) {
+        if (!injected && strncmp(scenario, "duplicate-", 10u) == 0 && !is("duplicate-owner")) {
             mutate_register(cpu, scenario + 10u);
             injected = true;
         }
@@ -154,7 +213,7 @@ static bool probe_edge(void* user, CPUState* cpu, u32 address) {
         }
         if (!injected && is("walker-table")) cpu->gpr[3] += 4u;
         if (!injected && is("walker-successor")) cpu->lr += 4u;
-        if (!injected && is("ctor-terminator")) mem_write32(cpu, 0xC1E01F28u, 0xC1E000DCu);
+        if (!injected && is("ctor-terminator")) mem_write32(cpu, ctor_table(), selected->certificate->lifecycle->prolog_address);
         if (!injected && is("return-without-walker")) {
             cpu->pc = cpu->lr = 0x80240EE8u;
             cpu->gpr[1] = host->rel_pending_init.r1;
@@ -175,16 +234,16 @@ static bool probe_edge(void* user, CPUState* cpu, u32 address) {
         }
         if (is("walker-reentry")) {
             cpu->pc = 0x80241178u;
-            cpu->gpr[3] = 0xC1E01F28u;
+            cpu->gpr[3] = ctor_table();
             cpu->lr = selected->certificate->ctor_return_pc;
             return ww_host_edge(host, cpu, cpu->pc);
         }
-        if (is("ctor-during-walk")) mem_write32(cpu, 0xC1E01F28u, 0xC1E000DCu);
+        if (is("ctor-during-walk")) mem_write32(cpu, ctor_table(), selected->certificate->lifecycle->prolog_address);
     }
-    if (selected != NULL && pc == 0x81E000F4u && is("entry-after-walker")) {
+    if (selected != NULL && pc == (selected->certificate->ctor_return_pc & ~0x40000000u) && is("entry-after-walker")) {
         assert(!ww_host_edge(host, cpu, address));
         assert(host->rel_pending_init.constructor_completed && host->rel_constructor_owner == 0u);
-        cpu->pc = 0xC1E000DCu;
+        cpu->pc = selected->certificate->lifecycle->prolog_address;
         cpu->lr = 0x80240EE8u;
         cpu->gpr[1] = host->rel_pending_init.r1;
         cpu->gpr[3] = selected->guest;
@@ -218,7 +277,7 @@ static bool probe_edge(void* user, CPUState* cpu, u32 address) {
         }
         if (is("rfi-misaligned")) mem_write32(cpu, 0x80006198u, 0x80240EE9u);
         if (is("rfi-diverted")) mem_write32(cpu, 0x80006198u, 0x80240EECu);
-        if (is("rfi-prolog")) mem_write32(cpu, 0x80006198u, 0xC1E000DCu);
+        if (is("rfi-prolog")) mem_write32(cpu, 0x80006198u, selected->certificate->lifecycle->prolog_address);
         if (is("rfi-fp")) mem_write32(cpu, 0x8000619Cu, host->rel_pending_init.caller_msr & ~PPC_MSR_FP);
         if (is("rfi-ee")) mem_write32(cpu, 0x8000619Cu, host->rel_pending_init.caller_msr & ~PPC_MSR_EE);
         if (is("rfi-text-tamper")) cpu->ram[0x7018u] ^= 1u;
@@ -232,7 +291,7 @@ static bool probe_edge(void* user, CPUState* cpu, u32 address) {
             host->decrementer_pending = true;
         }
         if (is("suspended-direct") || is("suspended-prolog")) {
-            cpu->pc = is("suspended-direct") ? 0x80240EE8u : 0xC1E000DCu;
+            cpu->pc = is("suspended-direct") ? 0x80240EE8u : selected->certificate->lifecycle->prolog_address;
             return ww_host_edge(host, cpu, cpu->pc);
         }
         if (is("rfi-outside-dol")) {
@@ -270,7 +329,7 @@ static void run_call(WwHost* host, u32 owner, const char* name) {
     cpu->lr = 0x80001004u;
     cpu->pc = 0x80240EA0u;
     if (ww_host_rel_profile_enabled(host) && !(is("title-catalog-id") && strcmp(name, "d_a_title") == 0))
-        cpu->pc = strcmp(name, "d_a_ship") == 0 ? 0x80240B80u : 0x80240B40u;
+        cpu->pc = strcmp(name, "d_a_title") == 0 ? 0x80240B40u : 0x80240B80u;
     cpu->msr = PPC_MSR_FP | PPC_MSR_EE | PPC_MSR_POW;
     for (u32 turn = 0u; turn < 128u && cpu->pc != 0x80001004u && host->error == NULL; ++turn) {
         ww_host_end_dispatch(host);
@@ -295,10 +354,83 @@ static void run_call(WwHost* host, u32 owner, const char* name) {
     }
 }
 
+#if WW05_ENABLE_IKADA_CONTRACT
+static void run_ikada(WwHost* host, const char* requested, WwRelImage* profile) {
+    scenario = "success";
+    run_call(host, 0x80002300u, "d_a_title");
+    if (host->error != NULL) fprintf(stderr, "title prefix: %s\n", host->error);
+    assert(host->error == NULL && selected != NULL && selected->initialization_completed);
+    assert(selected->guest == 0x818325E0u && selected->raw_hash == lifecycle_expected_title_hash);
+    neighbor = selected;
+    const u64 old_tail_hash = neighbor->raw_hash;
+    const u64 ship_hash = ww_host_rel_live(host, 168u)->raw_hash;
+    scenario = strcmp(requested, "enabled") == 0 ? "success" : requested;
+    injected = false;
+    ikada_call = true;
+    selected = NULL;
+    mem_write32(&host->cpu, 0x80002514u, 0x807FE000u);
+    stop_before_entry = is("link-only") || is("skipped-prepare") || is("uninitialized-execution");
+    run_call(host, 0x80002500u, "d_a_obj_ikada");
+    if (is("raw-identity") || is("materialize-allocation") || is("materialize-trace")) {
+        assert(host->error != NULL && selected == NULL && host->rel_image_count == 3u && host->alias_count == 3u);
+        assert(neighbor->raw_hash == old_tail_hash && ww_host_rel_live(host, 60u) == NULL);
+        return;
+    }
+    assert(selected != NULL && selected->module_id == 60u && selected->guest == 0x818327E0u);
+    assert(selected->linked && !selected->unlinked && !host->rel_test_admission);
+    if (stop_before_entry) {
+        if (is("link-only")) host->rel_ikada_admission = false;
+        else if (is("uninitialized-execution")) host->cpu.pc = 0xC1550154u;
+        else selected->sdk_phase = WW_REL_SDK_NONE;
+        assert(ww_host_dispatch(host, host->cpu.pc) == -1);
+    }
+    const bool positive = is("success") || is("observations") || strncmp(scenario, "interrupt-", 10u) == 0 ||
+        is("epilog") || is("unresolved") || is("unlink") || is("duplicate-owner");
+    if (positive) {
+        if (host->error != NULL) fprintf(stderr, "ikada: %s pc=%08X\n", host->error, host->cpu.pc);
+        assert(host->error == NULL && selected->initialization_completed && host->cpu.pc == 0x80001004u);
+        assert(selected->raw_hash == lifecycle_expected_ikada_hash && selected->sdk_phase == WW_REL_SDK_CERTIFIED);
+        assert(!selected->sdk_fixed && selected->sdk_input_form == WW_REL_SDK_OWNER_PUBLISHED);
+        assert(selected->sdk_bss == 0x807FE000u && selected->sdk_previous == neighbor->guest);
+        assert(neighbor->sdk_next == selected->guest && neighbor->raw_hash == lifecycle_expected_title_with_ikada_hash);
+        assert(host->rel_sdk_tail == selected->guest && ww_host_rel_sdk_integrity(host));
+        assert(mem_read32(&host->cpu, 0xC15581A0u) == 1u && mem_read32(&host->cpu, 0xC15581A4u) == 0u);
+        assert(mem_read32(&host->cpu, 0x80005000u) == 4u);
+        assert(host->cpu.gpr[1] == 0x80004000u && host->cpu.gpr[2] == 0x80300000u &&
+               host->cpu.gpr[13] == 0x80400000u && host->cpu.gpr[31] == 0x12345678u);
+        if (is("observations")) assert(entry_yields == 2u && return_yields == 2u);
+        if (strncmp(scenario, "interrupt-", 10u) == 0) assert(handoffs == restorations && handoffs != 0u);
+        if (is("duplicate-owner")) {
+            assert(ww_host_materialize_rel(host, 0x80002600u, "d_a_obj_ikada") != NULL);
+            assert(ww_host_rel_owned(host, selected->owner) == selected && host->rel_image_count == 4u);
+        }
+        if (is("unlink")) assert(ww_host_unlink_rel(host, selected->owner) != NULL);
+        if (is("epilog") || is("unresolved")) {
+            host->cpu.pc = is("epilog") ? 0xC1550120u : 0xC155014Cu;
+            assert(ww_host_dispatch(host, host->cpu.pc) == -1);
+            assert(strcmp(host->error, "REL epilog or unresolved entry has no supported lifecycle contract") == 0);
+        }
+    } else {
+        if (host->error == NULL) fprintf(stderr, "ikada negative did not stop: %s pc=%08X\n", scenario, host->cpu.pc);
+        const bool after_completed_return = strncmp(scenario, "rfi-", 4u) == 0 || strncmp(scenario, "nested-", 7u) == 0;
+        assert(host->error != NULL && selected->initialization_completed == after_completed_return);
+        assert(host->rel_pending_init.phase == WW_REL_INIT_NONE && host->rel_constructor_owner == 0u);
+        if (selected->sdk_phase != WW_REL_SDK_CERTIFIED) {
+            assert(selected->raw_hash == ww_host_rel_raw_hash(ikada_raw, sizeof(ikada_raw)));
+            assert(neighbor->raw_hash == old_tail_hash && neighbor->sdk_next == 0u && host->rel_sdk_tail == neighbor->guest);
+        }
+    }
+    assert(ww_host_rel_live(host, 168u)->raw_hash == ship_hash && profile->sdk_phase == WW_REL_SDK_RESIDENT);
+    assert(host->alias_count == 4u && host->rel_image_count == 4u);
+    assert(host->rel_title_block.image == neighbor && host->rel_profile_block.allocation.image == profile);
+}
+#endif
+
 int main(int argc, char** argv) {
     assert(argc == 2);
     scenario = argv[1];
-    const bool resident = is("title-enabled") || is("title-copy") || is("title-catalog-id");
+    const bool ikada_requested = strncmp(scenario, "ikada-", 6u) == 0;
+    const bool resident = is("title-enabled") || is("title-copy") || is("title-catalog-id") || ikada_requested;
     WwHost* host = calloc(1u, sizeof(*host));
     assert(host != NULL && ww_host_init(host));
     StaticRecompRelSection profile_sections[] = {{1u,1u,0xC1F80000u,32u},{1u,4u,0xC1F80178u,16u},
@@ -308,31 +440,57 @@ int main(int argc, char** argv) {
         {.module_id=400u,.section_count=8u,.section_info_offset=0x4Cu,.file_size=sizeof(lifecycle_title_raw),
          .sections=lifecycle_title_sections,.num_sections=2u},
         {.module_id=1u,.section_count=5u,.section_info_offset=0x4Cu,.file_size=256u,
-          .sections=profile_sections,.num_sections=resident ? 3u : 2u}};
+           .sections=profile_sections,.num_sections=resident ? 3u : 2u},
+        {.module_id=60u,.section_count=21u,.section_info_offset=0x4Cu,.file_size=sizeof(ikada_raw),
+         .sections=ikada_sections,.num_sections=6u}};
     StaticRecompRange chunks[] = {fixture_chunks[0],fixture_chunks[1],fixture_chunks[2],{0xC1E000DCu,0xC1E0013Cu},
-                                 {0xC1F800D4u,0xC1F80100u}};
-    u64 hashes[] = {fixture_hashes[0],fixture_hashes[1],fixture_hashes[2],lifecycle_title_hash,lifecycle_profile_hash};
+                                 {0xC1F800D4u,0xC1F80100u},
+                                 {0xC15500F4u,0xC1550154u},{0xC1550154u,0xC1550174u}};
+    u64 hashes[] = {fixture_hashes[0],fixture_hashes[1],fixture_hashes[2],lifecycle_title_hash,lifecycle_profile_hash,
+                    ikada_hashes[0],ikada_hashes[1]};
     StaticRecompModuleDesc module = {.code_ranges=lifecycle_ranges,
         .num_code_ranges=sizeof(lifecycle_ranges)/sizeof(lifecycle_ranges[0]), .chunk_ranges=chunks,
-        .chunk_hashes=hashes,.num_chunk_ranges=resident ? 5u : 4u,.rel_modules=descriptors,.num_rel_modules=3u,
+        .chunk_hashes=hashes,.num_chunk_ranges=ikada_requested ? 7u : resident ? 5u : 4u,
+        .rel_modules=descriptors,.num_rel_modules=ikada_requested ? 4u : 3u,
         .dispatch=translated_dispatch};
     static const u8 profile_bytes[16];
     static const u8 profile_ctors[4];
     BlueWakeRelData data[] = {fixture_data[0],fixture_data[1],lifecycle_title_canonical[1],
-                              {1u,4u,0xC1F80178u,16u,profile_bytes},{1u,2u,0xC1F80170u,4u,profile_ctors}};
+                              {1u,4u,0xC1F80178u,16u,profile_bytes},{1u,2u,0xC1F80170u,4u,profile_ctors},
+                              ikada_canonical[1],ikada_canonical[2],ikada_canonical[3],ikada_canonical[4],
+                              {60u,6u,0xC15581A0u,532u,NULL}};
     host->module = &module;
     host->rel_data = data;
-    host->rel_data_count = resident ? 5u : 4u;
+    host->rel_data_count = ikada_requested ? 10u : resident ? 5u : 4u;
     BlueWakeRelLifecycleV2 ship_lifecycle = {168u,0xC1B100F4u,0xC1B10120u,0xC1B1014Cu};
     BlueWakeRelLifecycleV2 title_lifecycle = {400u,0xC1E000DCu,0xC1E00108u,0xC1E00134u};
+    BlueWakeRelLifecycleV2 ikada_lifecycle = {60u,0xC15500F4u,0xC1550120u,0xC155014Cu};
     BlueWakeRelInitContractV1 certificates[] = {
         {.module_id=168u,.rel_bytes=s_ship_contract.rel_bytes,.rel_size=s_ship_contract.rel_size,
          .canonical_sections=s_ship_contract.canonical_sections,.section_count=s_ship_contract.section_count,
          .ctor_table_section=4u,.ctor_return_pc=0xC1B1010Cu,.lifecycle=&ship_lifecycle,.build_identity=s_ship_contract.build_identity},
         {.module_id=400u,.rel_bytes=lifecycle_title_raw,.rel_size=sizeof(lifecycle_title_raw),
          .canonical_sections=lifecycle_title_canonical,.section_count=2u,.ctor_table_section=2u,
-         .ctor_return_pc=0xC1E000F4u,.lifecycle=&title_lifecycle,.build_identity=s_ship_contract.build_identity}};
-    BlueWakeRelInitContractSetV1 set = {1u,s_ship_contract.dol_size,s_ship_contract.dol_bytes,certificates,2u,s_ship_contract.build_identity};
+          .ctor_return_pc=0xC1E000F4u,.lifecycle=&title_lifecycle,.build_identity=s_ship_contract.build_identity},
+        {.module_id=60u,.rel_bytes=ikada_raw,.rel_size=sizeof(ikada_raw),.canonical_sections=ikada_canonical,
+         .section_count=5u,.ctor_table_section=2u,.ctor_return_pc=0xC155010Cu,.lifecycle=&ikada_lifecycle,
+         .build_identity=s_ship_contract.build_identity}};
+    BlueWakeRelInitContractSetV1 set = {1u,s_ship_contract.dol_size,s_ship_contract.dol_bytes,certificates,
+                                       ikada_requested && !is("ikada-missing-60") ? 3u : 2u,s_ship_contract.build_identity};
+    if (is("ikada-duplicate")) certificates[2].module_id = 168u;
+    if (is("ikada-invalid-certificate")) certificates[2].ctor_return_pc = 0u;
+    if (is("ikada-wrong-chunk-0")) hashes[5] ^= 1u;
+    if (is("ikada-wrong-chunk-1")) hashes[6] ^= 1u;
+    if (ikada_requested)
+        for (u32 at = 1u; at < module.num_chunk_ranges; ++at)
+            for (u32 previous = at; previous != 0u && chunks[previous].start < chunks[previous - 1u].start; --previous) {
+                const StaticRecompRange range = chunks[previous];
+                const u64 hash = hashes[previous];
+                chunks[previous] = chunks[previous - 1u];
+                hashes[previous] = hashes[previous - 1u];
+                chunks[previous - 1u] = range;
+                hashes[previous - 1u] = hash;
+            }
     u8 catalog_raw[sizeof(lifecycle_title_raw)];
     StaticRecompRelSection catalog_sections[2];
     BlueWakeRelData catalog_canonical[2];
@@ -352,8 +510,57 @@ int main(int argc, char** argv) {
         certificates[1].canonical_sections = catalog_canonical;
     }
     const char* registration = ww_host_register_rel_contracts(host, &set, "synthetic.dol");
+    if (is("ikada-duplicate") || is("ikada-invalid-certificate") || is("ikada-bad-dol") ||
+        is("ikada-wrong-chunk-0") || is("ikada-wrong-chunk-1")) {
+        assert(registration != NULL && host->rel_contracts == NULL);
+#if WW05_ENABLE_IKADA_CONTRACT
+        assert(!host->rel_ikada_admission);
+#endif
+        goto done;
+    }
     if (registration != NULL) fprintf(stderr, "registration: %s\n", registration);
     assert(registration == NULL);
+    if (ikada_requested) {
+        const bool no_ship = is("ikada-registered-only") || is("ikada-title-only") || is("ikada-missing-ship");
+        const bool no_title = is("ikada-registered-only") || is("ikada-ship-only") || is("ikada-missing-title");
+        if (!no_ship)
+            assert(ww_host_enable_ship_contract(host, &s_ship_contract, "synthetic.dol") == NULL);
+        host->rel_title_admission = !no_title;
+        if (is("ikada-missing-set")) host->rel_contracts = NULL;
+#if WW05_ENABLE_IKADA_CONTRACT
+        if (is("ikada-missing-ship") || is("ikada-missing-title") || is("ikada-missing-set") || is("ikada-missing-60")) {
+            assert(ww_host_enable_ikada_contract(host) != NULL && !host->rel_ikada_admission);
+            assert(ww_host_rel_certificate(host, 60u) == NULL && !host->rel_test_admission);
+            goto done;
+        }
+#endif
+        if (is("ikada-registered-only") || is("ikada-ship-only") || is("ikada-title-only") || is("ikada-off")) {
+            assert(ww_host_rel_certificate(host, 60u) == NULL);
+            const char* error = ww_host_materialize_rel(host, 0x80002500u, "d_a_obj_ikada");
+            assert(error != NULL && strcmp(error, "REL prolog, epilog or unresolved entry requires an unsupported lifecycle contract") == 0);
+            assert(host->rel_image_count == 0u && !host->rel_test_admission);
+            goto done;
+        }
+#if WW05_ENABLE_IKADA_CONTRACT
+        ikada_call = is("ikada-admission-trace");
+        trace_failure = ikada_call;
+        const char* error = ww_host_enable_ikada_contract(host);
+        trace_failure = false;
+        ikada_call = false;
+        if (is("ikada-admission-trace")) {
+            assert(error != NULL && !host->rel_ikada_admission && host->rel_image_count == 0u);
+            goto done;
+        }
+        if (error != NULL) fprintf(stderr, "ikada admission: %s\n", error);
+        assert(error == NULL && host->rel_ikada_admission && !host->rel_test_admission);
+        assert(ww_host_rel_certificate(host, 60u) == &certificates[2]);
+        assert(ww_host_rel_certificate(host, 168u) == &host->ship_certificate);
+        assert(ww_host_rel_certificate(host, 400u) == &certificates[1]);
+        assert(ww_host_rel_certificate(host, 61u) == NULL && ww_host_rel_certificate(host, 401u) == NULL);
+#else
+        assert(false);
+#endif
+    }
     const bool title_policy = strncmp(scenario, "title-", 6u) == 0;
 #if WW05_ENABLE_TITLE_CONTRACT
     if (title_policy && !is("title-disabled"))
@@ -363,7 +570,7 @@ int main(int argc, char** argv) {
         assert(ww_host_rel_certificate(host, 400u) == &certificates[1]);
     if (is("title-catalog-id"))
         assert(ww_host_rel_certificate(host, 401u) == NULL);
-    if (!is("registered-only") && !is("ship-only") && !is("title-enabled"))
+    if (!ikada_requested && !is("registered-only") && !is("ship-only") && !is("title-enabled"))
         assert(ww_host_rel_test_admission(host) == NULL);
     if (is("legacy") || is("ship-only") || title_policy)
         assert(ww_host_enable_ship_contract(host, &s_ship_contract, "synthetic.dol") == NULL);
@@ -428,6 +635,12 @@ int main(int argc, char** argv) {
     assert(mem_read32(&host->cpu, 0xC1B224D0u) == 2u && mem_read32(&host->cpu, 0x80005000u) == 1u + (u32)resident);
     assert(host->rel_pending_init.phase == WW_REL_INIT_NONE && host->rel_constructor_owner == 0u);
     scenario = requested;
+#if WW05_ENABLE_IKADA_CONTRACT
+    if (ikada_requested) {
+        run_ikada(host, requested + 6u, profile);
+        goto done;
+    }
+#endif
     selected = NULL;
     injected = false;
     if (is("legacy")) goto done;

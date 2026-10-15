@@ -74,6 +74,9 @@ typedef struct WwHost {
     bool rel_sdk_seeded;
     bool rel_sdk_failed;
     bool rel_title_admission;
+#if WW05_ENABLE_IKADA_CONTRACT
+    bool rel_ikada_admission;
+#endif
 #if WW05_TESTS_ONLY
     bool rel_test_admission;
 #endif
@@ -149,6 +152,9 @@ static inline bool ww_host_trace_syscall(u64 resume) {
 
 bool ww_host_init(WwHost* host);
 const char* ww_host_enable_ship_contract(WwHost* host, const BlueWakeShipContractV1* contract, const char* dol);
+#if WW05_ENABLE_IKADA_CONTRACT
+const char* ww_host_enable_ikada_contract(WwHost* host);
+#endif
 void ww_host_shutdown(WwHost* host);
 bool ww_host_load(WwHost* host, const StaticRecompModuleDesc* module,
                    const BlueWakeRelData* data, u32 count, const char* dol);

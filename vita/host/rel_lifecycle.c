@@ -19,9 +19,19 @@ void ww_host_rel_lifecycle_revoke(WwHost* host) {
 static bool policy_permits(const WwHost* host, const WwRelImage* image) {
     if (host->ship_contract != NULL && image->certificate == &host->ship_certificate)
         return true;
+#if WW05_ENABLE_IKADA_CONTRACT
+    if (host->rel_contracts != NULL)
+#else
     if (host->rel_title_admission && host->rel_contracts != NULL)
+#endif
         for (u32 at = 0u; at < host->rel_contracts->contract_count; ++at)
+#if WW05_ENABLE_IKADA_CONTRACT
+            if (((host->rel_title_admission && host->rel_contracts->contracts[at].module_id == 400u) ||
+                 (host->rel_ikada_admission && host->rel_title_admission && host->ship_contract != NULL &&
+                  host->rel_contracts->contracts[at].module_id == 60u)) &&
+#else
             if (host->rel_contracts->contracts[at].module_id == 400u &&
+#endif
                 image->certificate == &host->rel_contracts->contracts[at])
                 return true;
 #if WW05_TESTS_ONLY
@@ -165,6 +175,16 @@ static const char* boundary(WwHost* host, u32 address) {
 
 const char* ww_host_rel_lifecycle_boundary(WwHost* host, u32 address) {
     const char* error = host->error != NULL ? host->error : boundary(host, address);
+#if WW05_ENABLE_IKADA_CONTRACT
+    if (error != NULL && host->rel_ikada_admission && host->rel_pending_init.phase == WW_REL_INIT_NONE) {
+        const BlueWakeRelInitContractV1* certificate = ww_host_rel_certificate(host, 60u);
+        if (certificate != NULL &&
+            (address & ~0x40000000u) == (certificate->lifecycle->prolog_address & ~0x40000000u) &&
+            fprintf(stderr, "[rel-prolog-refusal] module=60 attempted_pc=%08X pc=%08X caller=%08X owner=%08X image_arg=%08X clause=%s\n",
+                    address, host->cpu.pc, host->cpu.lr, host->cpu.gpr[31], host->cpu.gpr[3], error) < 0)
+            error = "REL ikada prolog refusal diagnostic write failed";
+    }
+#endif
     if (error != NULL)
         ww_host_rel_lifecycle_revoke(host);
     return error;

@@ -222,7 +222,13 @@ const char* ww_host_register_rel_contracts(WwHost* host, const BlueWakeRelInitCo
 const BlueWakeRelInitContractV1* ww_host_rel_certificate(WwHost* host, u32 module_id) {
     if (host->ship_contract != NULL && module_id == host->ship_certificate.module_id)
         return &host->ship_certificate;
+#if WW05_ENABLE_IKADA_CONTRACT
+    if (host->rel_contracts != NULL &&
+        ((host->rel_title_admission && module_id == 400u) ||
+         (host->rel_ikada_admission && host->rel_title_admission && host->ship_contract != NULL && module_id == 60u)))
+#else
     if (host->rel_title_admission && module_id == 400u && host->rel_contracts != NULL)
+#endif
         for (u32 at = 0u; at < host->rel_contracts->contract_count; ++at)
             if (host->rel_contracts->contracts[at].module_id == module_id)
                 return &host->rel_contracts->contracts[at];
@@ -234,6 +240,32 @@ const BlueWakeRelInitContractV1* ww_host_rel_certificate(WwHost* host, u32 modul
 #endif
     return NULL;
 }
+
+#if WW05_ENABLE_IKADA_CONTRACT
+const char* ww_host_enable_ikada_contract(WwHost* host) {
+    if (host == NULL || host->rel_ikada_admission || host->ship_contract == NULL ||
+        !host->rel_title_admission || host->rel_contracts == NULL ||
+        ww_host_rel_certificate(host, 400u) == NULL)
+        return "ikada admission requires active ship/title admissions and a registered set";
+    const BlueWakeRelInitContractV1* certificate = NULL;
+    for (u32 at = 0u; at < host->rel_contracts->contract_count; ++at)
+        if (host->rel_contracts->contracts[at].module_id == 60u) {
+            if (certificate != NULL)
+                return "ikada admission requires exactly one registered module-60 certificate";
+            certificate = &host->rel_contracts->contracts[at];
+        }
+    if (certificate == NULL)
+        return "ikada admission requires exactly one registered module-60 certificate";
+    const char* error = ww_rel_validate_certificate(host, certificate);
+    if (error != NULL)
+        return error;
+    if (fprintf(stderr, "[rel-admission] module=60 certificate=%s set=%s active=1\n",
+                certificate->build_identity, host->rel_contracts->build_identity) < 0)
+        return "ikada admission receipt write failed";
+    host->rel_ikada_admission = true;
+    return NULL;
+}
+#endif
 
 #if WW05_TESTS_ONLY
 const char* ww_host_rel_test_admission(WwHost* host) {

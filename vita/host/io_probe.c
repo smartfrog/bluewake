@@ -359,6 +359,46 @@ static int dispatch(CPUState* cpu, u32 address) {
     return 1;
 }
 
+#if WW05_ENABLE_IKADA_CONTRACT
+#include "ship_fixture.inc"
+#include "ship_contract.inc"
+#include "rel_contract_fixture.inc"
+#include "ikada_fixture.inc"
+
+static bool ikada_fixture_enabled(void) {
+    return getenv("WW05_IO_IKADA") != NULL;
+}
+
+static u8 startup_dol[260];
+static BlueWakeShipContractV1 startup_ship;
+
+static const StaticRecompModuleDesc* startup_module(StaticRecompModuleDesc* module) {
+    static StaticRecompRange ranges[64];
+    u32 count = 0u;
+    for (u32 at = 0u; at < module->num_code_ranges; ++at) ranges[count++] = module->code_ranges[at];
+    for (u32 at = 0u; at < sizeof(fixture_ranges) / sizeof(fixture_ranges[0]); ++at) ranges[count++] = fixture_ranges[at];
+    ranges[count++] = (StaticRecompRange){0xC1E000DCu,0xC1E000FCu};
+    ranges[count++] = (StaticRecompRange){0xC15500F4u,0xC1550174u};
+    static StaticRecompRelModule descriptors[3];
+    descriptors[0] = fixture_rel;
+    descriptors[1] = (StaticRecompRelModule){.module_id=400u,.section_count=8u,.section_info_offset=0x4Cu,
+        .file_size=sizeof(title_raw),.sections=title_sections,.num_sections=8u};
+    descriptors[2] = (StaticRecompRelModule){.module_id=60u,.section_count=21u,.section_info_offset=0x4Cu,
+        .file_size=sizeof(ikada_raw),.sections=ikada_sections,.num_sections=6u};
+    static StaticRecompRange chunks[6];
+    static u64 hashes[6];
+    chunks[0] = (StaticRecompRange){0xC15500F4u,0xC1550154u};
+    chunks[1] = (StaticRecompRange){0xC1550154u,0xC1550174u};
+    hashes[0] = ikada_hashes[0]; hashes[1] = ikada_hashes[1];
+    for (u32 at = 0u; at < 3u; ++at) { chunks[at + 2u] = fixture_chunks[at]; hashes[at + 2u] = fixture_hashes[at]; }
+    chunks[5] = (StaticRecompRange){0xC1E000DCu,0xC1E000FCu}; hashes[5] = title_hash;
+    module->code_ranges = ranges; module->num_code_ranges = count;
+    module->chunk_ranges = chunks; module->chunk_hashes = hashes; module->num_chunk_ranges = 6u;
+    module->rel_modules = descriptors; module->num_rel_modules = 3u;
+    return module;
+}
+#endif
+
 const StaticRecompModuleDesc* staticrecomp_get_module(void) {
     static const StaticRecompRange ranges[] = {{0x80001000u, 0x80001008u}, {0x803077D0u, 0x803077ECu},
         {0x500u, 0x904u}, {0x80328F84u, 0x80328F9Cu}, {0x80303A50u, 0x80303B28u}};
@@ -371,20 +411,69 @@ const StaticRecompModuleDesc* staticrecomp_get_module(void) {
         (strcmp(interrupt, "vector") == 0 || strcmp(interrupt, "fp-vector") == 0) ? 2u : 3u;
     if (getenv("WW05_IO_CPU_BOUNDARY") != NULL)
         module.num_code_ranges = 5u;
+#if WW05_ENABLE_IKADA_CONTRACT
+    if (ikada_fixture_enabled()) return startup_module(&module);
+#endif
     return &module;
 }
 
 const BlueWakeRelData* staticrecomp_get_rel_data(u32* count) {
+#if WW05_ENABLE_IKADA_CONTRACT
+    if (ikada_fixture_enabled()) {
+        static BlueWakeRelData selected[8];
+        selected[0] = fixture_data[0]; selected[1] = fixture_data[1]; selected[2] = title_canonical[1];
+        for (u32 at = 1u; at < 5u; ++at) selected[at + 2u] = ikada_canonical[at];
+        selected[7] = (BlueWakeRelData){60u,6u,0xC15581A0u,532u,NULL};
+        *count = 8u;
+        return selected;
+    }
+#endif
     static const BlueWakeRelData data = {0};
     *count = 0u;
     return &data;
 }
 
 const BlueWakeShipContractV1* staticrecomp_get_ship_contract_v1(void) {
+#if WW05_ENABLE_IKADA_CONTRACT
+    if (ikada_fixture_enabled()) {
+        write_be32(startup_dol, 256u); write_be32(startup_dol + 0x48u, 0x80001000u);
+        write_be32(startup_dol + 0x90u, 4u); write_be32(startup_dol + 0xD8u, 0x80002000u);
+        write_be32(startup_dol + 0xDCu, 256u); write_be32(startup_dol + 0xE0u, 0x80001000u);
+        startup_ship = s_ship_contract;
+        startup_ship.dol_bytes = startup_dol; startup_ship.dol_size = sizeof(startup_dol);
+        return &startup_ship;
+    }
+#endif
     return NULL;
 }
 
 const BlueWakeRelInitContractSetV1* staticrecomp_get_rel_init_contracts_v1(void) {
+#if WW05_ENABLE_IKADA_CONTRACT
+    if (ikada_fixture_enabled()) {
+        const char* mode = getenv("WW05_IO_IKADA");
+        if (strcmp(mode, "missing-set") == 0) return NULL;
+        static BlueWakeRelLifecycleV2 lifecycle[] = {{60u,0xC15500F4u,0xC1550120u,0xC155014Cu},
+            {168u,0xC1B100F4u,0xC1B10120u,0xC1B1014Cu},{400u,0xC1E000DCu,0xC1E000E0u,0xC1E000E4u}};
+        static BlueWakeRelInitContractV1 contracts[3];
+        contracts[0] = (BlueWakeRelInitContractV1){60u,sizeof(ikada_raw),ikada_raw,ikada_canonical,5u,2u,0u,
+            0xC155010Cu,&lifecycle[0],s_ship_contract.build_identity};
+        contracts[1] = (BlueWakeRelInitContractV1){168u,s_ship_contract.rel_size,s_ship_contract.rel_bytes,
+            s_ship_contract.canonical_sections,s_ship_contract.section_count,4u,0u,0xC1B1010Cu,&lifecycle[1],s_ship_contract.build_identity};
+        contracts[2] = (BlueWakeRelInitContractV1){400u,sizeof(title_raw),title_raw,title_canonical,2u,2u,0u,
+            0xC1E000F4u,&lifecycle[2],s_ship_contract.build_identity};
+        static BlueWakeRelInitContractSetV1 set;
+        set = (BlueWakeRelInitContractSetV1){1u,sizeof(startup_dol),startup_dol,contracts,3u,s_ship_contract.build_identity};
+        if (strcmp(mode, "missing-60") == 0) { set.contracts++; set.contract_count--; }
+        if (strcmp(mode, "duplicate") == 0) contracts[2] = contracts[0];
+        if (strcmp(mode, "invalid-certificate") == 0) contracts[0].ctor_return_pc = 0u;
+        if (strcmp(mode, "bad-dol") == 0) {
+            static u8 wrong_dol[sizeof(startup_dol)];
+            memcpy(wrong_dol, startup_dol, sizeof(wrong_dol)); wrong_dol[259] ^= 1u;
+            set.dol_bytes = wrong_dol;
+        }
+        return &set;
+    }
+#endif
     static const BlueWakeRelInitContractSetV1 invalid = {.version = 2u};
     return getenv("WW05_IO_TITLE_INVALID") != NULL ? &invalid : NULL;
 }
@@ -425,7 +514,8 @@ FILE* __wrap_fopen(const char* path, const char* mode) {
 
 int __wrap_fprintf(FILE* stream, const char* format, ...) {
     if (stream == stderr &&
-        ((strncmp(format, "[exception]", 11u) == 0 && failure("external-state-log")) ||
+        ((strncmp(format, "[rel-admission]", 15u) == 0 && failure("ikada-admission-log")) ||
+         (strncmp(format, "[exception]", 11u) == 0 && failure("external-state-log")) ||
          (strncmp(format, "[exception-vector]", 18u) == 0 && failure("external-vector-log")) ||
          (strncmp(format, "[exception-vector-dispatch]", 27u) == 0 && failure("external-dispatch-log")) ||
          (strncmp(format, "[exception-vector-return]", 25u) == 0 && failure("external-return-log")) ||

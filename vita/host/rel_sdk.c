@@ -34,6 +34,10 @@ static bool inputs_match(WwHost* host, const WwRelImage* image) {
 
 static const char* input_refusal(WwHost* host, const WwRelImage* image, bool fixed, u32 bss,
                                   u32 form, const char* clause) {
+#if WW05_ENABLE_IKADA_CONTRACT
+    if (image->module_id == 60u && host->rel_ikada_admission)
+        return clause;
+#endif
     if (!ww_host_rel_profile_enabled(host))
         return clause;
     if (image->module_id == 400u && host->rel_title_block.input_refusal_reported)
@@ -54,6 +58,44 @@ static const char* input_refusal(WwHost* host, const WwRelImage* image, bool fix
         return "REL SDK name/BSS or fixed-sequence input refused; refusal diagnostic write failed";
     return clause;
 }
+
+#if WW05_ENABLE_IKADA_CONTRACT
+static const char* ikada_refusal(WwHost* host, const WwRelImage* image, bool fixed, const char* clause) {
+    if (host == NULL || image == NULL || image->module_id != 60u || !host->rel_ikada_admission)
+        return clause;
+    const BlueWakeRelInitContractV1* certificate = ww_host_rel_certificate(host, 60u);
+    const bool valid = certificate != NULL && certificate == image->certificate && certificate->rel_size >= 0x4Cu;
+    const u8* raw = valid ? certificate->rel_bytes : NULL;
+    const u32 name_base = mem_read32(&host->cpu, WW_REL_SDK_NAMES);
+    const bool owner_bounded = image->owner >= GC_RAM_BASE &&
+        (u64)image->owner + 0x18u <= GC_RAM_BASE + GC_MAIN_RAM_SIZE;
+    const u32 owner_bss = owner_bounded ? mem_read32(&host->cpu, image->owner + 0x14u) : 0u;
+    if (fprintf(stderr, "[rel-sdk-input-refusal] module=60 fixed=%u input_form=%u pc=%08X caller=%08X owner=%08X base=%08X actual_r3=%08X actual_r4=%08X owner_bss=%08X owner_bounded=%u bss_size=%u bss_alignment=%u name_base=%08X name=%016llX name_size=%u clause=%s\n",
+        fixed, WW_REL_SDK_OWNER_PUBLISHED, host->cpu.pc, host->cpu.lr, image->owner, image->guest,
+        host->cpu.gpr[3], host->cpu.gpr[4], owner_bss, owner_bounded,
+        raw == NULL ? 0u : bluewake_archive_be32(raw + 0x20u),
+        raw == NULL ? 0u : bluewake_archive_be32(raw + 0x44u), name_base,
+        (unsigned long long)((u64)name_base + (raw == NULL ? 0u : bluewake_archive_be32(raw + 0x14u))),
+        raw == NULL ? 0u : bluewake_archive_be32(raw + 0x18u), clause) < 0)
+        return "REL ikada SDK input refused; refusal diagnostic write failed";
+    return clause;
+}
+
+static bool ikada_trace(WwHost* host, const WwRelImage* image, bool fixed, u32 bss, u32 name_base,
+                        const char* stage, const char* whole_image) {
+    if (image->module_id != 60u || !host->rel_ikada_admission)
+        return true;
+    const u8* raw = image->certificate->rel_bytes;
+    return fprintf(stderr, "[rel-sdk] module=60 stage=%s certificate=%s set=%s pc=%08X caller=%08X owner=%08X base=%08X actual_r3=%08X actual_r4=%08X fixed=%u input_form=%u owner_bss=%08X bss=%08X bss_size=%u bss_alignment=%u name_base=%08X name=%016llX name_size=%u previous=%08X head=%08X tail=%08X whole_image=%s\n",
+        stage, image->certificate->build_identity, host->rel_contracts->build_identity,
+        host->cpu.pc, host->cpu.lr, image->owner, image->guest, host->cpu.gpr[3], host->cpu.gpr[4],
+        fixed, WW_REL_SDK_OWNER_PUBLISHED, mem_read32(&host->cpu, image->owner + 0x14u), bss,
+        bluewake_archive_be32(raw + 0x20u), bluewake_archive_be32(raw + 0x44u), name_base,
+        (unsigned long long)((u64)name_base + bluewake_archive_be32(raw + 0x14u)),
+        bluewake_archive_be32(raw + 0x18u), host->rel_sdk_tail,
+        mem_read32(&host->cpu, WW_REL_SDK_HEAD), mem_read32(&host->cpu, WW_REL_SDK_TAIL), whole_image) >= 0;
+}
+#endif
 
 const char* ww_rel_sdk_structure(const WwRelImage* image, const u8* raw, u8* expected, u32 next) {
     write_be32(expected + 4u, next);
@@ -268,6 +310,10 @@ static const char* prepare(WwHost* host, WwRelImage* image, bool fixed) {
         name_base, bss, owner_bss, host->rel_title_block.raw_fix, host->rel_title_block.extent,
         host->rel_sdk_tail, image->certificate->build_identity) < 0)
         return "REL SDK title preparation trace failed";
+#if WW05_ENABLE_IKADA_CONTRACT
+    if (!ikada_trace(host, image, fixed, bss, name_base, "prepared", "not-verified"))
+        return "REL ikada SDK preparation trace failed";
+#endif
     if (profile != NULL) {
         profile->sdk_phase = WW_REL_SDK_RESIDENT;
         host->rel_sdk_head = profile->guest;
@@ -289,6 +335,10 @@ static const char* prepare(WwHost* host, WwRelImage* image, bool fixed) {
 
 const char* ww_host_rel_sdk_prepare(WwHost* host, WwRelImage* image, bool fixed) {
     const char* error = prepare(host, image, fixed);
+#if WW05_ENABLE_IKADA_CONTRACT
+    if (error != NULL)
+        error = ikada_refusal(host, image, fixed, error);
+#endif
     if (error != NULL && host != NULL && image != NULL &&
         ww_host_rel_profile_enabled(host) && image->module_id == 400u)
         ww_host_rel_title_failed(host);
@@ -324,6 +374,10 @@ static const char* finish(WwHost* host, WwRelImage* image) {
     if (title && fprintf(stderr, "[rel-sdk] module=400 stage=verified fixed=1 input_form=%u pc=%08X caller=%08X result=%u whole_image=matched certificate=%s certified=1\n",
         image->sdk_input_form, host->cpu.pc, host->cpu.lr, host->cpu.gpr[3], image->certificate->build_identity) < 0)
         return "REL SDK title verification trace failed";
+#if WW05_ENABLE_IKADA_CONTRACT
+    if (!ikada_trace(host, image, image->sdk_fixed, image->sdk_bss, image->sdk_name_base, "verified", "matched"))
+        return "REL ikada SDK verification trace failed";
+#endif
     WwRelImage* tail = image_at(host, host->rel_sdk_tail);
     if (tail != NULL) {
         tail->sdk_next = image->guest;
@@ -376,6 +430,11 @@ const char* ww_host_rel_sdk_observe(WwHost* host, u32 address) {
         return "REL SDK observation requires its owned translated entry PC";
     if (host->cpu.gpr[4] != mem_read32(&host->cpu, image->owner + 0x14u) &&
         !(active && image->module_id == 400u))
+#if WW05_ENABLE_IKADA_CONTRACT
+        return ikada_refusal(host, image, address == 0x80305448u,
+                             "REL SDK observed BSS argument disagrees with its owner");
+#else
         return "REL SDK observed BSS argument disagrees with its owner";
+#endif
     return ww_host_rel_sdk_prepare(host, image, address == 0x80305448u);
 }

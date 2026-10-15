@@ -8,7 +8,14 @@ from pathlib import Path, PurePosixPath
 SHIP_EXEC = (1, 244, 0xC1B100F4, 55804)
 SHIP_LIFECYCLE = (0xC1B100F4, 0xC1B10120, 0xC1B1014C)
 SHIP_TABLES = ((2, 0xC1B1DAF0), (3, 0xC1B1DAF8))
-SELECTED_MODULES = {
+SELECTED_MODULES = (168, 400)
+IKADA_SELECTED_MODULES = (60, 168, 400)
+APPROVED_MODULES = {
+    60: {'name': 'ikada', 'exec': (1, 244, 0xC15500F4, 22620),
+         'lifecycle': (0xC15500F4, 0xC1550120, 0xC155014C),
+         'tables': ((2, 0xC1555950), (3, 0xC1555958)), 'table_size': 8,
+         'ctor_return_pc': 0xC155010C, 'magic': b'IKADA60\0',
+         'section_count': 21, 'bss': (6, 0xC15581A0, 532)},
     168: {'name': 'ship', 'exec': SHIP_EXEC, 'lifecycle': SHIP_LIFECYCLE,
           'tables': SHIP_TABLES, 'table_size': 8, 'ctor_return_pc': 0xC1B1010C,
           'magic': b'SHIP168\0'},
@@ -20,9 +27,9 @@ SELECTED_MODULES = {
 
 
 def selected_module(module_id):
-    if module_id not in SELECTED_MODULES:
+    if module_id not in APPROVED_MODULES:
         raise ValueError('REL contract requires an approved selected module')
-    return SELECTED_MODULES[module_id]
+    return APPROVED_MODULES[module_id]
 
 
 def read_disc_member(path, module_id=168):
@@ -48,15 +55,16 @@ def read_disc_member(path, module_id=168):
             return yaz0(data), {'member': entry['path']}
         archives = [entry for entry in files if not entry['is_dir'] and entry['path'] == 'RELS.arc']
         if len(archives) != 1 or not 0 < archives[0]['size'] <= MAX_FILE:
-            raise ValueError('ship identity requires exactly one bounded RELS.arc')
+            raise ValueError(f'{name} identity requires exactly one bounded RELS.arc')
         stream.seek(archives[0]['offset'])
         archive = stream.read(archives[0]['size'])
         if len(archive) != archives[0]['size']:
-            raise ValueError('ship identity RELS.arc is truncated')
-    members = [(name, data) for name, data in rarc(archive)
-               if PurePosixPath(name).name == 'd_a_ship.rel']
+            raise ValueError(f'{name} identity RELS.arc is truncated')
+    basename = 'd_a_obj_ikada.rel' if module_id == 60 else 'd_a_ship.rel'
+    members = [(member, data) for member, data in rarc(archive)
+               if PurePosixPath(member).name == basename]
     if len(members) != 1:
-        raise ValueError('ship identity requires exactly one disc archive member d_a_ship.rel')
+        raise ValueError(f'{name} identity requires exactly one disc archive member {basename}')
     name, data = members[0]
     return yaz0(data), {'archive': 'RELS.arc', 'member': name}
 
@@ -78,6 +86,13 @@ def verify_layout(raw, sections, chunks, module_id=168):
     bss_size = sum(section['size'] for section in sections if not section['offset'])
     if bss_size != struct.unpack_from('>I', raw, 0x20)[0]:
         raise ValueError(f'{name} contract BSS size differs from its raw header')
+    if module_id == 60:
+        backed = [section['index'] for section in sections if section['size'] and section['offset']]
+        bss = [(section['index'], section['linked_start'], section['size'])
+               for section in sections if section['size'] and not section['offset']]
+        if (count != spec['section_count'] or backed != [1, 2, 3, 4, 5] or bss != [spec['bss']] or
+                any(not section['size'] and (section['offset'] or section['executable']) for section in sections)):
+            raise ValueError('ikada contract approved section/BSS layout mismatch')
     executable = [section for section in sections if section['executable'] and section['size']]
     if len(executable) != 1 or tuple(executable[0][key] for key in (
             'index', 'offset', 'linked_start', 'size')) != executable_layout:
@@ -186,7 +201,7 @@ def normal_contract(raw_dol, processed_rel, sections, chunks, dol_ranges, identi
     verify_layout(processed_rel, sections, chunks, module_id)
     verify_layout(identity_rel, sections, chunks, module_id)
     if module_id != 168 and canonical_input is None:
-        raise ValueError('selected title contract requires actual canonical emitter input')
+        raise ValueError(f'selected {module_name} contract requires actual canonical emitter input')
     if (len(identity_rel) != len(processed_rel) or identity_rel[:0x40] != processed_rel[:0x40] or
             identity_rel[0x44:] != processed_rel[0x44:]):
         raise ValueError(f'{module_name} identity and processed inputs differ outside header alignment word 0x40')
@@ -194,6 +209,8 @@ def normal_contract(raw_dol, processed_rel, sections, chunks, dol_ranges, identi
     identity_alignment = struct.unpack_from('>I', identity_rel, 0x40)[0]
     if processed_alignment != 4 or not identity_alignment or identity_alignment & (identity_alignment - 1):
         raise ValueError(f'{module_name} contract requires processed alignment 4 and a valid disc alignment')
+    if module_id == 60 and identity_alignment != 8:
+        raise ValueError('ikada contract requires original disc alignment 8')
     if not 0 < len(raw_dol) <= 0x800000:
         raise ValueError(f'{module_name} contract requires a bounded full raw DOL')
     canonical = relocate_ship(processed_rel, sections, dol_ranges, module_id)
@@ -301,19 +318,31 @@ def emit_contract(raw_dol, raw_rel, sections, canonical, build_identity, module_
     return '\n'.join(lines) + '\n'
 
 
-def producer_inputs(manifest_path, raw_dol, rel_bins, entries, identities):
+def unique_json_object(pairs):
+    result = {}
+    for key, value in pairs:
+        if key in result:
+            raise ValueError(f'duplicate producer provenance key: {key}')
+        result[key] = value
+    return result
+
+
+def producer_inputs(manifest_path, raw_dol, rel_bins, entries, identities, selected_ids=SELECTED_MODULES):
+    if selected_ids not in (SELECTED_MODULES, IKADA_SELECTED_MODULES):
+        raise ValueError('producer requires an approved bounded selection')
     path = Path(manifest_path)
-    manifest = json.loads(path.read_text())
+    manifest = json.loads(path.read_text(), object_pairs_hook=unique_json_object)
     if (manifest.get('version') != 1 or
             not re.fullmatch('[0-9a-f]{64}', manifest.get('producer_identity', ''))):
         raise ValueError('selected contract producer provenance header is invalid')
-    if set(manifest.get('modules', {})) != {'168', '400'}:
-        raise ValueError('producer provenance requires exactly selected modules 168 and 400')
+    if set(manifest.get('modules', {})) != {str(mid) for mid in selected_ids}:
+        label = '168 and 400' if selected_ids == SELECTED_MODULES else '60, 168 and 400'
+        raise ValueError(f'producer provenance requires exactly selected modules {label}')
     if manifest.get('dol_sha256') != hashlib.sha256(raw_dol).hexdigest():
         raise ValueError('selected contract producer DOL identity mismatch')
     captures = {}
     bindings = {}
-    for mid in sorted(SELECTED_MODULES):
+    for mid in selected_ids:
         item = manifest['modules'][str(mid)]
         if (item.get('raw_sha256') != hashlib.sha256(identities[mid]).hexdigest() or
                 item.get('processed_rel_sha256') != hashlib.sha256(rel_bins[mid]).hexdigest()):

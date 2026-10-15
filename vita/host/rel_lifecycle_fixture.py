@@ -55,7 +55,7 @@ def sdk_program(raw, resident=False, fixed=True):
             value = symbol + ((word(table + section * 8) & ~1) if module else 0)
             code.extend(load(5, value))
             if module:
-                code.append(0x7CA32A14)
+                code.append(0x7CA42A14 if word(table + section * 8) == 0 else 0x7CA32A14)
             if kind == 6:
                 code.extend([*load(6, 0x8000), 0x7CA53214, 0x54A5843E])
             if kind == 10:
@@ -107,7 +107,8 @@ def sdk_expected(raw, guest, previous, bss, next_image=0, fixed=True):
             patch += delta
             if kind == 201:
                 continue
-            value = symbol + (guest + (word(table + section * 8) & ~1) if module else 0)
+            value = symbol + ((guest + (word(table + section * 8) & ~1)
+                               if word(table + section * 8) else bss) if module else 0)
             if kind == 10:
                 put(patch, word(patch) & ~0x03FFFFFC | (value - guest - patch) & 0x03FFFFFC)
             elif kind in (4, 6):
@@ -119,6 +120,55 @@ def sdk_expected(raw, guest, previous, bss, next_image=0, fixed=True):
     if fixed:
         put(0x2C, 0)
     return expected
+
+
+def ikada_fixture(output, code):
+    pc = 0xC15500F4
+    words = [0x9421FFF0, 0x7C0802A6, 0x90010014, 0x3C60C155, 0x38630174,
+             branch(pc + 20, 0xC0241178), branch(pc + 24, 0xC02410B4),
+             0x80010014, 0x7C0803A6, 0x38210010, 0x4E800020] + [0x60000000] * 13
+    ctor = [0x3C80C156, 0x388481A0, 0x80A40000, 0x38A50001, 0x90A40000, 0x4E800020,
+            0x60000000, 0x60000000]
+    code[pc], code[pc + 96] = words, ctor
+    canonical = struct.pack('>32I', *(words + ctor))
+    raw = bytearray(1024)
+    for at, value in ((0, 60), (0xC, 21), (0x10, 0x4C), (0x1C, 3), (0x20, 532),
+                      (0x24, 0x1A0), (0x28, 0x190), (0x2C, 16), (0x38, 44), (0x3C, 88),
+                      (0x40, 8), (0x44, 8), (0x48, 0x190)):
+        struct.pack_into('>I', raw, at, value)
+    raw[0x30:0x33] = bytes([1, 1, 1])
+    sections = [(1, pc, 0xF4, 128), (2, 0xC1550174, 0x174, 8),
+                (3, 0xC155017C, 0x17C, 8), (4, 0xC1550184, 0x184, 4),
+                (5, 0xC1550188, 0x188, 4), (6, 0xC15581A0, 0, 532)]
+    for index, _, offset, size in sections:
+        struct.pack_into('>II', raw, 0x4C + index * 8, offset | int(index == 1), size)
+    raw[0xF4:0x174] = canonical
+    for at, value in ((0x100, 0x3C600000), (0x104, 0x38630000), (0x108, 0x48000001),
+                      (0x10C, 0x48000001), (0x154, 0x3C800000), (0x158, 0x38840000)):
+        struct.pack_into('>I', raw, at, value)
+    struct.pack_into('>4I', raw, 0x190, 60, 0x1A0, 0, 0x200)
+    entries = ((0, 202, 2, 0), (0, 1, 1, 96), (0, 202, 1, 0), (14, 6, 2, 0),
+               (4, 4, 2, 0), (80, 6, 6, 0), (4, 4, 6, 0), (0, 203, 0, 0))
+    for at, entry in enumerate(entries):
+        struct.pack_into('>HBBI', raw, 0x1A0 + at * 8, *entry)
+    for at, entry in enumerate(((0, 202, 1, 0), (20, 10, 0, 0x80241178),
+                                 (4, 10, 0, 0x802410B4), (0, 203, 0, 0))):
+        struct.pack_into('>HBBI', raw, 0x200 + at * 8, *entry)
+    (output / 'lifecycle_ikada.rel').write_bytes(raw)
+    lines = [f'static const u8 ikada_raw[] = {{{",".join(map(str, raw))}}};',
+             f'static const u8 ikada_code[] = {{{",".join(map(str, canonical))}}};',
+             'static const u8 ikada_ctors[] = {0xC1,0x55,0x01,0x54,0,0,0,0};',
+             'static const u8 ikada_dtors[8];', 'static const u8 ikada_data[4];',
+             'static const StaticRecompRelSection ikada_sections[] = {']
+    lines.extend(f'{{60u,{index}u,0x{address:08X}u,{size}u}},' for index, address, _, size in sections)
+    lines += ['};', 'static const BlueWakeRelData ikada_canonical[] = {']
+    for index, address, _, size in sections[:5]:
+        array = {1: 'ikada_code', 2: 'ikada_ctors', 3: 'ikada_dtors', 4: 'ikada_data', 5: 'ikada_data'}[index]
+        lines.append(f'{{60u,{index}u,0x{address:08X}u,{size}u,{array}}},')
+    lines.extend(['};', 'static const u64 ikada_hashes[] = {',
+                  f'0x{fnv(canonical[:96]):016X}ull,0x{fnv(canonical[96:]):016X}ull', '};'])
+    (output / 'ikada_fixture.inc').write_text('\n'.join(lines) + '\n')
+    return raw
 
 
 def fixture(output):
@@ -183,6 +233,12 @@ def fixture(output):
     sdk = sdk_program((output / 'ship.rel').read_bytes(), fixed=False)
     for at in range(0, len(sdk), 60):
         code[0x8000B800 + at * 4] = sdk[at:at + 60]
+    ikada = ikada_fixture(output, code)
+    code[0x80305424] = [0x80A30000, 0x2C05003C, 0x41820008,
+                       branch(0x80305430, 0x8000B800, False), branch(0x80305434, 0x8000D000, False)]
+    sdk = sdk_program(ikada, fixed=False)
+    for at in range(0, len(sdk), 60):
+        code[0x8000D000 + at * 4] = sdk[at:at + 60]
     sdk = sdk_program(raw)
     sdk[-1:-1] = [0x38600001]
     for at in range(0, len(sdk), 60):
@@ -215,7 +271,9 @@ def fixture(output):
                         ('ship_nonfixed', sdk_expected(ship, 0x81820100, 0x81820000, 0x807FF620, fixed=False)),
                         ('ship_nonfixed_with_title', sdk_expected(ship, 0x81820100, 0x81820000, 0x807FF620, 0x818325E0, fixed=False)),
                         ('ship_with_title', sdk_expected(ship, 0x81820100, 0x81820000, 0x807FF620, 0x818325E0)),
-                        ('title', sdk_expected(raw, 0x818325E0, 0x81820100, 0)), ('title_pristine', raw)):
+                         ('title', sdk_expected(raw, 0x818325E0, 0x81820100, 0)), ('title_pristine', raw),
+                         ('title_with_ikada', sdk_expected(raw, 0x818325E0, 0x81820100, 0, 0x818327E0)),
+                         ('ikada', sdk_expected(ikada, 0x818327E0, 0x818325E0, 0x807FE000, fixed=False))):
         lines.append(f'static const u64 lifecycle_expected_{name}_hash=0x{fnv(value):016X}ull;')
     lines.append('static const StaticRecompRange lifecycle_ranges[] = { {0x80240744u,0x80240748u},')
     lines.extend(f'{{0x{address & ~0x40000000 if address < 0xC1000000 else address:08X}u,'
