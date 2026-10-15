@@ -2,6 +2,9 @@
 #define BLUEWAKE_COMPOSITE_DISPATCH_LOOP_H
 
 #include "edge_intercept_abi.h"
+#if WW05_OBSERVE_NATIVE_CTX
+#include "native_ctx.h"
+#endif
 #if defined(BLUEWAKE_DIRECT_CALLS)
 #include "direct_calls.h"
 #endif
@@ -39,11 +42,17 @@ __attribute__((always_inline))
 static inline int bluewake_chassis_dispatch_loop(
     CPUState* ctx, u32 address, BluewakeCompositeDispatchFn dispatch,
     BluewakeEdgeServiceFn edge_service, void* service_user) {
+#if WW05_OBSERVE_NATIVE_CTX
+    ww_native_trace_boundary(ctx, WW_NATIVE_DISPATCH_ENTER);
+#endif
     if (ctx == NULL || dispatch == NULL)
         return bluewake_chassis_return(0);
 
     s64 prior_downcount = ctx->downcount;
     int dispatched = dispatch(ctx, address);
+#if WW05_OBSERVE_NATIVE_CTX
+    ww_native_trace_boundary(ctx, WW_NATIVE_DISPATCH_RETURN);
+#endif
     if (!dispatched || edge_service == NULL)
         return bluewake_chassis_return(dispatched);
     if (ctx->downcount >= prior_downcount)
@@ -65,11 +74,21 @@ static inline int bluewake_chassis_dispatch_loop(
         skip_edge = bw_edge_filter_enabled && bw_edge_watch_ready &&
                     bw_edge_unwatched(address) && bw_direct_call_ready(ctx, address);
 #endif
+#if WW05_OBSERVE_NATIVE_CTX
+        ww_native_trace_boundary(ctx, WW_NATIVE_EDGE_ENTER);
+        const bool native_edge_stopped = !skip_edge && edge_service(service_user, ctx, address);
+        ww_native_trace_boundary(ctx, WW_NATIVE_EDGE_RETURN);
+        if (native_edge_stopped)
+#else
         if (!skip_edge && edge_service(service_user, ctx, address))
+#endif
             return bluewake_chassis_return(1);
 
         prior_downcount = ctx->downcount;
         dispatched = dispatch(ctx, address);
+#if WW05_OBSERVE_NATIVE_CTX
+        ww_native_trace_boundary(ctx, WW_NATIVE_DISPATCH_RETURN);
+#endif
         if (!dispatched)
             return bluewake_chassis_return(1);
         if (ctx->downcount >= prior_downcount) {

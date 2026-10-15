@@ -1,4 +1,7 @@
 #include "boot_host.h"
+#if WW05_OBSERVE_NATIVE_CTX
+#include "native_ctx.h"
+#endif
 
 #define WW_REL_CALLER_SUCCESSOR 0x80240EE8u
 
@@ -113,6 +116,10 @@ static const char* boundary(WwHost* host, u32 address) {
                 return "REL prolog return trace failed";
             pending->image->initialization_completed = true;
             pending->phase = WW_REL_INIT_RETURN_READY;
+#if WW05_OBSERVE_NATIVE_CTX
+            if (pending->module_id == 400u)
+                ww_native_arm_title(pending->module_id);
+#endif
         }
         return NULL;
     }

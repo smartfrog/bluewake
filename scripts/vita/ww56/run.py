@@ -66,6 +66,9 @@ from headroom import (DEFAULT_GUEST_BUDGET_BYTES, DEFAULT_GUEST_HEADROOM_BYTES, 
                       DEFAULT_INSTALL_BUDGET_BYTES, DEFAULT_INSTALL_HEADROOM_BYTES,
                       headroom_decision, parse_mem_available)
 from journal import IncrementalLog, count_marker_lines  # noqa: E402
+from native_context import NativeContextWindow  # noqa: E402
+from native_artifacts import verify_receipt as verify_native_artifacts  # noqa: E402
+from native_trace import decode as decode_native_trace  # noqa: E402
 from snapshot import capture_snapshot  # noqa: E402
 from stop_rules import StopState, evaluate_stop, is_failure  # noqa: E402
 from trigger_events import PRESENT_MARKER, OneShotTriggerScanner  # noqa: E402
@@ -206,6 +209,10 @@ def check_launcher(args):
 
 
 def check_inputs(args):
+    if getattr(args, 'native_context_artifacts', None) is not None:
+        receipt = verify_native_artifacts(args.native_context_artifacts, args.guest_source)
+        if receipt['artifacts']['ww05.vpk']['identity']['sha256'] != args.vpk_sha256:
+            raise ValueError('candidate VPK differs from preserved observation artifacts')
     identities = {'vpk': file_identity(args.vpk), 'runtime': file_identity(args.runtime),
                   'disc': file_identity(args.disc)}
     for label, identity, expected in (('vpk', identities['vpk'], args.vpk_sha256),
@@ -303,6 +310,10 @@ def stage_trial(args):
 
 
 def verify_trial_inputs(runroot, plan, args):
+    if getattr(args, 'native_context_artifacts', None) is not None:
+        receipt = verify_native_artifacts(args.native_context_artifacts, args.guest_source)
+        if receipt['artifacts']['ww05.vpk']['identity']['sha256'] != args.vpk_sha256:
+            raise ValueError('candidate VPK differs from preserved observation artifacts')
     if git_head(ROOT) != args.expected_head or not git_clean(ROOT):
         raise ValueError('launcher worktree must stay clean at the reviewed head ' + args.expected_head)
     pinned_sources()
@@ -393,6 +404,8 @@ class PhaseWatch:
         self.readers = {str(path): IncrementalLog(path) for path in self._log_paths()}
         self.idle = ProcessIdleObserver(args.hang_seconds, 0.05, tuple(self._log_paths()), 0)
         self.scanner = OneShotTriggerScanner()
+        self.native_context = NativeContextWindow()
+        self.native_expected = name == 'guest' and getattr(args, 'native_context_artifacts', None) is not None
         self.stop_state = StopState(ceiling_seconds=deadline,
                                     present_grace_seconds=args.present_grace_seconds,
                                     rel_settle_seconds=args.rel_settle_seconds,
@@ -457,6 +470,10 @@ class PhaseWatch:
         return lines, journal
 
     def _ingest(self, now, lines, journal):
+        self.native_context.feed(journal, now=now, wall=time.time())
+        if self.native_expected or self.native_context.events or self.native_context.error:
+            self.state['native_context'] = self.native_context.receipt()
+            self.stop_state.ceiling_seconds = min(self.stop_state.ceiling_seconds, 180)
         events = parse_frame_events(journal).presents
         if events:
             if self.state['presentations']:
@@ -495,6 +512,8 @@ class PhaseWatch:
     def _observe_frontier(self, now, lines, journal):
         self._ingest(now, lines, journal)
         stop = evaluate_stop(self.stop_state, now=now, failure_lines=self.failure_lines)
+        if stop is None:
+            stop = self.native_context.stop(now)
         if stop is None and self.ready_probe is not None and self.ready_probe():
             stop = {'stop_reason': 'installed_payload', 'payload': verify_installed(self.runroot, self.plan)}
         return stop
@@ -504,6 +523,16 @@ class PhaseWatch:
         lines, journal = self._read_logs()
         self.new_lines += len(lines)
         self._ingest(now, lines, journal)
+        if self.native_expected or self.native_context.events or self.native_context.error:
+            path = self.runroot / REPORT_DIRECTORY / 'ww117-native-ctx.bin'
+            try:
+                if path.stat().st_size > 593920:
+                    raise ValueError('native-context trace exceeds its fixed file bound')
+                decoded = decode_native_trace(path.read_bytes())
+                self.state['native_context']['trace'] = {
+                    key: value for key, value in decoded.items() if key != 'rolling'}
+            except (FileNotFoundError, ValueError) as error:
+                self.state['native_context']['trace'] = {'coverage': 'inconclusive', 'error': str(error)}
         if self.state.get('presentations_at_stop') is None:
             self.state['presentations_at_stop'] = len(self.state['presentations'])
         self.drain_count += 1
@@ -754,6 +783,8 @@ def parse_arguments():
     parser.add_argument('--runtime-sha256', type=sha256_argument, default=RUNTIME_SHA256)
     parser.add_argument('--guest-source', type=head_argument, required=True,
                         help='guest build source identity for the private ww05.request')
+    parser.add_argument('--native-context-artifacts', type=Path,
+                        help='private preserved ELF receipt for a trace-only observation build; verified before exec')
     parser.add_argument('--disc', type=Path, required=True)
     parser.add_argument('--disc-sha256', type=sha256_argument, required=True)
     parser.add_argument('--wayland-socket', type=Path, required=True)

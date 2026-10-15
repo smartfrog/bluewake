@@ -4,6 +4,9 @@
 #include "dvd_file_info.h"
 #include "callback_delivery.h"
 #include "scheduler_contract.h"
+#if WW05_OBSERVE_NATIVE_CTX
+#include "native_ctx.h"
+#endif
 
 const char* ww_host_disc_ready(WwHost* host) {
     if (!host->disc_owned) {
@@ -85,6 +88,9 @@ static void dvd_read_edge(WwHost* host, u32 address) {
         ww_host_fail(host, error, error_address, address);
         return;
     }
+#if WW05_OBSERVE_NATIVE_CTX
+    ww_native_dvd_read(file_info, length);
+#endif
     if (deferred) {
         const BluewakeDvdCompletion completion = {
             .ready_cycle = host->cycles.absolute_cycles + WW_DVD_CALLBACK_DELAY_CYCLES,
@@ -221,6 +227,9 @@ bool ww_host_dvd_edge(WwHost* host, u32 address) {
                 cpu->gpr[3] = (u32)entry;
             else
                 cpu->gpr[3] = host_dvd_fill_file_info(cpu, entry, file_info) ? 1u : 0u;
+#if WW05_OBSERVE_NATIVE_CTX
+            ww_native_dvd_open(entry_only, fast, path, entry, file_info, cpu->gpr[3] != 0u);
+#endif
             cpu->pc = cpu->lr;
         }
     }

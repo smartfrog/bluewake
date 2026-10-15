@@ -12,6 +12,9 @@
 #include "gxruntime/dvd.h"
 #include "ww05_dsp_init.h"
 #include "guest_timing.h"
+#if WW05_OBSERVE_NATIVE_CTX
+#include "native_ctx.h"
+#endif
 
 #include <string.h>
 #include <stdlib.h>
@@ -982,7 +985,11 @@ static bool observed_vector_matches(const CPUState* cpu, const WwObservedVector*
 void __real_ppc_rfi(CPUState* cpu, u32 cia);
 
 void __wrap_ppc_rfi(CPUState* cpu, u32 cia) {
+#if WW05_OBSERVE_NATIVE_CTX
+    WwHost* host = cpu->host_call == ww_native_host_call ? owner(cpu) : NULL;
+#else
     WwHost* host = cpu->host_call == host_call ? owner(cpu) : NULL;
+#endif
     const bool suspended = host != NULL && host->rel_pending_init.phase == WW_REL_INIT_RETURN_SUSPENDED;
     const WwObservedVector* vector = suspended ? observed_vector(cia) : NULL;
     const bool vector_handoff = vector != NULL &&
@@ -1072,6 +1079,9 @@ u64 ww_host_end_dispatch(WwHost* host) {
 }
 
 int ww_host_dispatch(WwHost* host, u32 address) {
+#if WW05_OBSERVE_NATIVE_CTX
+    ww_native_trace_boundary(host, WW_NATIVE_OUTER_DISPATCH);
+#endif
     if (host == NULL)
         return 0;
     CPUState* cpu = &host->cpu;
@@ -1142,6 +1152,9 @@ bool ww_host_init(WwHost* host) {
     host->cpu.cache_control = cache_control;
     host->cpu.instruction_fallback = fallback;
     host->cpu.host_call = host_call;
+#if WW05_OBSERVE_NATIVE_CTX
+    ww_native_install(host, &host->cpu);
+#endif
     host->decrementer = UINT32_MAX;
     ww_bat_init(&host->bat);
     host->decrementer_valid = true;
@@ -1166,6 +1179,9 @@ bool ww_host_init(WwHost* host) {
 }
 
 void ww_host_shutdown(WwHost* host) {
+#if WW05_OBSERVE_NATIVE_CTX
+    ww_native_close();
+#endif
     ww_host_rel_lifecycle_revoke(host);
     free(host->rel_profile_block.raw);
     memset(&host->rel_profile_block, 0, sizeof(host->rel_profile_block));
