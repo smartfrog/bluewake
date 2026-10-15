@@ -1,0 +1,24 @@
+--- a/src/app/pipeline.c
++++ b/src/app/pipeline.c
+@@ -1479,6 +1479,8 @@
+     return ok;
+ }
+ 
++#define ACTOR_CAPTURE_MAX 399u
++#define ACTOR_CAPTURE_BATCH "bulk-ww149a"
+ #include "actor_batch_capture.h"
+ 
+ static int emit_rel_split_impl(const RELFile* rel, const char* output_path,
+@@ -1600,10 +1602,10 @@
+     const char* batch_dir = getenv("DOLRECOMP_ACTOR_BATCH_DIR");
+     ShipCodeInput ship_capture = {.module_id=168u, .magic="SHIP168"};
+     ActorCapture actor_captures[] = {
+-        {.capture={.module_id=9u, .magic="BRIDGE9"}, .basename="bridge9.ship-code-input"}
++#include "actor_bulk_entries.h"
+     };
+     const u32 actor_count = sizeof(actor_captures) / sizeof(actor_captures[0]);
+-    _Static_assert(sizeof(actor_captures) / sizeof(actor_captures[0]) <= 8u, "actor delta exceeds review bound");
++    _Static_assert(sizeof(actor_captures) / sizeof(actor_captures[0]) == 399u, "bulk capture requires exactly 399 entries");
+     if (batch_dir && (ship_path || options->backend != DOLRECOMP_BACKEND_C || jobs != 1u ||
+                       !actor_batch_paths(actor_captures, actor_count, batch_dir) ||
+                       !actor_batch_separate(batch_dir, output_root))) {

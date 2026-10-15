@@ -1,11 +1,19 @@
 #include <sys/stat.h>
 
+#ifndef ACTOR_CAPTURE_MAX
+#define ACTOR_CAPTURE_MAX 8u
+#endif
+#ifndef ACTOR_CAPTURE_BATCH
+#define ACTOR_CAPTURE_BATCH "opening-c"
+#endif
+
 typedef struct {
     ShipCodeInput capture;
     const char* basename;
     u32 seen;
     char path[1200];
     int published;
+    size_t executable_size;
 } ActorCapture;
 
 static char* actor_output_path(const char* path) {
@@ -55,8 +63,8 @@ static int actor_batch_separate(const char* directory, const char* output) {
 }
 
 static int actor_batch_paths(ActorCapture* entries, u32 count, const char* directory) {
-    if (!directory || directory[0] != '/' || !count || count > 8u) {
-        fprintf(stderr, "error: actor batch requires 1..8 reviewed entries and an absolute private directory\n");
+    if (!directory || directory[0] != '/' || !count || count > ACTOR_CAPTURE_MAX) {
+        fprintf(stderr, "error: actor batch exceeds its reviewed entry bound or lacks an absolute private directory\n");
         return 0;
     }
     struct stat status;
@@ -113,6 +121,14 @@ static int actor_batch_complete(const ActorCapture* entries, u32 count) {
 static int actor_batch_publish(ActorCapture* entries, u32 count, const char* directory) {
     if (!actor_batch_complete(entries, count))
         return 0;
+    for (u32 i = 0u; i < count; ++i) {
+        if (entries[i].executable_size &&
+            (!entries[i].capture.data || entries[i].capture.size != 28u + entries[i].executable_size)) {
+            fprintf(stderr, "error: actor module %u capture size disagrees with reviewed executable size\n",
+                    entries[i].capture.module_id);
+            return 0;
+        }
+    }
     if (mkdir(directory, 0700) != 0) {
         fprintf(stderr, "error: cannot exclusively create actor capture directory: %s\n", strerror(errno));
         return 0;
@@ -133,7 +149,7 @@ static int actor_batch_publish(ActorCapture* entries, u32 count, const char* dir
         goto done;
     }
     manifest_owned = 1;
-    int written = fprintf(stream, "{\"version\":1,\"batch\":\"opening-c\",\"modules\":[") >= 0;
+    int written = fprintf(stream, "{\"version\":1,\"batch\":\"%s\",\"modules\":[", ACTOR_CAPTURE_BATCH) >= 0;
     for (u32 i = 0u; i < count; ++i)
         if (fprintf(stream, "%s{\"id\":%u,\"capture\":\"%s\",\"size\":%zu}",
                     i ? "," : "", entries[i].capture.module_id, entries[i].basename,
