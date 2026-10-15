@@ -354,7 +354,7 @@ def main():
     ap.add_argument('--selected-rel-provenance', help='Opt-in actual ship/title emitter-input binding manifest')
     ap.add_argument('--title-rel-sha256', help='Required original loose title identity pin for selected certificates')
     ap.add_argument('--ikada-rel-sha256', help='Opt in to the fixed 60/168/400 selection with this original ikada identity pin')
-    ap.add_argument('--actor-rel-batch', help='Reviewed immutable actor selection (opening-a, opening-b, opening-c or opening-d)')
+    ap.add_argument('--actor-rel-batch', help='Reviewed immutable actor selection (opening-a, opening-b, opening-c, opening-d or bulk)')
     ap.add_argument("--game-id", default="GZLE01")
     ap.add_argument("--output-dir", required=True)
     args = ap.parse_args()
@@ -490,11 +490,13 @@ def main():
             raise ValueError('ikada disc-member identity SHA-256 mismatch')
         selected_identities[60] = ikada_identity
     if batch_selected:
+        originals = ship_contract.read_disc_members(args.ship_disc,
+            tuple(mid for mid in selected_ids if mid not in selected_identities))
         for mid in selected_ids:
             if mid in selected_identities:
                 continue
             spec = ship_contract.selected_module(mid)
-            raw, _ = ship_contract.read_disc_member(args.ship_disc, mid)
+            raw, _ = originals[mid]
             processed = rel_bin_cache.get(mid)
             if processed is None:
                 raise ValueError(f'selected contract requires raw module {mid}')

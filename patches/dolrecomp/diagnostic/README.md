@@ -74,3 +74,41 @@ Inherited magic bytes and capture files are not rewritten. Capture bytes must
 then pass independent strict metadata/EOF and original/processed replay checks;
 a mismatch is a hard failure, never repaired or normalized. This is private
 producer evidence only, not a certificate or game/runtime qualification.
+
+## WW149B bulk consumer
+
+`--actor-rel-batch bulk` selects exactly **405 certificates**: IDs 1..415 minus
+`{1,26,46,129,188,189,214,224,276,379}`. Profile 1 keeps its resident contract;
+the other nine exclusions still require a separate foreign-dependency contract.
+The full producer input directory is never reduced. All earlier selections,
+including ship-only, pair, triple and opening-a through opening-d, keep their
+original bytes and identities.
+
+The inherited seven are `{9,19,60,81,84,168,400}`. The consumer uses **398** of
+WW149A's 399 captures: module 81 keeps its opening-d `TPOST81` certificate and
+pin, never a second `REL00081` certificate. Both publication directories and
+their exact completion receipts remain required; the bulk completion receipt
+still names all 399 acquisitions, including its independently captured 81.
+
+`scripts/bulk_rel_catalog.json` contains immutable metadata for the 398 new rows.
+Reproduce it from the pinned spec with `scripts/generate_bulk_rel_catalog.py
+SPEC.json OUTPUT.json`. Every original/processed identity, original alignment,
+section/BSS layout, independent ctor/dtor size, walker successor and executable
+chunk is checked. Disc reading covers both archived and loose members. Large
+BSS stays an unbacked null-byte export, never capture or certificate payload.
+`scripts/generate_bulk_actor_policy.py GENERATION_RECEIPT.json OUTPUT.inc`
+reproduces the source-owned exact certificate/SDK table.
+
+The existing **default-OFF** `WW05_ENABLE_ACTOR_BATCH_CONTRACTS` option now admits
+this one exact bulk set, not opening-d, a subset, or every registered module.
+Explicit ship/title/ikada prerequisites, full-set/DOL and per-member pin checks,
+duplicate refusal and all-or-nothing startup admission remain mandatory before
+materialization. There are 402 actor rows: 242 `OWNER_PUBLISHED` and 160
+`CERTIFIED_INLINE_ZERO`; ship/ikada/title retain their existing special forms
+(title remains `TITLE_INLINE_ZERO`, not an actor inline record). The policy's
+FNV identity binds the table and is distinct from both the aggregate certificate
+identity and the composite tree digest. No allocator, SDK input-form, lifecycle,
+destructor or runtime-support authority is broadened. Admission is not proof of
+initialization, gameplay or platform qualification; a separate watched trial is
+still required. With the option OFF, the existing host layout and code remain
+unchanged.

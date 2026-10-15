@@ -292,7 +292,7 @@ class SelectedContracts(unittest.TestCase):
 
     def test_unselected_module_refused(self):
         with self.assertRaisesRegex(ValueError, 'selected module'):
-            sc.normal_contract(b'', b'', [], [], [], b'', module_id=401)
+            sc.normal_contract(b'', b'', [], [], [], b'', module_id=379)
 
     def test_title_changed_lifecycle_refused(self):
         for suffix in ('rels_bin/0400.rel', 'input/title-disc.rel'):

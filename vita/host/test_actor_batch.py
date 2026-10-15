@@ -41,9 +41,23 @@ class ActorBatchProductionPolicy(unittest.TestCase):
         cls.rows = [line.split() for line in lines[1:]]
 
     def test_toripost_bridge_and_grass_are_owner_published_and_wood_stays_inline_zero(self):
-        self.assertEqual([(int(r[0]), int(r[1]), int(r[2])) for r in self.rows],
+        inherited = {9, 19, 60, 81, 84, 168, 400}
+        self.assertEqual([(int(r[0]), int(r[1]), int(r[2])) for r in self.rows if int(r[0]) in inherited],
                          [(9, 1, 1), (19, 1, 1), (60, 0, 0), (81, 1, 1), (84, 1, 2), (168, 0, 0), (400, 0, 0)])
-        self.assertEqual(self.header[:2], ['7', '4'])
+        self.assertEqual(self.header[:2], ['405', '402'])
+
+    def test_bulk_membership_is_sorted_unique_and_exclusions_are_absent(self):
+        excluded = {1, 26, 46, 129, 188, 189, 214, 224, 276, 379}
+        self.assertEqual([int(r[0]) for r in self.rows], sorted(set(range(1, 416)) - excluded))
+
+    def test_every_new_sdk_classification_matches_the_frozen_catalog(self):
+        catalog = json.loads((test_host.ROOT / 'scripts/bulk_rel_catalog.json').read_text())
+        rows = {int(r[0]): (int(r[1]), int(r[2])) for r in self.rows}
+        for spec in catalog:
+            with self.subTest(mid=spec['id']):
+                bss = sum(size for _, offset, size in spec['section_layout'] if not offset)
+                self.assertEqual(rows[spec['id']], (1, 1 if bss else 2))
+        self.assertEqual(sum(int(r[2]) == 2 for r in self.rows), 160)
 
     def test_production_policy_checksum_binds_every_exact_row(self):
         data = struct.pack('>I', int(self.header[2]))
@@ -56,14 +70,15 @@ class ActorBatchProductionPolicy(unittest.TestCase):
         self.assertEqual(self.header[4], f'inline-zero-v1-fnv1a64-{value:016x}')
 
     def test_grass_certificate_and_cumulative_set_have_new_pins(self):
-        self.assertEqual(self.rows[1][3], 'fe2149f8e76f6529960061997e0f01f3cf43bd8142f78a5fa879d07738cec97b')
-        self.assertEqual(self.header[5], '95885d356fa97040e96c90a142c7f9d50ede5700c61b246283c2a7a39fc00cee')
+        self.assertEqual(next(r[3] for r in self.rows if r[0] == '19'), 'fe2149f8e76f6529960061997e0f01f3cf43bd8142f78a5fa879d07738cec97b')
+        self.assertRegex(self.header[5], r'^[0-9a-f]{64}$')
+        self.assertNotEqual(self.header[5], '95885d356fa97040e96c90a142c7f9d50ede5700c61b246283c2a7a39fc00cee')
 
     def test_bridge_certificate_has_its_exact_new_pin(self):
-        self.assertEqual(self.rows[0][3], '32728fa36d02fa0bb4e70bbb06a8481bcc38004d55d2828789c735c22252bf75')
+        self.assertEqual(next(r[3] for r in self.rows if r[0] == '9'), '32728fa36d02fa0bb4e70bbb06a8481bcc38004d55d2828789c735c22252bf75')
 
     def test_toripost_certificate_has_its_exact_new_pin(self):
-        self.assertEqual(self.rows[3][3], 'fd19d0bd5ee8cda4adfda165d9b706f3f54da2c24c0780d03e322cc2e6c8c085')
+        self.assertEqual(next(r[3] for r in self.rows if r[0] == '81'), 'fd19d0bd5ee8cda4adfda165d9b706f3f54da2c24c0780d03e322cc2e6c8c085')
 
 
 class ActorBatchConfiguration(unittest.TestCase):

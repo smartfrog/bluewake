@@ -72,6 +72,30 @@ APPROVED_MODULES = {
 }
 
 
+def load_bulk_catalog():
+    rows = json.loads(Path(__file__).with_name('bulk_rel_catalog.json').read_text())
+    expected = tuple(mid for mid in range(1, 416) if mid not in
+                     (1, 9, 19, 26, 46, 60, 81, 84, 129, 168, 188, 189, 214, 224, 276, 379, 400))
+    if tuple(row['id'] for row in rows) != expected:
+        raise ValueError('bulk catalog requires exactly 398 ordered new modules')
+    result = {}
+    for row in rows:
+        spec = row.copy()
+        mid = spec.pop('id')
+        spec['magic'] = bytes.fromhex(spec.pop('magic_hex'))
+        for key in ('exec', 'lifecycle', 'table_sizes'):
+            spec[key] = tuple(spec[key])
+        for key in ('tables', 'section_layout'):
+            spec[key] = tuple(map(tuple, spec[key]))
+        result[mid] = spec
+    return result
+
+
+APPROVED_MODULES.update(load_bulk_catalog())
+ACTOR_BATCHES['bulk'] = tuple(sorted(APPROVED_MODULES))
+ACTOR_CAPTURE_GROUPS['bulk-ww149a'] = tuple(sorted(set(ACTOR_BATCHES['bulk']) - {9, 19, 60, 84, 168, 400}))
+
+
 def selected_module(module_id):
     if module_id not in APPROVED_MODULES:
         raise ValueError('REL contract requires an approved selected module')
@@ -79,42 +103,57 @@ def selected_module(module_id):
 
 
 def read_disc_member(path, module_id=168):
+    return read_disc_members(path, (module_id,))[module_id]
+
+
+def read_disc_members(path, module_ids):
     import prepare
     from wwhd.formats import MAX_FILE, rarc, yaz0
 
-    spec = selected_module(module_id)
-    name = spec['name']
+    specs = {mid: selected_module(mid) for mid in module_ids}
+    result = {}
+    archive_members = None
     with open(path, 'rb') as stream:
         header = prepare.validate_disc_header(stream)
         if header['revision'] != 0:
-            raise ValueError(f'{name} identity requires GZLE01 revision 0')
+            raise ValueError('selected identity requires GZLE01 revision 0')
         files = prepare.read_fst(stream, header['fst_offset'], header['fst_size'])
-        if module_id == 400:
-            members = [entry for entry in files if not entry['is_dir'] and entry['path'] == 'rels/d_a_title.rel']
-            if len(members) != 1 or not 0 < members[0]['size'] <= MAX_FILE:
-                raise ValueError('title identity requires exactly one bounded loose disc member')
-            entry = members[0]
-            stream.seek(entry['offset'])
-            data = stream.read(entry['size'])
-            if len(data) != entry['size']:
-                raise ValueError('title identity disc member is truncated')
-            return yaz0(data), {'member': entry['path']}
-        archives = [entry for entry in files if not entry['is_dir'] and entry['path'] == 'RELS.arc']
-        if len(archives) != 1 or not 0 < archives[0]['size'] <= MAX_FILE:
-            raise ValueError(f'{name} identity requires exactly one bounded RELS.arc')
-        stream.seek(archives[0]['offset'])
-        archive = stream.read(archives[0]['size'])
-        if len(archive) != archives[0]['size']:
-            raise ValueError(f'{name} identity RELS.arc is truncated')
-    basename = spec['basename']
-    members = [(member, data) for member, data in rarc(archive)
-               if PurePosixPath(member).name == basename]
-    if len(members) != 1:
-        raise ValueError(f'{name} identity requires exactly one disc archive member {basename}')
-    name, data = members[0]
-    if 'stored_sha256' in spec and hashlib.sha256(data).hexdigest() != spec['stored_sha256']:
-        raise ValueError(f'{spec["name"]} stored disc-member identity SHA-256 mismatch')
-    return yaz0(data), {'archive': 'RELS.arc', 'member': name}
+        for mid, spec in specs.items():
+            name = spec['name']
+            loose = mid == 400 or spec.get('source_kind') == 'loose'
+            if loose:
+                member = 'rels/d_a_title.rel' if mid == 400 else spec['member']
+                entries = [entry for entry in files if not entry['is_dir'] and entry['path'] == member]
+                if len(entries) != 1 or not 0 < entries[0]['size'] <= MAX_FILE:
+                    raise ValueError(f'{name} identity requires exactly one bounded loose disc member')
+                entry = entries[0]
+                stream.seek(entry['offset'])
+                data = stream.read(entry['size'])
+                if len(data) != entry['size']:
+                    raise ValueError(f'{name} identity disc member is truncated')
+                source = {'member': member}
+            else:
+                if archive_members is None:
+                    archives = [entry for entry in files if not entry['is_dir'] and entry['path'] == 'RELS.arc']
+                    if len(archives) != 1 or not 0 < archives[0]['size'] <= MAX_FILE:
+                        raise ValueError(f'{name} identity requires exactly one bounded RELS.arc')
+                    stream.seek(archives[0]['offset'])
+                    archive = stream.read(archives[0]['size'])
+                    if len(archive) != archives[0]['size']:
+                        raise ValueError(f'{name} identity RELS.arc is truncated')
+                    archive_members = list(rarc(archive))
+                members = [(member, data) for member, data in archive_members
+                           if PurePosixPath(member).name == spec['basename']]
+                if len(members) != 1:
+                    raise ValueError(f'{name} identity requires exactly one disc archive member {spec["basename"]}')
+                member, data = members[0]
+                source = {'archive': 'RELS.arc', 'member': member}
+            if 'member' in spec and source['member'] != spec['member']:
+                raise ValueError(f'{name} disc-member path mismatch')
+            if 'stored_sha256' in spec and hashlib.sha256(data).hexdigest() != spec['stored_sha256']:
+                raise ValueError(f'{name} stored disc-member identity SHA-256 mismatch')
+            result[mid] = yaz0(data), source
+    return result
 
 
 def verify_layout(raw, sections, chunks, module_id=168):
@@ -274,6 +313,8 @@ def normal_contract(raw_dol, processed_rel, sections, chunks, dol_ranges, identi
         raise ValueError(f'{module_name} contract requires processed alignment 4 and a valid disc alignment')
     if module_id in (9, 19, 60, 81, 84) and identity_alignment != 8:
         raise ValueError(f'{module_name} contract requires original disc alignment 8')
+    if 'image_alignment' in spec and identity_alignment != spec['image_alignment']:
+        raise ValueError(f'{module_name} contract original disc alignment mismatch')
     if not 0 < len(raw_dol) <= 0x800000:
         raise ValueError(f'{module_name} contract requires a bounded full raw DOL')
     canonical = relocate_ship(processed_rel, sections, dol_ranges, module_id)
@@ -446,12 +487,25 @@ def verify_batch_completion(manifest_path, batch_name):
         groups.setdefault(group, {})[mid] = capture
     for group, captures in groups.items():
         members = ACTOR_CAPTURE_GROUPS[group]
-        if not 0 < len(members) <= 8 or set(captures) != set(members):
+        selected_members = set(members) - ({81} if group == 'bulk-ww149a' else set())
+        limit = 399 if group == 'bulk-ww149a' else 8
+        if not 0 < len(members) <= limit or set(captures) != selected_members:
             raise ValueError('actor batch requires every member of each reviewed capture group')
         directories = {capture.parent.resolve(strict=True) for capture in captures.values()}
         if len(directories) != 1:
             raise ValueError('actor capture group requires one complete owned publication directory')
         directory, = directories
+        if group == 'bulk-ww149a':
+            captures[81] = directory / 'd_a_obj_toripost-81.ship-code-input'
+            expected_size = 28 + selected_module(81)['exec'][3]
+            if (captures[81].stat().st_size != expected_size or
+                    groups['opening-d'][81].stat().st_size != expected_size):
+                raise ValueError('bulk toripost publication has an invalid bounded capture size')
+            bulk_toripost = captures[81].read_bytes()
+            inherited_toripost = groups['opening-d'][81].read_bytes()
+            if (bulk_toripost[:8] != b'REL00081' or inherited_toripost[:8] != b'TPOST81\0' or
+                    bulk_toripost[8:] != inherited_toripost[8:]):
+                raise ValueError('bulk toripost publication differs from its inherited canonical capture')
         expected = [{'id': mid, 'capture': captures[mid].name, 'size': captures[mid].stat().st_size}
                     for mid in members]
         completion = json.loads((directory / 'complete.json').read_text(), object_pairs_hook=unique_json_object)
