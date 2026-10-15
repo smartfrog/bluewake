@@ -79,6 +79,7 @@ typedef struct WwHost {
 #endif
     WwRelPendingInit rel_pending_init;
     WwRelProfileBlock rel_profile_block;
+    WwRelBlock rel_title_block;
     WwDspInterface dsp;
     WwBatContract bat;
     const StaticRecompModuleDesc* module;

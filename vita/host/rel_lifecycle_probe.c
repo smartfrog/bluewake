@@ -269,6 +269,8 @@ static void run_call(WwHost* host, u32 owner, const char* name) {
     cpu->gpr[13] = 0x80400000u;
     cpu->lr = 0x80001004u;
     cpu->pc = 0x80240EA0u;
+    if (ww_host_rel_profile_enabled(host) && !(is("title-catalog-id") && strcmp(name, "d_a_title") == 0))
+        cpu->pc = strcmp(name, "d_a_ship") == 0 ? 0x80240B80u : 0x80240B40u;
     cpu->msr = PPC_MSR_FP | PPC_MSR_EE | PPC_MSR_POW;
     for (u32 turn = 0u; turn < 128u && cpu->pc != 0x80001004u && host->error == NULL; ++turn) {
         ww_host_end_dispatch(host);
@@ -421,7 +423,8 @@ int main(int argc, char** argv) {
     assert(host->error == NULL && host->cpu.pc == 0x80001004u);
     neighbor = ww_host_rel_live(host, 168u);
     assert(neighbor != NULL && neighbor->initialization_completed);
-    assert(neighbor->guest == 0x81820100u && neighbor->raw_hash == lifecycle_expected_ship_hash);
+    assert(neighbor->guest == 0x81820100u && neighbor->raw_hash ==
+        (resident ? lifecycle_expected_ship_nonfixed_hash : lifecycle_expected_ship_hash));
     assert(mem_read32(&host->cpu, 0xC1B224D0u) == 2u && mem_read32(&host->cpu, 0x80005000u) == 1u + (u32)resident);
     assert(host->rel_pending_init.phase == WW_REL_INIT_NONE && host->rel_constructor_owner == 0u);
     scenario = requested;
@@ -524,7 +527,9 @@ int main(int argc, char** argv) {
     assert(selected->linked && !selected->unlinked && neighbor->linked && profile->linked);
     const bool certified = selected->sdk_phase == WW_REL_SDK_CERTIFIED;
     assert(selected->raw_hash == (certified ? lifecycle_expected_title_hash : lifecycle_expected_title_pristine_hash));
-    assert(neighbor->raw_hash == (certified ? lifecycle_expected_ship_with_title_hash : lifecycle_expected_ship_hash));
+    assert(neighbor->raw_hash == (resident ?
+        (certified ? lifecycle_expected_ship_nonfixed_with_title_hash : lifecycle_expected_ship_nonfixed_hash) :
+        (certified ? lifecycle_expected_ship_with_title_hash : lifecycle_expected_ship_hash)));
     assert(host->rel_sdk_tail == (certified ? selected->guest : neighbor->guest));
     u8* storage = NULL;
     assert(ppc_guest_alias_get_storage(selected->guest, selected->capacity, &storage) && storage != NULL);

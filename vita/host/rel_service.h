@@ -13,6 +13,11 @@ typedef enum WwRelSdkPhase {
     WW_REL_SDK_FAILED
 } WwRelSdkPhase;
 
+typedef enum WwRelSdkInputForm {
+    WW_REL_SDK_OWNER_PUBLISHED,
+    WW_REL_SDK_TITLE_INLINE_ZERO
+} WwRelSdkInputForm;
+
 #define WW_REL_MAX_IMPORTS 32u
 
 typedef struct WwRelSection {
@@ -34,6 +39,7 @@ typedef struct WwRelImage {
     uint32_t sdk_name_base;
     uint32_t sdk_bss;
     bool sdk_fixed;
+    WwRelSdkInputForm sdk_input_form;
     WwRelSdkPhase sdk_phase;
     WwRelSection* sections;
     uint32_t section_count;

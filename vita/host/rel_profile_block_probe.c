@@ -17,7 +17,8 @@ void* __wrap_malloc(size_t size) {
 }
 
 int __wrap_fprintf(FILE* stream, const char* format, ...) {
-    if (trace_failure && (strstr(format, "[rel-profile") != NULL || strstr(format, "[rel-sdk]") != NULL))
+    if (trace_failure && (strstr(format, "[rel-profile") != NULL || strstr(format, "[rel-sdk") != NULL ||
+        strstr(format, "[rel-title-block]") != NULL))
         return -1;
     va_list args;
     va_start(args, format);
@@ -65,6 +66,254 @@ static void reach(WwHost* host, u32 stop) {
     assert(host->error == NULL && host->cpu.pc == stop);
 }
 
+static bool title_mutation(const char* field, const char* value) {
+    return field != NULL && strcmp(field, value) == 0;
+}
+
+static void title_probe(WwHost* host, WwRelImage* profile, WwRelImage* ship,
+                        WwRelImage* image, const char* scenario) {
+    const char* field = strncmp(scenario, "title-bad-", 10u) == 0 ? scenario + 10u : NULL;
+    const u64 hash = image->raw_hash, ship_hash = ship->raw_hash;
+    const u32 tail = host->rel_sdk_tail, capacity = image->capacity;
+    BlueWakeRelInitContractV1 copy = *image->certificate;
+    at(host, image, 0x80240C9Cu, 0x80001004u);
+    reach(host, 0x802B07ECu);
+    if (strcmp(scenario, "title-adjacent-ordinary") == 0) {
+        const u32 adjacent = image->guest + image->capacity;
+        const u32 owner = 0x80002500u;
+        const u8 bytes[32] = {0x12u, 0x34u, 0x56u, 0x78u};
+        assert(ppc_guest_alias_add(adjacent, sizeof(bytes), bytes));
+        u8* storage = NULL;
+        assert(ppc_guest_alias_get_storage(adjacent, sizeof(bytes), &storage));
+        host->cpu.gpr[3] = adjacent;
+        host->cpu.gpr[31] = owner;
+        mem_write32(&host->cpu, owner + 0x10u, adjacent);
+        WwHost* before = malloc(sizeof(*before));
+        assert(before != NULL);
+        memcpy(before, host, sizeof(*before));
+        assert(ww_host_rel_profile_service(host, host->cpu.pc) == WW_REL_PROFILE_MISSED);
+        assert(memcmp(before, host, sizeof(*before)) == 0);
+        assert(memcmp(storage, bytes, sizeof(bytes)) == 0);
+        assert(mem_read32(&host->cpu, owner + 0x10u) == adjacent);
+        free(before);
+        assert(ppc_guest_alias_remove(adjacent, sizeof(bytes)));
+        return;
+    }
+    if (strcmp(scenario, "title-route-pending-exception") == 0) {
+        host->cpu.exception = PPC_EXC_PROGRAM;
+        const CPUState before = host->cpu;
+        assert(!host->cpu.host_call(&host->cpu, host->cpu.pc));
+        assert(memcmp(&before, &host->cpu, sizeof(before)) == 0 && image->raw_hash == hash);
+        assert(host->rel_title_block.phase == WW_REL_PROFILE_EXPOSED);
+        return;
+    }
+    if (title_mutation(field, "trace-query")) trace_failure = true;
+    if (title_mutation(field, "heap")) host->cpu.gpr[4] = 4u;
+    if (title_mutation(field, "interior")) host->cpu.gpr[3] += 4u;
+    if (title_mutation(field, "one-past")) host->cpu.gpr[3] += image->capacity;
+    if (title_mutation(field, "mirror")) host->cpu.gpr[3] |= 0x40000000u;
+    if (title_mutation(field, "neighbor-alias")) host->cpu.gpr[3] = ship->guest;
+    if (title_mutation(field, "publication")) mem_write32(&host->cpu, image->owner + 0x10u, 0u);
+    if (title_mutation(field, "owner-bss")) mem_write32(&host->cpu, image->owner + 0x14u, 0x80006000u);
+    if (title_mutation(field, "duplicate-module")) {
+        host->rel_images[host->rel_image_count] = *image;
+        host->rel_images[host->rel_image_count++].sections = NULL;
+    }
+    if (title_mutation(field, "mapping")) assert(ppc_guest_alias_remove(image->guest, image->capacity));
+    if (title_mutation(field, "certificate-missing")) image->certificate = NULL;
+    if (title_mutation(field, "certificate-copy")) image->certificate = &copy;
+    if (title_mutation(field, "certificate-reassociate")) image->certificate = ship->certificate;
+    if (title_mutation(field, "raw")) mem_write8(&host->cpu, image->guest + image->bytes - 1u, 1u);
+    if (title_mutation(field, "sections")) image->sections[1].size += 4u;
+    if (title_mutation(field, "region")) image->guest = WW_REL_SCRATCH_LIMIT - 32u;
+    if (title_mutation(field, "slack")) image->capacity = 0x150u;
+    if (title_mutation(field, "header-bss") || title_mutation(field, "section-bss") ||
+        title_mutation(field, "fix-overflow") || title_mutation(field, "extent")) {
+        const u32 offset = title_mutation(field, "header-bss") ? 0x20u :
+            title_mutation(field, "section-bss") ? 0x68u : 0x48u;
+        mem_write32(&host->cpu, image->guest + offset,
+            title_mutation(field, "fix-overflow") ? UINT32_MAX : image->bytes + 32u);
+    }
+    const bool query_bad = field != NULL && (title_mutation(field, "trace-query") || title_mutation(field, "heap") || title_mutation(field, "interior") ||
+        title_mutation(field, "one-past") || title_mutation(field, "mirror") || title_mutation(field, "neighbor-alias") ||
+        title_mutation(field, "publication") || title_mutation(field, "owner-bss") ||
+        title_mutation(field, "duplicate-module") || title_mutation(field, "mapping") ||
+        strncmp(field, "certificate-", 12u) == 0 || title_mutation(field, "raw") || title_mutation(field, "sections") ||
+        title_mutation(field, "region") || title_mutation(field, "slack") || title_mutation(field, "header-bss") ||
+        title_mutation(field, "section-bss") || title_mutation(field, "fix-overflow") || title_mutation(field, "extent"));
+    if (query_bad) {
+        assert(host->cpu.host_call(&host->cpu, host->cpu.pc) && host->error != NULL);
+        goto refused;
+    }
+    if (title_mutation(field, "prepare")) {
+        assert(ww_host_rel_sdk_prepare(host, image, true) != NULL);
+        goto refused;
+    }
+    if (title_mutation(field, "missing-query")) {
+        at(host, image, 0x80305448u, 0x80240D4Cu);
+        host->cpu.gpr[4] = image->guest + 0x140u;
+    } else {
+        if (strcmp(scenario, "title-route-edge") == 0)
+            assert(ww_host_edge(host, &host->cpu, host->cpu.pc));
+        else if (strcmp(scenario, "title-route-dispatch") == 0)
+            assert(ww_host_dispatch(host, host->cpu.pc) == 1);
+        else
+            assert(host->cpu.host_call(&host->cpu, host->cpu.pc));
+        assert(host->error == NULL && !host->edge_stopped && host->cpu.gpr[3] == capacity);
+        if (strcmp(scenario, "title-route-duplicate") == 0) {
+            at(host, image, 0x802B07ECu, 0x80240CC4u);
+            assert(host->cpu.host_call(&host->cpu, host->cpu.pc) && host->error == NULL);
+        }
+        reach(host, 0x80305448u);
+    }
+    assert(host->cpu.gpr[4] == image->guest + 0x140u && host->cpu.gpr[4] >= GC_RAM_BASE + GC_MAIN_RAM_SIZE);
+    assert(mem_read32(&host->cpu, image->owner + 0x14u) == 0u);
+    mem_write32(&host->cpu, 0x800030D0u, 0x80006000u);
+    if (title_mutation(field, "normal")) host->cpu.pc = 0x80305424u;
+    if (title_mutation(field, "fallback")) host->cpu.lr = 0x80240E28u;
+    if (title_mutation(field, "pc")) host->cpu.pc += 4u;
+    if (title_mutation(field, "lr")) host->cpu.lr += 4u;
+    if (title_mutation(field, "r3")) host->cpu.gpr[3] = 0x80006000u;
+    if (title_mutation(field, "r4")) host->cpu.gpr[4] += 4u;
+    if (title_mutation(field, "inline-interior")) host->cpu.gpr[4] -= 32u;
+    if (title_mutation(field, "inline-one-past")) host->cpu.gpr[4] = image->guest + image->capacity;
+    if (title_mutation(field, "inline-neighbor")) host->cpu.gpr[4] = ship->guest;
+    if (title_mutation(field, "inline-mirror")) host->cpu.gpr[4] |= 0x40000000u;
+    if (title_mutation(field, "trace-refusal")) { trace_failure = true; host->cpu.gpr[4] += 4u; }
+    if (title_mutation(field, "r31")) host->cpu.gpr[31] += 32u;
+    if (title_mutation(field, "exception")) host->cpu.exception = PPC_EXC_PROGRAM;
+    if (title_mutation(field, "name-unbounded") || title_mutation(field, "name-overflow"))
+        mem_write32(&host->cpu, 0x800030D0u, UINT32_MAX);
+    if (title_mutation(field, "skip-profile")) profile->sdk_phase = WW_REL_SDK_NONE;
+    if (title_mutation(field, "skip-ship")) host->rel_sdk_tail = profile->guest;
+    if (title_mutation(field, "ship-incomplete")) ship->initialization_completed = false;
+    if (title_mutation(field, "trace-prepare")) trace_failure = true;
+    const bool entry_bad = field != NULL && (title_mutation(field, "normal") || title_mutation(field, "fallback") ||
+        title_mutation(field, "missing-query") || title_mutation(field, "pc") || title_mutation(field, "lr") ||
+        title_mutation(field, "r3") || title_mutation(field, "r4") || title_mutation(field, "r31") ||
+        strncmp(field, "inline-", 7u) == 0 || title_mutation(field, "trace-refusal") ||
+        title_mutation(field, "exception") || strncmp(field, "name-", 5u) == 0 ||
+        title_mutation(field, "skip-profile") || title_mutation(field, "skip-ship") ||
+        title_mutation(field, "ship-incomplete") || title_mutation(field, "trace-prepare"));
+    if (entry_bad) {
+        const u32 observed = title_mutation(field, "pc") ? 0x80305448u : host->cpu.pc;
+        assert(ww_host_rel_sdk_observe(host, observed) != NULL);
+        goto refused;
+    }
+    assert(!host->cpu.host_call(&host->cpu, host->cpu.pc));
+    if (field != NULL && (strncmp(field, "duplicate-", 10u) == 0 || title_mutation(field, "sdk-reentry") ||
+        title_mutation(field, "input-form"))) {
+        if (title_mutation(field, "duplicate-r4")) host->cpu.gpr[4] += 4u;
+        if (title_mutation(field, "duplicate-names")) mem_write32(&host->cpu, 0x800030D0u, 0x80006004u);
+        if (title_mutation(field, "duplicate-neighbor")) mem_write8(&host->cpu, ship->guest + ship->bytes - 1u, 1u);
+        if (title_mutation(field, "input-form")) image->sdk_input_form = (WwRelSdkInputForm)99;
+        if (title_mutation(field, "sdk-reentry")) {
+            host->cpu.pc = 0x80009000u;
+            assert(!host->cpu.host_call(&host->cpu, host->cpu.pc));
+            host->cpu.pc = 0x80305448u;
+        }
+        assert(ww_host_rel_sdk_observe(host, 0x80305448u) != NULL);
+        goto refused;
+    }
+    if (strcmp(scenario, "title-route-duplicate") == 0)
+        assert(!host->cpu.host_call(&host->cpu, host->cpu.pc));
+    if (title_mutation(field, "finish")) {
+        assert(ww_host_rel_sdk_finish(host, image) != NULL);
+        goto refused;
+    }
+    reach(host, 0x80240D4Cu);
+    assert(mem_read32(&host->cpu, image->guest + 0x48u) == image->guest + 0x13Cu);
+    assert(mem_read32(&host->cpu, image->guest + 0x2Cu) == 0u);
+    if (title_mutation(field, "result")) host->cpu.gpr[3] = 0u;
+    if (title_mutation(field, "names")) mem_write32(&host->cpu, 0x800030D0u, 0x80006004u);
+    if (title_mutation(field, "pre-trim") || title_mutation(field, "nonfixed"))
+        mem_write32(&host->cpu, image->guest + 0x2Cu, 16u);
+    if (title_mutation(field, "header")) mem_write32(&host->cpu, image->guest + 0x14u, 0u);
+    if (title_mutation(field, "relocation")) mem_write8(&host->cpu, image->guest + 0xAEu, 0u);
+    if (title_mutation(field, "untouched")) mem_write8(&host->cpu, image->guest + image->bytes - 1u, 1u);
+    if (title_mutation(field, "head")) mem_write32(&host->cpu, 0x800030C8u, image->guest);
+    if (title_mutation(field, "tail")) mem_write32(&host->cpu, 0x800030CCu, ship->guest);
+    if (title_mutation(field, "previous")) mem_write32(&host->cpu, image->guest + 8u, profile->guest);
+    if (title_mutation(field, "next")) mem_write32(&host->cpu, ship->guest + 4u, 0u);
+    if (title_mutation(field, "trace-finish")) trace_failure = true;
+    if (title_mutation(field, "allocation")) allocation_failure = true;
+    const bool return_bad = field != NULL && (title_mutation(field, "result") || title_mutation(field, "names") ||
+        title_mutation(field, "pre-trim") || title_mutation(field, "nonfixed") || title_mutation(field, "header") ||
+        title_mutation(field, "relocation") || title_mutation(field, "untouched") || title_mutation(field, "head") ||
+        title_mutation(field, "tail") || title_mutation(field, "previous") || title_mutation(field, "next") ||
+        title_mutation(field, "trace-finish") || title_mutation(field, "allocation"));
+    if (return_bad) {
+        assert(host->cpu.host_call(&host->cpu, host->cpu.pc) && host->error != NULL);
+        goto refused;
+    }
+    if (strcmp(scenario, "title-route-edge") == 0)
+        assert(!ww_host_edge(host, &host->cpu, host->cpu.pc));
+    else if (strcmp(scenario, "title-route-dispatch") == 0) {
+        host->cpu.cycle_budget = 0;
+        host->cpu.downcount = 0;
+        assert(ww_host_dispatch(host, host->cpu.pc) == 1);
+        assert(host->cpu.pc == 0x80240D4Cu);
+        host->cpu.cycle_budget = 1000;
+    } else
+        assert(!host->cpu.host_call(&host->cpu, host->cpu.pc));
+    assert(host->error == NULL && !host->edge_stopped && image->sdk_phase == WW_REL_SDK_CERTIFIED && host->rel_sdk_tail == image->guest);
+    assert(ww_host_rel_sdk_integrity(host) && image->sdk_fixed && !ship->sdk_fixed);
+    assert(ship->sdk_phase == WW_REL_SDK_CERTIFIED && profile->sdk_phase == WW_REL_SDK_RESIDENT);
+    assert(profile->certificate == NULL && ship->initialization_completed && !image->initialization_completed);
+    if (strcmp(scenario, "title-route-duplicate") == 0)
+        assert(!host->cpu.host_call(&host->cpu, host->cpu.pc));
+    reach(host, 0x802B0704u);
+    if (title_mutation(field, "prolog") || title_mutation(field, "skip-shrink"))
+        at(host, image, 0xC1E000DCu, 0x80240EE8u);
+    if (title_mutation(field, "resize")) host->cpu.gpr[4] += 32u;
+    if (title_mutation(field, "trace-shrink")) trace_failure = true;
+    if (title_mutation(field, "query-reentry")) at(host, image, 0x802B07ECu, 0x80240CC4u);
+    if (title_mutation(field, "prolog") || title_mutation(field, "skip-shrink") ||
+        title_mutation(field, "resize") || title_mutation(field, "query-reentry") || title_mutation(field, "trace-shrink")) {
+        assert(host->cpu.host_call(&host->cpu, host->cpu.pc) && host->error != NULL);
+        goto certified_refusal;
+    }
+    assert(host->cpu.host_call(&host->cpu, host->cpu.pc) && host->error == NULL && host->cpu.gpr[3] == 0x140u);
+    assert(image->capacity == capacity && ww_host_rel_raw_unchanged(image));
+    if (title_mutation(field, "return-reentry")) {
+        at(host, image, 0x80240D4Cu, 0x80240D4Cu);
+        host->cpu.gpr[3] = 1u;
+        assert(host->cpu.host_call(&host->cpu, host->cpu.pc) && host->error != NULL);
+        goto certified_refusal;
+    }
+    reach(host, 0x802B07ECu);
+    if (title_mutation(field, "trace-accounting")) {
+        trace_failure = true;
+        assert(host->cpu.host_call(&host->cpu, host->cpu.pc) && host->error != NULL);
+        goto certified_refusal;
+    }
+    if (title_mutation(field, "skip-accounting")) {
+        at(host, image, 0xC1E000DCu, 0x80240EE8u);
+        assert(host->cpu.host_call(&host->cpu, host->cpu.pc) && host->error != NULL);
+        goto certified_refusal;
+    }
+    assert(host->cpu.host_call(&host->cpu, host->cpu.pc) && host->cpu.gpr[3] == 0x140u);
+    reach(host, 0xC1E000DCu);
+    assert(!host->cpu.host_call(&host->cpu, host->cpu.pc));
+    if (title_mutation(field, "constructor") || title_mutation(field, "caller-return")) {
+        host->cpu.pc = host->cpu.lr = 0x80240EE8u;
+        assert(host->cpu.host_call(&host->cpu, host->cpu.pc) && host->error != NULL);
+        goto certified_refusal;
+    }
+    reach(host, 0x80240EE8u);
+    assert(!host->cpu.host_call(&host->cpu, host->cpu.pc));
+    assert(image->initialization_completed && ww_host_rel_sdk_integrity(host));
+    assert(field == NULL);
+    return;
+refused:
+    assert(image->raw_hash == hash && ship->raw_hash == ship_hash &&
+        host->rel_sdk_tail == (title_mutation(field, "skip-ship") ? profile->guest : tail));
+    assert(image->sdk_phase != WW_REL_SDK_CERTIFIED);
+certified_refusal:
+    assert(!image->initialization_completed && profile->sdk_phase ==
+        (title_mutation(field, "skip-profile") ? WW_REL_SDK_NONE : WW_REL_SDK_RESIDENT));
+}
+
 int main(int argc, char** argv) {
     assert(argc == 2);
     const char* scenario = argv[1];
@@ -72,26 +321,39 @@ int main(int argc, char** argv) {
     assert(host != NULL && ww_host_init(host));
     StaticRecompRelModule descriptors[] = {fixture_rel,
         {.module_id=1u,.section_count=5u,.section_info_offset=0x4Cu,.file_size=1024u,
-         .sections=resident_sections,.num_sections=3u}};
+         .sections=resident_sections,.num_sections=3u},
+        {.module_id=400u,.section_count=8u,.section_info_offset=0x4Cu,.file_size=sizeof(block_title_raw),
+         .sections=block_title_sections,.num_sections=2u}};
     StaticRecompRange chunks[] = {fixture_chunks[0],fixture_chunks[1],fixture_chunks[2],
-                                 {0xC1F800D4u,0xC1F80100u}};
-    u64 hashes[] = {fixture_hashes[0],fixture_hashes[1],fixture_hashes[2],profile_code_hash};
+                                 {0xC1E000DCu,0xC1E0013Cu},{0xC1F800D4u,0xC1F80100u}};
+    u64 hashes[] = {fixture_hashes[0],fixture_hashes[1],fixture_hashes[2],block_title_hash,profile_code_hash};
     StaticRecompModuleDesc module = {.code_ranges=profile_ranges,
         .num_code_ranges=sizeof(profile_ranges)/sizeof(profile_ranges[0]),.chunk_ranges=chunks,
-        .chunk_hashes=hashes,.num_chunk_ranges=4u,.rel_modules=descriptors,.num_rel_modules=2u,
+        .chunk_hashes=hashes,.num_chunk_ranges=5u,.rel_modules=descriptors,.num_rel_modules=3u,
         .dispatch=translated_dispatch};
     BlueWakeRelData data[] = {fixture_data[0],fixture_data[1],
-        {1u,2u,0xC1F80170u,4u,resident_ctors},{1u,4u,0xC1F80178u,16u,resident_data}};
+        {1u,2u,0xC1F80170u,4u,resident_ctors},{1u,4u,0xC1F80178u,16u,resident_data},block_title_canonical[1]};
     host->module = &module;
     host->rel_data = data;
-    host->rel_data_count = 4u;
+    host->rel_data_count = 5u;
+    BlueWakeRelInitContractV1 title_certificate = {.module_id=400u,.rel_bytes=block_title_raw,
+        .rel_size=sizeof(block_title_raw),.canonical_sections=block_title_canonical,.section_count=2u,
+        .ctor_table_section=2u,.ctor_return_pc=0xC1E000F4u,.lifecycle=&block_title_lifecycle,
+        .build_identity=s_ship_contract.build_identity};
+    BlueWakeRelInitContractSetV1 set = {1u,s_ship_contract.dol_size,s_ship_contract.dol_bytes,
+        &title_certificate,1u,s_ship_contract.build_identity};
+    const char* registration = ww_host_register_rel_contracts(host, &set, "synthetic.dol");
+    if (registration != NULL) fprintf(stderr, "registration: %s\n", registration);
+    assert(registration == NULL);
     const bool off = strcmp(scenario, "policy-off") == 0;
     const bool title = strcmp(scenario, "policy-title") == 0;
     const bool ship = strcmp(scenario, "policy-ship") == 0;
     if (!off && !title)
         assert(ww_host_enable_ship_contract(host, &s_ship_contract, "synthetic.dol") == NULL);
     host->rel_title_admission = !off && !ship;
-    for (u32 index = 0u; index < 4u; ++index)
+    if (strncmp(scenario, "title-", 6u) == 0)
+        mem_write32(&host->cpu, 0x800030D0u, 0x80006000u);
+    for (u32 index = 0u; index < 5u; ++index)
         assert(ppc_guest_alias_add(data[index].linked_start, data[index].size, data[index].bytes));
     assert(ww_host_materialize_rel(host, 0x80002400u, "f_pc_profile_lst") == NULL);
     WwRelImage* profile = ww_host_rel_owned(host, 0x80002400u);
@@ -297,7 +559,8 @@ int main(int argc, char** argv) {
         assert(ww_host_rel_lifecycle_boundary(host, host->cpu.pc) == NULL);
         at(host, profile, 0x80240EE8u, 0x80240EE8u);
         assert(host->cpu.host_call(&host->cpu, host->cpu.pc) && host->error != NULL);
-    } else if (strcmp(scenario, "ship") == 0 || strncmp(scenario, "failure-trace-ship-", 19u) == 0) {
+    } else if (strcmp(scenario, "ship") == 0 || strncmp(scenario, "failure-trace-ship-", 19u) == 0 ||
+               strncmp(scenario, "title-", 6u) == 0) {
         assert(ww_host_materialize_rel(host, 0x80002200u, "d_a_ship") == NULL);
         host->cpu.lr = 0x80001004u;
         assert(ww_host_link_rel(host, 0x80002200u) == NULL);
@@ -331,6 +594,41 @@ int main(int argc, char** argv) {
         assert(candidate->initialization_completed && host->rel_pending_init.phase == WW_REL_INIT_RETURN_READY);
         assert(mem_read32(&host->cpu, 0xC1B224D0u) == 2u);
         reach(host, 0x80001004u);
+        if (strncmp(scenario, "title-", 6u) == 0) {
+            assert(ww_host_rel_lifecycle_boundary(host, host->cpu.pc) == NULL);
+            assert(ww_host_materialize_rel(host, 0x80002300u, "d_a_title") == NULL);
+            host->cpu.lr = 0x80001004u;
+            WwRelImage* title_image = ww_host_rel_owned(host, 0x80002300u);
+            if (strncmp(scenario, "title-expose-", 13u) == 0) {
+                const char* field = scenario + 13u;
+                u8 raw[sizeof(block_title_raw)];
+                memcpy(raw, block_title_raw, sizeof(raw));
+                title_certificate.rel_bytes = raw;
+                if (title_mutation(field, "trace")) trace_failure = true;
+                u32 offset = 0x48u;
+                u32 value = title_mutation(field, "fix-overflow") ? UINT32_MAX :
+                    title_mutation(field, "fix-small") ? 0x4Bu :
+                    title_mutation(field, "extent-at-bytes") ? sizeof(raw) :
+                    title_mutation(field, "trace") ? 0x13Cu : 0x100u;
+                if (title_mutation(field, "bss-alignment")) { offset = 0x44u; value = 4096u; }
+                if (title_mutation(field, "section-tail")) {
+                    offset = 0x5Cu; value = 0x1F0u;
+                    title_image->sections[2].flags = value;
+                }
+                write_be32(raw + offset, value);
+                mem_write32(&host->cpu, title_image->guest + offset, value);
+                title_image->raw_hash = ww_host_rel_raw_hash(raw, sizeof(raw));
+                assert(ww_host_link_rel(host, title_image->owner) != NULL);
+                assert(title_image->linked && host->rel_title_block.phase == WW_REL_PROFILE_FAILED);
+                assert(title_image->sdk_phase == WW_REL_SDK_NONE && !title_image->initialization_completed);
+                assert(host->rel_sdk_tail == candidate->guest && candidate->sdk_next == 0u);
+                title_certificate.rel_bytes = block_title_raw;
+                goto done;
+            }
+            assert(ww_host_link_rel(host, 0x80002300u) == NULL);
+            assert(ww_host_link_rel(host, 0x80002300u) == NULL);
+            title_probe(host, profile, candidate, title_image, scenario);
+        }
     }
 done:
     allocation_failure = false;

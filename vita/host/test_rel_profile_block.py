@@ -19,7 +19,7 @@ class ResidentProfileBlockTest(unittest.TestCase):
             root = Path(directory)
             (root / 'synthetic.dol').write_bytes(bytes([1, 2, 3, 4]))
             image = bytearray(test_di_read.DiscReadTest.image.build_image())
-            content = archive('success', resident=True)
+            content = archive('success', (test_host.OUT / 'block_title.rel').read_bytes(), resident=True)
             fst = test_di_read.DiscReadTest.image.FST_OFFSET
             image[fst + 5 * 12 + 1:fst + 5 * 12 + 9] = b'RELS.arc'
             struct.pack_into('>II', image, fst + 16, len(image), len(content))
@@ -30,6 +30,66 @@ class ResidentProfileBlockTest(unittest.TestCase):
             result = subprocess.run([str(test_host.OUT / 'rel_profile_block_probe'), scenario],
                                     cwd=root, capture_output=True, text=True, timeout=10)
             self.assertEqual(result.returncode, 0, result.stderr)
+            return result.stderr
+
+    def test_title_complete_fixed_chain(self):
+        self.run_probe('title-chain')
+
+    def test_title_exact_above_mem1_inline_pointer(self):
+        self.run_probe('title-inline')
+
+    def test_title_immutable_fix_size_survives_live_sdk_rebase(self):
+        self.run_probe('title-raw-fix')
+
+    def test_title_self_first_imports_are_fixed_trimmed(self):
+        self.run_probe('title-trim')
+
+    def test_title_logical_shrink_preserves_complete_backing(self):
+        self.run_probe('title-shrink')
+
+    def test_title_append_preserves_profile_and_ship_authority(self):
+        self.run_probe('title-neighbor')
+
+    def test_title_boundary_routes_and_duplicate_windows(self):
+        for route in ('host', 'edge', 'dispatch', 'duplicate', 'pending-exception'):
+            with self.subTest(route=route):
+                self.run_probe('title-route-' + route)
+
+    def test_adjacent_ordinary_allocation_falls_through_without_state_changes(self):
+        self.run_probe('title-adjacent-ordinary')
+
+    def test_title_input_refusal_receipt(self):
+        log = self.run_probe('title-bad-r4')
+        self.assertIn('[rel-sdk-input-refusal]', log)
+        self.assertIn('name_base=80006000', log)
+        self.assertIn('owner_bss=00000000', log)
+        self.assertIn('fixed=1 input_form=1', log)
+        self.assertIn('bss=81832A24 bss_size=0', log)
+        self.assertIn('expected_bss=81832A20 actual_r4=81832A24', log)
+        self.assertEqual(log.count('[rel-sdk-input-refusal]'), 1)
+
+    def test_title_exposure_validates_immutable_retained_bounds(self):
+        for field in ('fix-overflow', 'fix-small', 'extent-at-bytes', 'metadata-tail', 'section-tail', 'bss-alignment', 'trace'):
+            with self.subTest(field=field):
+                self.run_probe('title-expose-' + field)
+
+    def test_title_fixed_append_mutations_fail_closed(self):
+        for field in ('normal', 'fallback', 'missing-query', 'pc', 'lr', 'r3', 'r4', 'r31', 'heap',
+                      'owner-bss', 'header-bss', 'section-bss', 'fix-overflow', 'extent', 'slack',
+                      'region', 'interior', 'one-past', 'neighbor-alias', 'mirror', 'mapping',
+                      'duplicate-module', 'publication', 'certificate-missing', 'certificate-copy',
+                      'certificate-reassociate', 'raw', 'sections', 'names', 'name-overflow', 'name-unbounded',
+                      'result', 'pre-trim', 'nonfixed', 'header', 'relocation', 'untouched',
+                      'head', 'tail', 'previous', 'next', 'skip-profile', 'skip-ship', 'ship-incomplete',
+                      'prepare', 'finish', 'prolog', 'resize', 'skip-shrink', 'skip-accounting',
+                      'query-reentry', 'return-reentry', 'constructor', 'caller-return', 'exception',
+                      'trace-prepare', 'trace-finish', 'allocation', 'sdk-reentry', 'inline-interior',
+                      'inline-one-past', 'inline-neighbor', 'inline-mirror', 'input-form', 'duplicate-names',
+                      'duplicate-r4', 'duplicate-neighbor', 'trace-refusal', 'trace-query', 'trace-shrink', 'trace-accounting'):
+            with self.subTest(field=field):
+                log = self.run_probe('title-bad-' + field)
+                if field == 'name-overflow':
+                    self.assertIn('name=000000010000001F', log)
 
     def test_null_current_heap_reaches_fixed_without_allocating(self):
         self.run_probe('dvd')

@@ -45,8 +45,18 @@ def fixture(output):
     code[0x802B0704] = [0x3860FFFF, 0x4E800020]
     code[0x80305448] = [branch(0x80305448, 0x8000A000, False)]
     code[0x80305424] = [branch(0x80305424, 0x80008000, False)]
+    title_raw = bytearray((output / 'lifecycle_title.rel').read_bytes())
+    struct.pack_into('>II', title_raw, 0x14, 0x20, 4)
+    (output / 'block_title.rel').write_bytes(title_raw)
+    title_words = [0x9421FFF0, 0x7C0802A6, 0x90010014, 0x3C60C1E0, 0x38631F28,
+                   branch(0xC1E000F0, 0xC0241178), branch(0xC1E000F4, 0xC02410B4),
+                   0x80010014, 0x7C0803A6, 0x38210010, 0x4E800020] + [0x60000000] * 13
+    code[0xC1E000DC] = title_words
+    code[0x80305448] = [0x80A30000, 0x2C050001, 0x41820008,
+                       branch(0x80305454, 0x80009000, False), branch(0x80305458, 0x8000A000, False)]
     for start, image, resident, fixed in ((0x8000A000, raw, True, True),
-            (0x80008000, (output / 'ship.rel').read_bytes(), False, False)):
+            (0x80008000, (output / 'ship.rel').read_bytes(), False, False),
+            (0x80009000, title_raw, False, True)):
         sdk = sdk_program(image, resident=resident, fixed=fixed)
         sdk[-1:-1] = [0x38600001]
         for at in range(0, len(sdk), 60):
@@ -56,7 +66,17 @@ def fixture(output):
         emitter.extend(struct.pack('>II', address, len(words)))
         emitter.extend(struct.pack(f'>{len(words)}I', *words))
     (output / 'profile.instructions').write_bytes(emitter)
-    lines = [f'static const u64 profile_code_hash=0x{fnv(raw[0x80:0xAC]):016X}ull;',
+    title_code = struct.pack('>24I', *title_words)
+    lines = [f'static const u8 block_title_raw[] = {{{",".join(map(str, title_raw))}}};',
+             f'static const u8 block_title_code[] = {{{",".join(map(str, title_code))}}};',
+             f'static const u64 block_title_hash=0x{fnv(title_code):016X}ull;',
+             'static const u8 block_title_ctors[4];',
+             'static const StaticRecompRelSection block_title_sections[] = {',
+             '{400u,1u,0xC1E000DCu,96u},{400u,2u,0xC1E01F28u,4u}};',
+             'static const BlueWakeRelData block_title_canonical[] = {',
+             '{400u,1u,0xC1E000DCu,96u,block_title_code},{400u,2u,0xC1E01F28u,4u,block_title_ctors}};',
+             'static const BlueWakeRelLifecycleV2 block_title_lifecycle = {400u,0xC1E000DCu,0xC1E00108u,0xC1E00134u};',
+             f'static const u64 profile_code_hash=0x{fnv(raw[0x80:0xAC]):016X}ull;',
              'static const StaticRecompRelSection resident_sections[] = {',
              '{1u,1u,0xC1F800D4u,44u},{1u,2u,0xC1F80170u,4u},{1u,4u,0xC1F80178u,16u}};',
              'static const u8 resident_ctors[4];',

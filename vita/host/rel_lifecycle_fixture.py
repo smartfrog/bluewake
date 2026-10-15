@@ -71,7 +71,7 @@ def sdk_program(raw, resident=False, fixed=True):
     return code
 
 
-def sdk_expected(raw, guest, previous, bss, next_image=0):
+def sdk_expected(raw, guest, previous, bss, next_image=0, fixed=True):
     expected = bytearray(raw)
     word = lambda at: struct.unpack_from('>I', raw, at)[0]
     put = lambda at, value: struct.pack_into('>I', expected, at, value)
@@ -116,7 +116,8 @@ def sdk_expected(raw, guest, previous, bss, next_image=0):
                 assert kind == 1
                 put(patch, value)
         put(at + 4, guest + word(at + 4))
-    put(0x2C, 0)
+    if fixed:
+        put(0x2C, 0)
     return expected
 
 
@@ -135,7 +136,7 @@ def fixture(output):
     code[title_pc] = title_words
     raw = bytearray(512)
     for at, value in ((0, 400), (0xC, 8), (0x10, 0x4C), (0x1C, 3), (0x24, 0x140),
-                      (0x28, 0x130), (0x2C, 16), (0x38, 44), (0x3C, 88), (0x40, 8), (0x48, 0x110)):
+                      (0x28, 0x130), (0x2C, 16), (0x38, 44), (0x3C, 88), (0x40, 8), (0x48, 0x13C)):
         struct.pack_into('>I', raw, at, value)
     raw[0x30:0x33] = bytes([1, 1, 1])
     struct.pack_into('>II', raw, 0x54, 0xA1, 96)
@@ -173,9 +174,24 @@ def fixture(output):
     code[0x80240D6C][-1] = branch(0x80240D80, 0x80240B00, False)
     code[0x80240B00] = [branch(0x80240B00, 0x80241044), 0x807F0010,
                         branch(0x80240B08, 0x80240EDC, False)]
+    for start, target in ((0x80240B40, 0x80240C9C), (0x80240B80, 0x80240D00)):
+        code[start] = [0x9421FFF0, 0x7C0802A6, 0x90010014, 0x93E1000C, 0x7C7F1B78,
+                       branch(start + 20, 0x80240744), branch(start + 24, target, False)]
+    code[0x80240D00] = [0x807F0010, 0x809F0014, branch(0x80240D08, 0x80305424),
+                       branch(0x80240D0C, 0x80240EDC, False)]
+    code[0x80305424] = [branch(0x80305424, 0x8000B800, False)]
+    sdk = sdk_program((output / 'ship.rel').read_bytes(), fixed=False)
+    for at in range(0, len(sdk), 60):
+        code[0x8000B800 + at * 4] = sdk[at:at + 60]
+    sdk = sdk_program(raw)
+    sdk[-1:-1] = [0x38600001]
+    for at in range(0, len(sdk), 60):
+        code[0x8000C000 + at * 4] = sdk[at:at + 60]
     code[0x80305448] = [0x80A30000, 0x2C050001, 0x40820008,
                        branch(0x80305454, 0x8000A000, False), 0x2C0500A8, 0x41820008,
-                       branch(0x80305460, 0x80009000, False), branch(0x80305464, 0x80008000, False)]
+                        branch(0x80305460, 0x80305500, False), branch(0x80305464, 0x80008000, False)]
+    code[0x80305500] = [0x7CA802A6, *load(6, 0x80240D4C), 0x7C053000, 0x41820008,
+                       branch(0x80305514, 0x80009000, False), branch(0x80305518, 0x8000C000, False)]
     sdk = sdk_program(small, resident=True)
     sdk[-1:-1] = [0x38600001]
     for at in range(0, len(sdk), 60):
@@ -196,6 +212,8 @@ def fixture(output):
              '{400u,1u,0xC1E000DCu,96u},{400u,2u,0xC1E01F28u,4u}};']
     ship = (output / 'ship.rel').read_bytes()
     for name, value in (('ship', sdk_expected(ship, 0x81820100, 0x81820000, 0x807FF620)),
+                        ('ship_nonfixed', sdk_expected(ship, 0x81820100, 0x81820000, 0x807FF620, fixed=False)),
+                        ('ship_nonfixed_with_title', sdk_expected(ship, 0x81820100, 0x81820000, 0x807FF620, 0x818325E0, fixed=False)),
                         ('ship_with_title', sdk_expected(ship, 0x81820100, 0x81820000, 0x807FF620, 0x818325E0)),
                         ('title', sdk_expected(raw, 0x818325E0, 0x81820100, 0)), ('title_pristine', raw)):
         lines.append(f'static const u64 lifecycle_expected_{name}_hash=0x{fnv(value):016X}ull;')

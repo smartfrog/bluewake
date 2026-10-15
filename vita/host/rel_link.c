@@ -322,6 +322,8 @@ const char* ww_host_link_rel(WwHost* host, u32 object) {
     if (slot->unlinked)
         return "REL relink requires destruction of its explicitly unlinked scratch first";
     if (slot->linked) {
+        if (ww_host_rel_profile_enabled(host) && slot->module_id == 400u && !ww_host_rel_title_published(host, slot))
+            return "REL repeated title publication lost its frozen allocation identity";
         const u32 imports = bluewake_archive_be32(raw + 0x28u);
         const u32 import_bytes = bluewake_archive_be32(raw + 0x2Cu);
         if ((u64)imports + import_bytes > slot->bytes || (import_bytes & 7u) != 0u)
@@ -367,6 +369,9 @@ const char* ww_host_link_rel(WwHost* host, u32 object) {
                 slot->dependencies[slot->dependency_count++] = dependency;
         }
         slot->linked = true;
+        error = ww_host_rel_title_expose(host, slot);
+        if (error != NULL)
+            return error;
     }
     cpu->gpr[3] = 1u;
     cpu->pc = cpu->lr;

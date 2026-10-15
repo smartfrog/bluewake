@@ -1169,6 +1169,7 @@ void ww_host_shutdown(WwHost* host) {
     ww_host_rel_lifecycle_revoke(host);
     free(host->rel_profile_block.raw);
     memset(&host->rel_profile_block, 0, sizeof(host->rel_profile_block));
+    memset(&host->rel_title_block, 0, sizeof(host->rel_title_block));
     // VITA-WW-17: the renderer resolves against this host's memory and CPU,
     // so it goes before they are freed.
     ww_renderer_destroy(host->renderer);

@@ -20,8 +20,39 @@ static WwRelImage* image_at(WwHost* host, u32 guest) {
 }
 
 static bool inputs_match(WwHost* host, const WwRelImage* image) {
-    return mem_read32(&host->cpu, image->owner + 0x14u) == image->sdk_bss &&
-        mem_read32(&host->cpu, WW_REL_SDK_NAMES) == image->sdk_name_base;
+    if (mem_read32(&host->cpu, WW_REL_SDK_NAMES) != image->sdk_name_base)
+        return false;
+    switch (image->sdk_input_form) {
+    case WW_REL_SDK_OWNER_PUBLISHED:
+        return mem_read32(&host->cpu, image->owner + 0x14u) == image->sdk_bss;
+    case WW_REL_SDK_TITLE_INLINE_ZERO:
+        return ww_host_rel_title_inputs(host, image);
+    default:
+        return false;
+    }
+}
+
+static const char* input_refusal(WwHost* host, const WwRelImage* image, bool fixed, u32 bss,
+                                  u32 form, const char* clause) {
+    if (!ww_host_rel_profile_enabled(host))
+        return clause;
+    if (image->module_id == 400u && host->rel_title_block.input_refusal_reported)
+        return clause;
+    const BlueWakeRelInitContractV1* certificate = ww_host_rel_certificate(host, image->module_id);
+    if (certificate == NULL || certificate != image->certificate || certificate->rel_size < 0x4Cu)
+        return clause;
+    const u8* raw = certificate->rel_bytes;
+    const u32 name_base = mem_read32(&host->cpu, WW_REL_SDK_NAMES);
+    const u64 name = (u64)name_base + bluewake_archive_be32(raw + 0x14u);
+    if (image->module_id == 400u)
+        host->rel_title_block.input_refusal_reported = true;
+    if (fprintf(stderr, "[rel-sdk-input-refusal] module=%u fixed=%u input_form=%u owner_bss=%08X bss=%08X bss_size=%u name_base=%08X name=%016llX name_size=%u expected_bss=%08X actual_r4=%08X clause=%s\n",
+        image->module_id, fixed, form, mem_read32(&host->cpu, image->owner + 0x14u), bss,
+        bluewake_archive_be32(raw + 0x20u), name_base, (unsigned long long)name,
+        bluewake_archive_be32(raw + 0x18u), host->rel_title_block.guest + host->rel_title_block.extent,
+        host->cpu.gpr[4], clause) < 0)
+        return "REL SDK name/BSS or fixed-sequence input refused; refusal diagnostic write failed";
+    return clause;
 }
 
 const char* ww_rel_sdk_structure(const WwRelImage* image, const u8* raw, u8* expected, u32 next) {
@@ -156,25 +187,39 @@ bool ww_host_rel_sdk_integrity(WwHost* host) {
         host->rel_sdk_pending_owner == 0u && verify_list(host, NULL, &candidate_hash, &tail_hash);
 }
 
-const char* ww_host_rel_sdk_prepare(WwHost* host, WwRelImage* image, bool fixed) {
+static const char* prepare(WwHost* host, WwRelImage* image, bool fixed) {
     if (host == NULL || image == NULL || host->rel_sdk_failed || image->certificate == NULL ||
         image->bytes != image->certificate->rel_size || image->bytes > image->capacity ||
         image != ww_host_rel_owned(host, image->owner) || image != ww_host_rel_live(host, image->module_id) ||
         image->certificate != ww_host_rel_certificate(host, image->module_id))
         return "REL SDK preparation requires its exact admitted live image";
+    const bool title = ww_host_rel_profile_enabled(host) && image->module_id == 400u;
+    if (image->sdk_input_form != WW_REL_SDK_OWNER_PUBLISHED && image->sdk_input_form != WW_REL_SDK_TITLE_INLINE_ZERO)
+        return "REL SDK preparation has an unknown frozen input form";
+    if (image->sdk_input_form == WW_REL_SDK_TITLE_INLINE_ZERO && !title)
+        return "REL SDK inline-zero input form requires the active admitted title";
+    if (title) {
+        const char* error = ww_host_rel_title_entry(host, image, fixed);
+        if (error != NULL)
+            return input_refusal(host, image, fixed, host->cpu.gpr[4], WW_REL_SDK_TITLE_INLINE_ZERO, error);
+    }
     u8* live = NULL;
     if (!ppc_guest_alias_get_storage(image->guest, image->capacity, &live))
         return "REL SDK preparation lost its owned raw storage";
-    if (host->rel_sdk_pending_owner != 0u)
+    if (host->rel_sdk_pending_owner != 0u) {
+        u64 candidate_hash = 0u, tail_hash = 0u;
         return host->rel_sdk_pending_owner == image->owner && image->sdk_phase == WW_REL_SDK_PENDING &&
             image->sdk_fixed == fixed && inputs_match(host, image) &&
+            (!title || verify_list(host, NULL, &candidate_hash, &tail_hash)) &&
             memcmp(live, image->certificate->rel_bytes, image->bytes) == 0 ?
             NULL : "REL SDK supports only one unchanged pending append";
+    }
     if (image->sdk_phase != WW_REL_SDK_NONE || !ww_host_rel_raw_unchanged(image) ||
         memcmp(live, image->certificate->rel_bytes, image->bytes) != 0)
         return "REL SDK preparation requires the certified original raw image";
     const u8* raw = image->certificate->rel_bytes;
-    const u32 bss = mem_read32(&host->cpu, image->owner + 0x14u);
+    const u32 owner_bss = mem_read32(&host->cpu, image->owner + 0x14u);
+    const u32 bss = title ? host->rel_title_block.guest + host->rel_title_block.extent : owner_bss;
     const u32 bss_size = bluewake_archive_be32(raw + 0x20u);
     const u32 alignment = bluewake_archive_be32(raw + 0x44u);
     const u32 image_alignment = bluewake_archive_be32(raw + 0x40u);
@@ -182,13 +227,15 @@ const char* ww_host_rel_sdk_prepare(WwHost* host, WwRelImage* image, bool fixed)
     const u64 name = (u64)name_base + bluewake_archive_be32(raw + 0x14u);
     const u32 name_size = bluewake_archive_be32(raw + 0x18u);
     if ((image_alignment != 0u && image->guest % image_alignment != 0u) ||
-        (bss_size == 0u && bss != 0u) || (bss_size != 0u &&
+        (!title && bss_size == 0u && bss != 0u) || (bss_size != 0u &&
         ((bss & 3u) != 0u || bss < GC_RAM_BASE || (u64)bss + bss_size > GC_RAM_BASE + GC_MAIN_RAM_SIZE ||
          (alignment != 0u && bss % alignment != 0u) || ww_host_linked_alias_overlaps(bss, bss_size))) ||
         name > UINT32_MAX || (name != 0u && (name < GC_RAM_BASE || name >= GC_RAM_BASE + GC_MAIN_RAM_SIZE)) ||
         (name_size != 0u && (name < GC_RAM_BASE ||
         name + name_size > GC_RAM_BASE + GC_MAIN_RAM_SIZE || ww_host_linked_alias_overlaps((u32)name, name_size))))
-        return "REL SDK name or BSS input is not a validated bounded MEM1 range";
+        return input_refusal(host, image, fixed, bss,
+            title ? WW_REL_SDK_TITLE_INLINE_ZERO : WW_REL_SDK_OWNER_PUBLISHED,
+            "REL SDK name or BSS input is not a validated bounded MEM1 range");
     WwRelImage* profile = NULL;
     if (!host->rel_sdk_seeded) {
         const u32 head = mem_read32(&host->cpu, WW_REL_SDK_HEAD);
@@ -216,6 +263,11 @@ const char* ww_host_rel_sdk_prepare(WwHost* host, WwRelImage* image, bool fixed)
         fprintf(stderr, "[rel-sdk] module=168 stage=prepared fixed=%u resident=%08X certificate=%s certified=0\n",
                 fixed, profile == NULL ? host->rel_sdk_head : profile->guest, image->certificate->build_identity) < 0)
         return "REL SDK preparation trace failed";
+    if (title && fprintf(stderr, "[rel-sdk] module=400 stage=prepared fixed=%u input_form=%u pc=%08X caller=%08X owner=%08X module_arg=%08X name_base=%08X bss=%08X owner_bss=%08X raw_fix=%u extent=%u previous=%08X certificate=%s certified=0\n",
+        fixed, WW_REL_SDK_TITLE_INLINE_ZERO, host->cpu.pc, host->cpu.lr, image->owner, host->cpu.gpr[3],
+        name_base, bss, owner_bss, host->rel_title_block.raw_fix, host->rel_title_block.extent,
+        host->rel_sdk_tail, image->certificate->build_identity) < 0)
+        return "REL SDK title preparation trace failed";
     if (profile != NULL) {
         profile->sdk_phase = WW_REL_SDK_RESIDENT;
         host->rel_sdk_head = profile->guest;
@@ -225,14 +277,25 @@ const char* ww_host_rel_sdk_prepare(WwHost* host, WwRelImage* image, bool fixed)
     image->sdk_name_base = name_base;
     image->sdk_bss = bss;
     image->sdk_fixed = fixed;
+    image->sdk_input_form = title ? WW_REL_SDK_TITLE_INLINE_ZERO : WW_REL_SDK_OWNER_PUBLISHED;
     image->sdk_previous = host->rel_sdk_tail;
     image->sdk_next = 0u;
     image->sdk_phase = WW_REL_SDK_PENDING;
     host->rel_sdk_pending_owner = image->owner;
+    if (title)
+        ww_host_rel_title_entered(host);
     return NULL;
 }
 
-const char* ww_host_rel_sdk_finish(WwHost* host, WwRelImage* image) {
+const char* ww_host_rel_sdk_prepare(WwHost* host, WwRelImage* image, bool fixed) {
+    const char* error = prepare(host, image, fixed);
+    if (error != NULL && host != NULL && image != NULL &&
+        ww_host_rel_profile_enabled(host) && image->module_id == 400u)
+        ww_host_rel_title_failed(host);
+    return error;
+}
+
+static const char* finish(WwHost* host, WwRelImage* image) {
     if (host == NULL || image == NULL || host->rel_sdk_failed ||
         ww_host_rel_owned(host, image->owner) != image)
         return "REL SDK certification requires an intact pending authority";
@@ -240,6 +303,14 @@ const char* ww_host_rel_sdk_finish(WwHost* host, WwRelImage* image) {
         return ww_host_rel_sdk_integrity(host) ? NULL : "REL SDK certified list integrity changed";
     if (host->rel_sdk_pending_owner != image->owner || image->sdk_phase != WW_REL_SDK_PENDING)
         return "REL SDK certification requires its prepared append";
+    const bool title = image->sdk_input_form == WW_REL_SDK_TITLE_INLINE_ZERO;
+    if (ww_host_rel_profile_enabled(host) && image->module_id == 400u && !title)
+        return "REL SDK active title requires its frozen inline-zero input contract";
+    if (title) {
+        const char* error = ww_host_rel_title_return(host, image);
+        if (error != NULL)
+            return error;
+    }
     u64 candidate_hash = 0u, tail_hash = 0u;
     if (!verify_list(host, image, &candidate_hash, &tail_hash)) {
         host->rel_sdk_failed = true;
@@ -250,6 +321,9 @@ const char* ww_host_rel_sdk_finish(WwHost* host, WwRelImage* image) {
         fprintf(stderr, "[rel-sdk] module=168 stage=verified fixed=%u resident=%08X whole_image=matched certificate=%s certified=1\n",
                 image->sdk_fixed, host->rel_sdk_head, image->certificate->build_identity) < 0)
         return "REL SDK verification trace failed";
+    if (title && fprintf(stderr, "[rel-sdk] module=400 stage=verified fixed=1 input_form=%u pc=%08X caller=%08X result=%u whole_image=matched certificate=%s certified=1\n",
+        image->sdk_input_form, host->cpu.pc, host->cpu.lr, host->cpu.gpr[3], image->certificate->build_identity) < 0)
+        return "REL SDK title verification trace failed";
     WwRelImage* tail = image_at(host, host->rel_sdk_tail);
     if (tail != NULL) {
         tail->sdk_next = image->guest;
@@ -262,22 +336,46 @@ const char* ww_host_rel_sdk_finish(WwHost* host, WwRelImage* image) {
     image->raw_hash = candidate_hash;
     image->sdk_phase = WW_REL_SDK_CERTIFIED;
     host->rel_sdk_pending_owner = 0u;
+    if (title)
+        ww_host_rel_title_returned(host);
     return NULL;
 }
 
+const char* ww_host_rel_sdk_finish(WwHost* host, WwRelImage* image) {
+    const char* error = finish(host, image);
+    if (error != NULL && host != NULL && image != NULL &&
+        ww_host_rel_profile_enabled(host) && image->module_id == 400u)
+        ww_host_rel_title_failed(host);
+    return error;
+}
+
 const char* ww_host_rel_sdk_observe(WwHost* host, u32 address) {
+    WwRelBlock* title = &host->rel_title_block;
+    const bool active = ww_host_rel_profile_enabled(host);
+    if (active && address != title->window)
+        title->window = 0u;
     const char* profile_error = ww_host_rel_profile_observe(host, address);
     if (profile_error != NULL)
         return profile_error;
+    if (active && address == 0x80240D4Cu && title->phase != WW_REL_PROFILE_NONE &&
+        (title->phase == WW_REL_PROFILE_SDK || host->cpu.gpr[31] == title->owner)) {
+        const char* error = ww_host_rel_title_return(host, title->image);
+        return error != NULL ? error : ww_host_rel_sdk_finish(host, title->image);
+    }
     if (address != 0x80305448u && address != 0x80305424u)
         return NULL;
     WwRelImage* image = image_at(host, host->cpu.gpr[3]);
+    if (active && title->phase != WW_REL_PROFILE_NONE &&
+        (title->phase == WW_REL_PROFILE_SIZE || title->phase == WW_REL_PROFILE_SDK ||
+         host->cpu.gpr[31] == title->owner || image == title->image))
+        return ww_host_rel_sdk_prepare(host, title->image, address == 0x80305448u);
     if (image == NULL || image->certificate == NULL)
         return NULL;
     if (!ww_host_module_contains_address(host->module, address) ||
         (host->cpu.pc & ~0x40000000u) != address)
         return "REL SDK observation requires its owned translated entry PC";
-    if (host->cpu.gpr[4] != mem_read32(&host->cpu, image->owner + 0x14u))
+    if (host->cpu.gpr[4] != mem_read32(&host->cpu, image->owner + 0x14u) &&
+        !(active && image->module_id == 400u))
         return "REL SDK observed BSS argument disagrees with its owner";
     return ww_host_rel_sdk_prepare(host, image, address == 0x80305448u);
 }
