@@ -103,8 +103,14 @@ def _status(missing: list, failed: list) -> str:
 
 def _gameplay_passage(baseline: dict) -> dict:
     missing, failed, fps_missing, fps_failed = [], [], [], []
-    scene = baseline.get("scene") or {}
-    device = baseline.get("device") or {}
+    scene = baseline.get("scene")
+    if not isinstance(scene, dict):
+        missing.append("scene must be an object")
+        scene = {}
+    device = baseline.get("device")
+    if not isinstance(device, dict):
+        missing.append("device must be an object")
+        device = {}
     for key in ("passage_id", "context", "control_evidence", "visual_evidence",
                 "observation_evidence"):
         if not _text(scene.get(key)):
@@ -123,7 +129,10 @@ def _gameplay_passage(baseline: dict) -> dict:
 
     start, end = baseline.get("observation_start_us"), baseline.get("observation_end_us")
     duration = (end - start) / 1e6 if _number(start) and _number(end) else None
-    metrics = baseline.get("metrics") or {}
+    metrics = baseline.get("metrics")
+    if not isinstance(metrics, dict):
+        fps_missing.append("metrics must be an object")
+        metrics = {}
     if baseline.get("kind") != KIND or baseline.get("frame_source") != FRAME_SOURCE:
         fps_missing.append("presented-frame baseline required")
     if duration is None or duration < 60:
@@ -132,8 +141,8 @@ def _gameplay_passage(baseline: dict) -> dict:
         fps_missing.append("10 s windows required")
     windows = metrics.get("windows")
     if (not _number(windows) or windows < 6 or duration is None
-            or windows != int(duration / 10)):
-        fps_missing.append("at least six complete windows through the observation end required")
+            or windows != int(windows) or duration != windows * 10):
+        fps_missing.append("at least six whole 10 s windows covering the entire observation required")
     span = metrics.get("span_seconds")
     if not _number(span) or duration is None or not 0 < span < duration:
         fps_missing.append("observation end must follow the last presented frame")
@@ -166,8 +175,11 @@ def build_gameplay_acceptance(passages: list[dict]) -> dict:
     Each spans >=60 s with >=6 complete 10 s windows, median AND minimum >=30.
     Windows remain anchored at the first presented frame; frame_rate_summary
     includes complete stalled-tail windows through the declared endpoint.
-    A final partial window is excluded, as in the generic baseline.
-    Missing evidence is incomplete, observed failure is fail, otherwise pass.
+    The strict gate requires an integral number of 10 s windows covering the
+    entire observation. Any partial remainder is incomplete: the generic
+    baseline excludes it, so these metrics cannot certify its frame rate.
+    Missing or malformed evidence is incomplete; observed failure is fail;
+    otherwise pass.
     Generic boot/phase baselines and the existing CLI never invoke this gate.
     """
     results = [_gameplay_passage(passage) for passage in passages]

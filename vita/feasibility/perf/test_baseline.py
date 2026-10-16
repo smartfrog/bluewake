@@ -169,6 +169,16 @@ class GameplayAcceptanceTest(unittest.TestCase):
                 passages[0]['metrics'][key] = value
                 self.assertEqual(self.acceptance(passages)['status'], 'incomplete')
 
+    def test_non_object_evidence_sections_are_incomplete(self):
+        for section in ['scene', 'device', 'metrics']:
+            for value in ['malformed', ['malformed'], 1, True]:
+                with self.subTest(section=section, value=value):
+                    passages = self.passages()
+                    passages[0][section] = value
+                    report = self.acceptance(passages)
+                    self.assertEqual(report['status'], 'incomplete')
+                    self.assertIn(f'{section} must be an object', report['passages'][0]['missing'])
+
     def test_short_observation_is_incomplete(self):
         passages = self.passages()
         passages[0] = build_baseline(
@@ -186,6 +196,25 @@ class GameplayAcceptanceTest(unittest.TestCase):
         self.assertEqual(passages[0]['metrics']['median_window_fps'], 30)
         self.assertEqual(passages[0]['metrics']['min_window_fps'], 0)
         self.assertEqual(self.acceptance(passages)['status'], 'fail')
+
+    def test_a_partial_stalled_tail_is_incomplete(self):
+        passages = self.passages()
+        passages[0] = build_baseline(
+            label='partial stalled tail', source=passages[0]['source'], window_s=10,
+            events=events(*[index * 1000000 // 30 for index in range(1800)]),
+            end_us=65000000, device=passages[0]['device'], scene=passages[0]['scene'])
+        self.assertEqual(passages[0]['metrics']['windows'], 6)
+        self.assertEqual(passages[0]['metrics']['min_window_fps'], 30)
+        self.assertEqual(self.acceptance(passages)['status'], 'incomplete')
+
+    def test_healthy_partial_window_observation_is_also_incomplete(self):
+        passages = self.passages()
+        passages[0] = build_baseline(
+            label='healthy partial tail', source=passages[0]['source'], window_s=10,
+            events=events(*[index * 1000000 // 30 for index in range(1950)]),
+            end_us=65000000, device=passages[0]['device'], scene=passages[0]['scene'])
+        self.assertEqual(passages[0]['verdict'], 'meets the 30 fps floor, below the 60 fps target')
+        self.assertEqual(self.acceptance(passages)['status'], 'incomplete')
 
     def test_failed_control_or_visual_observation_is_not_an_fps_failure(self):
         for key in ['controlled', 'visually_correct']:
