@@ -184,6 +184,17 @@ class DiagnosticStagingTests(unittest.TestCase):
     def test_intended_installer_success_result_sigterm_proceeds_to_guest(self):
         self.complete_synthetic_flow(installer_native=('success', '2', '15'))
 
+    def test_installer_disappearing_at_cleanup_stat_read_proceeds_to_guest(self):
+        self.complete_synthetic_flow(installer_native=('success', '2', '15'), installer_cleanup_race=True)
+
+    def test_cleanup_disappearance_does_not_hide_native_oom(self):
+        self.complete_synthetic_flow(installer_native=('oom-kill', '2', '9'), installer_cleanup_race=True,
+                                     expected_error='native phase failure:')
+
+    def test_cleanup_disappearance_does_not_hide_spontaneous_sigterm(self):
+        self.complete_synthetic_flow(installer_native=('success', '2', '15'), installer_intent=False,
+                                     installer_cleanup_race=True, expected_error='native phase failure:')
+
     def test_unexpected_installer_success_result_sigterm_aborts_before_guest(self):
         self.complete_synthetic_flow(installer_native=('success', '2', '15'), installer_intent=False,
                                      expected_error='native phase failure:')
@@ -197,7 +208,8 @@ class DiagnosticStagingTests(unittest.TestCase):
                                      expected_error='native phase failure:')
 
     def complete_synthetic_flow(self, cpu_opt='off', until_failure=False, guest_failure=None,
-                                installer_native=None, installer_intent=True, expected_error=None):
+                                installer_native=None, installer_intent=True, expected_error=None,
+                                installer_cleanup_race=False):
         args = self.args
         args.check = False
         args.diagnostic_run = True
@@ -231,12 +243,30 @@ class DiagnosticStagingTests(unittest.TestCase):
 
         def native_installer(name, arguments, root, receipts, plan, record, **kwargs):
             running = True
+            cleanup_queries = 0
             unit = 'ww56-' + arguments.run_id + '-install.service'
             cgroup = '/synthetic/' + unit
             live = {'LoadState': 'loaded', 'ActiveState': 'active', 'SubState': 'running',
                     'MainPID': '99999999', 'ControlGroup': cgroup, 'InvocationID': 'f' * 32}
             terminal = dict(live, ActiveState='active', SubState='exited', MainPID='0', ControlGroup='',
                             **dict(zip(('Result', 'ExecMainCode', 'ExecMainStatus'), installer_native)))
+            read_text = Path.read_text
+
+            def proc_read(path, *args, **options):
+                if str(path) == '/proc/99999999/stat':
+                    if installer_cleanup_race and not running:
+                        raise FileNotFoundError(2, 'synthetic owned process exited', str(path))
+                    return '99999999 (synthetic installer) S ' + '0 ' * 18 + '987 0\n'
+                if str(path) == '/proc/99999999/cgroup':
+                    return '0::' + cgroup + '\n'
+                return read_text(path, *args, **options)
+
+            def manager(*unused):
+                nonlocal cleanup_queries
+                if running:
+                    return live
+                cleanup_queries += 1
+                return live if installer_cleanup_race and cleanup_queries <= 2 else terminal
 
             def wrapper(command, *unused, **options):
                 nonlocal running
@@ -253,8 +283,8 @@ class DiagnosticStagingTests(unittest.TestCase):
                 return 125 if installer_intent else 0
 
             with patch.object(run, 'require_fresh_unit', return_value={'LoadState': 'not-found'}), \
-                    patch.object(run, 'phase_properties', side_effect=lambda *_: live if running else terminal), \
-                    patch.object(run, 'process_identity', return_value=(987, cgroup)), \
+                    patch.object(run, 'phase_properties', side_effect=manager), \
+                    patch.object(Path, 'read_text', proc_read), \
                     patch.object(run, 'run_owned', side_effect=wrapper), \
                     patch.object(run.subprocess, 'run') as signals:
                 result = execute_phase(name, arguments, root, receipts, plan, record, **kwargs)

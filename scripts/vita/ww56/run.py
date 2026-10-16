@@ -225,6 +225,21 @@ def owned_terminal(unit, state, current):
     return True
 
 
+def verify_owned_process_or_terminal(unit, state, current):
+    if owned_terminal(unit, state, current):
+        return current, True
+    if current.get('MainPID') == '0':
+        raise ValueError('UNVERIFIED phase terminal identity: ' + unit)
+    try:
+        verify_owned_identity(unit, OwnedIdentity(*state['owned_identity']), current)
+    except (FileNotFoundError, ProcessLookupError):
+        current = phase_properties(unit, True)
+        if owned_terminal(unit, state, current):
+            return current, True
+        raise ValueError('UNVERIFIED phase terminal identity: ' + unit)
+    return current, False
+
+
 def stop_owned_unit(unit, state):
     current = phase_properties(unit, state.get('diagnostic', False))
     terminal = state.get('diagnostic') and owned_terminal(unit, state, current)
@@ -240,12 +255,10 @@ def stop_owned_unit(unit, state):
         if state.get('diagnostic'):
             owned = (OwnedIdentity(*state['owned_identity']) if state.get('owned_identity') else
                      bind_phase_ownership(unit, state, current))
-            current = phase_properties(unit, True)
-            if owned_terminal(unit, state, current):
+            current, terminal = verify_owned_process_or_terminal(unit, state, phase_properties(unit, True))
+            if terminal:
                 if not (current.get('ActiveState') == 'active' and current.get('SubState') == 'exited'):
                     return current
-            else:
-                verify_owned_identity(unit, owned, current)
             recorded = owned.invocation_id
         if recorded is None or current.get('InvocationID') != recorded:
             state['foreign_unit_untouched'] = {'unit': unit, 'recorded_invocation': recorded,
@@ -775,19 +788,8 @@ class PhaseWatch:
     def _verify_owned_process(self):
         if not self.state.get('owned_identity'):
             raise ValueError('refusing to observe or signal an unbound phase invocation: ' + self.unit)
-        current = phase_properties(self.unit, True)
-        if owned_terminal(self.unit, self.state, current):
-            return True
-        if current.get('MainPID') == '0':
-            raise ValueError('UNVERIFIED phase terminal identity: ' + self.unit)
-        try:
-            verify_owned_identity(self.unit, OwnedIdentity(*self.state['owned_identity']), current)
-        except (FileNotFoundError, ProcessLookupError):
-            current = phase_properties(self.unit, True)
-            if owned_terminal(self.unit, self.state, current):
-                return True
-            raise ValueError('UNVERIFIED phase terminal identity: ' + self.unit)
-        return False
+        _, terminal = verify_owned_process_or_terminal(self.unit, self.state, phase_properties(self.unit, True))
+        return terminal
 
 
 def run_phase(name, args, runroot, receipts, plan, record, *, budget, headroom, deadline,
