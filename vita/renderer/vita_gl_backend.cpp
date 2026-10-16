@@ -5,7 +5,7 @@
 // libshacccg init, Cg compile, draws, EFB copy), with the pieces a real game
 // needs: programs cached by the pinned shader key, one persistent vertex and
 // index buffer, one texture object per texmap slot (re-specified per draw, so
-// nothing leaks per frame), and EFB copy destinations cached by guest address.
+// nothing leaks per frame). EFB copies do not retain unused GPU textures.
 // Draws go to the default framebuffer at the Vita's 960x544; the EFB-to-screen
 // mapping (the game renders 640x528) is a display decision left to the
 // measurement ticket.
@@ -164,28 +164,11 @@ public:
     return check_gl("GPU finish");
   }
 
-  const char* submit_copy(const gx_vita::TranslatedCopy& copy) override {
-    CopyTexture& destination = copy_textures_[copy.dest_address];
-    if (destination.name == 0u)
-      glGenTextures(1, &destination.name);
-    glBindTexture(GL_TEXTURE_2D, destination.name);
-    if (destination.width != copy.dest_width ||
-        destination.height != copy.dest_height) {
-      glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA,
-                   static_cast<GLsizei>(copy.dest_width),
-                   static_cast<GLsizei>(copy.dest_height), 0, GL_RGBA,
-                   GL_UNSIGNED_BYTE, nullptr);
-      glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
-      glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
-      glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
-      glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
-      destination.width = copy.dest_width;
-      destination.height = copy.dest_height;
-    }
-    glCopyTexSubImage2D(GL_TEXTURE_2D, 0, 0, 0, static_cast<GLint>(copy.src_x),
-                        static_cast<GLint>(copy.src_y),
-                        static_cast<GLsizei>(copy.width),
-                        static_cast<GLsizei>(copy.height));
+  const char* submit_copy(const gx_vita::TranslatedCopy&) override {
+    // Draws upload guest textures into texture_slots_; no draw or readback
+    // consumes a GPU copy destination. Keeping one per guest address only
+    // retained unreachable storage; it never performed guest-memory copyback
+    // or copy clears. Those existing limitations are unchanged here.
     return check_gl("efb copy");
   }
 
@@ -210,9 +193,6 @@ public:
     for (const auto& [key, program] : programs_)
       glDeleteProgram(program);
     programs_.clear();
-    for (const auto& [address, texture] : copy_textures_)
-      glDeleteTextures(1, &texture.name);
-    copy_textures_.clear();
     if (vertex_buffer_ != 0u)
       glDeleteBuffers(1, &vertex_buffer_);
     if (index_buffer_ != 0u)
@@ -227,12 +207,6 @@ public:
   }
 
 private:
-  struct CopyTexture {
-    GLuint name = 0;
-    std::uint32_t width = 0;
-    std::uint32_t height = 0;
-  };
-
   const char* check_gl(const char* what) {
     const GLenum error = glGetError();
     if (error == GL_NO_ERROR)
@@ -325,7 +299,6 @@ private:
 
   char error_[512] = {0};
   std::unordered_map<std::uint64_t, GLuint> programs_;
-  std::unordered_map<std::uint32_t, CopyTexture> copy_textures_;
   GLuint vertex_buffer_ = 0;
   GLuint index_buffer_ = 0;
   GLuint texcoord_buffer_ = 0;
