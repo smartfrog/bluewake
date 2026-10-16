@@ -134,6 +134,7 @@ def replay_guardian(path):
         failure = dict(safety='FAILED', native='failure', cleanup='confirmed', publication=True)
         namespace = dict(ROOT=root, WORK=root, Path=Path, __file__=str(path), json=json,
                          hashlib=hashlib, guardian_ok=guardian_ok,
+                         preflight=lambda: None,
                          sys=SimpleNamespace(argv=['synthetic', 'reviewed-live']),
                          subprocess=SimpleNamespace(run=lambda *args, **kwargs: SimpleNamespace(returncode=0)),
                          read_bounded=lambda name: approval if name.name == 'independent-review-approval.json' else failure)
