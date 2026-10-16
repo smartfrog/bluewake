@@ -217,6 +217,31 @@ class TerminalOwnershipTests(ownership.OwnedGateFixture):
         self.state['requested_stop'] = {'stop_reason': 'ceiling'}
         self.assert_native_failure(None)
 
+    def test_unconfirmed_stop_request_does_not_hide_spontaneous_sigterm(self):
+        self.terminal.update(Result='signal', ExecMainStatus='15')
+        self.state['requested_stop'] = {'stop_reason': 'bounded-phase-planned-time-stop'}
+        self.assert_native_failure('signal.*15', wrapper_stop={'stop_reason': 'exit'})
+
+    def test_success_result_sigterm_without_intended_stop_is_fatal(self):
+        self.terminal.update(Result='success', ExecMainStatus='15')
+        self.assert_native_failure('success.*15', wrapper_status=-15)
+
+    def test_intended_guest_time_stop_accepts_success_result_sigterm(self):
+        self.terminal.update(Result='success', ExecMainStatus='15')
+        self.state['requested_stop'] = {'stop_reason': 'bounded-phase-planned-time-stop'}
+        self.assert_native_failure(None, wrapper_status=-15)
+
+    def test_installed_payload_context_mismatch_does_not_hide_sigterm(self):
+        self.terminal.update(Result='success', ExecMainStatus='15')
+        self.state['requested_stop'] = {'stop_reason': 'installed_payload', 'payload': {'verified': True}}
+        self.assert_native_failure('success.*15', wrapper_stop={
+            'stop_reason': 'installed_payload', 'payload': {'different': True}})
+
+    def test_unwaited_wrapper_does_not_authenticate_intended_sigterm(self):
+        self.terminal.update(Result='success', ExecMainStatus='15')
+        self.state['requested_stop'] = {'stop_reason': 'bounded-phase-planned-time-stop'}
+        self.assert_native_failure('success.*15', wrapper_waited=False)
+
     def test_verified_natural_success_is_not_a_native_failure(self):
         self.terminal.update(Result='success', ActiveState='inactive',
                              ExecMainCode='1', ExecMainStatus='0')
@@ -232,7 +257,8 @@ class TerminalOwnershipTests(ownership.OwnedGateFixture):
     def test_zero_wrapper_status_cannot_hide_native_oom(self):
         self.assert_native_failure('oom-kill.*9', wrapper_status=0)
 
-    def assert_native_failure(self, pattern, first_error=None, cleanup_error=None, wrapper_status=137):
+    def assert_native_failure(self, pattern, first_error=None, cleanup_error=None, wrapper_status=137,
+                              wrapper_stop=None, wrapper_waited=True):
         self.args.run_id = 'test'
         self.args.cleanup_grace_seconds = 1
         entry = dict(self.entry, command=['synthetic'], environment={}, cwd=str(self.root))
@@ -243,8 +269,11 @@ class TerminalOwnershipTests(ownership.OwnedGateFixture):
             watch.state.update(self.state)
             watch(999)
             self.journal.write_text('[frame-present] frame=297 us=1297\n')
-            (self.phase_root / 'evidence/process.json').write_text(json.dumps(
-                {'stop_reason': 'exit', 'exit': wrapper_status, 'waited': True}))
+            disposition = dict(self.state.get('requested_stop') or {'stop_reason': 'exit'})
+            if wrapper_stop is not None:
+                disposition = dict(wrapper_stop)
+            disposition.update(exit=wrapper_status, waited=wrapper_waited)
+            (self.phase_root / 'evidence/process.json').write_text(json.dumps(disposition))
             if first_error:
                 raise first_error
             return wrapper_status
@@ -265,7 +294,7 @@ class TerminalOwnershipTests(ownership.OwnedGateFixture):
                               budget=1024, headroom=2048, deadline=180)
         signal.assert_not_called()
         disposition = json.loads((self.receipts / 'guest-disposition.json').read_text())
-        self.assertTrue(disposition['wrapper']['waited'])
+        self.assertEqual(disposition['wrapper']['waited'], wrapper_waited)
         self.assertEqual(disposition['presentations'][-1]['index'], 297)
         if pattern:
             self.assertEqual(disposition['native_failure'], self.terminal)

@@ -867,7 +867,12 @@ def run_phase(name, args, runroot, receipts, plan, record, *, budget, headroom, 
         state['presentations_total'] = len(state['presentations'])
         terminal = state.get('properties_at_exit')
         if state.get('diagnostic') and terminal:
-            intentional_signal = (state.get('requested_stop') and terminal['Result'] == 'signal' and
+            requested_stop = state.get('requested_stop') or {}
+            wrapper = state.get('wrapper') or {}
+            intentional_signal = (requested_stop.get('stop_reason') and wrapper.get('waited') is True and
+                                  all(wrapper.get(key) == value for key, value in requested_stop.items()) and
+                                  state.get('terminal_identity') == 'verified-owned-invocation' and
+                                  terminal['Result'] in ('success', 'signal') and
                                   terminal['ExecMainCode'] == '2' and terminal['ExecMainStatus'] == '15')
             if not intentional_signal and (terminal['Result'] != 'success' or
                                           terminal['ExecMainCode'] != '1' or

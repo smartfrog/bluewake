@@ -181,7 +181,23 @@ class DiagnosticStagingTests(unittest.TestCase):
         self.complete_synthetic_flow(cpu_opt='on', until_failure=True,
                                      guest_failure=ValueError('native phase failure: oom-kill signal 9'))
 
-    def complete_synthetic_flow(self, cpu_opt='off', until_failure=False, guest_failure=None):
+    def test_intended_installer_success_result_sigterm_proceeds_to_guest(self):
+        self.complete_synthetic_flow(installer_native=('success', '2', '15'))
+
+    def test_unexpected_installer_success_result_sigterm_aborts_before_guest(self):
+        self.complete_synthetic_flow(installer_native=('success', '2', '15'), installer_intent=False,
+                                     expected_error='native phase failure:')
+
+    def test_installer_natural_success_without_payload_aborts_before_guest(self):
+        self.complete_synthetic_flow(installer_native=('success', '1', '0'), installer_intent=False,
+                                     expected_error='installer did not report the installed payload:')
+
+    def test_installer_oom_after_intended_stop_is_still_fatal(self):
+        self.complete_synthetic_flow(installer_native=('oom-kill', '2', '9'),
+                                     expected_error='native phase failure:')
+
+    def complete_synthetic_flow(self, cpu_opt='off', until_failure=False, guest_failure=None,
+                                installer_native=None, installer_intent=True, expected_error=None):
         args = self.args
         args.check = False
         args.diagnostic_run = True
@@ -211,6 +227,44 @@ class DiagnosticStagingTests(unittest.TestCase):
         config.write_bytes(readiness.profile_config(alt=cpu_opt == 'off', pref_path=args.diagnostic_profile / run.FIRMWARE_DIRECTORY))
         before = {str(p): p.read_bytes() for p in args.diagnostic_profile.rglob('*') if p.is_file()}
         phases = []
+        execute_phase = run.run_phase
+
+        def native_installer(name, arguments, root, receipts, plan, record, **kwargs):
+            running = True
+            unit = 'ww56-' + arguments.run_id + '-install.service'
+            cgroup = '/synthetic/' + unit
+            live = {'LoadState': 'loaded', 'ActiveState': 'active', 'SubState': 'running',
+                    'MainPID': '99999999', 'ControlGroup': cgroup, 'InvocationID': 'f' * 32}
+            terminal = dict(live, ActiveState='active', SubState='exited', MainPID='0', ControlGroup='',
+                            **dict(zip(('Result', 'ExecMainCode', 'ExecMainStatus'), installer_native)))
+
+            def wrapper(command, *unused, **options):
+                nonlocal running
+                watch = options['phase_observer']
+                watch.state.update(released=True, pid=99999999, cgroup=cgroup, invocation_id='f' * 32,
+                                   owned_identity=run.OwnedIdentity(
+                                       99999999, cgroup, 987, 'f' * 32, watch.state['launch_nonce']))
+                stop = watch(12345) if installer_intent else {'stop_reason': 'exit'}
+                running = False
+                disposition = dict(stop, pid=12345, exit=-15 if installer_native[1:] == ('2', '15') else 0,
+                                   waited=True)
+                (Path(plan['phases'][name]['evidence_root']) / 'evidence/process.json').write_text(
+                    json.dumps(disposition))
+                return 125 if installer_intent else 0
+
+            with patch.object(run, 'require_fresh_unit', return_value={'LoadState': 'not-found'}), \
+                    patch.object(run, 'phase_properties', side_effect=lambda *_: live if running else terminal), \
+                    patch.object(run, 'process_identity', return_value=(987, cgroup)), \
+                    patch.object(run, 'run_owned', side_effect=wrapper), \
+                    patch.object(run.subprocess, 'run') as signals:
+                result = execute_phase(name, arguments, root, receipts, plan, record, **kwargs)
+            if installer_intent:
+                self.assertEqual(signals.call_args_list[0].args[0],
+                                 ['systemctl', '--user', 'kill', '--signal=SIGTERM', '--kill-whom=all', unit])
+                self.assertEqual(result['requested_stop']['payload'], {'synthetic': True})
+            self.assertTrue(result['wrapper']['waited'])
+            self.assertTrue(result['native_pid_absent_after_cleanup'])
+            return result
 
         def fake_phase(name, arguments, root, receipts, plan, record, **kwargs):
             self.assertTrue(arguments.diagnostic_run)
@@ -228,6 +282,8 @@ class DiagnosticStagingTests(unittest.TestCase):
                     raise guest_failure
             staged_config = root / readiness.CONFIG_PATH
             staged_config.write_bytes(staged_config.read_bytes().replace(b'user-id: ""\n', b'user-id: 00\n'))
+            if name == 'install' and installer_native:
+                return native_installer(name, arguments, root, receipts, plan, record, **kwargs)
             return {'requested_stop': {'stop_reason': 'installed_payload'}}
 
         with ExitStack() as stack:
@@ -245,18 +301,29 @@ class DiagnosticStagingTests(unittest.TestCase):
             stack.enter_context(patch.object(run, 'capture_snapshot', side_effect=AssertionError('memory capture')))
             stack.enter_context(patch.object(run.subprocess, 'Popen', side_effect=AssertionError('process')))
             stack.enter_context(redirect_stdout(io.StringIO()))
-            self.assertEqual(run.run_trial(args), 2 if guest_failure else 0)
-        self.assertEqual(phases, ['install', 'guest'])
+            self.assertEqual(run.run_trial(args), 2 if guest_failure or expected_error else 0)
+        self.assertEqual(phases, ['install'] if expected_error else ['install', 'guest'])
         self.assertEqual(before, {str(p): p.read_bytes() for p in args.diagnostic_profile.rglob('*') if p.is_file()})
         result = json.loads((args.receipts_root / ('ww56-' + args.run_id) / 'result.json').read_text())
-        self.assertEqual(result['completion'], 'ABORTED' if guest_failure else 'INCOMPLETE')
-        if guest_failure:
-            self.assertEqual(result['error'], str(guest_failure))
+        if installer_native:
+            install = result['phases']['install']
+            self.assertEqual(tuple(install['properties_at_exit'][key]
+                                   for key in ('Result', 'ExecMainCode', 'ExecMainStatus')), installer_native)
+            self.assertTrue(install['wrapper']['waited'])
+            self.assertTrue(install['native_pid_absent_after_cleanup'])
+            if expected_error == 'native phase failure:':
+                self.assertEqual(install['native_failure'], install['properties_at_exit'])
+            else:
+                self.assertNotIn('native_failure', install)
+        self.assertEqual(result['completion'], 'ABORTED' if guest_failure or expected_error else 'INCOMPLETE')
+        if guest_failure or expected_error:
+            self.assertIn(str(guest_failure or expected_error), result['error'])
             self.assertNotIn('postflight_input_and_payload_gates', result)
         else:
             self.assertEqual(result['postflight_input_and_payload_gates'], 'PASS')
         self.assertEqual(result['diagnostic_readiness']['diagnostic_cpu_opt'], cpu_opt)
-        self.assertEqual(result['staged_diagnostic_readiness']['diagnostic_cpu_opt'], cpu_opt)
+        if not expected_error:
+            self.assertEqual(result['staged_diagnostic_readiness']['diagnostic_cpu_opt'], cpu_opt)
 
 
 class DiagnosticWatchTests(frontier.WatchFixture):
