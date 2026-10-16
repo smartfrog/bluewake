@@ -13,6 +13,13 @@ Do not modify or reuse sealed trial drivers. A missing ABI capsule is inconclusi
   receipts before sampling. Never discover/adopt a new PID during cleanup.
 - A terminal supervisor with a live or unverifiable guest blocks. This support
   deliberately does not invent an emergency guest-termination path.
+- A stopping invocation is observation-only: the original invocation, PID/start,
+  cgroup and launch nonce must remain owned. `verify()` waits on deactivation;
+  `confirm_cleanup()` uses bounded terminal observation (default 10 seconds,
+  yielding 100 ms, with an independent poll-count cap). Neither sends a signal
+  from a stopping state. Missing terminal proof expires blocked; permission or
+  identity changes fail immediately. Native fatal status and stop intent remain
+  separate, even after verified cleanup.
 - Exceptions retain bounded real frames and causes, observed proof and stop outcome.
   Successful later cleanup cannot clear a safety failure. `guardian_ok()` checks
   safety, native result, cleanup and publication separately, not driver exit alone.
