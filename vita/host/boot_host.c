@@ -15,6 +15,9 @@
 #if WW05_OBSERVE_NATIVE_CTX || WW05_DISPATCH_ABI_SENTINEL
 #include "native_ctx.h"
 #endif
+#if WW05_REJECTION_CAPSULE
+#include "rejection_capsule.h"
+#endif
 
 #include <string.h>
 #include <stdlib.h>
@@ -949,7 +952,20 @@ bool ww_host_edge(void* user, CPUState* cpu, u32 address) {
         return true;
     }
     if (desktop_edge && !compiled_cpu_boundary) {
+#if WW05_REJECTION_CAPSULE
+        const WwAdmissionRejection rejection = {
+            .rel_resume = compiled_rel_resume,
+            .module_owned = ww_host_module_contains_address(host->module, address),
+            .restore = address == 0x80328F84u, .context = address == 0x80303A50u,
+            .retrace_sleep = observed_retrace_sleep, .draw_done_sleep = observed_draw_done_sleep,
+            .async_draw_done = observed_async_draw_done, .dsp_task = observed_dsp_task,
+            .card_probe = observed_card_probe,
+        };
+        const char* capsule_error = ww_host_rejection_capsule(host, address, &rejection);
+        ww_host_fail(host, capsule_error != NULL ? capsule_error : "desktop interception unsupported; guest not skipped", address, cpu->pc);
+#else
         ww_host_fail(host, "desktop interception unsupported; guest not skipped", address, cpu->pc);
+#endif
         host->edge_stopped = true;
         return true;
     }
@@ -1191,6 +1207,9 @@ bool ww_host_init(WwHost* host) {
     dol_gx_recomp_init(&host->gx, &resolver);
 #if WW05_DISPATCH_ABI_SENTINEL
     ww_abi_install(&host->cpu);
+#endif
+#if WW05_REJECTION_CAPSULE && defined(__vita__)
+    ww_rejection_capsule_install_file();
 #endif
     return true;
 }
