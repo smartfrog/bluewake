@@ -268,8 +268,8 @@ class IkadaLifecycleTest(unittest.TestCase):
 
 
 if __name__ == '__main__':
-    if len(sys.argv) == 3 and sys.argv[1] == '--build-dir':
+    if len(sys.argv) >= 3 and sys.argv[1] == '--build-dir':
         test_host.OUT = Path(sys.argv[2]).resolve()
         test_host.StartupHostTest.setUpClass = classmethod(lambda cls: None)
-        sys.argv = sys.argv[:1]
+        sys.argv = sys.argv[:1] + sys.argv[3:]
     unittest.main()

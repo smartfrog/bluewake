@@ -24,3 +24,21 @@ class NativeContextTraceTest(unittest.TestCase):
                          'interrupted', 'unarmed', 'markers'):
             with self.subTest(scenario=scenario):
                 subprocess.run([str(OUT / 'probe'), scenario], check=True)
+
+
+class DispatchAbiTest(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        OUT.mkdir(parents=True, exist_ok=True)
+        subprocess.run([os.environ.get('CC', 'cc'), '-std=c11', '-O2', '-Wall', '-Wextra',
+                        '-Werror', '-I' + str(ROOT / 'vita/host'),
+                        str(ROOT / 'vita/host/native_ctx_sentinel.c'),
+                        str(ROOT / 'vita/host/native_ctx_sentinel_probe.c'),
+                        '-o', str(OUT / 'sentinel-probe')], check=True)
+
+    def test_dispatch_boundaries(self):
+        for scenario in ('ctx-one', 'result-one', 'target', 'thumb', 'sp', 'entry-sp', 'register',
+                         'vfp', 'ring', 'short-write', 'failed-write', 'unarmed', 'overflow',
+                         'short-active', 'short-complete'):
+            with self.subTest(scenario=scenario):
+                subprocess.run([str(OUT / 'sentinel-probe'), scenario], check=True)

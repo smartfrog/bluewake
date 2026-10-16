@@ -15,6 +15,7 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--out', type=Path, required=True)
     parser.add_argument('--baseline', action='store_true')
+    parser.add_argument('--sentinel', action='store_true')
     args = parser.parse_args()
     args.out.mkdir(parents=True, exist_ok=True)
     flags = ['-std=c11', '-O2', '-ffreestanding', '-fno-builtin', '-mcpu=cortex-a9',
@@ -23,6 +24,10 @@ def main():
     sources = ['vita/feasibility/armv7/qemu_startup.S', 'vita/host/native_ctx_shims.S',
                'vita/host/native_ctx_trace.c', 'vita/host/native_ctx_probe.c',
                'vita/host/native_ctx_fixture.S', 'vita/host/native_ctx_fixture.c']
+    if args.sentinel:
+        flags.append('-DWW05_DISPATCH_ABI_SENTINEL=1')
+        sources.remove('vita/host/native_ctx_probe.c')
+        sources[sources.index('vita/host/native_ctx_trace.c')] = 'vita/host/native_ctx_sentinel.c'
     objects = []
     with (args.out / 'build.log').open('w') as log:
         for source in sources:
@@ -67,7 +72,8 @@ def main():
             (args.out / 'watch.json').write_text(json.dumps(watch, indent=2) + '\n')
     output = (args.out / 'qemu.log').read_text()
     print(output, end='')
-    return 0 if result == 0 and 'NATIVE-CTX fixtures PASS\n' in output else 1
+    marker = 'NATIVE-CTX sentinel fixtures PASS\n' if args.sentinel else 'NATIVE-CTX fixtures PASS\n'
+    return 0 if result == 0 and marker in output else 1
 
 
 if __name__ == '__main__':

@@ -12,7 +12,7 @@
 #include "gxruntime/dvd.h"
 #include "ww05_dsp_init.h"
 #include "guest_timing.h"
-#if WW05_OBSERVE_NATIVE_CTX
+#if WW05_OBSERVE_NATIVE_CTX || WW05_DISPATCH_ABI_SENTINEL
 #include "native_ctx.h"
 #endif
 
@@ -1084,6 +1084,10 @@ int ww_host_dispatch(WwHost* host, u32 address) {
 #endif
     if (host == NULL)
         return 0;
+#if WW05_DISPATCH_ABI_SENTINEL
+    if (ww_abi_state == 2u || ww_abi_state == 4u)
+        return -1;
+#endif
     CPUState* cpu = &host->cpu;
     if (host->module == NULL || host->module->dispatch == NULL) {
         ww_host_fail(host, "dispatch requires a loaded module", address, cpu->pc);
@@ -1120,7 +1124,17 @@ int ww_host_dispatch(WwHost* host, u32 address) {
     }
     if (linked != address)
         cpu->pc = linked;
+#if WW05_DISPATCH_ABI_SENTINEL
+    const int result = ww_abi_gate(&host->cpu, linked, (void*)host->module->dispatch);
+    if (ww_abi_state == 2u || ww_abi_state == 4u) {
+        ww_host_fail(host, ww_abi_dump.io_error ? "dispatch ABI diagnostic incomplete: capsule write failed" :
+                     "dispatch ABI mismatch: diagnostic stop", address, cpu->pc);
+        return -1;
+    }
+    return result;
+#else
     return host->module->dispatch(&host->cpu, linked);
+#endif
 }
 
 bool ww_host_init(WwHost* host) {
@@ -1175,6 +1189,9 @@ bool ww_host_init(WwHost* host) {
     DolGuestAddressResolver resolver;
     dol_guest_address_resolver_init(&resolver, &host->memory, &host->cpu);
     dol_gx_recomp_init(&host->gx, &resolver);
+#if WW05_DISPATCH_ABI_SENTINEL
+    ww_abi_install(&host->cpu);
+#endif
     return true;
 }
 

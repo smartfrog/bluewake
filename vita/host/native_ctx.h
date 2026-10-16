@@ -54,6 +54,46 @@ typedef struct {
 
 typedef int (*WwNativeWriteAt)(void* user, uint32_t offset, const void* bytes, uint32_t size);
 
+enum WwAbiFailure {
+    WW_ABI_CONTEXT = 1u, WW_ABI_TARGET = 2u, WW_ABI_SP = 4u,
+    WW_ABI_REGISTER = 8u, WW_ABI_VFP = 16u, WW_ABI_OVERFLOW = 32u,
+    WW_ABI_REENTRY = 64u
+};
+#define WW_ABI_COMPLETE 0x43504c54u
+
+/* Fixed offsets shared with the narrow dispatch gate in native_ctx_shims.S. */
+typedef struct {
+    uint32_t r[8]; /* r4-r11 */
+    uint64_t d[8]; /* d8-d15 */
+    uint32_t sp, lr, r0, r1;
+} WwAbiSnapshot;
+
+typedef struct {
+    uint64_t invocation;
+    uint32_t target, returned;
+    WwAbiSnapshot before, after;
+} WwAbiPair;
+
+typedef struct {
+    uint32_t magic, version, bytes, complete;
+    uint64_t invocations;
+    uint32_t expected_ctx, expected_target, milestone, failure, io_error, count, next, reserved;
+    WwAbiPair pairs[16];
+} WwAbiDump;
+
+extern WwAbiPair ww_abi_active;
+extern WwAbiDump ww_abi_dump;
+/* Assembly state: 0 unarmed, 1 ready, 2 frozen, 3 in target, 4 rejected reentry. */
+extern uint32_t ww_abi_state;
+void ww_abi_init(uint32_t expected_ctx, WwNativeWriteAt write_at, void* user);
+void ww_abi_arm(uint32_t module_id, uint32_t target);
+bool ww_abi_begin(void);
+bool ww_abi_finish(void);
+int ww_abi_gate(void* incoming_ctx, uint32_t address, void* target);
+#if WW05_DISPATCH_ABI_SENTINEL
+void ww_abi_install(void* cpu);
+#endif
+
 void ww_native_trace_init(void* host, void* cpu, const uint32_t* pc,
                           WwNativeWriteAt write_at, void* user, uint32_t thread);
 void ww_native_trace_arm(uint32_t module_id);

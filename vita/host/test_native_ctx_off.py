@@ -37,7 +37,7 @@ class NativeContextOffTest(unittest.TestCase):
         arguments[arguments.index('-o') + 1] = str(output / 'rel_lifecycle_probe')
         subprocess.run([arguments[0], *objects, *arguments[1:]], cwd=test_host.OUT, check=True)
         subprocess.run([sys.executable, '-B', str(root / 'vita/host/test_rel_lifecycle.py'),
-                        '--build-dir', str(output)], check=True)
+                        '--build-dir', str(output), 'RelLifecycleTest'], check=True)
 
     def test_affected_preprocessed_paths_and_machine_code_are_unchanged(self):
         root = test_host.ROOT
@@ -67,10 +67,13 @@ class NativeContextOffTest(unittest.TestCase):
                 proof[name + '.' + suffix] = hashlib.sha256(current).hexdigest()
         ninja = (test_host.OUT / 'build.ninja').read_text()
         self.assertNotIn('--wrap=ww_host_edge', ninja)
+        self.assertNotIn('native_ctx_sentinel', ninja)
         self.assertFalse(any('native_ctx_' in row['file'] for row in commands))
-        for symbol in ('ww_native_trace_enter', 'ww_native_host_call', '__wrap_sceIoPread'):
+        for symbol in ('ww_native_trace_enter', 'ww_native_host_call', '__wrap_sceIoPread',
+                       'ww_abi_gate', 'ww_abi_init', 'ww_abi_dump'):
             symbols = subprocess.check_output(['nm', str(test_host.OUT / 'libww05_services.a')], text=True)
             self.assertNotIn(symbol, symbols)
+        self.assertNotIn(b'dispatch-abi-capsule.bin', (test_host.OUT / 'libww05_services.a').read_bytes())
         (output / 'proof.json').write_text(json.dumps(proof, indent=2) + '\n')
 
     def test_dispatch_fixture_elf_output_and_serialized_cpu_are_identical(self):

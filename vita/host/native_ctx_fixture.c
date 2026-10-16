@@ -16,10 +16,16 @@ void* ww_native_targets[8];
 uint32_t fixture_clobber, fixture_result[12], fixture_args[7], fixture_tail[3], fixture_sp;
 uint32_t fixture_ctx, fixture_nesting;
 uint32_t fixture_vfp_saved[16];
+#if WW05_DISPATCH_ABI_SENTINEL
+static unsigned char trace_file[sizeof(WwAbiDump) + sizeof(WwAbiPair)];
+#else
 static unsigned char trace_file[WW_NATIVE_FILE_BYTES];
 static uint32_t pc = 0x802b0470u;
+#endif
 static unsigned sink_mode;
+#if !WW05_DISPATCH_ABI_SENTINEL
 static bool recursive;
+#endif
 
 static int sink(void* user, uint32_t offset, const void* data, uint32_t size) {
     (void)user;
@@ -29,11 +35,13 @@ static int sink(void* user, uint32_t offset, const void* data, uint32_t size) {
         return (int)size - 1;
     if (sink_mode == 2u)
         return -1;
+#if !WW05_DISPATCH_ABI_SENTINEL
     if (sink_mode == 3u && !recursive) {
         recursive = true;
         ww_native_fixture_invoke(ww_native_write);
         recursive = false;
     }
+#endif
     memcpy(trace_file + offset, data, size);
     return (int)size;
 }
@@ -85,6 +93,104 @@ int strcmp(const char* left, const char* right) {
     return (unsigned char)*left - (unsigned char)*right;
 }
 
+#if WW05_DISPATCH_ABI_SENTINEL
+extern void fixture_abi_invoke(void), fixture_abi_arm(void), fixture_abi_thumb(void);
+void* fixture_abi_target;
+
+static void abi_init(bool thumb) {
+    memset(trace_file, 0, sizeof(trace_file));
+    memset(fixture_args, 0, sizeof(fixture_args));
+    sink_mode = 0u;
+    fixture_clobber = 0u;
+    fixture_ctx = 0x1234u;
+    fixture_abi_target = thumb ? fixture_abi_thumb : fixture_abi_arm;
+    ww_abi_init(fixture_ctx, sink, NULL);
+    ww_abi_arm(168u, (uint32_t)(uintptr_t)fixture_abi_target);
+}
+
+int main(void) {
+    abi_init(true);
+    ww_abi_init(fixture_ctx, sink, NULL);
+    ww_abi_arm(400u, (uint32_t)(uintptr_t)fixture_abi_target);
+    ww_native_fixture_invoke(fixture_abi_invoke);
+    assert(fixture_result[0] == 1u && fixture_args[0] == 1u);
+    assert(ww_abi_state == 0u && ww_abi_dump.count == 0u && trace_file[0] == 0u);
+    puts("sentinel-unarmed-direct-tail-no-output PASS");
+    for (unsigned thumb = 0; thumb < 2; ++thumb) {
+        abi_init(thumb);
+        ww_native_fixture_invoke(fixture_abi_invoke);
+        assert(fixture_args[0] == 1u && fixture_result[0] == 1u);
+        assert(fixture_result[4] == 0x1234u && fixture_result[11] == fixture_sp);
+        assert(ww_abi_dump.failure == 0u && ww_abi_dump.count == 1u);
+        assert(ww_abi_active.before.sp == ww_abi_active.after.sp);
+        for (unsigned i = 0; i < 16; ++i)
+            assert(fixture_vfp_saved[i] == (i % 2 == 0 ? 0x11u : 0x33u));
+        puts(thumb ? "sentinel-thumb-result-one PASS" : "sentinel-arm-result-one PASS");
+    }
+    abi_init(true);
+    fixture_ctx = 1u;
+    ww_native_fixture_invoke(fixture_abi_invoke);
+    assert(fixture_args[0] == 0u && fixture_result[0] == UINT32_MAX);
+    assert(ww_abi_dump.failure == WW_ABI_CONTEXT && ww_abi_dump.complete == WW_ABI_COMPLETE);
+    assert(ww_abi_active.before.r0 == 1u && ww_abi_active.returned == 0u);
+    puts("sentinel-invalid-context-before-target PASS");
+    abi_init(true);
+    fixture_abi_target = (void*)1u;
+    ww_native_fixture_invoke(fixture_abi_invoke);
+    assert(fixture_args[0] == 0u && fixture_result[0] == UINT32_MAX);
+    assert(ww_abi_dump.failure == WW_ABI_TARGET);
+    puts("sentinel-invalid-target-before-call PASS");
+    abi_init(true);
+    for (unsigned i = 0; i < 35; ++i)
+        ww_native_fixture_invoke(fixture_abi_invoke);
+    fixture_clobber = 1u;
+    ww_native_fixture_invoke(fixture_abi_invoke);
+    assert(ww_abi_dump.count == 16u && ww_abi_active.invocation == 36u);
+    for (unsigned i = 0; i < 16; ++i) {
+        const WwAbiPair* pair = &ww_abi_dump.pairs[(ww_abi_dump.next + i) % 16u];
+        assert(pair->invocation == 20u + i && pair->returned == 1u);
+        assert(pair->after.r0 == 1u && pair->before.r[0] == 0x1234u);
+    }
+    unsigned char frozen[sizeof(trace_file)];
+    memcpy(frozen, trace_file, sizeof(frozen));
+    ww_native_fixture_invoke(fixture_abi_invoke);
+    assert(fixture_args[0] == 36u && memcmp(frozen, trace_file, sizeof(frozen)) == 0);
+    assert(ww_abi_active.invocation == 36u && ww_abi_active.after.r[0] == 1u);
+    puts("sentinel-last16-paired-first-failure-immutable PASS");
+    for (unsigned clobber = 1; clobber <= 4; ++clobber) {
+        abi_init(true);
+        fixture_clobber = clobber;
+        ww_native_fixture_invoke(fixture_abi_invoke);
+        assert(fixture_args[0] == 1u && fixture_result[0] == UINT32_MAX);
+        assert(ww_abi_dump.failure == (clobber == 1u ? WW_ABI_REGISTER : clobber == 2u ? WW_ABI_SP :
+                                     clobber == 3u ? WW_ABI_VFP : WW_ABI_REENTRY));
+        assert(ww_abi_dump.complete == WW_ABI_COMPLETE && ww_abi_active.returned == 1u);
+        assert(fixture_result[4] == 0x1234u && fixture_result[11] == fixture_sp);
+        if (clobber == 2u)
+            assert(ww_abi_active.after.sp == ww_abi_active.before.sp + 72u);
+        if (clobber == 1u)
+            assert(ww_abi_active.after.r[0] == 1u);
+        for (unsigned i = 0; i < 16; ++i)
+            assert(fixture_vfp_saved[i] == (i % 2 == 0 ? 0x11u : 0x33u));
+        ww_native_fixture_invoke(fixture_abi_invoke);
+        assert(fixture_args[0] == 1u && fixture_result[0] == UINT32_MAX);
+        puts(clobber == 2u ? "sentinel-SP-independent-anchor-recovery PASS" :
+             clobber == 1u ? "sentinel-r4-first-mismatch-stops PASS" : clobber == 3u ?
+             "sentinel-d15-preserved-recovery PASS" : "sentinel-reentry-keeps-independent-capsule PASS");
+    }
+    for (unsigned mode = 1; mode <= 2; ++mode) {
+        abi_init(true);
+        sink_mode = mode;
+        fixture_clobber = 1u;
+        ww_native_fixture_invoke(fixture_abi_invoke);
+        assert(ww_abi_dump.io_error == 1u && ww_abi_dump.complete == 0u);
+        assert(fixture_result[0] == UINT32_MAX);
+    }
+    puts("sentinel-write-errors-incomplete-stop PASS");
+    puts("NATIVE-CTX sentinel fixtures PASS");
+    return 0;
+}
+#else
 static void init(void) {
     sink_mode = 0u;
     recursive = false;
@@ -216,3 +322,4 @@ int main(void) {
     puts("NATIVE-CTX fixtures PASS");
     return 0;
 }
+#endif

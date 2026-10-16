@@ -1,5 +1,5 @@
 #include "boot_host.h"
-#if WW05_OBSERVE_NATIVE_CTX
+#if WW05_OBSERVE_NATIVE_CTX || WW05_DISPATCH_ABI_SENTINEL
 #include "native_ctx.h"
 #endif
 
@@ -131,6 +131,10 @@ static const char* boundary(WwHost* host, u32 address) {
                 return "REL prolog return trace failed";
             pending->image->initialization_completed = true;
             pending->phase = WW_REL_INIT_RETURN_READY;
+#if WW05_DISPATCH_ABI_SENTINEL
+            if (pending->module_id == 168u)
+                ww_abi_arm(pending->module_id, (uint32_t)(uintptr_t)host->module->dispatch);
+#endif
 #if WW05_OBSERVE_NATIVE_CTX
             if (pending->module_id == 400u)
                 ww_native_arm_title(pending->module_id);

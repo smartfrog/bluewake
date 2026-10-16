@@ -99,7 +99,9 @@ fixture_nested_target:
     str r12, [r5]
     cmp r12, #0
     beq 1f
+#if !WW05_DISPATCH_ABI_SENTINEL
     bl ww_native_spr_read
+#endif
 1:
     pop {r5, lr}
     b fixture_target_thumb
@@ -141,4 +143,54 @@ fixture_target_common:
     real ppc_fsubs
     real ppc_psq_load
     real ppc_psq_store
+
+#if WW05_DISPATCH_ABI_SENTINEL
+    .thumb
+    .global fixture_abi_invoke
+    .type fixture_abi_invoke, %function
+    .thumb_func
+fixture_abi_invoke:
+    ldr r2, =fixture_abi_target
+    ldr r2, [r2]
+    b ww_abi_gate
+
+    .arm
+    .global fixture_abi_arm
+    .type fixture_abi_arm, %function
+fixture_abi_arm:
+    ldr r12, =fixture_abi_thumb
+    bx r12
+
+    .thumb
+    .global fixture_abi_thumb
+    .type fixture_abi_thumb, %function
+    .thumb_func
+fixture_abi_thumb:
+    ldr r12, =fixture_args
+    ldr r3, [r12]
+    adds r3, #1
+    str r3, [r12]
+    ldr r12, =fixture_clobber
+    ldr r12, [r12]
+    cmp r12, #4
+    bne 2f
+    push {r4, lr}
+    bl fixture_abi_invoke
+    pop {r4, lr}
+    movs r0, #1
+    bx lr
+2:
+    cmp r12, #1
+    it eq
+    moveq r4, #1
+    cmp r12, #2
+    it eq
+    addeq sp, #72
+    cmp r12, #3
+    bne 1f
+    vmov d15, r0, r0
+1:
+    movs r0, #1
+    bx lr
+#endif
     .section .note.GNU-stack,"",%progbits

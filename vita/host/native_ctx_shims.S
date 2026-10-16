@@ -4,6 +4,82 @@
     .thumb
     .text
 
+#if WW05_DISPATCH_ABI_SENTINEL
+    .global ww_abi_gate
+    .type ww_abi_gate, %function
+    .thumb_func
+ww_abi_gate:
+    ldr r12, =ww_abi_state
+    ldr r12, [r12]
+    cmp r12, #0
+    beq 9f
+    cmp r12, #1
+    beq 1f
+    cmp r12, #3
+    bne 8f
+    ldr r12, =ww_abi_state
+    movs r3, #4
+    str r3, [r12]
+    b 8f
+1:
+    ldr r12, =ww_abi_active
+    str r2, [r12, #8]
+    add.w r12, r12, #16
+    stmia r12, {r4-r11}
+    add.w r3, r12, #32
+    vstmia r3, {d8-d15}
+    str sp, [r12, #96]
+    str lr, [r12, #100]
+    str r0, [r12, #104]
+    str r1, [r12, #108]
+    /* Only the independent static anchor is used after an untrusted target returns. */
+    mov r3, sp
+    bic r3, r3, #7
+    mov sp, r3
+    bl ww_abi_begin
+    cmp r0, #0
+    beq 7f
+    ldr r12, =ww_abi_active
+    ldr r0, [r12, #120]
+    ldr r1, [r12, #124]
+    ldr r2, [r12, #8]
+    blx r2
+    ldr r12, =ww_abi_active
+    add.w r12, r12, #128
+    stmia r12, {r4-r11}
+    add.w r3, r12, #32
+    vstmia r3, {d8-d15}
+    str sp, [r12, #96]
+    str lr, [r12, #100]
+    str r0, [r12, #104]
+    str r1, [r12, #108]
+    ldr r12, =ww_abi_active
+    ldr r3, [r12, #112]
+    mov sp, r3
+    bl ww_abi_finish
+7:
+    cmp r0, #0
+    ldr r12, =ww_abi_active
+    ite ne
+    ldrne r0, [r12, #232]
+    moveq r0, #-1
+    ldr r3, [r12, #112]
+    mov sp, r3
+    ldr lr, [r12, #116]
+    add.w r12, r12, #16
+    add.w r3, r12, #32
+    vldmia r3, {d8-d15}
+    ldmia r12, {r4-r11}
+    bx lr
+8:
+    mov r0, #-1
+    bx lr
+9:
+    bx r2
+    .size ww_abi_gate, .-ww_abi_gate
+    .ltorg
+#else
+
     .equ FRAME, 336
     .equ ENTRY, 16
     .equ RETURNED, 176
@@ -157,5 +233,6 @@
     shim __wrap_ppc_psq_load, __real_ppc_psq_load, 23, 3
     shim __wrap_ppc_psq_store, __real_ppc_psq_store, 24, 3
     shim ww_native_journal, 0, 25, 0, 7
+#endif
 
     .section .note.GNU-stack,"",%progbits
