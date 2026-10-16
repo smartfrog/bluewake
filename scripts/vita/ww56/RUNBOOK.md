@@ -111,6 +111,41 @@ plus `--check` (all four checks passed in service mode during preparation).
 
 ## Step 2: launch the supervisor outside any capped scope
 
+### Explicit diagnostic alternative (not launch authorization)
+
+The legacy live path below keeps its CPU-opt-on configuration and snapshots.
+Do not use it for a diagnostic readiness profile by simply dropping `--check`.
+Only after fresh independent code review, candidate package/artifact checks and
+ROOTUSER/coordinator approval for that particular trial, explicitly select
+`--diagnostic-run --diagnostic-profile <absolute-private-profile> --request-token <32-hex-token>`
+with the same required inputs and supervisor command. There is no new approval
+file or authentication scheme. `--check --diagnostic-profile ...` remains
+readiness only, not approval; `--diagnostic-run` cannot be combined with `--check`.
+
+The existing readiness checker validates the supplied profile, exact request
+token/source/package binding, continuation 64 and deferred audio before any
+staging or phase launch. The supplied profile stays read-only. Existing staging
+creates a separate fresh owned run directory, copies the local personal package
+and firmware there (never a system install), and emits the same approved
+CPU-opt-false/OpenGL/no-surface-capture template with only its preference path
+rebound to that new directory. After verified installation, the existing request
+writer stages all three requests with the explicit token; the unchanged readiness
+checker validates that actual destination before the guest phase starts.
+
+Diagnostic supervision reuses the CPU/log observer and existing phase cleanup.
+It disables snapshots throughout ingestion and every final drain, never reads
+RSS/proc-status/smaps or polls RAM, and excludes `MemoryPeak` from unit queries.
+Static budget/cgroup verification and the single pre-release MemAvailable
+admission reading remain required. The idle window cannot exceed 30 seconds:
+silence plus near-zero CPU aborts early, while CPU or log progress keeps a
+healthy guest running until its existing frontier/ceiling. Invocation/PID/cgroup
+binding is checked before observing CPU or signalling; cleanup stops only owned
+unit invocations and preserves partial logs and the first fault. Missing cgroup
+permissions fail closed: do not change host-wide limits or settings to proceed.
+
+This delivery has not launched a real guest. Passing synthetic tests does not
+prove boot, rendering, gameplay or package build provenance.
+
 The supervisor must not share a memory cap with the phase units. Launch it as
 its own uncapped transient unit under `app.slice`, in **service mode with an
 absolute path**: a transient service starts in the user manager's home, not

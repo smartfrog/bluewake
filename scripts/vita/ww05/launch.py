@@ -15,6 +15,7 @@ import zipfile
 
 from game_build import OUTPUT, ROOT, checked_sources, sha256
 from stage_plan import (stage, check, validate_continuation, validate_timeout, verify_package, checked_build_receipt,
+                        is_full_hex_identity,
                         load_candidate_descriptor, checked_candidate_receipt, verify_candidate_package)
 from report import MAX_JOURNAL_COMMANDS, matched, validate, validate_commands
 from fp_campaign import emitted_config, restore_config, runtime_inputs, verify_phase_logs, verify_stopped
@@ -116,11 +117,14 @@ def request_content(token, source, package, count=None):
     return f'{token} {source} {package}{suffix}\n'
 
 
-def fresh_request(root, source, package, continue_gx=0, mem1_snapshots=0, defer_audio=False, mem1_command_window=None):
+def fresh_request(root, source, package, continue_gx=0, mem1_snapshots=0, defer_audio=False, mem1_command_window=None,
+                  *, token=None):
     validate_continuation(continue_gx)
     validate_memory_captures(mem1_snapshots, continue_gx, mem1_command_window)
     if type(defer_audio) is not bool or (defer_audio and not continue_gx):
         raise ValueError('audio deferral requires the explicit continuation profile')
+    if token is not None and not is_full_hex_identity(token, 32):
+        raise ValueError('explicit request token must be lowercase 32-hex')
     directory = root
     for part in REPORT_DIRECTORY.parts:
         with directory_fd(directory) as parent:
@@ -129,7 +133,7 @@ def fresh_request(root, source, package, continue_gx=0, mem1_snapshots=0, defer_
             except FileExistsError:
                 pass
         directory = directory / part
-    token = uuid.uuid4().hex
+    token = uuid.uuid4().hex if token is None else token
     with directory_fd(directory) as parent:
         if os.fstat(parent).st_uid != os.getuid():
             raise ValueError('report directory must be privately owned')
