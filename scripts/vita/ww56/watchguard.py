@@ -33,7 +33,10 @@ def exception_record(error):
 class WW56Ownership:
     """Use existing WW56 identity helpers plus positive terminal emptiness proof."""
 
-    def __init__(self, runner, unit, owned, properties, members, deliver, guests=()):
+    def __init__(self, runner, unit, owned, properties, members, deliver, guests=(), *,
+                 clock=time.monotonic, yield_for=time.sleep, terminal_wait_seconds=10, poll_seconds=0.1):
+        if not (0 < terminal_wait_seconds <= 10 and 0.01 <= poll_seconds <= 1):
+            raise ValueError('invalid bounded terminal observation policy')
         self.runner = runner
         self.unit = unit
         self.owned = owned
@@ -43,14 +46,40 @@ class WW56Ownership:
         self.guests = tuple(guests)
         self.state = {'owned_identity': owned}
         self.snapshot = {}
+        self.clock = clock
+        self.yield_for = yield_for
+        self.terminal_wait_seconds = terminal_wait_seconds
+        self.poll_seconds = poll_seconds
 
     def verify(self):
+        result = self._observe()
+        return self.wait_terminal() if result is None else result
+
+    def wait_terminal(self):
+        started = self.clock()
+        deadline = started + self.terminal_wait_seconds
+        for poll in range(int(self.terminal_wait_seconds / self.poll_seconds) + 2):
+            terminal = self._observe()
+            self.snapshot['terminal_wait'] = {'polls': poll + 1, 'elapsed': self.clock() - started}
+            if terminal is True:
+                return True
+            remaining = deadline - self.clock()
+            if remaining <= 0:
+                break
+            self.yield_for(min(self.poll_seconds, remaining))
+        raise ValueError('BLOCKED: bounded wait expired without original terminal proof')
+
+    def _observe(self):
         self.snapshot = {'unit': self.unit, 'owned': self.owned._asdict()}
+        if self.state.get('owned_identity') != self.owned:
+            raise ValueError('BLOCKED: original owned identity or launch nonce changed')
         current = self.properties(self.unit)
         self.snapshot['properties'] = dict(current)
         terminal = self.runner.owned_terminal(self.unit, self.state, current)
         if terminal:
             return self._confirm_terminal()
+        if self._stopping(current):
+            return None
         try:
             self.snapshot['process'] = self.runner.process_identity(self.owned.pid)
             if self.snapshot['process'] != (self.owned.starttime, self.owned.cgroup):
@@ -61,8 +90,26 @@ class WW56Ownership:
             self.snapshot['properties_recheck'] = dict(current)
             if self.runner.owned_terminal(self.unit, self.state, current):
                 return self._confirm_terminal()
+            if self._stopping(current):
+                return None
             raise ValueError('BLOCKED: missing fresh original terminal proof')
         return False
+
+    def _stopping(self, current):
+        if current.get('ActiveState') != 'deactivating':
+            return False
+        if (current.get('LoadState') != 'loaded' or current.get('InvocationID') != self.owned.invocation_id or
+                current.get('ControlGroup') != self.owned.cgroup or
+                current.get('MainPID') not in (str(self.owned.pid), '0')):
+            raise ValueError('BLOCKED: changed stopping invocation/process ownership')
+        try:
+            process = self.runner.process_identity(self.owned.pid)
+            self.snapshot['process'] = process
+            if process != (self.owned.starttime, self.owned.cgroup):
+                raise ValueError('BLOCKED: changed stopping original PID identity')
+        except (FileNotFoundError, ProcessLookupError):
+            self.snapshot['original_pid_absent'] = True
+        return True
 
     def _confirm_terminal(self):
         gone = self.runner.original_process_gone(self.owned)
@@ -148,7 +195,8 @@ class FirstFaultWatchguard:
 
     def confirm_cleanup(self):
         try:
-            if not self.ownership.verify():
+            observe_terminal = getattr(self.ownership, 'wait_terminal', self.ownership.verify)
+            if not observe_terminal():
                 raise ValueError('BLOCKED: cleanup has no terminal proof')
             self.cleanup = 'confirmed'
             if self.disposition == 'signal-sent':
