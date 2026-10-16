@@ -9,6 +9,7 @@ import unittest
 import test_host
 
 BASE = 'bbd79f1208c6ca5668075de08c1a261e3a0e1500'
+DIAGNOSTIC_MACROS = ('WW05_OBSERVE_NATIVE_CTX', 'WW05_DISPATCH_ABI_SENTINEL', 'WW05_REJECTION_CAPSULE')
 
 
 class NativeContextOffTest(unittest.TestCase):
@@ -54,7 +55,12 @@ class NativeContextOffTest(unittest.TestCase):
             arguments.remove(row['file'])
             old = output / 'baseline' / name
             old.parent.mkdir(exist_ok=True)
-            old.write_bytes(subprocess.check_output(['git', 'show', BASE + ':vita/host/' + name], cwd=root))
+            source = Path(row['file']).read_text()
+            without_diagnostics = test_host.without_option_regions(source, DIAGNOSTIC_MACROS)
+            for macro in DIAGNOSTIC_MACROS:
+                self.assertNotIn(macro, without_diagnostics, name)
+            self.assertNotEqual(source, without_diagnostics, name)
+            old.write_text(without_diagnostics)
             arguments.extend(['-I' + str(root / 'vita/host'), '-g0', '-frandom-seed=ww117'])
             for label, source in (('baseline', old), ('off', Path(row['file']))):
                 for suffix, mode in (('i', ['-E', '-P']), ('o', ['-c'])):

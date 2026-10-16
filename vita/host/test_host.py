@@ -27,6 +27,40 @@ def require_no_vita3k():
             raise RuntimeError(f'Host tests require Vita3K to be stopped: {path.parent.name}')
 
 
+def without_option_regions(text, macros):
+    """The same source with the named option-gated regions removed.
+
+    The default build's output must equal this text's output: an option region
+    contributes nothing while its option is off, so a source that differs only
+    by such regions and the current default code compiles identically.
+    """
+    kept = []
+    depth = 0
+    active = True
+    for line in text.splitlines(keepends=True):
+        directive = line.strip()
+        if depth == 0 and directive.startswith('#if') and any(macro in directive for macro in macros):
+            depth = 1
+            active = False
+            continue
+        if depth != 0:
+            if directive.startswith('#if') or directive.startswith('#elif'):
+                raise ValueError(f'unsupported nested option region: {directive}')
+            if directive.startswith('#endif'):
+                depth -= 1
+                if depth == 0:
+                    active = True
+            elif directive.startswith('#else') and depth == 1:
+                active = not active
+            elif active:
+                kept.append(line)
+            continue
+        kept.append(line)
+    if depth != 0:
+        raise ValueError('unterminated option region')
+    return ''.join(kept)
+
+
 class StartupHostTest(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
@@ -235,6 +269,15 @@ class StartupHostTest(unittest.TestCase):
         for shape in ('bad-caller', 'bad-queue', 'bad-sda', 'alias'):
             with self.subTest(shape=shape):
                 subprocess.run([str(OUT / 'host_probe'), 'epilogue-edge-retrace-' + shape], check=True)
+
+    def test_owned_observed_receive_wait_executes_guest_sleep_code_without_a_fake_wakeup(self):
+        subprocess.run([str(OUT / 'host_probe'), 'epilogue-edge-receive'], check=True)
+
+    def test_other_receive_callers_queues_and_sda_bases_are_still_refused(self):
+        for shape in ('bad-address', 'bad-caller', 'bad-queue', 'bad-sda', 'alias', 'unmapped',
+                      'unbacked', 'waiting', 'head', 'tail', 'used', 'unowned', 'unowned-lr'):
+            with self.subTest(shape=shape):
+                subprocess.run([str(OUT / 'host_probe'), 'epilogue-edge-receive-' + shape], check=True)
 
     def test_fp_dispatch_credit_refunds_only_valid_prepaid_unexecuted_suffixes(self):
         for shape in ('prepaid', 'precise', 'invalid', 'other'):

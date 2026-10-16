@@ -357,27 +357,46 @@ int main(int argc, char** argv) {
         assert(host->error != NULL);
     } else if (strncmp(argv[1], "epilogue-edge-", 14u) == 0) {
         const bool retrace = strncmp(argv[1], "epilogue-edge-retrace", 21u) == 0;
+        const bool receive = strncmp(argv[1], "epilogue-edge-receive", 21u) == 0;
         const bool context = strcmp(argv[1], "epilogue-edge-context") == 0 ||
                              strcmp(argv[1], "epilogue-edge-context-unowned") == 0;
         const bool compiled = strcmp(argv[1], "epilogue-edge-compiled") == 0 ||
                               strcmp(argv[1], "epilogue-edge-context") == 0 ||
-                              strcmp(argv[1], "epilogue-edge-retrace") == 0;
+                              strcmp(argv[1], "epilogue-edge-retrace") == 0 ||
+                              strcmp(argv[1], "epilogue-edge-receive") == 0;
         const bool unowned = strcmp(argv[1], "epilogue-edge-unowned") == 0 ||
                              strcmp(argv[1], "epilogue-edge-context-unowned") == 0 ||
-                             strcmp(argv[1], "epilogue-edge-retrace-unowned") == 0;
+                             strcmp(argv[1], "epilogue-edge-retrace-unowned") == 0 ||
+                             strcmp(argv[1], "epilogue-edge-receive-unowned") == 0;
         const bool service = strcmp(argv[1], "epilogue-edge-service") == 0 ||
                              strcmp(argv[1], "epilogue-edge-retrace-bad-caller") == 0 ||
                              strcmp(argv[1], "epilogue-edge-retrace-bad-queue") == 0 ||
                              strcmp(argv[1], "epilogue-edge-retrace-bad-sda") == 0 ||
                              strcmp(argv[1], "epilogue-edge-retrace-alias") == 0;
-        assert(compiled || unowned || service);
+        const bool receive_negative = strcmp(argv[1], "epilogue-edge-receive-bad-address") == 0 ||
+                                      strcmp(argv[1], "epilogue-edge-receive-bad-caller") == 0 ||
+                                      strcmp(argv[1], "epilogue-edge-receive-bad-queue") == 0 ||
+                                      strcmp(argv[1], "epilogue-edge-receive-bad-sda") == 0 ||
+                                      strcmp(argv[1], "epilogue-edge-receive-alias") == 0 ||
+                                      strcmp(argv[1], "epilogue-edge-receive-unmapped") == 0 ||
+                                      strcmp(argv[1], "epilogue-edge-receive-unbacked") == 0 ||
+                                      strcmp(argv[1], "epilogue-edge-receive-waiting") == 0 ||
+                                      strcmp(argv[1], "epilogue-edge-receive-head") == 0 ||
+                                      strcmp(argv[1], "epilogue-edge-receive-tail") == 0 ||
+                                      strcmp(argv[1], "epilogue-edge-receive-used") == 0 ||
+                                      strcmp(argv[1], "epilogue-edge-receive-unowned-lr") == 0;
+        assert(compiled || unowned || service || receive_negative);
         StaticRecompRange range = retrace ? (StaticRecompRange){0x80308A9Cu, 0x80308AA0u} :
+                                  strcmp(argv[1], "epilogue-edge-receive-unowned-lr") == 0 ? (StaticRecompRange){0x80308A9Cu, 0x80308AA0u} :
+                                  strcmp(argv[1], "epilogue-edge-receive-bad-address") == 0 ? (StaticRecompRange){0x803056E0u, 0x80322B24u} :
+                                  receive ? (StaticRecompRange){0x803056E0u, 0x803096E0u} :
                                   service ? (StaticRecompRange){0x803193ACu, 0x803193B0u} :
                                   context ? (StaticRecompRange){0x80303A50u, 0x80303B28u} :
                                             (StaticRecompRange){0x80328F84u, 0x80328F9Cu};
         StaticRecompModuleDesc module = {.dispatch = dispatch, .code_ranges = &range, .num_code_ranges = 1u};
         host->module = unowned ? NULL : &module;
-        host->cpu.pc = range.start;
+        host->cpu.pc = strcmp(argv[1], "epilogue-edge-receive-bad-address") == 0 ? 0x80322B20u :
+                       receive ? 0x80308A9Cu : range.start;
         host->cpu.lr = 0x8030141Cu;
         host->cpu.gpr[11] = 0x8040CF60u;
         host->cpu.gpr[3] = 0x803A2960u;
@@ -388,6 +407,20 @@ int main(int argc, char** argv) {
             if (strcmp(argv[1], "epilogue-edge-retrace-alias") == 0)
                 assert(ppc_guest_alias_add(0x803F7B44u, 8u, NULL));
         }
+        if (receive) {
+            host->cpu.lr = strcmp(argv[1], "epilogue-edge-receive-bad-caller") == 0 ? 0x80322C38u : 0x80305A28u;
+            host->cpu.gpr[3] = strcmp(argv[1], "epilogue-edge-receive-bad-queue") == 0 ? 0x803F7C9Cu :
+                               strcmp(argv[1], "epilogue-edge-receive-unmapped") == 0 ? 0x818A72C8u : 0x803A72C8u;
+            host->cpu.gpr[13] = strcmp(argv[1], "epilogue-edge-receive-bad-sda") == 0 ? 0x8040E0E0u : 0x803FE0E0u;
+            if (strcmp(argv[1], "epilogue-edge-receive-alias") == 0)
+                assert(ppc_guest_alias_add(0x803A72C8u, 8u, NULL));
+            if (strcmp(argv[1], "epilogue-edge-receive-waiting") == 0 || strcmp(argv[1], "epilogue-edge-receive-head") == 0)
+                mem_write32(&host->cpu, 0x803A72C8u, 0x803A5F90u);
+            if (strcmp(argv[1], "epilogue-edge-receive-waiting") == 0 || strcmp(argv[1], "epilogue-edge-receive-tail") == 0)
+                mem_write32(&host->cpu, 0x803A72CCu, 0x803A5F90u);
+            if (strcmp(argv[1], "epilogue-edge-receive-used") == 0)
+                mem_write32(&host->cpu, 0x803A72DCu, 1u);
+        }
         host->cpu.srr0 = 0x802AE070u;
         host->cpu.srr1 = 0x0000A032u;
         for (u32 reg = 27u; reg <= 31u; ++reg)
@@ -395,8 +428,15 @@ int main(int argc, char** argv) {
         const CPUState before = host->cpu;
         const DolInterrupts interrupts_before = host->interrupts;
         const u32 queue_before = mem_read32(&host->cpu, 0x803F7B44u);
+        u8 receive_queue_before[0x20];
+        memcpy(receive_queue_before, host->cpu.ram + 0x003A72C0u, sizeof receive_queue_before);
+        const u32 ram_size = host->cpu.ram_size;
+        const u32 expected_ram_size = strcmp(argv[1], "epilogue-edge-receive-unbacked") == 0 ? 0x003A72DFu : ram_size;
+        host->cpu.ram_size = expected_ram_size;
         assert(ww_host_edge(host, &host->cpu, host->cpu.pc) == !compiled);
         assert((host->error == NULL) == compiled && host->edge_stopped == !compiled);
+        assert(host->cpu.ram_size == expected_ram_size);
+        host->cpu.ram_size = ram_size;
         assert(host->cpu.pc == before.pc && host->cpu.lr == before.lr && host->cpu.msr == before.msr);
         assert(host->cpu.srr0 == before.srr0 && host->cpu.srr1 == before.srr1);
         assert(memcmp(host->cpu.gpr, before.gpr, sizeof(before.gpr)) == 0);
@@ -405,8 +445,12 @@ int main(int argc, char** argv) {
         assert(host->cycles.absolute_cycles == 0u);
         assert(memcmp(&interrupts_before, &host->interrupts, sizeof(interrupts_before)) == 0);
         assert(mem_read32(&host->cpu, 0x803F7B44u) == queue_before);
-        if (!compiled)
+        assert(memcmp(host->cpu.ram + 0x003A72C0u, receive_queue_before, sizeof receive_queue_before) == 0);
+        if (!compiled) {
             assert(host->error_address == before.pc && host->error_pc == before.pc);
+            if (receive)
+                assert(strcmp(host->error, "desktop interception unsupported; guest not skipped") == 0);
+        }
     } else if (strncmp(argv[1], "fp-credit-", 10u) == 0) {
         const bool prepaid = strcmp(argv[1], "fp-credit-prepaid") == 0;
         const bool precise = strcmp(argv[1], "fp-credit-precise") == 0;

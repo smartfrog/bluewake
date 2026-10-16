@@ -6,7 +6,6 @@ from pathlib import Path
 
 import test_host
 
-BASE = '1dd6802e906ede22e2665db2e32917a94da30a56'
 SCENARIOS = ('retrace-unowned', 'draw-done-mismatch', 'restore-unowned', 'no-writer', 'delta',
              'unmapped-queue', 'alias-queue', 'thread-valid', 'thread-unmapped',
              'failed-write', 'short-write', 'short-complete', 'second-call', 'compiled-no-record',
@@ -49,7 +48,11 @@ class RejectionCapsuleTest(unittest.TestCase):
         arguments.extend(['-I' + str(root / 'vita/host'), '-g0', '-frandom-seed=ww117'])
         baseline = output / 'baseline' / 'boot_host.c'
         baseline.parent.mkdir(exist_ok=True)
-        baseline.write_bytes(subprocess.check_output(['git', 'show', BASE + ':vita/host/boot_host.c'], cwd=root))
+        current = Path(row['file']).read_text()
+        without_capsule = test_host.without_option_regions(current, ('WW05_REJECTION_CAPSULE',))
+        self.assertNotIn('WW05_REJECTION_CAPSULE', without_capsule)
+        self.assertNotEqual(current, without_capsule)
+        baseline.write_text(without_capsule)
         for label, source in (('baseline', baseline), ('off', Path(row['file']))):
             for suffix, mode in (('i', ['-E', '-P']), ('o', ['-c'])):
                 subprocess.run([*arguments, *mode, str(source), '-o', str(output / f'{label}-boot_host.c.{suffix}')],
