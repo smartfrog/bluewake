@@ -104,10 +104,16 @@ def pinned_sources():
                          ' (see the WW56 runbook preconditions): ' + str(error)) from error
 
 
-def properties(unit):
+def properties(unit, keys=PROPERTIES):
     output = subprocess.check_output(['systemctl', '--user', 'show', unit,
-                                      *['--property=' + key for key in PROPERTIES]], text=True)
+                                      *['--property=' + key for key in keys]], text=True)
     return parse_properties(output)
+
+
+def phase_properties(unit, diagnostic=False):
+    if diagnostic:
+        return properties(unit, keys=tuple(key for key in PROPERTIES if key != 'MemoryPeak'))
+    return properties(unit)
 
 
 INVOCATION_LINE = re.compile(r'Running as unit: (\S+); invocation ID: ([0-9a-f]+)')
@@ -127,8 +133,8 @@ def wrapper_invocation(phase_root, unit):
     return None
 
 
-def require_fresh_unit(unit):
-    current = properties(unit)
+def require_fresh_unit(unit, diagnostic=False):
+    current = phase_properties(unit, diagnostic)
     if current.get('LoadState') != 'not-found':
         raise ValueError('unit already exists; refusing to reuse or stop it: ' + unit +
                          ' (LoadState=' + str(current.get('LoadState')) + ')')
@@ -136,7 +142,7 @@ def require_fresh_unit(unit):
 
 
 def stop_owned_unit(unit, state):
-    current = properties(unit)
+    current = phase_properties(unit, state.get('diagnostic', False))
     recorded = state.get('invocation_id') or wrapper_invocation(state.get('phase_root'), unit)
     loaded_active = (current.get('LoadState') == 'loaded' and
                      current.get('ActiveState') in ('active', 'activating', 'reloading'))
@@ -276,9 +282,29 @@ def plan_input(path, expected_sha256, label):
     return {'source': str(path), 'identity': identity, 'sha256': expected_sha256}
 
 
+def diagnostic_plan(args, profile=None):
+    if not getattr(args, 'diagnostic_run', False):
+        raise ValueError('live diagnostic path requires explicit --diagnostic-run')
+    if args.diagnostic_profile is None or args.request_token is None:
+        raise ValueError('diagnostic run requires a private profile and explicit request token')
+    if not math.isfinite(args.hang_seconds) or not 0 < args.hang_seconds <= 30:
+        raise ValueError('diagnostic hang window must be positive and at most 30 seconds')
+    context = argparse.Namespace(**vars(args))
+    context.check = True
+    if profile is not None:
+        context.diagnostic_profile = profile
+    return diagnostic_readiness(context)
+
+
+def profile_options(plan):
+    return {'alt': True} if 'diagnostic_readiness' in plan else {}
+
+
 def stage_trial(args):
+    diagnostic = diagnostic_plan(args) if getattr(args, 'diagnostic_run', False) else None
     runroot = reject_symlinks(Path(args.run_root_base)) / ('ww56-' + args.run_id)
-    receipts = Path(args.receipts_root) / ('ww56-' + args.run_id)
+    receipt_base = reject_symlinks(Path(args.receipts_root)) if diagnostic is not None else Path(args.receipts_root)
+    receipts = receipt_base / ('ww56-' + args.run_id)
     if runroot.exists() or runroot.is_symlink():
         raise ValueError('runroot already exists; a fresh private profile is required: ' + str(runroot))
     if receipts.exists() or receipts.is_symlink():
@@ -292,7 +318,8 @@ def stage_trial(args):
     if sha256(runroot / 'runtime/ww05.vpk') != args.vpk_sha256:
         raise ValueError('staged candidate package changed')
     firmware = stage_firmware(runroot, args.firmware, surface_sync=False,
-                              pref_path=runroot / FIRMWARE_DIRECTORY)
+                              pref_path=runroot / FIRMWARE_DIRECTORY,
+                              **({'alt': True} if diagnostic is not None else {}))
     shader = stage_shader_compiler(runroot, args.shader_compiler)
     disc = stage_disc(runroot, args.disc, args.disc_sha256)
     libraries = library_identity(args.libraries)
@@ -307,11 +334,14 @@ def stage_trial(args):
         'runtime_inputs': runtime_inputs(args.runtime), 'runtime_assets': assets,
         'runtime_libraries': libraries, 'firmware': firmware, 'shader_compiler': shader, 'disc': disc,
         'private_config': config_identity(runroot, surface_sync=False,
-                                          pref_path=runroot / FIRMWARE_DIRECTORY),
+                                          pref_path=runroot / FIRMWARE_DIRECTORY,
+                                          **({'alt': True} if diagnostic is not None else {})),
         'wayland_socket': str(args.wayland_socket), 'audio': args.audio, 'continue_gx': args.continue_gx,
         'idle_timeout_seconds': args.hang_seconds, 'cpu_threshold': 0.05,
         'minimum_available_memory_bytes': 0, 'phases': phases,
     }
+    if diagnostic is not None:
+        plan['diagnostic_readiness'] = diagnostic
     (runroot / 'phases').mkdir(mode=0o700)
     for name, entry in plan['phases'].items():
         phase = runroot / 'phases' / name
@@ -359,28 +389,30 @@ def verify_trial_inputs(runroot, plan, args):
 
 def verify_private_config(runroot, plan):
     if config_identity(runroot, surface_sync=False,
-                       pref_path=runroot / FIRMWARE_DIRECTORY) != plan['private_config']:
+                       pref_path=runroot / FIRMWARE_DIRECTORY, **profile_options(plan)) != plan['private_config']:
         raise ValueError('private configuration is not the canonical private profile')
 
 
 def installation_gates(runroot, plan, args, phase):
     canonical = emitted_config(runroot, phase, surface_sync=False,
-                               pref_path=runroot / FIRMWARE_DIRECTORY)
+                               pref_path=runroot / FIRMWARE_DIRECTORY, **profile_options(plan))
     verify_phase_logs(runroot, phase, PHASE_LOG_LIMIT)
     verify_trial_inputs(runroot, plan, args)
     payload = verify_installed(runroot, plan)
-    restore_config(runroot, canonical, surface_sync=False, pref_path=runroot / FIRMWARE_DIRECTORY)
+    restore_config(runroot, canonical, surface_sync=False, pref_path=runroot / FIRMWARE_DIRECTORY,
+                   **profile_options(plan))
     verify_private_config(runroot, plan)
     return payload
 
 
 def guest_gates(runroot, plan, args, phase):
     canonical = emitted_config(runroot, phase, surface_sync=False,
-                               pref_path=runroot / FIRMWARE_DIRECTORY)
+                               pref_path=runroot / FIRMWARE_DIRECTORY, **profile_options(plan))
     verify_trial_inputs(runroot, plan, args)
     verify_installed(runroot, plan)
     verify_phase_logs(runroot, phase, PHASE_LOG_LIMIT)
-    restore_config(runroot, canonical, surface_sync=False, pref_path=runroot / FIRMWARE_DIRECTORY)
+    restore_config(runroot, canonical, surface_sync=False, pref_path=runroot / FIRMWARE_DIRECTORY,
+                   **profile_options(plan))
     verify_private_config(runroot, plan)
 
 
@@ -415,6 +447,7 @@ class PhaseWatch:
         self.state = state
         self.probe = probe
         self.ready_probe = ready_probe
+        self.diagnostic = getattr(args, 'diagnostic_run', False)
         self.phase_root = Path(entry['evidence_root'])
         self.journal_path = str(runroot / REPORT_DIRECTORY / 'ww05.log')
         self.readers = {str(path): IncrementalLog(path) for path in self._log_paths()}
@@ -442,11 +475,15 @@ class PhaseWatch:
         if not ready.exists():
             return None
         identity = json.loads(ready.read_text())
-        props = properties(self.unit)
+        props = phase_properties(self.unit, self.diagnostic)
         if props.get('ControlGroup') != identity['cgroup']:
             raise ValueError('unit ControlGroup differs from the gate cgroup: ' + self.name)
         if props.get('MainPID') != str(identity['pid']):
             raise ValueError('unit MainPID differs from the gate pid: ' + self.name)
+        if self.diagnostic:
+            invocation = wrapper_invocation(self.phase_root, self.unit)
+            if not invocation or props.get('InvocationID') != invocation:
+                raise ValueError('refusing to release a phase invocation not created by the owned wrapper: ' + self.unit)
         budget_evidence = verify_budget_properties(props, budget_bytes=self.budget)
         own = Path('/proc/self/cgroup').read_text().strip().split('::', 1)[1]
         if Path(identity['cgroup']).parent != Path(own).parent or identity['cgroup'] == own:
@@ -507,6 +544,8 @@ class PhaseWatch:
         if failures:
             self.failure_lines.extend(failures)
         pid = self.state.get('pid')
+        if self.diagnostic:
+            return
         for trigger in self.scanner.feed(lines):
             if pid is None:
                 self.state['snapshots'].append({'event': trigger.kind, 'missed': 'process never released'})
@@ -582,6 +621,8 @@ class PhaseWatch:
                     'native_properties': self.state['properties_at_exit']}
         if self.probe:
             return None
+        if self.diagnostic:
+            self._verify_owned_process()
         lines, journal = self._read_logs()
         self.new_lines += len(lines)
         stop = self._observe_frontier(now, lines, journal)
@@ -605,10 +646,20 @@ class PhaseWatch:
             self.state['requested_stop'] = stop
             if self.state.get('presentations_at_stop') is None:
                 self.state['presentations_at_stop'] = len(self.state['presentations'])
+            if self.diagnostic:
+                self._verify_owned_process()
             subprocess.run(['systemctl', '--user', 'kill', '--signal=SIGTERM',
                             '--kill-whom=all', self.unit], check=True, timeout=5)
             return stop
         return None
+
+    def _verify_owned_process(self):
+        current = properties(self.unit, keys=('ControlGroup', 'MainPID', 'InvocationID'))
+        if (not self.state.get('invocation_id') or
+                current.get('InvocationID') != self.state['invocation_id'] or
+                current.get('MainPID') != str(self.state['pid']) or
+                current.get('ControlGroup') != self.state['cgroup']):
+            raise ValueError('refusing to observe or signal a changed phase invocation: ' + self.unit)
 
 
 def run_phase(name, args, runroot, receipts, plan, record, *, budget, headroom, deadline,
@@ -621,7 +672,9 @@ def run_phase(name, args, runroot, receipts, plan, record, *, budget, headroom, 
              'released': False, 'phase_root': str(phase_root), 'invocation_id': None,
              'presentations_at_stop': None}
     record['phases'][name] = state
-    state['properties_before_creation'] = require_fresh_unit(unit)
+    if getattr(args, 'diagnostic_run', False):
+        state['diagnostic'] = True
+    state['properties_before_creation'] = require_fresh_unit(unit, state.get('diagnostic', False))
     state['cleanup_stop_timeout_seconds'] = 2 * args.cleanup_grace_seconds + 10
     spec = {'command': entry['command'], 'environment': entry['environment'], 'cwd': entry['cwd'],
             'budget_bytes': budget, 'unit': unit, 'permit_timeout_seconds': PERMIT_TIMEOUT_SECONDS}
@@ -643,6 +696,7 @@ def run_phase(name, args, runroot, receipts, plan, record, *, budget, headroom, 
                                               cwd=ROOT)
     except BaseException as error:
         failure = error
+        state['error'] = str(error)
         raise
     finally:
         late_error = None
@@ -657,11 +711,18 @@ def run_phase(name, args, runroot, receipts, plan, record, *, budget, headroom, 
         except BaseException as error:
             state['cleanup_error'] = str(error)
             late_error = late_error or error
-        state['properties_after_cleanup'] = properties(unit)
+        try:
+            state['properties_after_cleanup'] = phase_properties(unit, state.get('diagnostic', False))
+        except BaseException as error:
+            state['cleanup_properties_error'] = str(error)
+            late_error = late_error or error
         try:
             state['wrapper'] = json.loads((phase_root / 'evidence/process.json').read_text())
         except FileNotFoundError:
             state['wrapper'] = None
+        except (OSError, ValueError) as error:
+            state['wrapper_error'] = str(error)
+            late_error = late_error or error
         try:
             watch.final_drain('post-cleanup')
         except BaseException as error:
@@ -673,13 +734,22 @@ def run_phase(name, args, runroot, receipts, plan, record, *, budget, headroom, 
             journal_text = (runroot / REPORT_DIRECTORY / 'ww05.log').read_text(errors='replace')
         except FileNotFoundError:
             journal_text = ''
+        except OSError as error:
+            state['journal_error'] = str(error)
+            journal_text = ''
+            late_error = late_error or error
         state['journal_present_lines'] = count_marker_lines(journal_text, PRESENT_MARKER)
         state['presentations_undrained'] = max(0, state['journal_present_lines'] - state['presentations_total'])
         state['native_pid_absent_after_cleanup'] = (state['pid'] is None or
                                                     not Path('/proc', str(state['pid'])).exists())
         if state['pid'] is not None and not state['native_pid_absent_after_cleanup']:
             late_error = late_error or ValueError('phase native process was not reaped: ' + name)
-        write(receipts, name + '-disposition.json', state)
+        try:
+            write(receipts, name + '-disposition.json', state)
+        except BaseException as error:
+            state['disposition_error'] = str(error)
+            print('DISPOSITION-ERROR ' + str(error), flush=True)
+            late_error = late_error or error
         print('STOP ' + name + ' ' + json.dumps(state.get('properties_before_cleanup', {})), flush=True)
         if failure is None and late_error is not None:
             raise late_error
@@ -717,6 +787,11 @@ def run_trial(args):
               'present_grace_seconds': args.present_grace_seconds}
     receipts = None
     try:
+        if getattr(args, 'diagnostic_run', False):
+            record['diagnostic_readiness'] = diagnostic_plan(args)
+            record['memory_sampling'] = 'disabled; CPU, log progress and owned process state only'
+            for gate in (check_supervisor, check_launcher, check_inputs, check_freshness):
+                gate(args)
         record['supervisor'] = verify_uncapped_supervisor(args.supervisor_unit)
         record['identities_before'] = record_identities(args)
         runroot, receipts, plan = stage_trial(args)
@@ -735,8 +810,14 @@ def run_trial(args):
             raise ValueError('installer did not report the installed payload: ' + json.dumps(stop))
         phase = Path(install_entry['evidence_root'])
         payload = installation_gates(runroot, plan, args, phase)
+        request_options = {}
+        if getattr(args, 'diagnostic_run', False):
+            diagnostic_plan(args)
+            request_options['token'] = args.request_token
         token = fresh_request(runroot, plan['guest_source'], plan['vpk_sha256'], args.continue_gx, 0,
-                              args.audio == 'deferred', None)
+                              args.audio == 'deferred', None, **request_options)
+        if getattr(args, 'diagnostic_run', False):
+            record['staged_diagnostic_readiness'] = diagnostic_plan(args, runroot)
         write(receipts, 'guest-request.json',
               {'token': token, 'source': plan['guest_source'], 'vpk_sha256': plan['vpk_sha256'],
                'audio': args.audio, 'continue_gx': args.continue_gx,
@@ -830,12 +911,16 @@ def parse_arguments():
     parser.add_argument('--check', action='store_true',
                         help='verify preconditions read-only; launch nothing and write nothing')
     parser.add_argument('--diagnostic-profile', type=Path,
-                        help='check-only: existing private cpu-opt-off profile with staged diagnostic requests; not authorization')
+                        help='existing private cpu-opt-off profile with staged diagnostic requests; read-only input, not authorization')
     parser.add_argument('--request-token',
-                        help='check-only: explicit 32-hex token binding all three diagnostic requests')
+                        help='explicit 32-hex token binding all three diagnostic requests')
+    parser.add_argument('--diagnostic-run', action='store_true',
+                        help='opt in to the CPU/log-only supervised diagnostic path; operator approval remains required')
     args = parser.parse_args()
-    if args.diagnostic_profile is not None and (not args.check or args.request_token is None):
-        parser.error('--diagnostic-profile requires --check and an explicit --request-token; no live diagnostic path')
+    if args.diagnostic_run and (args.check or args.diagnostic_profile is None or args.request_token is None):
+        parser.error('--diagnostic-run requires --diagnostic-profile and --request-token, without --check')
+    if args.diagnostic_profile is not None and (not (args.check or args.diagnostic_run) or args.request_token is None):
+        parser.error('--diagnostic-profile requires --check or --diagnostic-run and an explicit --request-token')
     if args.request_token is not None and args.diagnostic_profile is None:
         parser.error('--request-token requires --diagnostic-profile')
     if re.fullmatch(r'[A-Za-z0-9][A-Za-z0-9._-]*', args.run_id) is None:
@@ -853,6 +938,8 @@ def parse_arguments():
         parser.error('guest ceiling must be finite, positive and at most 600 seconds')
     if not math.isfinite(args.hang_seconds) or args.hang_seconds <= 0:
         parser.error('hang window must be finite and positive')
+    if args.diagnostic_run and args.hang_seconds > 30:
+        parser.error('diagnostic hang window must be at most 30 seconds')
     if not math.isfinite(args.cleanup_grace_seconds) or not 1 <= args.cleanup_grace_seconds <= 60:
         parser.error('cleanup grace must be finite and between 1 and 60 seconds')
     try:
