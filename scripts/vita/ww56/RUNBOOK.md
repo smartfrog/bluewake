@@ -143,6 +143,22 @@ binding is checked before observing CPU or signalling; cleanup stops only owned
 unit invocations and preserves partial logs and the first fault. Missing cgroup
 permissions fail closed: do not change host-wide limits or settings to proceed.
 
+Some systemd versions emit only `Running as unit: <unit>` without an invocation
+suffix. Diagnostic phases accept that exact line only with an owned gate receipt:
+a fresh 256-bit nonce passed in this launch's gate argv, the manager-supplied
+`INVOCATION_ID`, and the gate PID, kernel start time and cgroup must agree with
+the user manager and `/proc`. The unit must have been absent before creation
+and must be the supervisor's planned sibling. `<phase>-owned.json` is captured
+once, without overwriting; the in-memory identity is immutable. Manager and
+kernel identity are checked again before permit release, observation and signals.
+Cleanup can authenticate an unreleased gate after wrapper exit by the same
+receipt; unit name or current properties alone never authorize cleanup. The
+full-suffix format remains supported and its invocation must also agree.
+
+This compatibility fix is synthetic-test-only. A fresh independent review and
+new operator authorization, token, profile and units are required before another
+real isolation probe; old failed evidence must not be reused or changed.
+
 This delivery has not launched a real guest. Passing synthetic tests does not
 prove boot, rendering, gameplay or package build provenance.
 

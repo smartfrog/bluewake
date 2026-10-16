@@ -10,12 +10,14 @@ its own pid and cgroup for the supervisor, and never touches another unit.
 import json
 import os
 from pathlib import Path
+import re
 import sys
 import time
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 from budget_properties import verify_cgroup_budget  # noqa: E402
+from phase_identity import process_identity  # noqa: E402
 
 
 def main():
@@ -30,8 +32,22 @@ def main():
         raise ValueError('gate cgroup ' + base.name + ' is not the planned unit ' + spec['unit'])
     if base.parent.name != 'app.slice':
         raise ValueError('gate unit must stay in app.slice outside capped scopes: ' + str(base.parent))
-    (receipts / (phase + '-ready.json')).write_text(
-        json.dumps({'pid': os.getpid(), 'cgroup': cgroup}) + '\n')
+    identity = {'pid': os.getpid(), 'cgroup': cgroup}
+    if len(sys.argv) == 4:
+        invocation = os.environ.get('INVOCATION_ID', '')
+        if re.fullmatch(r'[0-9a-f]{32}', invocation) is None or invocation == '0' * 32:
+            raise ValueError('gate requires the manager invocation ID')
+        if re.fullmatch(r'[0-9a-f]{64}', sys.argv[3]) is None:
+            raise ValueError('gate requires a fresh launch nonce')
+        identity.update(launch_nonce=sys.argv[3], invocation_id=invocation,
+                        starttime=process_identity(os.getpid())[0])
+    ready = receipts / (phase + '-ready.json')
+    temporary = receipts / (phase + '-ready.tmp')
+    with temporary.open('x') as stream:
+        os.fchmod(stream.fileno(), 0o600)
+        stream.write(json.dumps(identity) + '\n')
+    os.link(temporary, ready)
+    temporary.unlink()
     deadline = time.monotonic() + spec['permit_timeout_seconds']
     while not (receipts / (phase + '-permit')).exists():
         if time.monotonic() >= deadline:

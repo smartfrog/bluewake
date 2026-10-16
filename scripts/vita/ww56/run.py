@@ -31,6 +31,7 @@ import math
 import os
 from pathlib import Path
 import re
+import secrets
 import shutil
 import stat
 import subprocess
@@ -73,6 +74,7 @@ from snapshot import capture_snapshot  # noqa: E402
 from stop_rules import StopState, evaluate_stop, is_failure  # noqa: E402
 from trigger_events import PRESENT_MARKER, OneShotTriggerScanner  # noqa: E402
 from diagnostic_readiness import diagnostic_readiness  # noqa: E402
+from phase_identity import OwnedIdentity, process_identity  # noqa: E402
 
 INSTALL_DEADLINE_SECONDS = 60
 PERMIT_TIMEOUT_SECONDS = 15
@@ -116,10 +118,11 @@ def phase_properties(unit, diagnostic=False):
     return properties(unit)
 
 
-INVOCATION_LINE = re.compile(r'Running as unit: (\S+); invocation ID: ([0-9a-f]+)')
+INVOCATION_LINE = re.compile(
+    r'^Running as unit: (\S+?)(?:; invocation ID: ([0-9a-f]{32}))?$', re.MULTILINE)
 
 
-def wrapper_invocation(phase_root, unit):
+def wrapper_launch(phase_root, unit):
     if phase_root is None:
         return None
     path = Path(phase_root) / 'evidence/process.log'
@@ -129,8 +132,61 @@ def wrapper_invocation(phase_root, unit):
         return None
     for match in INVOCATION_LINE.finditer(head):
         if match.group(1) == unit:
-            return match.group(2)
+            return match.group(1), match.group(2)
     return None
+
+
+def wrapper_invocation(phase_root, unit):
+    launch = wrapper_launch(phase_root, unit)
+    return launch[1] if launch else None
+
+
+def verify_owned_identity(unit, owned, current, *, exited=False):
+    if (current.get('InvocationID') != owned.invocation_id or current.get('LoadState') != 'loaded' or
+            current.get('ActiveState') not in ('active', 'activating', 'reloading', 'deactivating',
+                                                'inactive', 'failed')):
+        raise ValueError('refusing changed phase invocation ownership: ' + unit)
+    if exited and current.get('MainPID') == '0' and current.get('ControlGroup') == '':
+        return
+    if (current.get('MainPID') != str(owned.pid) or current.get('ControlGroup') != owned.cgroup or
+            current.get('ActiveState') not in ('active', 'activating', 'reloading') or
+            process_identity(owned.pid) != (owned.starttime, owned.cgroup)):
+        raise ValueError('refusing changed phase process ownership: ' + unit)
+
+
+def bind_phase_ownership(unit, state, current):
+    if state.get('owned_identity'):
+        owned = OwnedIdentity(*state['owned_identity'])
+        verify_owned_identity(unit, owned, current)
+        return owned
+    if (state.get('properties_before_creation', {}).get('LoadState') != 'not-found' or
+            re.fullmatch(r'[0-9a-f]{64}', state.get('launch_nonce', '')) is None):
+        raise ValueError('missing owned launch context for invocation: ' + unit)
+    launch = wrapper_launch(state.get('phase_root'), unit)
+    if launch is None:
+        raise ValueError('missing owned wrapper creation line for invocation: ' + unit)
+    receipts = Path(state['receipts'])
+    identity = json.loads((receipts / (state['phase'] + '-ready.json')).read_text())
+    if (set(identity) != set(OwnedIdentity._fields) or
+            type(identity.get('pid')) is not int or identity['pid'] <= 0 or
+            type(identity.get('starttime')) is not int or identity['starttime'] <= 0 or
+            not isinstance(identity.get('invocation_id'), str) or
+            re.fullmatch(r'[0-9a-f]{32}', identity['invocation_id']) is None or
+            identity['invocation_id'] == '0' * 32 or
+            identity.get('launch_nonce') != state['launch_nonce']):
+        raise ValueError('incomplete or foreign gate invocation ownership: ' + unit)
+    owned = OwnedIdentity(**identity)
+    own = Path('/proc/self/cgroup').read_text().strip().split('::', 1)[1]
+    if (Path(own).parent.name != 'app.slice' or owned.cgroup == own or
+            owned.cgroup != str(Path(own).parent / unit)):
+        raise ValueError('gate cgroup must be the planned supervisor sibling for ownership: ' + unit)
+    if launch[1] is not None and launch[1] != owned.invocation_id:
+        raise ValueError('gate invocation differs from owned wrapper: ' + unit)
+    verify_owned_identity(unit, owned, current)
+    state.update(owned_identity=owned, pid=owned.pid, cgroup=owned.cgroup,
+                 invocation_id=owned.invocation_id)
+    write(receipts, state['phase'] + '-owned.json', owned._asdict())
+    return owned
 
 
 def require_fresh_unit(unit, diagnostic=False):
@@ -147,6 +203,12 @@ def stop_owned_unit(unit, state):
     loaded_active = (current.get('LoadState') == 'loaded' and
                      current.get('ActiveState') in ('active', 'activating', 'reloading'))
     if current.get('ControlGroup') or loaded_active:
+        if state.get('diagnostic'):
+            owned = (OwnedIdentity(*state['owned_identity']) if state.get('owned_identity') else
+                     bind_phase_ownership(unit, state, current))
+            current = phase_properties(unit, True)
+            verify_owned_identity(unit, owned, current, exited=True)
+            recorded = owned.invocation_id
         if recorded is None or current.get('InvocationID') != recorded:
             state['foreign_unit_untouched'] = {'unit': unit, 'recorded_invocation': recorded,
                                                'current': current}
@@ -476,14 +538,12 @@ class PhaseWatch:
             return None
         identity = json.loads(ready.read_text())
         props = phase_properties(self.unit, self.diagnostic)
+        if self.diagnostic:
+            identity = bind_phase_ownership(self.unit, self.state, props)._asdict()
         if props.get('ControlGroup') != identity['cgroup']:
             raise ValueError('unit ControlGroup differs from the gate cgroup: ' + self.name)
         if props.get('MainPID') != str(identity['pid']):
             raise ValueError('unit MainPID differs from the gate pid: ' + self.name)
-        if self.diagnostic:
-            invocation = wrapper_invocation(self.phase_root, self.unit)
-            if not invocation or props.get('InvocationID') != invocation:
-                raise ValueError('refusing to release a phase invocation not created by the owned wrapper: ' + self.unit)
         budget_evidence = verify_budget_properties(props, budget_bytes=self.budget)
         own = Path('/proc/self/cgroup').read_text().strip().split('::', 1)[1]
         if Path(identity['cgroup']).parent != Path(own).parent or identity['cgroup'] == own:
@@ -506,6 +566,9 @@ class PhaseWatch:
                   {'phase': self.name, 'unit': self.unit, 'headroom': headroom,
                    'guest_cgroup': identity['cgroup'], 'message': message})
             raise PreconditionBlocked(message)
+        if self.diagnostic:
+            verify_owned_identity(self.unit, OwnedIdentity(*self.state['owned_identity']),
+                                  phase_properties(self.unit, True))
         self.state.update(pid=identity['pid'], cgroup=identity['cgroup'], released=True,
                           properties_before_exec=props,
                           invocation_id=props.get('InvocationID') or None)
@@ -654,12 +717,11 @@ class PhaseWatch:
         return None
 
     def _verify_owned_process(self):
-        current = properties(self.unit, keys=('ControlGroup', 'MainPID', 'InvocationID'))
-        if (not self.state.get('invocation_id') or
-                current.get('InvocationID') != self.state['invocation_id'] or
-                current.get('MainPID') != str(self.state['pid']) or
-                current.get('ControlGroup') != self.state['cgroup']):
-            raise ValueError('refusing to observe or signal a changed phase invocation: ' + self.unit)
+        if not self.state.get('owned_identity'):
+            raise ValueError('refusing to observe or signal an unbound phase invocation: ' + self.unit)
+        verify_owned_identity(self.unit, OwnedIdentity(*self.state['owned_identity']),
+                              properties(self.unit, keys=('ControlGroup', 'MainPID', 'InvocationID',
+                                                          'LoadState', 'ActiveState')))
 
 
 def run_phase(name, args, runroot, receipts, plan, record, *, budget, headroom, deadline,
@@ -674,6 +736,7 @@ def run_phase(name, args, runroot, receipts, plan, record, *, budget, headroom, 
     record['phases'][name] = state
     if getattr(args, 'diagnostic_run', False):
         state['diagnostic'] = True
+        state.update(launch_nonce=secrets.token_hex(32), receipts=str(receipts), phase=name)
     state['properties_before_creation'] = require_fresh_unit(unit, state.get('diagnostic', False))
     state['cleanup_stop_timeout_seconds'] = 2 * args.cleanup_grace_seconds + 10
     spec = {'command': entry['command'], 'environment': entry['environment'], 'cwd': entry['cwd'],
@@ -687,6 +750,8 @@ def run_phase(name, args, runroot, receipts, plan, record, *, budget, headroom, 
                '--property=RemainAfterExit=yes',
                '--property=RuntimeMaxSec=' + str(int(deadline + 15)),
                '/usr/bin/python3', '-B', str(SCRIPT_DIRECTORY / 'exec_gate.py'), str(receipts), name]
+    if state.get('diagnostic'):
+        command.append(state['launch_nonce'])
     watch = PhaseWatch(name, args, runroot, receipts, plan, entry, unit, budget, headroom, deadline, state,
                        probe=probe, ready_probe=ready_probe)
     failure = None

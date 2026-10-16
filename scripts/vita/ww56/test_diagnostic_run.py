@@ -237,7 +237,9 @@ class DiagnosticWatchTests(frontier.WatchFixture):
         self.args.diagnostic_run = True
         self.state['pid'] = 12345
         self.state['invocation_id'] = 'a' * 32
-        self.props = {'MainPID': '12345', 'ControlGroup': 'test', 'InvocationID': 'a' * 32}
+        self.state['owned_identity'] = run.OwnedIdentity(12345, 'test', 987, 'a' * 32, 'b' * 64)
+        self.props = {'MainPID': '12345', 'ControlGroup': 'test', 'InvocationID': 'a' * 32,
+                      'LoadState': 'loaded', 'ActiveState': 'active'}
         with patch.object(run.time, 'monotonic', return_value=0):
             self.watch = run.PhaseWatch('guest', self.args, self.runroot, self.receipts, {}, self.entry,
                                         'ww56-test-guest.service', 1024, 2048, 180, self.state)
@@ -275,6 +277,7 @@ class DiagnosticWatchTests(frontier.WatchFixture):
                 patch.object(activity, 'process_cpu_ticks', return_value={(12345, 1): ticks}), \
                 patch.object(activity, 'available_memory_bytes', side_effect=AssertionError('RAM polling')), \
                 patch.object(run.Path, 'exists', return_value=True), \
+                patch.object(run, 'process_identity', return_value=(987, 'test')), \
                 patch.object(run, 'properties', return_value=self.props), \
                 patch.object(run.subprocess, 'run') as signal, redirect_stdout(io.StringIO()):
             result = self.watch(99)
@@ -304,14 +307,20 @@ class DiagnosticWatchTests(frontier.WatchFixture):
             with self.assertRaisesRegex(ValueError, 'invocation'):
                 self.observe(1, 0)
 
-    def test_release_refuses_an_invocation_not_created_by_owned_wrapper(self):
+    def test_release_refuses_missing_owned_launch_context(self):
         self.state['released'] = False
+        self.state.pop('owned_identity')
         (self.receipts / 'guest-ready.json').write_text(json.dumps({'pid': 12345, 'cgroup': 'test'}))
-        with patch.object(run, 'properties', return_value=self.props), \
-                patch.object(run, 'wrapper_invocation', return_value='f' * 32):
+        with patch.object(run, 'properties', return_value=self.props):
             with self.assertRaisesRegex(ValueError, 'invocation'):
                 self.watch._release()
         self.assertFalse((self.receipts / 'guest-permit').exists())
+
+    def test_missing_ownership_capture_is_not_observed_or_signalled(self):
+        self.state.pop('owned_identity')
+        with patch.object(activity, 'process_cpu_ticks', side_effect=AssertionError('unbound process')):
+            with self.assertRaisesRegex(ValueError, 'unbound phase invocation'):
+                self.observe(1, 0)
 
     def test_first_fault_is_preserved_without_snapshot_on_teardown(self):
         self.journal.write_text('[fatal] first synthetic fault\n' + frontier.PRESENT_ONE + '\n')
