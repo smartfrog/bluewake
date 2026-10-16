@@ -13,3 +13,13 @@ def process_identity(pid):
     starttime = int(stat.rsplit(')', 1)[1].split()[19])
     cgroup = (root / 'cgroup').read_text().strip().split('::', 1)[1]
     return starttime, cgroup
+
+
+def original_process_gone(owned):
+    try:
+        current = process_identity(owned.pid)
+    except (FileNotFoundError, ProcessLookupError):
+        return True
+    if current != (owned.starttime, owned.cgroup):
+        raise ValueError('refusing reused phase PID ownership: ' + str(owned.pid))
+    return False

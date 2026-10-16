@@ -74,7 +74,7 @@ from snapshot import capture_snapshot  # noqa: E402
 from stop_rules import StopState, evaluate_stop, is_failure  # noqa: E402
 from trigger_events import PRESENT_MARKER, OneShotTriggerScanner  # noqa: E402
 from diagnostic_readiness import diagnostic_readiness  # noqa: E402
-from phase_identity import OwnedIdentity, process_identity  # noqa: E402
+from phase_identity import OwnedIdentity, original_process_gone, process_identity  # noqa: E402
 
 INSTALL_DEADLINE_SECONDS = 60
 PERMIT_TIMEOUT_SECONDS = 15
@@ -141,13 +141,11 @@ def wrapper_invocation(phase_root, unit):
     return launch[1] if launch else None
 
 
-def verify_owned_identity(unit, owned, current, *, exited=False):
+def verify_owned_identity(unit, owned, current):
     if (current.get('InvocationID') != owned.invocation_id or current.get('LoadState') != 'loaded' or
             current.get('ActiveState') not in ('active', 'activating', 'reloading', 'deactivating',
                                                 'inactive', 'failed')):
         raise ValueError('refusing changed phase invocation ownership: ' + unit)
-    if exited and current.get('MainPID') == '0' and current.get('ControlGroup') == '':
-        return
     if (current.get('MainPID') != str(owned.pid) or current.get('ControlGroup') != owned.cgroup or
             current.get('ActiveState') not in ('active', 'activating', 'reloading') or
             process_identity(owned.pid) != (owned.starttime, owned.cgroup)):
@@ -197,8 +195,44 @@ def require_fresh_unit(unit, diagnostic=False):
     return current
 
 
+def owned_terminal(unit, state, current):
+    if not state.get('owned_identity'):
+        return False
+    owned = OwnedIdentity(*state['owned_identity'])
+    if (state.get('properties_at_exit') and current.get('LoadState') == 'not-found' and
+            current.get('InvocationID') == '' and current.get('MainPID') == '0' and
+            current.get('ControlGroup') == '' and current.get('ActiveState') == 'inactive'):
+        return True
+    if current.get('InvocationID') != owned.invocation_id:
+        raise ValueError('UNVERIFIED changed phase invocation ownership: ' + unit)
+    terminal = (current.get('LoadState') == 'loaded' and
+                (current.get('ActiveState') in ('inactive', 'failed') or
+                 (current.get('ActiveState') == 'active' and current.get('SubState') == 'exited')) and
+                current.get('MainPID') == '0' and
+                current.get('ControlGroup') in ('', owned.cgroup) and
+                bool(current.get('Result')) and current.get('ExecMainCode') in ('1', '2', '3') and
+                re.fullmatch(r'[0-9]+', current.get('ExecMainStatus', '')) is not None and
+                (current['ExecMainCode'] == '1' or int(current['ExecMainStatus']) > 0))
+    if not terminal:
+        if state.get('properties_at_exit'):
+            raise ValueError('refusing changed terminal phase ownership: ' + unit)
+        return False
+    gone = original_process_gone(owned)
+    if current['ControlGroup'] != '' and not gone:
+        return False
+    state.setdefault('properties_at_exit', dict(current))
+    state['terminal_identity'] = 'verified-owned-invocation'
+    return True
+
+
 def stop_owned_unit(unit, state):
     current = phase_properties(unit, state.get('diagnostic', False))
+    terminal = state.get('diagnostic') and owned_terminal(unit, state, current)
+    if terminal and not (current.get('ActiveState') == 'active' and current.get('SubState') == 'exited'):
+        return current
+    if (state.get('diagnostic') and state.get('owned_identity') and
+            current.get('MainPID') == '0' and not terminal):
+        raise ValueError('UNVERIFIED phase terminal identity: ' + unit)
     recorded = state.get('invocation_id') or wrapper_invocation(state.get('phase_root'), unit)
     loaded_active = (current.get('LoadState') == 'loaded' and
                      current.get('ActiveState') in ('active', 'activating', 'reloading'))
@@ -207,7 +241,11 @@ def stop_owned_unit(unit, state):
             owned = (OwnedIdentity(*state['owned_identity']) if state.get('owned_identity') else
                      bind_phase_ownership(unit, state, current))
             current = phase_properties(unit, True)
-            verify_owned_identity(unit, owned, current, exited=True)
+            if owned_terminal(unit, state, current):
+                if not (current.get('ActiveState') == 'active' and current.get('SubState') == 'exited'):
+                    return current
+            else:
+                verify_owned_identity(unit, owned, current)
             recorded = owned.invocation_id
         if recorded is None or current.get('InvocationID') != recorded:
             state['foreign_unit_untouched'] = {'unit': unit, 'recorded_invocation': recorded,
@@ -687,15 +725,16 @@ class PhaseWatch:
         if not self.state['released']:
             return self._release()
         pid = self.state['pid']
-        if not Path('/proc', str(pid)).exists():
+        if self.diagnostic:
+            if self._verify_owned_process():
+                return self._finish_native_exit()
+        elif not Path('/proc', str(pid)).exists():
             self.final_drain('managed-native-exit')
             self.state['properties_at_exit'] = stop_owned_unit(self.unit, self.state)
             return {'stop_reason': 'managed-native-exit',
                     'native_properties': self.state['properties_at_exit']}
         if self.probe:
             return None
-        if self.diagnostic:
-            self._verify_owned_process()
         lines, journal = self._read_logs()
         self.new_lines += len(lines)
         stop = self._observe_frontier(now, lines, journal)
@@ -720,18 +759,35 @@ class PhaseWatch:
             if self.state.get('presentations_at_stop') is None:
                 self.state['presentations_at_stop'] = len(self.state['presentations'])
             if self.diagnostic:
-                self._verify_owned_process()
+                if self._verify_owned_process():
+                    self.state.pop('requested_stop', None)
+                    return self._finish_native_exit()
             subprocess.run(['systemctl', '--user', 'kill', '--signal=SIGTERM',
                             '--kill-whom=all', self.unit], check=True, timeout=5)
             return stop
         return None
 
+    def _finish_native_exit(self):
+        self.final_drain('managed-native-exit')
+        if self.state['properties_at_exit'].get('SubState') == 'exited':
+            stop_owned_unit(self.unit, self.state)
+
     def _verify_owned_process(self):
         if not self.state.get('owned_identity'):
             raise ValueError('refusing to observe or signal an unbound phase invocation: ' + self.unit)
-        verify_owned_identity(self.unit, OwnedIdentity(*self.state['owned_identity']),
-                              properties(self.unit, keys=('ControlGroup', 'MainPID', 'InvocationID',
-                                                          'LoadState', 'ActiveState')))
+        current = phase_properties(self.unit, True)
+        if owned_terminal(self.unit, self.state, current):
+            return True
+        if current.get('MainPID') == '0':
+            raise ValueError('UNVERIFIED phase terminal identity: ' + self.unit)
+        try:
+            verify_owned_identity(self.unit, OwnedIdentity(*self.state['owned_identity']), current)
+        except (FileNotFoundError, ProcessLookupError):
+            current = phase_properties(self.unit, True)
+            if owned_terminal(self.unit, self.state, current):
+                return True
+            raise ValueError('UNVERIFIED phase terminal identity: ' + self.unit)
+        return False
 
 
 def run_phase(name, args, runroot, receipts, plan, record, *, budget, headroom, deadline,
@@ -809,6 +865,17 @@ def run_phase(name, args, runroot, receipts, plan, record, *, budget, headroom, 
             print('DRAIN-ERROR ' + str(error), flush=True)
             late_error = late_error or error
         state['presentations_total'] = len(state['presentations'])
+        terminal = state.get('properties_at_exit')
+        if state.get('diagnostic') and terminal:
+            intentional_signal = (state.get('requested_stop') and terminal['Result'] == 'signal' and
+                                  terminal['ExecMainCode'] == '2' and terminal['ExecMainStatus'] == '15')
+            if not intentional_signal and (terminal['Result'] != 'success' or
+                                          terminal['ExecMainCode'] != '1' or
+                                          terminal['ExecMainStatus'] != '0'):
+                state['native_failure'] = terminal
+                late_error = ValueError('native phase failure: ' + json.dumps(terminal))
+        elif state.get('diagnostic') and state['released']:
+            late_error = late_error or ValueError('UNVERIFIED phase terminal identity: ' + unit)
         try:
             journal_text = (runroot / REPORT_DIRECTORY / 'ww05.log').read_text(errors='replace')
         except FileNotFoundError:

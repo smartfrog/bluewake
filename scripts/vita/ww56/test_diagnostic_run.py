@@ -177,7 +177,11 @@ class DiagnosticStagingTests(unittest.TestCase):
     def test_cpu_on_continuous_flow_preserves_setting_through_postflight(self):
         self.complete_synthetic_flow(cpu_opt='on', until_failure=True)
 
-    def complete_synthetic_flow(self, cpu_opt='off', until_failure=False):
+    def test_native_phase_failure_is_nonzero_and_never_reports_postflight_pass(self):
+        self.complete_synthetic_flow(cpu_opt='on', until_failure=True,
+                                     guest_failure=ValueError('native phase failure: oom-kill signal 9'))
+
+    def complete_synthetic_flow(self, cpu_opt='off', until_failure=False, guest_failure=None):
         args = self.args
         args.check = False
         args.diagnostic_run = True
@@ -220,6 +224,8 @@ class DiagnosticStagingTests(unittest.TestCase):
                 self.assertEqual(staged['token'], args.request_token)
                 self.assertEqual(staged['diagnostic_cpu_opt'], cpu_opt)
                 self.assertEqual(kwargs['deadline'], args.guest_ceiling_seconds)
+                if guest_failure:
+                    raise guest_failure
             staged_config = root / readiness.CONFIG_PATH
             staged_config.write_bytes(staged_config.read_bytes().replace(b'user-id: ""\n', b'user-id: 00\n'))
             return {'requested_stop': {'stop_reason': 'installed_payload'}}
@@ -239,12 +245,16 @@ class DiagnosticStagingTests(unittest.TestCase):
             stack.enter_context(patch.object(run, 'capture_snapshot', side_effect=AssertionError('memory capture')))
             stack.enter_context(patch.object(run.subprocess, 'Popen', side_effect=AssertionError('process')))
             stack.enter_context(redirect_stdout(io.StringIO()))
-            self.assertEqual(run.run_trial(args), 0)
+            self.assertEqual(run.run_trial(args), 2 if guest_failure else 0)
         self.assertEqual(phases, ['install', 'guest'])
         self.assertEqual(before, {str(p): p.read_bytes() for p in args.diagnostic_profile.rglob('*') if p.is_file()})
         result = json.loads((args.receipts_root / ('ww56-' + args.run_id) / 'result.json').read_text())
-        self.assertEqual(result['completion'], 'INCOMPLETE')
-        self.assertEqual(result['postflight_input_and_payload_gates'], 'PASS')
+        self.assertEqual(result['completion'], 'ABORTED' if guest_failure else 'INCOMPLETE')
+        if guest_failure:
+            self.assertEqual(result['error'], str(guest_failure))
+            self.assertNotIn('postflight_input_and_payload_gates', result)
+        else:
+            self.assertEqual(result['postflight_input_and_payload_gates'], 'PASS')
         self.assertEqual(result['diagnostic_readiness']['diagnostic_cpu_opt'], cpu_opt)
         self.assertEqual(result['staged_diagnostic_readiness']['diagnostic_cpu_opt'], cpu_opt)
 

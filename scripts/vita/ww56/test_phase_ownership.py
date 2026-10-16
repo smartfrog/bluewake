@@ -11,7 +11,7 @@ import run
 import test_watch_frontier as frontier
 
 
-class OwnedGateTests(frontier.WatchFixture):
+class OwnedGateFixture(frontier.WatchFixture):
     def setUp(self):
         super().setUp()
         self.args.diagnostic_run = True
@@ -69,6 +69,8 @@ class OwnedGateTests(frontier.WatchFixture):
         self.assertFalse((self.receipts / 'guest-permit').exists())
         self.assertFalse(self.state['released'])
 
+
+class OwnedGateTests(OwnedGateFixture):
     def test_actual_unit_only_line_releases_only_authenticated_gate(self):
         self.release()
         self.assertTrue((self.receipts / 'guest-permit').exists())
@@ -225,7 +227,8 @@ class OwnedGateTests(frontier.WatchFixture):
     def test_exited_owned_invocation_can_clear_remain_after_exit_without_a_live_pid(self):
         with self.manager():
             run.bind_phase_ownership(self.unit, self.state, self.props)
-        terminal = dict(self.props, MainPID='0', ControlGroup='', SubState='exited')
+        terminal = dict(self.props, MainPID='0', ControlGroup='', SubState='exited',
+                        Result='success', ExecMainCode='1', ExecMainStatus='0')
         with self.manager(lambda *_: terminal), patch.object(run.subprocess, 'run') as stop:
             run.stop_owned_unit(self.unit, self.state)
         stop.assert_called_once()
@@ -261,14 +264,15 @@ class OwnedGateTests(frontier.WatchFixture):
             self.ready.write_text(json.dumps(self.identity))
             return 2
 
-        terminal = dict(self.props, MainPID='0', ControlGroup='', ActiveState='inactive')
-        with self.manager([{'LoadState': 'not-found'}, self.props, self.props, terminal]), \
+        terminal = dict(self.props, MainPID='0', ControlGroup='', ActiveState='inactive',
+                        Result='success', ExecMainCode='1', ExecMainStatus='0')
+        with self.manager([{'LoadState': 'not-found'}, self.props, terminal, terminal]), \
                 patch.object(run, 'run_owned', side_effect=wrapper_exit), \
                 patch.object(run.subprocess, 'run') as stop:
             result = run.run_phase('guest', self.args, self.runroot, self.receipts,
                                    {'phases': {'guest': entry}}, record,
                                    budget=1024, headroom=2048, deadline=180)
-        stop.assert_called_once()
+        stop.assert_not_called()
         self.assertFalse(result['released'])
         self.assertEqual(result['invocation_id'], self.invocation)
         self.assertFalse((self.receipts / 'guest-permit').exists())
