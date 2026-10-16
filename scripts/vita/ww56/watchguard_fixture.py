@@ -68,6 +68,52 @@ def replay_legacy(path):
     return 0
 
 
+def replay_legacy_logs(path):
+    tree = ast.parse(path.read_text(), filename=str(path))
+    watch = next(node for node in tree.body if isinstance(node, ast.ClassDef) and node.name == 'ExternalWatch')
+    logs = next(node for node in watch.body if isinstance(node, ast.FunctionDef) and node.name == 'logs')
+    with tempfile.TemporaryDirectory(dir='/tmp/opencode') as directory:
+        root = Path(directory)
+        state = SimpleNamespace(runroot=root / 'run', receipts=root / 'receipts',
+                                identities={'guest': 'synthetic'}, supervisor=None,
+                                readers={}, last_growth={}, first_fault=None, record=lambda event: None)
+        first = state.runroot / 'phases/guest/evidence/process.log'
+        second = state.runroot / 'cache/Vita3K/vita3k.log'
+        for source in (first, second):
+            source.parent.mkdir(parents=True)
+            source.write_bytes(b'synthetic only\n')
+        reads = []
+        signals = []
+
+        class LegacyReader:
+            def __init__(self, source):
+                self.source = source
+                self.offset = 0
+
+            def read(self):
+                reads.append(str(self.source))
+                if state.first_fault is not None and not signals:
+                    raise AssertionError('legacy source read after fault recognition, before STOP')
+                return ['unhandled sigsegv synthetic fault'], 65536
+
+        namespace = dict(Path=Path, ROOT=root, os=os, time=time,
+                         now=lambda: 'synthetic', json=json,
+                         stop_supervisor=lambda reason: signals.append(reason),
+                         runner=SimpleNamespace(REPORT_DIRECTORY='report', IncrementalLog=LegacyReader,
+                                                is_failure=lambda line: False))
+        exec(compile(ast.Module(body=[logs], type_ignores=[]), str(path), 'exec'), namespace)
+        try:
+            namespace['logs'](state)
+        except Exception as error:
+            if state.first_fault is None or len(reads) != 2 or signals:
+                raise AssertionError('legacy fixture did not reach the recognized-fault drain defect') from error
+            print(json.dumps({'legacy_first_fault_before_second_read': 'RED', 'signals': signals,
+                              'reads': len(reads), 'exception': exception_record(error),
+                              'synthetic_reconstruction_not_recovered_stack': True}, indent=2))
+            return 1
+    raise AssertionError('legacy fixture unexpectedly passed first-fault stop ordering')
+
+
 def replay_template(path):
     """Execute only actual generated log methods against synthetic files/adapters."""
     tree = ast.parse(path.read_text(), filename=str(path))
@@ -153,7 +199,9 @@ def main():
     parser.add_argument('--guardian-source', type=Path)
     args = parser.parse_args()
     if args.legacy_source:
-        return replay_legacy(args.legacy_source)
+        terminal = replay_legacy(args.legacy_source)
+        backlog = replay_legacy_logs(args.legacy_source)
+        return max(terminal, backlog)
     if args.template_source:
         return replay_template(args.template_source)
     if args.guardian_source:

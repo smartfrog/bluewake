@@ -36,7 +36,7 @@ python3 -B scripts/vita/ww56/watchguard_fixture.py
 ```
 
 The fixture also accepts `--legacy-source PATH` (AST-isolated synthetic terminal
-replay; expected exit 1 on the old helper), `--template-source PATH` (actual template
+and first-fault drain replays; expected exit 1 on the old helpers), `--template-source PATH` (actual template
 log methods with synthetic files/adapters), and `--guardian-source PATH` (actual
 guardian rejecting driver-zero safety/native failure). Legacy traceback output is
 a new synthetic reconstruction, **not** a recovered historical crash stack.
