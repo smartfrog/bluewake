@@ -69,6 +69,12 @@ class FpsTest(unittest.TestCase):
         self.assertEqual(summary["median_window_fps"], 0.0)
         self.assertEqual(summary["min_window_fps"], 0.0)
 
+    def test_observation_end_must_follow_the_last_frame(self):
+        for end_us in [500000, 1000000]:
+            with self.subTest(end_us=end_us):
+                with self.assertRaisesRegex(FpsError, 'observation end must follow'):
+                    frame_rate_summary([0, 1000000], window_s=1, end_us=end_us)
+
 
 if __name__ == '__main__':
     unittest.main()
