@@ -92,7 +92,10 @@ bool ww_abi_finish(void) {
         failure |= WW_ABI_VFP;
     if (failure)
         return stop(failure);
-    ww_abi_dump.pairs[ww_abi_dump.next] = ww_abi_active;
+    volatile unsigned char* dst = (volatile unsigned char*)&ww_abi_dump.pairs[ww_abi_dump.next];
+    const volatile unsigned char* src = (const volatile unsigned char*)&ww_abi_active;
+    for (size_t i = 0; i < sizeof(WwAbiPair); ++i)
+        dst[i] = src[i];
     ww_abi_dump.next = (ww_abi_dump.next + 1u) % 16u;
     if (ww_abi_dump.count < 16u)
         ++ww_abi_dump.count;

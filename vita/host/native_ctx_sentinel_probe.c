@@ -53,7 +53,31 @@ int main(int argc, char** argv) {
     const bool thumb = strcmp(argv[1], "thumb") == 0;
     ww_abi_arm(168u, thumb ? 0x8001u : 0x8000u);
     entry(0x1234u, thumb ? 0x8001u : 0x8000u);
-    if (strcmp(argv[1], "ctx-one") == 0) {
+    if (strcmp(argv[1], "history-first") == 0 || strcmp(argv[1], "history-wrap") == 0) {
+        const unsigned rounds = strcmp(argv[1], "history-first") == 0 ? 1u : 35u;
+        memset(ww_abi_dump.pairs, 0xa5, sizeof(ww_abi_dump.pairs));
+        for (unsigned round = 0; round < rounds; ++round) {
+            unsigned char* bytes = (unsigned char*)&ww_abi_active;
+            for (unsigned i = 0; i < sizeof(ww_abi_active); ++i)
+                bytes[i] = (unsigned char)(i * 37u + round * 19u);
+            ww_abi_active.target = 0x8000u;
+            ww_abi_active.before.r0 = 0x1234u;
+            ww_abi_active.before.sp = 0x1000u;
+            assert(invoke());
+            WwAbiPair pair = ww_abi_active;
+            pair.returned = 1u;
+            WwAbiDump expected = ww_abi_dump;
+            memcpy(&expected.pairs[expected.next], &pair, sizeof(pair));
+            expected.next = (expected.next + 1u) % 16u;
+            if (expected.count < 16u)
+                ++expected.count;
+            assert(ww_abi_finish());
+            assert(memcmp(&ww_abi_dump, &expected, sizeof(expected)) == 0);
+            assert(memcmp(&ww_abi_active, &pair, sizeof(pair)) == 0);
+            assert(ww_abi_state == 1u && writes == 0u);
+        }
+        return 0;
+    } else if (strcmp(argv[1], "ctx-one") == 0) {
         ww_abi_active.before.r0 = 1u;
         assert(!invoke() && targets == 0u);
         assert(ww_abi_dump.failure == WW_ABI_CONTEXT);
@@ -93,6 +117,8 @@ int main(int argc, char** argv) {
         if (strcmp(argv[1], "short-active") == 0) mode = 3u;
         if (strcmp(argv[1], "short-complete") == 0) mode = 4u;
         assert(invoke());
+        if (strcmp(argv[1], "reentry") == 0)
+            ww_abi_state = 4u;
         if (strcmp(argv[1], "register") == 0 || mode != 0u)
             ww_abi_active.after.r[0] = 1u;
         if (strcmp(argv[1], "sp") == 0)
@@ -102,7 +128,8 @@ int main(int argc, char** argv) {
         const bool valid = strcmp(argv[1], "result-one") == 0 || thumb;
         assert(ww_abi_finish() == valid);
         assert(ww_abi_dump.failure == (valid ? 0u : strcmp(argv[1], "sp") == 0 ? WW_ABI_SP :
-               strcmp(argv[1], "vfp") == 0 ? WW_ABI_VFP : WW_ABI_REGISTER));
+               strcmp(argv[1], "vfp") == 0 ? WW_ABI_VFP :
+               strcmp(argv[1], "reentry") == 0 ? WW_ABI_REENTRY : WW_ABI_REGISTER));
         if (valid) {
             assert(writes == 0u && ww_abi_dump.count == 1u);
             return 0;
