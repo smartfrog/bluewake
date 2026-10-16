@@ -566,6 +566,7 @@ class PhaseWatch:
         self.probe = probe
         self.ready_probe = ready_probe
         self.diagnostic = getattr(args, 'diagnostic_run', False)
+        self.bounded_logs = getattr(args, 'bounded_watchguard', False)
         self.until_failure = name == 'guest' and getattr(args, 'until_failure', False)
         if deadline is None and not (self.diagnostic and self.until_failure):
             raise ValueError('untimed guest requires explicit continuous diagnostic opt-in')
@@ -584,6 +585,7 @@ class PhaseWatch:
         self.new_lines = 0
         self.next_record = 0
         self.drain_count = 0
+        self.fault_tail_uningested = 0
 
     def _log_paths(self):
         return (self.phase_root / 'evidence/process.log', self.runroot / 'cache/Vita3K/vita3k.log',
@@ -638,10 +640,18 @@ class PhaseWatch:
     def _read_logs(self):
         lines, journal = [], []
         for path, reader in self.readers.items():
-            new, count = reader.read()
+            new, count = reader.read_bounded() if self.bounded_logs else reader.read()
+            if self.bounded_logs:
+                for index, line in enumerate(new):
+                    if is_failure(line):
+                        self.fault_tail_uningested += len(new) - index - 1
+                        new = new[:index + 1]
+                        break
             lines.extend(new)
             if path == self.journal_path:
                 journal.extend(new)
+            if self.bounded_logs and any(is_failure(line) for line in new):
+                break
         return lines, journal
 
     def _ingest(self, now, lines, journal):
@@ -723,6 +733,12 @@ class PhaseWatch:
             'first_rel': self.state.get('first_rel'),
             'failure_lines': list(self.failure_lines),
             'snapshots': [entry['event'] for entry in self.state['snapshots']]}
+        if self.bounded_logs:
+            self.state['terminal_drain']['partial_scan'] = any(
+                not reader.complete for reader in self.readers.values()) or bool(self.fault_tail_uningested)
+            self.state['terminal_drain']['fault_tail_uningested'] = self.fault_tail_uningested
+            self.state['terminal_drain']['scanned_extents'] = {
+                path: reader.scanned_bytes for path, reader in self.readers.items()}
         record = {'phase': self.name, 'monotonic': now, 'terminal_drain': reason,
                   'drain_count': self.drain_count, 'new_lines': self.new_lines,
                   'presentations_total': len(self.state['presentations']),
@@ -757,6 +773,13 @@ class PhaseWatch:
                 stop = observation
         if stop is None and now < self.next_record:
             return None
+        if stop and self.bounded_logs:
+            if self.diagnostic and self._verify_owned_process():
+                return self._finish_native_exit()
+            self._send_stop_signal()
+            self.state['requested_stop'] = stop
+            if self.state.get('presentations_at_stop') is None:
+                self.state['presentations_at_stop'] = len(self.state['presentations'])
         self.next_record = now + 1
         record = {'phase': self.name, 'monotonic': now, 'pid': pid,
                   'cpu_fraction': self.idle.window.cpu_fraction, 'new_lines': self.new_lines,
@@ -768,6 +791,8 @@ class PhaseWatch:
             stream.write(json.dumps(record) + '\n')
         print('WATCH ' + json.dumps(record), flush=True)
         if stop:
+            if self.bounded_logs:
+                return stop
             self.state['requested_stop'] = stop
             if self.state.get('presentations_at_stop') is None:
                 self.state['presentations_at_stop'] = len(self.state['presentations'])
@@ -775,10 +800,13 @@ class PhaseWatch:
                 if self._verify_owned_process():
                     self.state.pop('requested_stop', None)
                     return self._finish_native_exit()
-            subprocess.run(['systemctl', '--user', 'kill', '--signal=SIGTERM',
-                            '--kill-whom=all', self.unit], check=True, timeout=5)
+            self._send_stop_signal()
             return stop
         return None
+
+    def _send_stop_signal(self):
+        subprocess.run(['systemctl', '--user', 'kill', '--signal=SIGTERM',
+                        '--kill-whom=all', self.unit], check=True, timeout=5)
 
     def _finish_native_exit(self):
         self.final_drain('managed-native-exit')
@@ -883,16 +911,21 @@ def run_phase(name, args, runroot, receipts, plan, record, *, budget, headroom, 
                 late_error = ValueError('native phase failure: ' + json.dumps(terminal))
         elif state.get('diagnostic') and state['released']:
             late_error = late_error or ValueError('UNVERIFIED phase terminal identity: ' + unit)
-        try:
-            journal_text = (runroot / REPORT_DIRECTORY / 'ww05.log').read_text(errors='replace')
-        except FileNotFoundError:
-            journal_text = ''
-        except OSError as error:
-            state['journal_error'] = str(error)
-            journal_text = ''
-            late_error = late_error or error
-        state['journal_present_lines'] = count_marker_lines(journal_text, PRESENT_MARKER)
-        state['presentations_undrained'] = max(0, state['journal_present_lines'] - state['presentations_total'])
+        if watch.bounded_logs:
+            state['journal_present_lines'] = None
+            state['presentations_undrained'] = None
+            state['journal_scan_coverage'] = 'bounded incremental extent; full postflight scan deferred'
+        else:
+            try:
+                journal_text = (runroot / REPORT_DIRECTORY / 'ww05.log').read_text(errors='replace')
+            except FileNotFoundError:
+                journal_text = ''
+            except OSError as error:
+                state['journal_error'] = str(error)
+                journal_text = ''
+                late_error = late_error or error
+            state['journal_present_lines'] = count_marker_lines(journal_text, PRESENT_MARKER)
+            state['presentations_undrained'] = max(0, state['journal_present_lines'] - state['presentations_total'])
         state['native_pid_absent_after_cleanup'] = (state['pid'] is None or
                                                     not Path('/proc', str(state['pid'])).exists())
         if state['pid'] is not None and not state['native_pid_absent_after_cleanup']:
@@ -1070,6 +1103,8 @@ def parse_arguments():
                         help='explicit private diagnostic CPU optimization setting; default off')
     parser.add_argument('--until-failure', action='store_true',
                         help='diagnostic only: no elapsed guest, presentation or REL stop; keep CPU/log hang supervision')
+    parser.add_argument('--bounded-watchguard', action='store_true',
+                        help='explicit bounded log sampling; final drains report partial scanned extents')
     parser.add_argument('--request-token',
                         help='explicit 32-hex token binding all three diagnostic requests')
     parser.add_argument('--diagnostic-run', action='store_true',
