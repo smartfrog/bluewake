@@ -9,10 +9,12 @@ from pathlib import Path
 import stat
 import tempfile
 import time
+import unittest
 from types import SimpleNamespace
 
 from journal import IncrementalLog
-from watchguard import FirstFaultWatchguard, exception_record, guardian_ok
+from watchguard import (FirstFaultWatchguard, exception_record, guardian_ok,
+                        summarize_sources, write_summary)
 
 
 class FakeOwnership:
@@ -192,11 +194,72 @@ def replay_guardian(path):
     return 0
 
 
+def replay_postflight(path):
+    """Run the actual template collector against bounded-live/postflight races."""
+    tree = ast.parse(path.read_text(), filename=str(path))
+    collector = next(node for node in tree.body if isinstance(node, ast.FunctionDef)
+                     and node.name == 'final_evidence')
+
+    class PostflightVerdictTests(unittest.TestCase):
+        def test_actual_template_postflight_verdict(self):
+            for scenario in ('trailing-fault', 'nonfault-success', 'previous-live-fault'):
+                with self.subTest(scenario=scenario), tempfile.TemporaryDirectory(dir='/tmp/opencode') as directory:
+                    root = Path(directory)
+                    source = root / 'synthetic.log'
+                    fault = scenario != 'nonfault-success'
+                    with source.open('wb') as stream:
+                        for _ in range(4096):
+                            stream.write(b'ordinary synthetic log record ' * 4 + b'\n')
+                        if fault:
+                            stream.write(b'FAULT synthetic trailing record\n')
+                    owner = FakeOwnership()
+                    guard = FirstFaultWatchguard(owner, lambda line: 'FAULT' in line)
+                    guard.sample({str(source): IncrementalLog(source)})
+                    self.assertIsNone(guard.first_fault)
+                    if scenario == 'previous-live-fault':
+                        guard.observe(str(source), 'FAULT synthetic trailing record')
+                    signals_before_cleanup = owner.signals
+                    owner.terminal = True
+                    guard.confirm_cleanup()
+                    native = dict(Result='success', ExecMainCode='1', ExecMainStatus='0')
+                    native_path = root / 'native-result.json'
+                    native_path.write_text(json.dumps(dict(status='success', properties=native)))
+                    native_before = native_path.read_bytes()
+                    watch = SimpleNamespace(readers={str(source): None}, guard=guard,
+                                            first_fault=guard.first_fault)
+                    namespace = dict(ROOT=root, Path=Path, HEAD='synthetic-launcher',
+                                     GUEST_SOURCE='synthetic-guest', raw_fault=guard.predicate,
+                                     summarize_sources=summarize_sources, write_summary=write_summary,
+                                     capsule_evidence=lambda unused: {'absence_is_inconclusive': True})
+                    exec(compile(ast.Module(body=[collector], type_ignores=[]), str(path), 'exec'), namespace)
+                    namespace['final_evidence'](watch)
+                    summary = json.loads((root / 'FINAL-DIAGNOSIS.json').read_text())
+                    self.assertTrue(summary['sources'][0]['complete'])
+                    self.assertEqual(summary['sources'][0]['matches'], int(fault))
+                    self.assertLessEqual(len(summary['sources'][0]['first']), 16)
+                    self.assertLessEqual(len(summary['sources'][0]['tail']), 16)
+                    if fault:
+                        self.assertEqual(summary['sources'][0]['first'][0]['line_number'], 4097)
+                        self.assertEqual(summary['sources'][0]['first'][0]['line'], 'FAULT synthetic trailing record')
+                    result = guard.result('success', publication=True)
+                    self.assertEqual(result['native'], 'success')
+                    self.assertEqual(native_path.read_bytes(), native_before)
+                    self.assertEqual(result['cleanup'], 'confirmed')
+                    self.assertEqual(owner.signals, signals_before_cleanup)
+                    self.assertEqual(owner.signals, int(scenario == 'previous-live-fault'))
+                    self.assertEqual(guardian_ok(result), not fault)
+
+    suite = unittest.defaultTestLoader.loadTestsFromTestCase(PostflightVerdictTests)
+    result = unittest.TextTestRunner(verbosity=2).run(suite)
+    return 0 if result.wasSuccessful() else 1
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--legacy-source', type=Path)
     parser.add_argument('--template-source', type=Path)
     parser.add_argument('--guardian-source', type=Path)
+    parser.add_argument('--postflight-template-source', type=Path)
     args = parser.parse_args()
     if args.legacy_source:
         terminal = replay_legacy(args.legacy_source)
@@ -206,6 +269,8 @@ def main():
         return replay_template(args.template_source)
     if args.guardian_source:
         return replay_guardian(args.guardian_source)
+    if args.postflight_template_source:
+        return replay_postflight(args.postflight_template_source)
     owner = FakeOwnership()
     guard = FirstFaultWatchguard(owner, lambda line: 'FAULT' in line)
     reader = InfiniteBacklog(owner)

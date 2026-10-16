@@ -41,6 +41,11 @@ log methods with synthetic files/adapters), and `--guardian-source PATH` (actual
 guardian rejecting driver-zero safety/native failure). Legacy traceback output is
 a new synthetic reconstruction, **not** a recovered historical crash stack.
 
+`--postflight-template-source PATH` runs the actual template collector against
+trailing-fault, nonfault-success and previously recognized live-fault scenarios.
+Any postflight match must reject the final verdict without changing native status
+or delivering another signal after cleanup.
+
 Before any trial, obtain fresh independent review of the entire tracked diff and
 the actual private trial/guardian files, their hashes, launcher SHA and adapters.
 Failed ownership or cleanup blocks both sealing and subsequent launches.
