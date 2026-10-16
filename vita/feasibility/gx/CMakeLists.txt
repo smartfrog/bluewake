@@ -107,6 +107,17 @@ else()
     target_link_libraries(ww_renderer_tests PRIVATE gx_vita GXRuntime::retail_gx_frontend)
     target_compile_options(ww_renderer_tests PRIVATE -O2 -Wall -Wextra)
 
+    add_executable(vita_gl_backend_tests "${RENDERER_DIR}/vita_gl_backend.cpp"
+        "${RENDERER_DIR}/vita_gl_backend_tests.cpp")
+    target_compile_definitions(vita_gl_backend_tests PRIVATE __vita__)
+    target_include_directories(vita_gl_backend_tests PRIVATE "${RENDERER_DIR}/test_gl")
+    target_link_libraries(vita_gl_backend_tests PRIVATE GXRuntime::gxcore)
+    target_compile_options(vita_gl_backend_tests PRIVATE -O2 -Wall -Wextra)
+    enable_testing()
+    foreach(scenario distinct same draw readback error shutdown)
+        add_test(NAME vita_gl_backend_${scenario} COMMAND vita_gl_backend_tests ${scenario})
+    endforeach()
+
     add_executable(png_capture_tests png_capture_tests.c png_capture.c)
     target_compile_options(png_capture_tests PRIVATE -O2 -Wall -Wextra)
 endif()
