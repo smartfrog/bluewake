@@ -72,6 +72,7 @@ from native_trace import decode as decode_native_trace  # noqa: E402
 from snapshot import capture_snapshot  # noqa: E402
 from stop_rules import StopState, evaluate_stop, is_failure  # noqa: E402
 from trigger_events import PRESENT_MARKER, OneShotTriggerScanner  # noqa: E402
+from diagnostic_readiness import diagnostic_readiness  # noqa: E402
 
 INSTALL_DEADLINE_SECONDS = 60
 PERMIT_TIMEOUT_SECONDS = 15
@@ -241,6 +242,16 @@ def check_freshness(args):
 
 
 def check_mode(args):
+    diagnostic = getattr(args, 'diagnostic_profile', None) is not None
+    plan = None
+    if diagnostic:
+        try:
+            plan = diagnostic_readiness(args)
+        except (OSError, ValueError) as error:
+            print(json.dumps({'kind': 'ww56-check', 'status': 'blocked',
+                              'checks': {'ok': False, 'diagnostic_readiness':
+                                         {'ok': False, 'detail': str(error)}}}, indent=2))
+            return 2
     checks = {}
     for name, function in (('supervisor_cgroup', check_supervisor), ('launcher', check_launcher),
                            ('inputs', check_inputs), ('freshness', check_freshness)):
@@ -249,7 +260,12 @@ def check_mode(args):
         except BaseException as error:
             checks[name] = {'ok': False, 'detail': str(error)}
     checks['ok'] = all(entry['ok'] for entry in checks.values())
-    print(json.dumps({'kind': 'ww56-check', 'checks': checks}, indent=2))
+    result = {'kind': 'ww56-check', 'checks': checks}
+    if diagnostic:
+        result['status'] = 'ready-for-supervised-review' if checks['ok'] else 'blocked'
+        if checks['ok']:
+            result['plan'] = plan
+    print(json.dumps(result, indent=2))
     return 0 if checks['ok'] else 2
 
 
@@ -813,7 +829,15 @@ def parse_arguments():
     parser.add_argument('--guest-headroom-bytes', type=int, default=DEFAULT_GUEST_HEADROOM_BYTES)
     parser.add_argument('--check', action='store_true',
                         help='verify preconditions read-only; launch nothing and write nothing')
+    parser.add_argument('--diagnostic-profile', type=Path,
+                        help='check-only: existing private cpu-opt-off profile with staged diagnostic requests; not authorization')
+    parser.add_argument('--request-token',
+                        help='check-only: explicit 32-hex token binding all three diagnostic requests')
     args = parser.parse_args()
+    if args.diagnostic_profile is not None and (not args.check or args.request_token is None):
+        parser.error('--diagnostic-profile requires --check and an explicit --request-token; no live diagnostic path')
+    if args.request_token is not None and args.diagnostic_profile is None:
+        parser.error('--request-token requires --diagnostic-profile')
     if re.fullmatch(r'[A-Za-z0-9][A-Za-z0-9._-]*', args.run_id) is None:
         parser.error('run id must be a simple identifier')
     for label, value in (('install', args.install_budget_bytes), ('guest', args.guest_budget_bytes),

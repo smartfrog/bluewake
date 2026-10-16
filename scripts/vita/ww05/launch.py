@@ -111,6 +111,11 @@ def verify_installed(root, plan):
     return payload
 
 
+def request_content(token, source, package, count=None):
+    suffix = '' if count is None else f' {count}'
+    return f'{token} {source} {package}{suffix}\n'
+
+
 def fresh_request(root, source, package, continue_gx=0, mem1_snapshots=0, defer_audio=False, mem1_command_window=None):
     validate_continuation(continue_gx)
     validate_memory_captures(mem1_snapshots, continue_gx, mem1_command_window)
@@ -135,13 +140,13 @@ def fresh_request(root, source, package, continue_gx=0, mem1_snapshots=0, defer_
         descriptor = os.open('ww05.request', os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW | os.O_CLOEXEC,
                              0o600, dir_fd=parent)
     with os.fdopen(descriptor, 'w') as stream:
-        stream.write(f'{token} {source} {package}\n')
+        stream.write(request_content(token, source, package))
     if continue_gx:
         with directory_fd(directory) as parent:
             descriptor = os.open('ww05.continue', os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW | os.O_CLOEXEC,
                                  0o600, dir_fd=parent)
         with os.fdopen(descriptor, 'w') as stream:
-            stream.write(f'{token} {source} {package} {continue_gx}\n')
+            stream.write(request_content(token, source, package, continue_gx))
     if mem1_snapshots:
         with directory_fd(root / 'evidence') as parent:
             os.mkdir('frames', mode=0o700, dir_fd=parent)
@@ -151,20 +156,20 @@ def fresh_request(root, source, package, continue_gx=0, mem1_snapshots=0, defer_
             descriptor = os.open('ww05.mem1', os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW | os.O_CLOEXEC,
                                  0o600, dir_fd=parent)
         with os.fdopen(descriptor, 'w') as stream:
-            stream.write(f'{token} {source} {package} {mem1_snapshots}\n')
+            stream.write(request_content(token, source, package, mem1_snapshots))
     if mem1_command_window is not None:
         for suffix, value in zip(('start', 'end'), mem1_command_window):
             with directory_fd(directory) as parent:
                 descriptor = os.open('ww05.mem1-' + suffix, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW | os.O_CLOEXEC,
                                      0o600, dir_fd=parent)
             with os.fdopen(descriptor, 'w') as stream:
-                stream.write(f'{token} {source} {package} {value}\n')
+                stream.write(request_content(token, source, package, value))
     if defer_audio:
         with directory_fd(directory) as parent:
             descriptor = os.open('ww05.audio', os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW | os.O_CLOEXEC,
                                  0o600, dir_fd=parent)
         with os.fdopen(descriptor, 'w') as stream:
-            stream.write(f'{token} {source} {package} 1\n')
+            stream.write(request_content(token, source, package, 1))
     return token
 
 
