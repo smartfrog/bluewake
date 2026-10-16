@@ -172,6 +172,12 @@ class DiagnosticStagingTests(unittest.TestCase):
         self.assertFalse(self.args.diagnostic_profile.exists())
 
     def test_complete_synthetic_flow_checks_bound_staged_profile_before_guest(self):
+        self.complete_synthetic_flow()
+
+    def test_cpu_on_continuous_flow_preserves_setting_through_postflight(self):
+        self.complete_synthetic_flow(cpu_opt='on', until_failure=True)
+
+    def complete_synthetic_flow(self, cpu_opt='off', until_failure=False):
         args = self.args
         args.check = False
         args.diagnostic_run = True
@@ -184,6 +190,10 @@ class DiagnosticStagingTests(unittest.TestCase):
         args.rel_settle_seconds = 5
         args.cleanup_grace_seconds = 1
         args.native_context_artifacts = None
+        args.diagnostic_cpu_opt = cpu_opt
+        args.until_failure = until_failure
+        if until_failure:
+            args.guest_ceiling_seconds = args.present_grace_seconds = args.rel_settle_seconds = None
         for name in ('vs0', 'sa0'):
             (self.firmware / name / 'public-synthetic').write_bytes(b'public fixture')
         directory = args.diagnostic_profile / run.REPORT_DIRECTORY
@@ -194,18 +204,24 @@ class DiagnosticStagingTests(unittest.TestCase):
                                                          args.vpk_sha256, count))
         config = args.diagnostic_profile / readiness.CONFIG_PATH
         config.parent.mkdir(parents=True)
-        config.write_bytes(readiness.profile_config(alt=True, pref_path=args.diagnostic_profile / run.FIRMWARE_DIRECTORY))
+        config.write_bytes(readiness.profile_config(alt=cpu_opt == 'off', pref_path=args.diagnostic_profile / run.FIRMWARE_DIRECTORY))
         before = {str(p): p.read_bytes() for p in args.diagnostic_profile.rglob('*') if p.is_file()}
         phases = []
 
         def fake_phase(name, arguments, root, receipts, plan, record, **kwargs):
             self.assertTrue(arguments.diagnostic_run)
             run.verify_private_config(root, plan)
+            self.assertIn(('cpu-opt: ' + ('true' if cpu_opt == 'on' else 'false')).encode(),
+                          (root / readiness.CONFIG_PATH).read_bytes())
             (Path(plan['phases'][name]['evidence_root']) / 'evidence/process.log').write_text('')
             phases.append(name)
             if name == 'guest':
                 staged = run.diagnostic_plan(arguments, root)
                 self.assertEqual(staged['token'], args.request_token)
+                self.assertEqual(staged['diagnostic_cpu_opt'], cpu_opt)
+                self.assertEqual(kwargs['deadline'], args.guest_ceiling_seconds)
+            staged_config = root / readiness.CONFIG_PATH
+            staged_config.write_bytes(staged_config.read_bytes().replace(b'user-id: ""\n', b'user-id: 00\n'))
             return {'requested_stop': {'stop_reason': 'installed_payload'}}
 
         with ExitStack() as stack:
@@ -229,6 +245,8 @@ class DiagnosticStagingTests(unittest.TestCase):
         result = json.loads((args.receipts_root / ('ww56-' + args.run_id) / 'result.json').read_text())
         self.assertEqual(result['completion'], 'INCOMPLETE')
         self.assertEqual(result['postflight_input_and_payload_gates'], 'PASS')
+        self.assertEqual(result['diagnostic_readiness']['diagnostic_cpu_opt'], cpu_opt)
+        self.assertEqual(result['staged_diagnostic_readiness']['diagnostic_cpu_opt'], cpu_opt)
 
 
 class DiagnosticWatchTests(frontier.WatchFixture):

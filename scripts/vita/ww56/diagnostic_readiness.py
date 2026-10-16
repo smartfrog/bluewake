@@ -43,10 +43,14 @@ def diagnostic_readiness(args):
         if (path.name in {'frames', 'ww05.mem1', 'ww05.partial', 'ww05.report',
                           'ww05.log', 'ww05.dispatch'} or path.name.startswith('ww05.mem1-')):
             raise ValueError(path.name + ': diagnostic readiness forbids captures or previous trial outputs')
-    config = config_identity(profile, alt=True, surface_sync=False,
+    cpu_opt = getattr(args, 'diagnostic_cpu_opt', 'off')
+    if cpu_opt not in ('on', 'off'):
+        raise ValueError('diagnostic CPU optimization must be on or off')
+    config = config_identity(profile, alt=cpu_opt == 'off', surface_sync=False,
                              pref_path=profile / FIRMWARE_DIRECTORY)
     return {'kind': 'ww56-diagnostic-readiness-v1', 'launch_authorized': False,
-            'profile': str(profile), 'private_config': config,
+             'profile': str(profile), 'private_config': config, 'diagnostic_cpu_opt': cpu_opt,
+             'until_failure': getattr(args, 'until_failure', False),
             'token': args.request_token, 'guest_source': args.guest_source,
             'vpk': str(args.vpk), 'vpk_sha256': package['sha256'],
             'requests': requests, 'continue_gx': 64, 'audio': 'deferred',

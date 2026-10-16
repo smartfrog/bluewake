@@ -197,14 +197,18 @@ def stop_owned(process):
 
 def run_owned(command, root, timeout, report_identity=None, evidence_root=None, memory=False, control=False,
               phase_observer=None, renderer=None, environment=None, cwd=None):
-    if not math.isfinite(timeout) or timeout <= 0:
+    if timeout is None and (phase_observer is None or report_identity is not None):
+        raise ValueError("untimed execution requires a phase observer and no report collector")
+    if timeout is not None and (not math.isfinite(timeout) or timeout <= 0):
         raise ValueError("timeout must be finite and positive")
     if resource.getrlimit(resource.RLIMIT_FSIZE) != (resource.RLIM_INFINITY, resource.RLIM_INFINITY):
         raise ValueError("RLIMIT_FSIZE must be unlimited; inherited limits can break runtime memfd allocation")
     started = time.monotonic()
-    deadline = started + timeout
+    deadline = None if timeout is None else started + timeout
 
     def remaining_time():
+        if deadline is None:
+            return None
         remaining = deadline - time.monotonic()
         if remaining <= 0:
             raise subprocess.TimeoutExpired(command, timeout)
@@ -246,7 +250,7 @@ def run_owned(command, root, timeout, report_identity=None, evidence_root=None, 
                                 status = 125
                                 break
                         if report_identity is None:
-                            time.sleep(min(.05, remaining_time()))
+                            time.sleep(min(.05, remaining_time() or .05))
                             continue
                         try:
                             content = read_report(root, control=True) if control else read_report(root, memory=True) if memory else read_report(root)
@@ -283,8 +287,8 @@ def run_owned(command, root, timeout, report_identity=None, evidence_root=None, 
             except subprocess.TimeoutExpired:
                 record["stop_reason"] = "timeout"
                 status = 124
-            except BaseException:
-                record["stop_reason"] = "observer_error"
+            except BaseException as error:
+                record["stop_reason"] = "operator-stop" if isinstance(error, KeyboardInterrupt) else "observer_error"
                 raise
             finally:
                 stop_owned(process)

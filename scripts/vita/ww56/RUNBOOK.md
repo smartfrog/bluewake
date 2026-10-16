@@ -127,10 +127,33 @@ token/source/package binding, continuation 64 and deferred audio before any
 staging or phase launch. The supplied profile stays read-only. Existing staging
 creates a separate fresh owned run directory, copies the local personal package
 and firmware there (never a system install), and emits the same approved
-CPU-opt-false/OpenGL/no-surface-capture template with only its preference path
+CPU-opt-false/OpenGL/no-surface-capture template by default, with only its preference path
 rebound to that new directory. After verified installation, the existing request
 writer stages all three requests with the explicit token; the unchanged readiness
 checker validates that actual destination before the guest phase starts.
+
+For an explicitly authorized private CPU-on diagnostic, add
+`--diagnostic-cpu-opt on` to both fresh readiness and live commands. The supplied
+profile must use the canonical CPU-opt-true template. The same selected setting
+is staged for installation, restored before the guest, checked at destination
+readiness and verified again after exit. Other profile settings are still exact;
+this option does not patch Vita3K or establish that its native crash is fixed.
+
+Add `--until-failure` to both commands for continuous CPU/log observation. It sets
+the guest ceiling, first-presentation grace and REL settle to `None`, the guest
+unit's `RuntimeMaxSec` to `infinity`, and removes the wrapper's elapsed deadline.
+It rejects explicit guest timer options and native-context artifact mode. Probe,
+installer, permit and cleanup deadlines stay bounded. Failure markers, process
+exit, silent near-zero CPU for at most 30 seconds, ownership failures and operator
+interrupts still stop the run; healthy CPU or log progress has no elapsed stop.
+Continuation `64` is a command-journal limit, not a frame/execution stop
+(`vita/host/test_plan.py`); its existing admission remains unchanged. Do not wrap
+the live supervisor in an external elapsed timeout when using this mode. Keep
+the external CPU/log-only watcher active through owned cleanup as well.
+
+Without these explicit diagnostic options, existing CPU settings and bounded
+frontier behavior are unchanged. No real guest was launched to validate these
+options; independent review is required before the next live isolation probe.
 
 Diagnostic supervision reuses the CPU/log observer and existing phase cleanup.
 It disables snapshots throughout ingestion and every final drain, never reads

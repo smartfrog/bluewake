@@ -37,7 +37,7 @@ def _optional_grace(value, name):
 
 @dataclass
 class StopState:
-    ceiling_seconds: float
+    ceiling_seconds: float | None
     present_grace_seconds: float | None
     rel_settle_seconds: float | None
     started: float
@@ -45,8 +45,7 @@ class StopState:
     first_rel_at: float | None = None
 
     def __post_init__(self):
-        if not math.isfinite(self.ceiling_seconds) or self.ceiling_seconds <= 0:
-            raise ValueError('ceiling must be finite and positive')
+        self.ceiling_seconds = _optional_grace(self.ceiling_seconds, 'ceiling')
         if not math.isfinite(self.started):
             raise ValueError('started must be finite')
         self.present_grace_seconds = _optional_grace(self.present_grace_seconds, 'present grace')
@@ -71,7 +70,7 @@ def evaluate_stop(state, *, now, failure_lines):
             state.present_grace_seconds is not None and
             now - state.first_present_at >= state.present_grace_seconds):
         return {'stop_reason': 'first-present-grace', 'first_present_at': state.first_present_at}
-    if now - state.started >= state.ceiling_seconds:
+    if state.ceiling_seconds is not None and now - state.started >= state.ceiling_seconds:
         return {'stop_reason': 'bounded-phase-planned-time-stop',
                 'elapsed_seconds': now - state.started}
     return None

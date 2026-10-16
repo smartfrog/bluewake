@@ -359,11 +359,14 @@ def diagnostic_plan(args, profile=None):
 
 
 def profile_options(plan):
-    return {'alt': True} if 'diagnostic_readiness' in plan else {}
+    if 'diagnostic_readiness' not in plan:
+        return {}
+    return {'alt': plan['diagnostic_readiness'].get('diagnostic_cpu_opt', 'off') == 'off'}
 
 
 def stage_trial(args):
     diagnostic = diagnostic_plan(args) if getattr(args, 'diagnostic_run', False) else None
+    options = profile_options({'diagnostic_readiness': diagnostic} if diagnostic is not None else {})
     runroot = reject_symlinks(Path(args.run_root_base)) / ('ww56-' + args.run_id)
     receipt_base = reject_symlinks(Path(args.receipts_root)) if diagnostic is not None else Path(args.receipts_root)
     receipts = receipt_base / ('ww56-' + args.run_id)
@@ -381,11 +384,13 @@ def stage_trial(args):
         raise ValueError('staged candidate package changed')
     firmware = stage_firmware(runroot, args.firmware, surface_sync=False,
                               pref_path=runroot / FIRMWARE_DIRECTORY,
-                              **({'alt': True} if diagnostic is not None else {}))
+                              **options)
     shader = stage_shader_compiler(runroot, args.shader_compiler)
     disc = stage_disc(runroot, args.disc, args.disc_sha256)
     libraries = library_identity(args.libraries)
-    phases = direct_phases(runroot, args.guest_ceiling_seconds, args.libraries, args.wayland_socket)
+    phases = direct_phases(runroot, args.guest_ceiling_seconds or INSTALL_DEADLINE_SECONDS,
+                           args.libraries, args.wayland_socket)
+    phases['guest']['timeout_seconds'] = args.guest_ceiling_seconds
     plan = {
         'kind': 'ww56-bounded-normalboot-trial-v1',
         'run_id': args.run_id, 'runroot': str(runroot), 'receipts': str(receipts),
@@ -397,7 +402,7 @@ def stage_trial(args):
         'runtime_libraries': libraries, 'firmware': firmware, 'shader_compiler': shader, 'disc': disc,
         'private_config': config_identity(runroot, surface_sync=False,
                                           pref_path=runroot / FIRMWARE_DIRECTORY,
-                                          **({'alt': True} if diagnostic is not None else {})),
+                                          **options),
         'wayland_socket': str(args.wayland_socket), 'audio': args.audio, 'continue_gx': args.continue_gx,
         'idle_timeout_seconds': args.hang_seconds, 'cpu_threshold': 0.05,
         'minimum_available_memory_bytes': 0, 'phases': phases,
@@ -510,6 +515,9 @@ class PhaseWatch:
         self.probe = probe
         self.ready_probe = ready_probe
         self.diagnostic = getattr(args, 'diagnostic_run', False)
+        self.until_failure = name == 'guest' and getattr(args, 'until_failure', False)
+        if deadline is None and not (self.diagnostic and self.until_failure):
+            raise ValueError('untimed guest requires explicit continuous diagnostic opt-in')
         self.phase_root = Path(entry['evidence_root'])
         self.journal_path = str(runroot / REPORT_DIRECTORY / 'ww05.log')
         self.readers = {str(path): IncrementalLog(path) for path in self._log_paths()}
@@ -518,8 +526,8 @@ class PhaseWatch:
         self.native_context = NativeContextWindow()
         self.native_expected = name == 'guest' and getattr(args, 'native_context_artifacts', None) is not None
         self.stop_state = StopState(ceiling_seconds=deadline,
-                                    present_grace_seconds=args.present_grace_seconds,
-                                    rel_settle_seconds=args.rel_settle_seconds,
+                                    present_grace_seconds=None if self.until_failure else args.present_grace_seconds,
+                                    rel_settle_seconds=None if self.until_failure else args.rel_settle_seconds,
                                     started=time.monotonic())
         self.failure_lines = []
         self.new_lines = 0
@@ -588,6 +596,8 @@ class PhaseWatch:
     def _ingest(self, now, lines, journal):
         self.native_context.feed(journal, now=now, wall=time.time())
         if self.native_expected or self.native_context.events or self.native_context.error:
+            if self.until_failure:
+                raise ValueError('native-context observation is incompatible with --until-failure')
             self.state['native_context'] = self.native_context.receipt()
             self.stop_state.ceiling_seconds = min(self.stop_state.ceiling_seconds, 180)
         events = parse_frame_events(journal).presents
@@ -726,6 +736,9 @@ class PhaseWatch:
 
 def run_phase(name, args, runroot, receipts, plan, record, *, budget, headroom, deadline,
               probe=False, ready_probe=None):
+    if deadline is None and not (name == 'guest' and getattr(args, 'diagnostic_run', False)
+                                 and getattr(args, 'until_failure', False) and not probe):
+        raise ValueError('untimed execution requires an explicitly opted-in diagnostic guest')
     entry = plan['phases'][name]
     phase_root = Path(entry['evidence_root'])
     unit = 'ww56-' + args.run_id + '-' + name + '.service'
@@ -748,20 +761,21 @@ def run_phase(name, args, runroot, receipts, plan, record, *, budget, headroom, 
                '--property=LimitCORE=0',
                '--property=TimeoutStopSec=' + format(args.cleanup_grace_seconds, 'g') + 's',
                '--property=RemainAfterExit=yes',
-               '--property=RuntimeMaxSec=' + str(int(deadline + 15)),
+               '--property=RuntimeMaxSec=' + ('infinity' if deadline is None else str(int(deadline + 15))),
                '/usr/bin/python3', '-B', str(SCRIPT_DIRECTORY / 'exec_gate.py'), str(receipts), name]
     if state.get('diagnostic'):
         command.append(state['launch_nonce'])
     watch = PhaseWatch(name, args, runroot, receipts, plan, entry, unit, budget, headroom, deadline, state,
                        probe=probe, ready_probe=ready_probe)
+    wrapper_timeout = None if deadline is None else deadline + 10
     failure = None
     try:
-        state['run_owned_status'] = run_owned(command, runroot, deadline + 10, evidence_root=phase_root,
+        state['run_owned_status'] = run_owned(command, runroot, wrapper_timeout, evidence_root=phase_root,
                                               phase_observer=watch, environment=dict(os.environ),
                                               cwd=ROOT)
     except BaseException as error:
         failure = error
-        state['error'] = str(error)
+        state['error'] = str(error) or type(error).__name__
         raise
     finally:
         late_error = None
@@ -896,7 +910,8 @@ def run_trial(args):
     except PreconditionBlocked as error:
         record.update(completion='BLOCKED', error=str(error), blocked=True)
     except BaseException as error:
-        record.update(completion='ABORTED', error=str(error), traceback=traceback.format_exc())
+        record.update(completion='ABORTED', error=str(error) or type(error).__name__,
+                      traceback=traceback.format_exc())
         print('ERROR ' + traceback.format_exc(), flush=True)
     finally:
         record.update(duration_seconds=time.monotonic() - started,
@@ -935,7 +950,7 @@ def grace_argument(value):
 
 
 def parse_arguments():
-    parser = argparse.ArgumentParser(description=__doc__)
+    parser = argparse.ArgumentParser(description=__doc__, allow_abbrev=False)
     parser.add_argument('--expected-head', type=head_argument, required=True,
                         help='reviewed launcher commit; the worktree must be clean at it')
     parser.add_argument('--vpk', type=Path, required=True,
@@ -976,7 +991,11 @@ def parse_arguments():
     parser.add_argument('--check', action='store_true',
                         help='verify preconditions read-only; launch nothing and write nothing')
     parser.add_argument('--diagnostic-profile', type=Path,
-                        help='existing private cpu-opt-off profile with staged diagnostic requests; read-only input, not authorization')
+                        help='existing private profile matching --diagnostic-cpu-opt with staged requests; read-only input, not authorization')
+    parser.add_argument('--diagnostic-cpu-opt', choices=('off', 'on'), default='off',
+                        help='explicit private diagnostic CPU optimization setting; default off')
+    parser.add_argument('--until-failure', action='store_true',
+                        help='diagnostic only: no elapsed guest, presentation or REL stop; keep CPU/log hang supervision')
     parser.add_argument('--request-token',
                         help='explicit 32-hex token binding all three diagnostic requests')
     parser.add_argument('--diagnostic-run', action='store_true',
@@ -988,6 +1007,13 @@ def parse_arguments():
         parser.error('--diagnostic-profile requires --check or --diagnostic-run and an explicit --request-token')
     if args.request_token is not None and args.diagnostic_profile is None:
         parser.error('--request-token requires --diagnostic-profile')
+    if (args.until_failure or args.diagnostic_cpu_opt != 'off') and args.diagnostic_profile is None:
+        parser.error('--until-failure and --diagnostic-cpu-opt on require a diagnostic profile')
+    if args.until_failure:
+        incompatible = {'--guest-ceiling-seconds', '--present-grace-seconds', '--rel-settle-seconds'}
+        if args.native_context_artifacts is not None or any(
+                option.split('=', 1)[0] in incompatible for option in sys.argv[1:]):
+            parser.error('--until-failure is incompatible with explicit guest timers or native-context artifacts')
     if re.fullmatch(r'[A-Za-z0-9][A-Za-z0-9._-]*', args.run_id) is None:
         parser.error('run id must be a simple identifier')
     for label, value in (('install', args.install_budget_bytes), ('guest', args.guest_budget_bytes),
@@ -1003,7 +1029,7 @@ def parse_arguments():
         parser.error('guest ceiling must be finite, positive and at most 600 seconds')
     if not math.isfinite(args.hang_seconds) or args.hang_seconds <= 0:
         parser.error('hang window must be finite and positive')
-    if args.diagnostic_run and args.hang_seconds > 30:
+    if args.diagnostic_profile is not None and args.hang_seconds > 30:
         parser.error('diagnostic hang window must be at most 30 seconds')
     if not math.isfinite(args.cleanup_grace_seconds) or not 1 <= args.cleanup_grace_seconds <= 60:
         parser.error('cleanup grace must be finite and between 1 and 60 seconds')
@@ -1013,6 +1039,8 @@ def parse_arguments():
         parser.error(str(error))
     if args.audio == 'deferred' and not args.continue_gx:
         parser.error('deferred audio requires the explicit continuation profile')
+    if args.until_failure:
+        args.guest_ceiling_seconds = args.present_grace_seconds = args.rel_settle_seconds = None
     return args
 
 
