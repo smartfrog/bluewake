@@ -19,10 +19,26 @@ struct BwDvdStream {
     const BwDvdBackend* backend;
     BwDvdFile* file;
     unsigned long long position;
+    unsigned char* window;
+    size_t window_size;
+    unsigned long long window_offset;
+    size_t window_valid;
 };
 
 static const BwDvdBackend* g_backend;
 static BwDvdIoStats g_stats;
+static unsigned g_read_ahead_bytes;
+static unsigned long long g_staging_live_bytes;
+
+unsigned bw_dvd_io_set_read_ahead(unsigned bytes) {
+    if (bytes > BW_DVD_READ_AHEAD_MAX_BYTES) {
+        fprintf(stderr, "[bw-dvd] read-ahead clamped: requested=%u max=%u\n", bytes,
+                BW_DVD_READ_AHEAD_MAX_BYTES);
+        bytes = BW_DVD_READ_AHEAD_MAX_BYTES;
+    }
+    g_read_ahead_bytes = bytes;
+    return bytes;
+}
 
 // ---------------------------------------------------------------------------
 // Vita transport (SceIofilemgr, 64-bit offsets)
@@ -159,6 +175,24 @@ FILE* bw_dvd_fopen(const char* path, const char* mode) {
     stream->backend = backend;
     stream->file = file;
     stream->position = 0u;
+    stream->window = NULL;
+    stream->window_size = 0u;
+    stream->window_offset = 0u;
+    stream->window_valid = 0u;
+    if (g_read_ahead_bytes > 0u) {
+        stream->window = (unsigned char*)malloc(g_read_ahead_bytes);
+        if (stream->window == NULL) {
+            backend->close(file);
+            free(stream);
+            fprintf(stderr, "[bw-dvd] read-ahead allocation failed: bytes=%u path='%s'\n",
+                    g_read_ahead_bytes, path);
+            return NULL;
+        }
+        stream->window_size = g_read_ahead_bytes;
+        g_staging_live_bytes += g_read_ahead_bytes;
+        if (g_staging_live_bytes > g_stats.staging_peak_bytes)
+            g_stats.staging_peak_bytes = g_staging_live_bytes;
+    }
     return (FILE*)stream;
 }
 
@@ -173,6 +207,44 @@ size_t bw_dvd_fread(void* ptr, size_t size, size_t count, FILE* stream) {
     unsigned long long remaining = (unsigned long long)size * (unsigned long long)count;
     unsigned long long done = 0u;
     while (remaining > 0u) {
+        if (s->window != NULL) {
+            const unsigned long long in_window =
+                s->position >= s->window_offset ? s->position - s->window_offset : 0u;
+            if (s->window_valid != 0u && s->position >= s->window_offset &&
+                in_window < (unsigned long long)s->window_valid) {
+                const size_t available = s->window_valid - (size_t)in_window;
+                const unsigned long long take =
+                    remaining < (unsigned long long)available ? remaining
+                                                             : (unsigned long long)available;
+                memcpy((unsigned char*)ptr + done, s->window + (size_t)in_window, (size_t)take);
+                done += take;
+                s->position += take;
+                remaining -= take;
+                continue;
+            }
+            if (s->window_size > g_stats.max_chunk_bytes)
+                g_stats.max_chunk_bytes = s->window_size;
+            const long long got =
+                s->backend->read_at(s->file, s->position, s->window, s->window_size);
+            if (got < 0) {
+                fprintf(stderr,
+                        "[bw-dvd] read-ahead failed: offset=%llu length=%zu backend=%s\n",
+                        s->position, s->window_size, s->backend->name);
+                break;
+            }
+            if (got == 0)
+                break;
+            if ((unsigned long long)got > (unsigned long long)s->window_size) {
+                fprintf(stderr,
+                        "[bw-dvd] read-ahead over-reported: offset=%llu length=%zu got=%lld "
+                        "backend=%s\n",
+                        s->position, s->window_size, got, s->backend->name);
+                break;
+            }
+            s->window_offset = s->position;
+            s->window_valid = (size_t)got;
+            continue;
+        }
         const unsigned long long chunk =
             remaining < BW_DVD_READ_CHUNK_BYTES ? remaining : BW_DVD_READ_CHUNK_BYTES;
         if (chunk > g_stats.max_chunk_bytes)
@@ -227,6 +299,7 @@ int bw_dvd_fseeko(FILE* stream, off_t offset, int whence) {
         return -1;
     }
     s->position = (unsigned long long)next;
+    s->window_valid = 0u;
     return 0;
 }
 
@@ -235,6 +308,14 @@ int bw_dvd_fclose(FILE* stream) {
         return -1;
     struct BwDvdStream* s = (struct BwDvdStream*)stream;
     s->backend->close(s->file);
+    if (s->window_size > g_staging_live_bytes) {
+        fprintf(stderr, "[bw-dvd] staging accounting underflow: window=%zu live=%llu\n",
+                s->window_size, g_staging_live_bytes);
+        g_staging_live_bytes = 0u;
+    } else {
+        g_staging_live_bytes -= s->window_size;
+    }
+    free(s->window);
     free(s);
     return 0;
 }

@@ -11,6 +11,7 @@
 #include <string.h>
 
 static void reset(unsigned long long size) {
+    bw_dvd_io_set_read_ahead(0u);
     bw_fake_install(size);
     for (unsigned long long i = 0; i < size; ++i)
         bw_fake_image.bytes[i] = (unsigned char)(i * 131u + 7u);
@@ -156,6 +157,145 @@ static int case_open_failure(const char* name) {
     return 0;
 }
 
+static int case_readahead_bounds(const char* name) {
+    const unsigned long long size = 1024ull * 1024ull;
+    reset(size);
+    CHECK(bw_dvd_io_set_read_ahead(BW_DVD_READ_AHEAD_MAX_BYTES + 4096u) ==
+              BW_DVD_READ_AHEAD_MAX_BYTES,
+          "read-ahead was not clamped to the cap");
+    FILE* stream = bw_dvd_fopen("fake.iso", "rb");
+    CHECK(stream != NULL, "open failed");
+    unsigned char* buffer = (unsigned char*)malloc((size_t)size);
+    CHECK(buffer != NULL, "buffer allocation failed");
+    CHECK(bw_dvd_fread(buffer, 1u, (size_t)size, stream) == (size_t)size, "large read short");
+    CHECK(memcmp(buffer, bw_fake_image.bytes, (size_t)size) == 0, "bytes differ");
+    CHECK(bw_fake_image.max_request <= BW_DVD_READ_AHEAD_MAX_BYTES,
+          "read-ahead request exceeded the cap");
+    CHECK(bw_fake_image.max_request == BW_DVD_READ_AHEAD_MAX_BYTES,
+          "read-ahead window was not exercised");
+    BwDvdIoStats stats;
+    bw_dvd_io_stats(&stats);
+    CHECK(stats.total_read_bytes == size, "stats total differs");
+    CHECK(stats.max_chunk_bytes <= BW_DVD_READ_AHEAD_MAX_BYTES, "stats chunk exceeded the cap");
+    CHECK(stats.staging_peak_bytes == BW_DVD_READ_AHEAD_MAX_BYTES, "staging bytes differ");
+    free(buffer);
+    CHECK(bw_dvd_fclose(stream) == 0, "close failed");
+    CHECK(bw_dvd_io_set_read_ahead(BW_DVD_READ_AHEAD_MAX_BYTES) == BW_DVD_READ_AHEAD_MAX_BYTES,
+          "read-ahead at the cap was rejected");
+    CHECK(bw_dvd_io_set_read_ahead(0u) == 0u, "read-ahead disable failed");
+    printf("PASS %s\n", name);
+    return 0;
+}
+
+static int case_readahead_short_read_eof(const char* name) {
+    const unsigned long long size = 300ull * 1024ull;
+    reset(size);
+    bw_dvd_io_set_read_ahead(BW_DVD_READ_AHEAD_MAX_BYTES);
+    FILE* stream = bw_dvd_fopen("fake.iso", "rb");
+    CHECK(stream != NULL, "open failed");
+    CHECK(bw_dvd_fseeko(stream, 100 * 1024, SEEK_SET) == 0, "seek failed");
+    unsigned char* buffer = (unsigned char*)malloc((size_t)size);
+    CHECK(buffer != NULL, "buffer allocation failed");
+    const size_t expected = (size_t)(size - 100ull * 1024ull);
+    CHECK(bw_dvd_fread(buffer, 1u, expected + 64u, stream) == expected,
+          "read-ahead did not stop at EOF");
+    CHECK(memcmp(buffer, bw_fake_image.bytes + 100u * 1024u, expected) == 0,
+          "bytes before EOF differ");
+    CHECK(bw_dvd_fread(buffer, 1u, 16u, stream) == 0u, "read past EOF returned data");
+    free(buffer);
+    CHECK(bw_dvd_fclose(stream) == 0, "close failed");
+    printf("PASS %s\n", name);
+    return 0;
+}
+
+static int case_readahead_short_read(const char* name) {
+    const unsigned long long size = 256ull * 1024ull;
+    reset(size);
+    bw_fake_image.max_serve = 4096u;
+    bw_dvd_io_set_read_ahead(BW_DVD_READ_AHEAD_MAX_BYTES);
+    FILE* stream = bw_dvd_fopen("fake.iso", "rb");
+    CHECK(stream != NULL, "open failed");
+    const size_t want = 64u * 1024u;
+    unsigned char* buffer = (unsigned char*)malloc(want);
+    CHECK(buffer != NULL, "buffer allocation failed");
+    CHECK(bw_dvd_fread(buffer, 1u, want, stream) == want, "short backend reads lost data");
+    CHECK(memcmp(buffer, bw_fake_image.bytes, want) == 0, "short-read bytes differ");
+    CHECK(bw_fake_image.max_request <= BW_DVD_READ_AHEAD_MAX_BYTES,
+          "short-read request exceeded the cap");
+    free(buffer);
+    CHECK(bw_dvd_fclose(stream) == 0, "close failed");
+    printf("PASS %s\n", name);
+    return 0;
+}
+
+static int case_readahead_seek(const char* name) {
+    const unsigned long long size = 300ull * 1024ull;
+    reset(size);
+    bw_dvd_io_set_read_ahead(BW_DVD_READ_AHEAD_MAX_BYTES);
+    FILE* stream = bw_dvd_fopen("fake.iso", "rb");
+    CHECK(stream != NULL, "open failed");
+    unsigned char data[100];
+    CHECK(bw_dvd_fread(data, 1u, sizeof data, stream) == sizeof data, "first read short");
+    CHECK(memcmp(data, bw_fake_image.bytes, sizeof data) == 0, "first read bytes differ");
+    CHECK(bw_dvd_fseeko(stream, 200 * 1024, SEEK_SET) == 0, "forward seek failed");
+    CHECK(bw_dvd_fread(data, 1u, sizeof data, stream) == sizeof data, "read after seek short");
+    CHECK(memcmp(data, bw_fake_image.bytes + 200u * 1024u, sizeof data) == 0,
+          "forward seek served stale window bytes");
+    CHECK(bw_dvd_fseeko(stream, 50, SEEK_SET) == 0, "backward seek failed");
+    CHECK(bw_dvd_fread(data, 1u, sizeof data, stream) == sizeof data, "read after backward seek short");
+    CHECK(memcmp(data, bw_fake_image.bytes + 50u, sizeof data) == 0,
+          "backward seek served stale window bytes");
+    CHECK(bw_dvd_fclose(stream) == 0, "close failed");
+    printf("PASS %s\n", name);
+    return 0;
+}
+
+static int case_readahead_over_report(const char* name) {
+    reset(4096u);
+    bw_fake_image.over_report = true;
+    bw_dvd_io_set_read_ahead(BW_DVD_READ_AHEAD_MAX_BYTES);
+    FILE* stream = bw_dvd_fopen("fake.iso", "rb");
+    CHECK(stream != NULL, "open failed");
+    unsigned char buffer[64];
+    CHECK(bw_dvd_fread(buffer, 1u, sizeof buffer, stream) == 0u,
+          "over-reported bytes reached the caller");
+    CHECK(bw_dvd_fclose(stream) == 0, "close failed");
+    printf("PASS %s\n", name);
+    return 0;
+}
+
+static int case_readahead_two_streams(const char* name) {
+    reset(4096u);
+    bw_dvd_io_set_read_ahead(BW_DVD_READ_AHEAD_MAX_BYTES);
+    FILE* first = bw_dvd_fopen("fake.iso", "rb");
+    FILE* second = bw_dvd_fopen("fake.iso", "rb");
+    CHECK(first != NULL && second != NULL, "open failed");
+    BwDvdIoStats stats;
+    bw_dvd_io_stats(&stats);
+    CHECK(stats.staging_peak_bytes == 2ull * BW_DVD_READ_AHEAD_MAX_BYTES,
+          "staging peak did not sum two open windows");
+    CHECK(bw_dvd_fclose(first) == 0, "first close failed");
+    CHECK(bw_dvd_fclose(second) == 0, "second close failed");
+    printf("PASS %s\n", name);
+    return 0;
+}
+
+static int case_readahead_default_off(const char* name) {
+    const unsigned long long size = 64ull * 1024ull;
+    reset(size);
+    FILE* stream = bw_dvd_fopen("fake.iso", "rb");
+    CHECK(stream != NULL, "open failed");
+    unsigned char buffer[4096];
+    CHECK(bw_dvd_fread(buffer, 1u, sizeof buffer, stream) == sizeof buffer, "read short");
+    CHECK(bw_fake_image.max_request == sizeof buffer, "default path prefetched bytes");
+    BwDvdIoStats stats;
+    bw_dvd_io_stats(&stats);
+    CHECK(stats.staging_peak_bytes == 0u, "default path staged bytes");
+    CHECK(bw_dvd_fclose(stream) == 0, "close failed");
+    printf("PASS %s\n", name);
+    return 0;
+}
+
 typedef struct {
     const char* name;
     int (*run)(const char* name);
@@ -171,6 +311,13 @@ static const Case CASES[] = {
     {"seek-invalid", case_seek_invalid},
     {"chunk-bound", case_chunk_bound},
     {"open-failure", case_open_failure},
+    {"readahead-bounds", case_readahead_bounds},
+    {"readahead-short-read-eof", case_readahead_short_read_eof},
+    {"readahead-short-read", case_readahead_short_read},
+    {"readahead-seek", case_readahead_seek},
+    {"readahead-over-report", case_readahead_over_report},
+    {"readahead-two-streams", case_readahead_two_streams},
+    {"readahead-default-off", case_readahead_default_off},
 };
 
 int main(int argc, char** argv) {

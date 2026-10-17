@@ -14,9 +14,10 @@
 // open/pread/close, and tests install a fake backend.
 //
 // Reads are positional in the backend and chunked at BW_DVD_READ_CHUNK_BYTES
-// directly into the caller's destination: the seam allocates no staging
-// buffer, so peak staging memory is zero by construction and bounded by the
-// chunk cap per backend call.
+// directly into the caller's destination: with read-ahead off (the default) the
+// seam allocates no staging buffer, so peak staging memory is zero by
+// construction and bounded by the chunk cap per backend call. With read-ahead
+// on, each stream owns one window of at most BW_DVD_READ_AHEAD_MAX_BYTES.
 
 #include <stdbool.h>
 #include <stddef.h>
@@ -26,6 +27,14 @@
 // One backend read request never exceeds this many bytes. The pinned dvd.c
 // asks for whole files; the shim loops over the cap to bound each syscall.
 #define BW_DVD_READ_CHUNK_BYTES 0x100000ull
+
+// Optional sequential read-ahead window, off by default. It mirrors the
+// DuskGXM reference's 128 KiB positional prefetch
+// (build-f5/dusk-reference-analysis-5f3a9c21/REPORT.md, section 4 rank 3): one
+// bounded window per stream, filled with one backend read of at most this many
+// bytes and served from memory until a seek discards it. Hardware-target lever,
+// not a correctness change; the pinned dvd.c still sees ordinary fread.
+#define BW_DVD_READ_AHEAD_MAX_BYTES 0x20000u
 
 // Reference install path on a Vita (or Vita3K) ux0: the private image lives
 // outside the VPK, one file, never committed or published.
@@ -58,6 +67,11 @@ const char* bw_dvd_io_backend_name(void);
 
 void bw_dvd_io_stats(BwDvdIoStats* stats);
 void bw_dvd_io_stats_reset(void);
+
+// Sets the read-ahead window for streams opened afterwards. 0 (the default)
+// disables it and keeps every read direct. Returns the applied byte count,
+// clamped to BW_DVD_READ_AHEAD_MAX_BYTES.
+unsigned bw_dvd_io_set_read_ahead(unsigned bytes);
 
 // stdio-shaped shims the pinned dvd.c is redirected to.
 FILE* bw_dvd_fopen(const char* path, const char* mode);

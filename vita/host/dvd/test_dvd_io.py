@@ -23,6 +23,13 @@ CASES = (
     'seek-invalid',
     'chunk-bound',
     'open-failure',
+    'readahead-bounds',
+    'readahead-short-read-eof',
+    'readahead-short-read',
+    'readahead-seek',
+    'readahead-over-report',
+    'readahead-two-streams',
+    'readahead-default-off',
 )
 
 

@@ -4,6 +4,9 @@
 #include "ww05_identity.h"
 #include "diagnostic_io.h"
 #include "fixture.h"
+#if WW05_ENABLE_DVD_READ_AHEAD
+#include "dvd_io.h"
+#endif
 #if defined(__vita__) && WW05_ENABLE_MAX_CLOCKS
 #include "vita_clocks.h"
 #endif
@@ -82,6 +85,12 @@ int fixture_run(int argc, char** argv) {
     // on hardware (Vita3K need not honor ScePower clock requests).
     if (bw_vita_clocks_apply_max() != 0)
         fprintf(stderr, "[vita-clocks] result=failed continuing\n");
+#endif
+#if WW05_ENABLE_DVD_READ_AHEAD
+    // DuskGXM's bounded positional prefetch. Applies to streams opened after
+    // this point; off unless configured, and never changes read semantics.
+    const unsigned read_ahead_bytes = bw_dvd_io_set_read_ahead(BW_DVD_READ_AHEAD_MAX_BYTES);
+    fprintf(stderr, "[dvd-readahead] bytes=%u\n", read_ahead_bytes);
 #endif
     char token[33], source[41], package[65];
     u32 command_log_limit;

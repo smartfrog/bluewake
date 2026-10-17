@@ -18,6 +18,8 @@ static long long fake_read_at(BwDvdFile* file, unsigned long long offset, void* 
     BwFakeImage* image = (BwFakeImage*)file;
     if (image->read_fails)
         return -1;
+    if (image->over_report)
+        return (long long)(length + 1u);
     if (length > image->max_request)
         image->max_request = length;
     if (offset >= image->size)
@@ -25,6 +27,8 @@ static long long fake_read_at(BwDvdFile* file, unsigned long long offset, void* 
     unsigned long long serve = image->size - offset;
     if (serve > length)
         serve = length;
+    if (image->max_serve != 0u && serve > image->max_serve)
+        serve = image->max_serve;
     memcpy(dst, image->bytes + offset, (size_t)serve);
     image->total_served += serve;
     return (long long)serve;

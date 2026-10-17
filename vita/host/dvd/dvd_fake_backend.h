@@ -17,6 +17,8 @@ typedef struct {
     unsigned long long open_calls;
     unsigned long long max_request;
     unsigned long long total_served;
+    unsigned long long max_serve;
+    bool over_report;
 } BwFakeImage;
 
 extern BwFakeImage bw_fake_image;
