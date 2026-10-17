@@ -257,6 +257,10 @@ int fixture_run(int argc, char** argv) {
             break;
         }
         bluewake_cycle_domain_begin_turn(&host->cycles, &host->cpu);
+#if WW_IDLE_DEADLINE_ADVANCE
+        bluewake_cycle_domain_set_idle_turn(&host->cycles,
+                                            ww_host_idle_poll_ready(host));
+#endif
         if (log_handler_boundary(host, "turn-begun")) {
             error = 1;
             break;

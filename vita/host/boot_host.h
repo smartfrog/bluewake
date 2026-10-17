@@ -202,6 +202,9 @@ bool ww_host_rel_code_owned(WwHost* host, u32 address);
 bool ww_host_rel_sections_match(const WwRelImage* slot);
 bool ww_host_rel_sections_match_post_link(const WwRelImage* slot);
 const char* ww_host_observe_scheduler_idle(WwHost* host);
+// True when the guest is spinning in the scheduler idle poll and only a
+// host-delivered event can leave it. See the contract in boot_host.c.
+bool ww_host_idle_poll_ready(const WwHost* host);
 const char* ww_host_observe_dsp_task_boot(WwHost* host);
 const char* ww_host_observe_card_probe(WwHost* host);
 const char* ww_host_observe_game_stop(WwHost* host, u32 address);

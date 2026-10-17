@@ -6,6 +6,7 @@
 #include "di_inquiry.h"
 #include "edge_intercept_table.h"
 #include "callback_delivery.h"
+#include "scheduler_contract.h"
 #include "gxruntime/boot.h"
 #include "gxruntime/guest_memory_dirty.h"
 #include "gxruntime/aram.h"
@@ -810,6 +811,33 @@ static void mmio_write(CPUState* cpu, u32 address, u64 value, u8 size) {
     refresh(host);
 }
 
+bool ww_host_idle_poll_ready(const WwHost* host) {
+    const CPUState* cpu = &host->cpu;
+    // Only the retail scheduler's idle poll, only after the port has observed
+    // that scheduler, and only with interrupts deliverable.
+    if (cpu->pc != 0x80307EF4u || cpu->exception != 0u ||
+        !host->scheduler_idle_observed)
+        return false;
+    if ((cpu->msr & PPC_MSR_EE) == 0u ||
+        !bluewake_scheduler_interrupt_safe(cpu->pc))
+        return false;
+    // A queued DVD completion becomes ready on a cycle deadline that is not
+    // part of the cycle domain's deadline set; never jump across it.
+    if (host->dvd_completions.count != 0u || host->dvd_callback_active)
+        return false;
+    // The loop polls the word the scheduler observation already names; require
+    // that this is the address this turn would actually poll.
+    const u32 poll = cpu->gpr[13] - 26288u;
+    if (poll != 0x803F7A30u)
+        return false;
+    // Same fast-forward predicate the emitted poll path uses: unaliased MEM1,
+    // so no device or guest-thread work can change the word inside the span.
+    if (!ppc_dispatch_poll_read_stable((CPUState*)cpu, poll, 4u))
+        return false;
+    // A runnable thread would leave the loop on the first iteration.
+    return mem_read32((CPUState*)cpu, poll) == 0u;
+}
+
 bool ww_host_edge(void* user, CPUState* cpu, u32 address) {
     WwHost* host = user;
     host->edges++;
@@ -1206,6 +1234,12 @@ bool ww_host_init(WwHost* host) {
     ww_bat_init(&host->bat);
     host->decrementer_valid = true;
     bluewake_cycle_domain_init(&host->cycles, 256, advance, deadline, host);
+#if WW_IDLE_DEADLINE_ADVANCE
+    // Off by default. One VI period is the natural ceiling for a single idle
+    // turn: the VI retrace is the periodic event that ends every guest wait.
+    bluewake_cycle_domain_set_idle_advance(&host->cycles,
+                                           GUEST_CPU_CYCLES_PER_VI_RETRACE);
+#endif
     dol_interrupts_init(&host->interrupts);
     dol_vi_clock_init(&host->vi_clock);
     dol_vi_clock_configure(&host->vi_clock, GUEST_CPU_CYCLES_PER_VI_RETRACE, GUEST_VI_REFRESH_HZ,

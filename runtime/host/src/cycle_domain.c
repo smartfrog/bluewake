@@ -25,6 +25,17 @@ static s64 bounded_budget(const BluewakeCycleDomain* domain,
         if (domain->dynamic_near_cap > 0 &&
             distance <= domain->dynamic_threshold)
             budget = domain->dynamic_near_cap;
+        // An idle turn may look past the fixed cap, never past the nearest
+        // deadline and never past the idle cap (a bounded catch-up).
+        if (domain->idle_turn && domain->idle_advance_cap > 0 &&
+            distance != UINT64_MAX) {
+            const s64 idle_budget =
+                distance > (u64)domain->idle_advance_cap
+                    ? domain->idle_advance_cap
+                    : (s64)distance;
+            if (idle_budget > budget)
+                budget = idle_budget;
+        }
         if (distance <= (u64)budget) {
             budget = distance > 0u ? (s64)distance : 1;
             bounded_by_deadline = true;
@@ -63,11 +74,27 @@ void bluewake_cycle_domain_set_dynamic_cap(BluewakeCycleDomain* domain,
     domain->dynamic_threshold = threshold;
 }
 
+void bluewake_cycle_domain_set_idle_advance(BluewakeCycleDomain* domain,
+                                            s64 cap) {
+    if (domain == NULL)
+        return;
+    domain->idle_advance_cap = cap > 0 ? cap : 0;
+}
+
+void bluewake_cycle_domain_set_idle_turn(BluewakeCycleDomain* domain,
+                                         bool idle) {
+    if (domain == NULL)
+        return;
+    domain->idle_turn = idle;
+}
+
 void bluewake_cycle_domain_begin_turn(BluewakeCycleDomain* domain,
                                       CPUState* cpu) {
     if (domain == NULL || cpu == NULL)
         return;
     domain->dispatch_cycles = 0u;
+    // An idle turn is a per-turn decision: never carry one into the next turn.
+    domain->idle_turn = false;
     cpu->downcount = 0;
     // No guest code can run until prepare_dispatch establishes the exact
     // deadline. Keep any accidentally unprepared dispatch fail-closed.
