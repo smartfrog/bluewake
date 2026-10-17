@@ -110,9 +110,23 @@ def idle_deadline_advance_configure_option(enabled):
     return [f'-DWW_IDLE_DEADLINE_ADVANCE={"ON" if enabled else "OFF"}']
 
 
+def checked_turn_cap(turn_cap):
+    if isinstance(turn_cap, bool) or not isinstance(turn_cap, int) or turn_cap < 0:
+        raise ValueError('turn cap must be zero or a positive integer')
+    return turn_cap
+
+
+def turn_cap_configure_option(turn_cap):
+    return [] if checked_turn_cap(turn_cap) == 0 else [f'-DWW_TURN_CAP={turn_cap}']
+
+
+def program_cache_configure_option(enabled):
+    return ['-DWW_PROGRAM_CACHE=ON'] if enabled else []
+
+
 def vita_configure_arguments(cmake, ninja, source, output, toolchain, recompcore, composite, identity, dol,
                              vitagl, renderer_sdk, opt_level, vi_clock, pad_input, dst_alpha_admit,
-                             edge_observation_admit, idle_deadline_advance):
+                             edge_observation_admit, idle_deadline_advance, turn_cap, program_cache):
     return [
         cmake, '-S', source, '-B', output, '-G', 'Ninja',
         f'-DCMAKE_TOOLCHAIN_FILE={toolchain}',
@@ -126,10 +140,12 @@ def vita_configure_arguments(cmake, ninja, source, output, toolchain, recompcore
         *dst_alpha_configure_option(dst_alpha_admit),
         *edge_observation_admit_configure_option(edge_observation_admit),
         *idle_deadline_advance_configure_option(idle_deadline_advance),
+        *turn_cap_configure_option(turn_cap),
+        *program_cache_configure_option(program_cache),
     ]
 
 
-def main():
+def build_parser():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--disc', type=Path, required=True)
     parser.add_argument('--out', type=Path, default=OUTPUT)
@@ -142,6 +158,10 @@ def main():
                         help='admit the module-owned GroundCross caller-return observation edge (off by default)')
     parser.add_argument('--idle-deadline-advance', action='store_true',
                         help='let a recognised scheduler-idle turn run to the next device deadline (needs --vi-clock; off by default)')
+    parser.add_argument('--turn-cap', type=int, default=0,
+                        help='cap scheduler turns per host frame (zero keeps the package default)')
+    parser.add_argument('--program-cache', action='store_true',
+                        help='enable the translated-program cache (off by default)')
     parser.add_argument('--jobs', type=int, default=2)
     parser.add_argument('--opt-level', choices=('1', '2', '3'), default='1',
                         help='translated module optimization level (default matches the verified private module)')
@@ -151,9 +171,34 @@ def main():
                          help='exact private FP-unavailable vector captured from the documented guest trial')
     parser.add_argument('--decrementer-vector', type=Path, default=OUTPUT / 'private/decrementer-vector.bin',
                         help='exact private decrementer vector captured from the documented guest trial')
-    args = parser.parse_args()
+    return parser
+
+
+def parse_arguments(argv=None):
+    parser = build_parser()
+    args = parser.parse_args(argv)
     if args.jobs < 1 or args.jobs > 4:
         parser.error('jobs must be between one and four')
+    try:
+        args.turn_cap = checked_turn_cap(args.turn_cap)
+    except ValueError as error:
+        parser.error(str(error))
+    return args
+
+
+def evidence_config(args):
+    return {'static_module': True, 'aurora': False, 'aurora_recomp': True,
+            'optimization': int(args.opt_level), 'compiler_pass_disabled': 'tree-dominator-opts',
+            'fp_patch': None, 'lazy_fp': True, 'fp_exception_suffix_refund': True,
+            'vi_clock': args.vi_clock, 'pad_input': args.pad_input, 'pad_sampling': 'guest-SI-only',
+            'dst_alpha_admit': args.dst_alpha_admit,
+            'edge_observation_admit': args.edge_observation_admit,
+            'idle_deadline_advance': args.idle_deadline_advance,
+            'turn_cap': args.turn_cap, 'program_cache': args.program_cache}
+
+
+def main():
+    args = parse_arguments()
     output = checked_output(args.out)
     sources = checked_sources()
     build = Build(output)
@@ -237,7 +282,7 @@ def main():
         cmake, ninja, ROOT / 'vita/host', vita, f'{STACK}/vitasdk/share/vita.toolchain.cmake',
         sources['RecompCore'], composite, identity, f'{private}/main.dol', vitagl, renderer_sdk,
         args.opt_level, args.vi_clock, args.pad_input, args.dst_alpha_admit, args.edge_observation_admit,
-        args.idle_deadline_advance))
+        args.idle_deadline_advance, args.turn_cap, args.program_cache))
     build.run('vita-build', [cmake, '--build', vita, '-j', args.jobs])
     from inspect_build import inspect
     inspect(vita)
@@ -259,13 +304,7 @@ def main():
                       'private_header_sha256': sha256(init_header)},
         **vectors,
         'composite_digest': digest, 'title': 'BWWG00005', 'method': 'startup-gx-v1',
-        'artifacts': artifacts, 'config': {'static_module': True, 'aurora': False, 'aurora_recomp': True,
-        'optimization': int(args.opt_level), 'compiler_pass_disabled': 'tree-dominator-opts', 'fp_patch': None,
-         'lazy_fp': True, 'fp_exception_suffix_refund': True, 'vi_clock': args.vi_clock,
-         'pad_input': args.pad_input, 'pad_sampling': 'guest-SI-only',
-         'dst_alpha_admit': args.dst_alpha_admit,
-         'edge_observation_admit': args.edge_observation_admit,
-         'idle_deadline_advance': args.idle_deadline_advance},
+        'artifacts': artifacts, 'config': evidence_config(args),
         'footprint_sha256': sha256(output / 'footprint.json'),
         'snapshot': str(snapshot)}, indent=2) + '\n'
     (snapshot / 'build-evidence.json').write_text(receipt)
