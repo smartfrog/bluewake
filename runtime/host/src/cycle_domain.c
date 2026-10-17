@@ -16,12 +16,16 @@ u64 g_cycle_credit_over_budget;
 
 static s64 bounded_budget(const BluewakeCycleDomain* domain,
                           const CPUState* cpu, u32* deadline_active,
-                          s64* deadline_budget) {
-    s64 budget = domain->cap > 0 ? domain->cap : 256;
+                          s64* deadline_budget, u32* source,
+                          u64* distance_out) {
+    const s64 base_cap = domain->cap > 0 ? domain->cap : 256;
+    s64 budget = base_cap;
     bool bounded_by_deadline = false;
     u64 distance = UINT64_MAX;
+    u32 src = BLUEWAKE_DEADLINE_CAP;
     if (domain->deadline != NULL) {
-        distance = domain->deadline(cpu, domain->user);
+        u32 distance_source = BLUEWAKE_DEADLINE_NONE;
+        distance = domain->deadline(cpu, &distance_source, domain->user);
         if (domain->dynamic_near_cap > 0 &&
             distance <= domain->dynamic_threshold)
             budget = domain->dynamic_near_cap;
@@ -36,9 +40,14 @@ static s64 bounded_budget(const BluewakeCycleDomain* domain,
             if (idle_budget > budget)
                 budget = idle_budget;
         }
-        if (distance <= (u64)budget) {
+        if (distance == UINT64_MAX) {
+            src = BLUEWAKE_DEADLINE_NONE;
+        } else if (distance <= (u64)budget) {
             budget = distance > 0u ? (s64)distance : 1;
             bounded_by_deadline = true;
+            src = distance_source;
+        } else {
+            src = BLUEWAKE_DEADLINE_CAP;
         }
     }
     if (deadline_active != NULL)
@@ -51,7 +60,18 @@ static s64 bounded_budget(const BluewakeCycleDomain* domain,
         else
             *deadline_budget = distance > 0u ? (s64)distance : 1;
     }
+    if (source != NULL)
+        *source = src;
+    if (distance_out != NULL)
+        *distance_out = distance;
     return budget > 0 ? budget : 1;
+}
+
+// Record what the caller granted, for the host's [idle-jump] diagnostic.
+static void record_grant(BluewakeCycleDomain* domain, s64 budget) {
+    const s64 base_cap = domain->cap > 0 ? domain->cap : 256;
+    domain->last_budget = budget > 0 ? (u64)budget : 0u;
+    domain->last_idle_grant = domain->idle_turn && budget > base_cap;
 }
 
 void bluewake_cycle_domain_init(BluewakeCycleDomain* domain, s64 cap,
@@ -110,7 +130,9 @@ void bluewake_cycle_domain_prepare_dispatch(BluewakeCycleDomain* domain,
     (void)bluewake_cycle_domain_flush(domain, cpu);
     cpu->cycle_budget = bounded_budget(
         domain, cpu, &cpu->cycle_deadline_active,
-        &cpu->cycle_deadline_budget);
+        &cpu->cycle_deadline_budget, &domain->last_source,
+        &domain->last_distance);
+    record_grant(domain, cpu->cycle_budget);
 }
 
 static u64 flush_elapsed(BluewakeCycleDomain* domain, CPUState* cpu,
@@ -130,7 +152,9 @@ static u64 flush_elapsed(BluewakeCycleDomain* domain, CPUState* cpu,
     if (rebudget) {
         cpu->cycle_budget = bounded_budget(
             domain, cpu, &cpu->cycle_deadline_active,
-            &cpu->cycle_deadline_budget);
+            &cpu->cycle_deadline_budget, &domain->last_source,
+            &domain->last_distance);
+        record_grant(domain, cpu->cycle_budget);
     }
     return elapsed;
 }
@@ -161,7 +185,9 @@ u64 bluewake_cycle_domain_observe(BluewakeCycleDomain* domain, CPUState* cpu,
         domain->advance(cpu, elapsed, domain->user);
     cpu->cycle_budget = bounded_budget(
         domain, cpu, &cpu->cycle_deadline_active,
-        &cpu->cycle_deadline_budget);
+        &cpu->cycle_deadline_budget, &domain->last_source,
+        &domain->last_distance);
+    record_grant(domain, cpu->cycle_budget);
     return elapsed;
 }
 
@@ -171,7 +197,9 @@ void bluewake_cycle_domain_rebudget(BluewakeCycleDomain* domain,
         return;
     cpu->cycle_budget = bounded_budget(
         domain, cpu, &cpu->cycle_deadline_active,
-        &cpu->cycle_deadline_budget);
+        &cpu->cycle_deadline_budget, &domain->last_source,
+        &domain->last_distance);
+    record_grant(domain, cpu->cycle_budget);
 }
 
 void bluewake_cycle_domain_write_timebase(BluewakeCycleDomain* domain,

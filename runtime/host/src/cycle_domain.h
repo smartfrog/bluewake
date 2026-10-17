@@ -22,7 +22,23 @@ extern u64 g_cycle_credit_max;
 extern u64 g_cycle_credit_over_budget;
 
 typedef void (*BluewakeCycleAdvanceFn)(CPUState* cpu, u64 cycles, void* user);
-typedef u64 (*BluewakeCycleDeadlineFn)(const CPUState* cpu, void* user);
+// Reports the distance to the nearest device deadline and, in *source, which
+// term of that minimum won (BluewakeDeadlineSource).
+typedef u64 (*BluewakeCycleDeadlineFn)(const CPUState* cpu, u32* source,
+                                       void* user);
+
+// Which limit bounded a turn's granted budget. Stable values: they are printed
+// in the [idle-jump] diagnostic, so a later reader can decode a saved log.
+typedef enum BluewakeDeadlineSource {
+    BLUEWAKE_DEADLINE_NONE = 0,      // no device deadline at all
+    BLUEWAKE_DEADLINE_DEC_PENDING = 1, // a deliverable decrementer is pending
+    BLUEWAKE_DEADLINE_DEC_EXPIRY = 2,  // the next decrementer expiry
+    BLUEWAKE_DEADLINE_DSP_ARAM = 3,    // an ARAM transfer completing
+    BLUEWAKE_DEADLINE_VI = 4,          // the next VI retrace
+    BLUEWAKE_DEADLINE_DSP_INIT = 5,    // DSP init progress
+    BLUEWAKE_DEADLINE_CAP = 6,         // a cycle cap (fixed or idle)
+} BluewakeDeadlineSource;
+
 
 typedef struct BluewakeCycleDomain {
     u64 absolute_cycles;
@@ -36,6 +52,12 @@ typedef struct BluewakeCycleDomain {
     // executing it. begin_turn clears idle_turn; the host sets it per turn.
     s64 idle_advance_cap;
     bool idle_turn;
+    // Last granted budget and the limit that bounded it, for the host's
+    // [idle-jump] diagnostic. Written by prepare_dispatch/observe/rebudget.
+    u64 last_budget;
+    u64 last_distance;
+    u32 last_source;
+    bool last_idle_grant;
     BluewakeCycleAdvanceFn advance;
     BluewakeCycleDeadlineFn deadline;
     void* user;

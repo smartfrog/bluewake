@@ -2,8 +2,38 @@
 
 #include "guest_timing.h"
 
+#include <stdarg.h>
 #include <stdint.h>
+#include <stdio.h>
 #include <stdlib.h>
+#include <string.h>
+
+static char jump_line[160];
+static char taken_line[160];
+static unsigned jump_hits;
+static unsigned taken_hits;
+
+int __wrap_fprintf(FILE* stream, const char* format, ...) {
+    va_list arguments;
+    va_start(arguments, format);
+    if (stream == stderr && strncmp(format, "[idle-jump]", 11u) == 0) {
+        va_list copy;
+        va_copy(copy, arguments);
+        vsnprintf(jump_line, sizeof(jump_line), format, copy);
+        va_end(copy);
+        ++jump_hits;
+    } else if (stream == stderr &&
+               strncmp(format, "[idle-jump-taken]", 17u) == 0) {
+        va_list copy;
+        va_copy(copy, arguments);
+        vsnprintf(taken_line, sizeof(taken_line), format, copy);
+        va_end(copy);
+        ++taken_hits;
+    }
+    const int result = vfprintf(stream, format, arguments);
+    va_end(arguments);
+    return result;
+}
 
 #define IDLE_PC 0x80307EF4u
 #define IDLE_POLL 0x803F7A30u
@@ -111,9 +141,17 @@ int main(void) {
     bluewake_cycle_domain_prepare_dispatch(&host->cycles, cpu);
     assert(cpu->cycle_budget == DECREMENTER_CYCLES);
     assert(cpu->cycle_deadline_active == 1u);
+    ww_host_note_idle_grant(host);
+    assert(jump_hits == 1u);
+    assert(strstr(jump_line, "src=2") != NULL);
+    assert(strstr(jump_line, "budget=1212") != NULL);
+    assert(strstr(jump_line, "dist=1212") != NULL);
     cpu->downcount = -(s64)cpu->cycle_budget;
-    assert(bluewake_cycle_domain_end_turn(&host->cycles, cpu) ==
-           DECREMENTER_CYCLES);
+    const u64 elapsed = bluewake_cycle_domain_end_turn(&host->cycles, cpu);
+    assert(elapsed == DECREMENTER_CYCLES);
+    ww_host_note_idle_taken(host, elapsed);
+    assert(taken_hits == 1u);
+    assert(strstr(taken_line, "elapsed=1212") != NULL);
     assert(host->decrementer_pending);
     assert(host->vi_retraces == 1u);
 

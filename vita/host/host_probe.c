@@ -2,10 +2,13 @@
 #include "probe_support.h"
 #include <assert.h>
 #include <errno.h>
+#include <signal.h>
 #include <stdarg.h>
 #include <stdlib.h>
 #include <stdio.h>
 #include <string.h>
+#include <sys/wait.h>
+#include <unistd.h>
 
 void* __real_calloc(size_t count, size_t size);
 static unsigned allocation;
@@ -1203,6 +1206,35 @@ int main(int argc, char** argv) {
         assert(!ww_host_idle_poll_stable(&host->cpu));
         ppc_guest_alias_clear();
         assert(ww_host_idle_poll_stable(&host->cpu));
+    } else if (strcmp(argv[1], "host-null") == 0) {
+        // The observed crash class: a null host reaches the loop path. The
+        // guard must print the durable record once and abort, never continue.
+        int fds[2];
+        assert(pipe(fds) == 0);
+        const pid_t child = fork();
+        assert(child >= 0);
+        if (child == 0) {
+            close(fds[0]);
+            const int redirected = dup2(fds[1], STDERR_FILENO);
+            (void)redirected;
+            close(fds[1]);
+            ww_host_null_guard("loop", 0u);
+            _exit(0);
+        }
+        close(fds[1]);
+        char buffer[512] = {0};
+        const ssize_t got = read(fds[0], buffer, sizeof(buffer) - 1u);
+        close(fds[0]);
+        int status = 0;
+        assert(waitpid(child, &status, 0) == child);
+        assert(got > 0);
+        assert(strstr(buffer, "[host-null] where=loop") != NULL);
+        assert(strstr(buffer, "last_jump_turn=") != NULL);
+        assert(strstr(buffer, "last_src=") != NULL);
+        assert(strstr(buffer, "last_dist=") != NULL);
+        assert(WIFSIGNALED(status) && WTERMSIG(status) == SIGABRT);
+        free(host);
+        return 0;
     } else {
         return 2;
     }

@@ -29,19 +29,23 @@ static void advance(CPUState* cpu, u64 cycles, void* user) {
     cpu->timebase += cycles / 12u;
 }
 
-static u64 deadline(const CPUState* cpu, void* user) {
+static u64 deadline(const CPUState* cpu, u32* source, void* user) {
     (void)cpu;
     Fixture* fixture = user;
     fixture->deadline_calls++;
+    if (source != NULL)
+        *source = BLUEWAKE_DEADLINE_VI;
     return fixture->deadline;
 }
 
 static BluewakeCycleDomain* moving_domain;
 static u64 moving_base;
 
-static u64 moving_deadline(const CPUState* cpu, void* user) {
+static u64 moving_deadline(const CPUState* cpu, u32* source, void* user) {
     (void)cpu;
     (void)user;
+    if (source != NULL)
+        *source = BLUEWAKE_DEADLINE_DEC_EXPIRY;
     return moving_domain->absolute_cycles >= moving_base
                ? 0u
                : moving_base - moving_domain->absolute_cycles;
@@ -62,6 +66,9 @@ static void test_idle_advance_reaches_the_deadline_in_one_turn(void) {
     assert(cpu.cycle_budget == 8192);
     assert(cpu.cycle_deadline_active == 1u);
     assert(cpu.cycle_deadline_budget == 8192);
+    assert(domain.last_idle_grant);
+    assert(domain.last_budget == 8192u && domain.last_distance == 8192u);
+    assert(domain.last_source == BLUEWAKE_DEADLINE_VI);
 
     cpu.downcount = -8192;
     assert(bluewake_cycle_domain_end_turn(&domain, &cpu) == 8192u);
@@ -107,6 +114,7 @@ static void test_idle_advance_without_a_mark_keeps_the_standard_budget(void) {
     assert(cpu.cycle_budget == 256);
     assert(cpu.cycle_deadline_active == 0u);
     assert(cpu.cycle_deadline_budget == 8192);
+    assert(!domain.last_idle_grant);
 }
 
 // An idle mark without a configured advance is still the parent budget.

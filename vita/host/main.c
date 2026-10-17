@@ -238,6 +238,8 @@ int fixture_run(int argc, char** argv) {
     u64 next_progress = 0u;
     bool traced_dispatch = false;
     while (loaded && !error && host->error == NULL && !host->edge_stopped) {
+        if (host == NULL)
+            ww_host_null_guard("loop", 0u);
         if (log_handler_boundary(host, "edge-enter")) {
             error = 1;
             break;
@@ -266,6 +268,9 @@ int fixture_run(int argc, char** argv) {
             break;
         }
         bluewake_cycle_domain_prepare_dispatch(&host->cycles, &host->cpu);
+#if WW_IDLE_DEADLINE_ADVANCE
+        ww_host_note_idle_grant(host);
+#endif
         if (log_handler_boundary(host, "dispatch-ready")) {
             error = 1;
             break;
@@ -299,7 +304,12 @@ int fixture_run(int argc, char** argv) {
                 break;
             }
         }
-        ww_host_end_dispatch(host);
+        {
+            const u64 turn_elapsed = ww_host_end_dispatch(host);
+#if WW_IDLE_DEADLINE_ADVANCE
+            ww_host_note_idle_taken(host, turn_elapsed);
+#endif
+        }
         if (dispatched == 1 && !error && host->error == NULL)
             ww_host_dvd_complete(host);
         ++turns;
