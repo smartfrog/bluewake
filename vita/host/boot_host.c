@@ -886,6 +886,13 @@ typedef struct {
     u64 next_armed;
     u32 jump_prints;
     u32 taken_prints;
+    u64 ptr_restores;
+    // The jump granted at prepare time, captured so a mid-turn rebudget (an
+    // edge flush or a decrementer rebudget) cannot clear this turn's taken line.
+    bool pending;
+    u64 pending_turn;
+    u64 pending_dist;
+    u32 pending_src;
 } WwIdleLeverRecord;
 
 static WwIdleLeverRecord g_idle_lever;
@@ -898,12 +905,13 @@ static void idle_lever_reset(void) {
 
 static void idle_lever_report(WwHost* host) {
     if (fprintf(stderr,
-                "[idle-lever] armed=%llu first_false=%08X turns=%llu edges=%llu cycles=%llu\n",
+                "[idle-lever] armed=%llu first_false=%08X turns=%llu edges=%llu cycles=%llu ptr_restores=%llu\n",
                 (unsigned long long)g_idle_lever.armed,
                 g_idle_lever.first_false,
                 (unsigned long long)g_idle_lever.turns,
                 (unsigned long long)g_idle_lever.edges,
-                (unsigned long long)g_idle_lever.cycles) < 0)
+                (unsigned long long)g_idle_lever.cycles,
+                (unsigned long long)g_idle_lever.ptr_restores) < 0)
         ww_host_fail(host, "idle-lever report write failed", 0x80307EF4u,
                      host->cpu.pc);
 }
@@ -931,8 +939,14 @@ static void idle_lever_fail(WwHost* host, u32 reason) {
 // One-shot, then 1-in-256: the granted budget and the limit that bounded it.
 void ww_host_note_idle_grant(WwHost* host) {
     const BluewakeCycleDomain* domain = &host->cycles;
-    if (!domain->last_idle_grant)
+    // Capture the grant now: later flushes and rebudgets rewrite
+    // last_idle_grant while this turn is still marked idle.
+    g_idle_lever.pending = domain->last_idle_grant;
+    if (!g_idle_lever.pending)
         return;
+    g_idle_lever.pending_turn = host->turns;
+    g_idle_lever.pending_dist = domain->last_distance;
+    g_idle_lever.pending_src = domain->last_source;
     if (g_idle_lever.jump_prints < 4u ||
         (g_idle_lever.jump_prints % 256u) == 0u) {
         if (fprintf(stderr,
@@ -948,21 +962,23 @@ void ww_host_note_idle_grant(WwHost* host) {
     ++g_idle_lever.jump_prints;
 }
 
-// The charge the turn actually took: budget == dist plus this == budget is the
-// proof the jump was bounded and consumed. The durable record is committed only
-// here, so a [host-null] line names one turn's jump as a coherent set.
+// The final tail this turn took: end_turn returns only the last unflushed
+// period, so a turn that crossed an edge reports a smaller elapsed than its
+// granted budget; host->cycles.dispatch_cycles is the turn total. The durable
+// record is committed only here, from the grant captured at prepare time, so a
+// [host-null] line names one turn's jump as a coherent set.
 void ww_host_note_idle_taken(WwHost* host, u64 elapsed) {
-    const BluewakeCycleDomain* domain = &host->cycles;
-    if (!domain->last_idle_grant)
+    if (!g_idle_lever.pending)
         return;
-    g_idle_lever.last_turn = host->turns;
+    g_idle_lever.pending = false;
+    g_idle_lever.last_turn = g_idle_lever.pending_turn;
     g_idle_lever.last_elapsed = elapsed;
-    g_idle_lever.last_dist = domain->last_distance;
-    g_idle_lever.last_src = domain->last_source;
+    g_idle_lever.last_dist = g_idle_lever.pending_dist;
+    g_idle_lever.last_src = g_idle_lever.pending_src;
     if (g_idle_lever.taken_prints < 4u ||
         (g_idle_lever.taken_prints % 256u) == 0u) {
         if (fprintf(stderr, "[idle-jump-taken] turn=%llu elapsed=%llu\n",
-                    (unsigned long long)host->turns,
+                    (unsigned long long)g_idle_lever.pending_turn,
                     (unsigned long long)elapsed) < 0)
             ww_host_fail(host, "idle-jump-taken write failed", 0x80307EF4u,
                          host->cpu.pc);
@@ -974,17 +990,25 @@ void ww_host_note_idle_taken(WwHost* host, u64 elapsed) {
 // block passed zero to end_dispatch. The startup pointer is authoritative.
 // Restore it without dereferencing the stale local; report the first recovery
 // once and keep the run going, so the null guard stays the last resort.
+// Recurrences are counted in [idle-lever] ptr_restores, not logged again. A null
+// anchor is reported with zero pc/sp and never overwrites the local.
 bool ww_host_pointer_reload(WwHost** local, WwHost* authoritative) {
     if (*local == authoritative)
         return false;
+    if (authoritative != NULL)
+        ++g_idle_lever.ptr_restores;
     static bool reported;
     if (!reported) {
         reported = true;
         (void)fprintf(stderr,
                       "[host-ptr] restored=%p before=%p pc=%08X sp=%08X\n",
                       (void*)authoritative, (void*)*local,
-                      authoritative->cpu.pc, authoritative->cpu.gpr[1]);
+                      authoritative != NULL ? authoritative->cpu.pc : 0u,
+                      authoritative != NULL ? authoritative->cpu.gpr[1] : 0u);
     }
+    // A null anchor is no recovery: leave the stale local for the null guard.
+    if (authoritative == NULL)
+        return false;
     *local = authoritative;
     return true;
 }

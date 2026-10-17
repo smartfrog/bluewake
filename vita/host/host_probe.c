@@ -17,6 +17,8 @@ static u32 exi_logs;
 static u32 fail_exi_log;
 static char pointer_line[160];
 static unsigned pointer_lines;
+static char lever_line[200];
+static unsigned lever_lines;
 void* __wrap_calloc(size_t count, size_t size) {
     if (++allocation == fail_allocation)
         return NULL;
@@ -36,6 +38,13 @@ int __wrap_fprintf(FILE* stream, const char* format, ...) {
         vsnprintf(pointer_line, sizeof(pointer_line), format, copy);
         va_end(copy);
         ++pointer_lines;
+    }
+    if (stream == stderr && strncmp(format, "[idle-lever]", 12u) == 0) {
+        va_list copy;
+        va_copy(copy, arguments);
+        vsnprintf(lever_line, sizeof(lever_line), format, copy);
+        va_end(copy);
+        ++lever_lines;
     }
     const int result = vfprintf(stream, format, arguments);
     va_end(arguments);
@@ -1217,23 +1226,33 @@ int main(int argc, char** argv) {
         assert(ww_host_idle_poll_stable(&host->cpu));
     } else if (strcmp(argv[1], "host-ptr-reload") == 0) {
         // A dispatch that loses the loop's pointer is repaired from the startup
-        // pointer without dereferencing the stale one; the report is one-shot.
+        // pointer without dereferencing the stale one, and a null anchor only
+        // reports zeros. The report is one-shot; recovery continues.
         host->cpu.pc = 0x80307EF4u;
         host->cpu.gpr[1] = 0x81234560u;
-        WwHost* stale = NULL;
-        assert(ww_host_pointer_reload(&stale, host));
+        WwHost* stale = host;
+        assert(!ww_host_pointer_reload(&stale, NULL));
         assert(stale == host);
         assert(pointer_lines == 1u);
         assert(strstr(pointer_line, "[host-ptr] restored=") != NULL);
         assert(strstr(pointer_line, "before=") != NULL);
-        assert(strstr(pointer_line, "pc=80307EF4") != NULL);
-        assert(strstr(pointer_line, "sp=81234560") != NULL);
+        assert(strstr(pointer_line, "pc=00000000") != NULL);
+        assert(strstr(pointer_line, "sp=00000000") != NULL);
+        stale = NULL;
+        assert(ww_host_pointer_reload(&stale, host));
+        assert(stale == host);
+        assert(pointer_lines == 1u);
         stale = NULL;
         assert(ww_host_pointer_reload(&stale, host));
         assert(stale == host);
         assert(pointer_lines == 1u);
         assert(!ww_host_pointer_reload(&stale, host));
         assert(pointer_lines == 1u);
+        // Shutdown reports the lever line; only the two real restores count.
+        assert(!ww_host_idle_poll_ready(host));
+        ww_host_shutdown(host);
+        assert(lever_lines == 1u);
+        assert(strstr(lever_line, "ptr_restores=2") != NULL);
         free(host);
         return 0;
     } else if (strcmp(argv[1], "host-null") == 0) {

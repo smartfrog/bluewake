@@ -186,5 +186,27 @@ int main(void) {
     ww_host_note_idle_taken(host, 200u);
     assert(taken_hits == 2u);
     assert(strstr(taken_line, "elapsed=200") != NULL);
+
+    // A jump that crosses an edge rebudgets from the remaining distance; when
+    // that is inside the cap, the live grant flag clears. The taken line must
+    // still commit the jump captured at grant time.
+    host->decrementer_pending = false;
+    host->decrementer = 74u;
+    host->clock_remainder = 0u;
+    assert(ww_host_idle_poll_ready(host));
+    bluewake_cycle_domain_begin_turn(&host->cycles, cpu);
+    bluewake_cycle_domain_set_idle_turn(&host->cycles, true);
+    bluewake_cycle_domain_prepare_dispatch(&host->cycles, cpu);
+    assert(cpu->cycle_budget == 900);
+    ww_host_note_idle_grant(host);
+    assert(jump_hits == 3u);
+    cpu->downcount = -700;
+    assert(bluewake_cycle_domain_flush(&host->cycles, cpu) == 700u);
+    assert(!host->cycles.last_idle_grant);
+    cpu->downcount = -5;
+    assert(bluewake_cycle_domain_end_turn(&host->cycles, cpu) == 5u);
+    ww_host_note_idle_taken(host, 5u);
+    assert(taken_hits == 3u);
+    assert(strstr(taken_line, "elapsed=5") != NULL);
     return 0;
 }

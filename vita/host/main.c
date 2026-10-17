@@ -420,6 +420,7 @@ int fixture_run(int argc, char** argv) {
         (host->stream.enabled || (host->edge_stopped && host->error == NULL));
     const bool failed = !success || host->error != NULL;
     ww_host_shutdown(host);
+    g_host = NULL;
     free(host);
     error |= fixture_log_close();
     if (!error)
