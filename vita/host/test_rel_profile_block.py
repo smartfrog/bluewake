@@ -150,3 +150,21 @@ class ResidentProfileBlockTest(unittest.TestCase):
                          'route-host', 'route-edge', 'route-dispatch', 'pending-exception'):
             with self.subTest(boundary=boundary):
                 self.run_probe(boundary)
+
+    def test_unlinked_block_accounting_is_admitted_once(self):
+        self.run_probe('title-unlink-accounting')
+
+    def test_unlinked_block_accounting_second_site_stays_denied(self):
+        self.run_probe('title-unlink-accounting-second-site')
+
+    def test_unlinked_block_accounting_requires_the_unload_status(self):
+        self.run_probe('title-unlink-accounting-r31')
+
+    def test_unlinked_block_accounting_requires_zero_arguments(self):
+        self.run_probe('title-unlink-accounting-r4')
+
+    def test_linked_block_accounting_unload_shape_stays_denied(self):
+        self.run_probe('title-unlink-accounting-linked')
+
+    def test_unlinked_block_accounting_is_one_shot(self):
+        self.run_probe('title-unlink-accounting-repeat')

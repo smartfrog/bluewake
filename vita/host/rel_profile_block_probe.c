@@ -314,6 +314,98 @@ certified_refusal:
         (title_mutation(field, "skip-profile") ? WW_REL_SDK_NONE : WW_REL_SDK_RESIDENT));
 }
 
+static void title_unlink_chain(WwHost* host, WwRelImage* image) {
+    CPUState* cpu = &host->cpu;
+    const u32 epilog = image->certificate->lifecycle->epilog_address;
+    const u32 caller = epilog + 0x1Cu;
+    assert(host->rel_title_block.phase == WW_REL_PROFILE_SHRUNK && host->rel_title_block.accounting_observed);
+    cpu->pc = 0x80240F54u;
+    cpu->lr = 0x80240314u;
+    cpu->gpr[3] = cpu->gpr[31] = image->owner;
+    assert(!ww_host_edge(host, cpu, cpu->pc));
+    assert(host->error == NULL && host->rel_pending_unlink.phase == WW_REL_UNLINK_ENTRY_READY);
+    cpu->pc = epilog;
+    cpu->lr = 0x80240F80u;
+    cpu->gpr[3] = image->guest;
+    cpu->gpr[31] = image->owner;
+    assert(!ww_host_edge(host, cpu, cpu->pc));
+    assert(host->error == NULL && host->rel_pending_unlink.phase == WW_REL_UNLINK_EPILOG_ACTIVE);
+    cpu->pc = 0xC02411F8u;
+    cpu->lr = caller;
+    cpu->gpr[3] = image->sections[2].linked_start;
+    assert(!ww_host_edge(host, cpu, cpu->pc));
+    assert(host->error == NULL && host->rel_pending_unlink.destructor_open);
+    cpu->pc = caller;
+    assert(!ww_host_edge(host, cpu, cpu->pc));
+    assert(host->error == NULL && host->rel_pending_unlink.destructor_completed);
+    cpu->pc = 0x80240F80u;
+    cpu->lr = 0x80240F80u;
+    cpu->gpr[3] = image->guest;
+    assert(!ww_host_edge(host, cpu, cpu->pc));
+    assert(host->error == NULL && host->rel_pending_unlink.phase == WW_REL_UNLINK_EPILOG_RETURNED);
+    cpu->pc = 0x803056BCu;
+    cpu->lr = 0x80240F8Cu;
+    cpu->gpr[3] = image->guest;
+    assert(ww_host_dispatch(host, cpu->pc) == 1);
+    assert(host->error == NULL && cpu->pc == 0x80240F8Cu);
+    assert(host->rel_pending_unlink.phase == WW_REL_UNLINK_SDK_ACTIVE);
+    assert(ww_host_dispatch(host, cpu->pc) == 0);
+    assert(host->error == NULL && host->rel_pending_unlink.phase == WW_REL_UNLINK_SDK_RETURNED);
+    assert(!image->linked && image->unlinked);
+}
+
+static void title_unload_accounting(WwHost* host, WwRelImage* image, const char* variant) {
+    CPUState* cpu = &host->cpu;
+    const bool linked = strcmp(variant, "linked") == 0;
+    const bool second_site = strcmp(variant, "second-site") == 0;
+    const bool owner_status = strcmp(variant, "r31") == 0;
+    const bool nonzero_argument = strcmp(variant, "r4") == 0;
+    const bool repeat = strcmp(variant, "repeat") == 0;
+    cpu->pc = 0x80001004u;
+    cpu->lr = 0x80001004u;
+    assert(ww_host_dispatch(host, cpu->pc) == 0);
+    assert(host->error == NULL && host->rel_pending_init.phase == WW_REL_INIT_NONE);
+    if (!linked)
+        title_unlink_chain(host, image);
+    else
+        assert(image->linked && !image->unlinked);
+    const u32 window = host->rel_title_block.window;
+    const u32 logical = host->rel_title_block.logical_size;
+    cpu->pc = 0x802B07ECu;
+    cpu->lr = second_site ? 0x80241070u : 0x80241058u;
+    cpu->gpr[3] = image->guest;
+    cpu->gpr[4] = nonzero_argument ? 4u : 0u;
+    cpu->gpr[31] = owner_status ? image->owner : 1u;
+    assert(host->cpu.host_call(&host->cpu, cpu->pc));
+    assert(host->rel_pending_unlink.phase == WW_REL_UNLINK_NONE);
+    if (linked) {
+        assert(host->error != NULL && strcmp(host->error,
+            "REL resident profile block operation has inconsistent ownership, arguments or sequence") == 0);
+        assert(image->linked && !image->unlinked);
+        return;
+    }
+    if (second_site || owner_status || nonzero_argument) {
+        assert(host->error != NULL && strcmp(host->error,
+            "REL resident profile block operation has inconsistent ownership, arguments or sequence") == 0);
+        assert(image->unlinked && !image->linked);
+        return;
+    }
+    assert(host->error == NULL);
+    assert(cpu->gpr[3] == logical && cpu->pc == cpu->lr);
+    assert(host->rel_title_block.window == window && host->rel_title_block.accounting_observed);
+    assert(image->unlinked && !image->linked);
+    if (!repeat)
+        return;
+    cpu->pc = 0x802B07ECu;
+    cpu->lr = 0x80241058u;
+    cpu->gpr[3] = image->guest;
+    cpu->gpr[4] = 0u;
+    cpu->gpr[31] = 1u;
+    assert(host->cpu.host_call(&host->cpu, cpu->pc));
+    assert(host->error != NULL && strcmp(host->error,
+        "REL resident profile block operation has inconsistent ownership, arguments or sequence") == 0);
+}
+
 int main(int argc, char** argv) {
     assert(argc == 2);
     const char* scenario = argv[1];
@@ -628,6 +720,10 @@ int main(int argc, char** argv) {
             assert(ww_host_link_rel(host, 0x80002300u) == NULL);
             assert(ww_host_link_rel(host, 0x80002300u) == NULL);
             title_probe(host, profile, candidate, title_image, scenario);
+            if (strncmp(scenario, "title-unlink-accounting", 23u) == 0) {
+                const char* rest = scenario + 23u;
+                title_unload_accounting(host, title_image, *rest == '-' ? rest + 1 : "");
+            }
         }
     }
 done:

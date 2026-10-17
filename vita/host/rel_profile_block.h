@@ -21,6 +21,7 @@ typedef struct WwRelBlock {
     u32 owner, guest, bytes, capacity, raw_fix, extent, logical_size, window;
     bool accounting_observed;
     bool input_refusal_reported;
+    bool unlink_accounted;
 #if WW05_ENABLE_ACTOR_BATCH_CONTRACTS
     const StaticRecompRelModule* descriptor;
 #endif

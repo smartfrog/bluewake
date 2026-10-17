@@ -293,6 +293,15 @@ static bool intact(WwHost* host, const WwRelBlock* block) {
          mem_read32(&host->cpu, 0x800030D0u) == host->rel_profile_block.name_base);
 }
 
+/* The guest's unload path re-queries the same block size after its successful
+ * OSUnlink; only the block whose own reconciliation unlinked the image answers
+ * (the post-link section comparison requires a linked image). */
+static bool unlinked_block(WwHost* host, const WwRelBlock* block) {
+    const WwRelImage* image = block->image;
+    return image != NULL && image->unlinked && !image->linked &&
+        image == ww_host_rel_owned(host, block->owner) && ww_host_rel_raw_unchanged(image);
+}
+
 const char* ww_host_rel_profile_observe(WwHost* host, u32 address) {
     WwRelBlock* block = &host->rel_profile_block.allocation;
     if (!ww_host_rel_profile_enabled(host) || block->phase == WW_REL_PROFILE_NONE)
@@ -430,6 +439,17 @@ WwRelProfileService ww_host_rel_profile_service(WwHost* host, u32 address) {
     const bool initial = address == BLOCK_SIZE && cpu->lr == 0x80240CC4u;
     const bool accounting = address == BLOCK_SIZE && cpu->lr == 0x80241058u;
     const bool shrink = address == BLOCK_SHRINK && cpu->lr == 0x80240D80u;
+    const bool unlink_accounting = accounting && cpu->pc == address && cpu->gpr[3] == block->guest &&
+        cpu->gpr[4] == 0u && cpu->gpr[31] == 1u && block->phase == WW_REL_PROFILE_SHRUNK &&
+        block->accounting_observed && !block->unlink_accounted &&
+        ww_host_module_contains_address(host->module, address) &&
+        ww_host_module_contains_address(host->module, cpu->lr) && unlinked_block(host, block);
+    if (unlink_accounting) {
+        block->unlink_accounted = true;
+        cpu->gpr[3] = block->logical_size;
+        cpu->pc = cpu->lr;
+        return WW_REL_PROFILE_HANDLED;
+    }
     const bool phase = initial ? (block->phase == WW_REL_PROFILE_EXPOSED ||
         (block->phase == WW_REL_PROFILE_SIZE && block->window == address)) :
         accounting ? (block->phase == WW_REL_PROFILE_SHRUNK &&
