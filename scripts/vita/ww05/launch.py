@@ -24,6 +24,7 @@ from direct_launch import RENDERER, direct_phases
 from fp_libraries import directory_fd, file_identity, library_identity
 from fp_profile import FIRMWARE_DIRECTORY, config_identity, read_profile_file, verify_firmware
 from activity import ProcessIdleObserver, available_memory_bytes
+from first_fault import FirstFaultWatch
 from memory_capture import MAX_CAPTURES, publish_replay_manifests, snapshot_outputs, validate_memory_captures, verify_snapshots
 from frame_capture import collect_frames, frame_outputs
 
@@ -188,6 +189,30 @@ def activity_observer(root, plan, phase, extra_outputs=()):
                               plan.get('minimum_available_memory_bytes', 0))
 
 
+def first_fault_observer(root, phase, delegate,
+                          stop=lambda pid: os.killpg(pid, signal.SIGTERM)):
+    watch = FirstFaultWatch(
+        guest_log=root / REPORT_DIRECTORY / 'ww05.log',
+        host_logs=(phase / 'evidence/process.log', root / 'cache/Vita3K/vita3k.log'),
+        sample_directory=phase / 'evidence/first-fault-sample',
+        ceiling_bytes=PHASE_LOG_LIMIT,
+    )
+
+    def observe(pid):
+        fault = watch.poll()
+        if fault is None:
+            return delegate(pid)
+        try:
+            stop(pid)
+        except ProcessLookupError:
+            pass
+        watch.write_samples()
+        return {'stop_reason': 'first-fault',
+                'first_fault': {'reason': fault.reason, 'detail': fault.detail},
+                'first_fault_sample': str(watch.sample_directory)}
+    return observe
+
+
 def memory_preflight(root, plan, phase):
     minimum = plan.get('minimum_available_memory_bytes', 0)
     if not minimum:
@@ -251,7 +276,8 @@ def execute_run(root, plan):
         memory_preflight(root, plan, 'install')
         print(f"RUN phase=install evidence={phase}/evidence", flush=True)
         status = run_owned(install['command'], root, install['timeout_seconds'], evidence_root=phase,
-                           phase_observer=installer_observer(root, plan), environment=install['environment'], cwd=install['cwd'])
+                           phase_observer=first_fault_observer(root, phase, installer_observer(root, plan)),
+                           environment=install['environment'], cwd=install['cwd'])
         process = json.loads((phase / 'evidence/process.json').read_text())
         print(f"STOP phase=install reason={process['stop_reason']} seconds={process['duration_seconds']:.2f}", flush=True)
         record.update(install_status=status, install_process=process)
@@ -283,7 +309,8 @@ def execute_run(root, plan):
             stream.write('\n')
         print(f"RUN phase=guest evidence={phase}/evidence", flush=True)
         status = run_owned(guest['command'], root, guest['timeout_seconds'], evidence_root=phase,
-                            phase_observer=activity_observer(root, plan, phase), environment=guest['environment'], cwd=guest['cwd'])
+                            phase_observer=first_fault_observer(root, phase, activity_observer(root, plan, phase)),
+                            environment=guest['environment'], cwd=guest['cwd'])
         process = json.loads((phase / 'evidence/process.json').read_text())
         record.update(process_status=status, process=process)
         with evidence_file(root, 'guest-disposition.json') as stream:
