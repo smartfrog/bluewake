@@ -50,6 +50,7 @@ add_subdirectory("${GXRUNTIME_DIR}" runtime)
 # through vitaGL; the tests-only host build links the same core with the NULL
 # platform backend.
 set(WW17_RENDERER_DIR "${BLUEWAKE_ROOT}/vita/renderer" CACHE PATH "VITA-WW-17 renderer sources")
+option(WW_PROGRAM_CACHE "Persist compiled vitaGL program binaries on the player's device (POC, off by default; see vita/renderer/program_cache.h)" OFF)
 set(WW17_RENDERER_SOURCES
     "${WW17_RENDERER_DIR}/ww_renderer.cpp"
     "${WW17_RENDERER_DIR}/gx_bridge.cpp"
@@ -57,6 +58,9 @@ set(WW17_RENDERER_SOURCES
     "${WW17_RENDERER_DIR}/gx_cg.cpp"
     "${WW17_RENDERER_DIR}/gx_frame_capture.cpp"
     "${BLUEWAKE_ROOT}/vita/feasibility/gx/png_capture.c")
+if(WW_PROGRAM_CACHE)
+    list(APPEND WW17_RENDERER_SOURCES "${WW17_RENDERER_DIR}/program_cache.cpp")
+endif()
 set_source_files_properties("${BLUEWAKE_ROOT}/vita/feasibility/gx/png_capture.c" PROPERTIES LANGUAGE CXX)
 if(VITA)
     list(APPEND WW17_RENDERER_SOURCES "${WW17_RENDERER_DIR}/vita_gl_backend.cpp")
@@ -68,6 +72,9 @@ target_compile_options(ww_renderer PRIVATE -O2 -Wall -Wextra)
 option(WW_RENDERER_DST_ALPHA_ADMIT "Admit destination-alpha draws in the mono-pass (off by default; see vita/renderer/gx_dst_alpha.h)" OFF)
 if(WW_RENDERER_DST_ALPHA_ADMIT)
     target_compile_definitions(ww_renderer PUBLIC WW_RENDERER_DST_ALPHA_ADMIT=1)
+endif()
+if(WW_PROGRAM_CACHE)
+    target_compile_definitions(ww_renderer PUBLIC WW_PROGRAM_CACHE=1)
 endif()
 set(WW13_TESTS_ONLY OFF CACHE BOOL "" FORCE)
 set(WW13_VITA OFF CACHE BOOL "" FORCE)
