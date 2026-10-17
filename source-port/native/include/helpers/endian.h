@@ -21,10 +21,22 @@
 #include "dolphin/mtx.h"
 
 // Platform detection - Little Endian targets
-#if defined(_WIN32) || defined(__x86_64__) || defined(__i386__) || defined(__aarch64__) || defined(_M_X64) || defined(_M_IX86)
+// __BYTE_ORDER__/__ORDER_LITTLE_ENDIAN__ (GCC, Clang) cover every host the port builds on,
+// ARMv7/Vita included; the explicit list stays for compilers without the builtins.
+#if defined(__BYTE_ORDER__) && defined(__ORDER_LITTLE_ENDIAN__)
+    #define TARGET_LITTLE_ENDIAN (__BYTE_ORDER__ == __ORDER_LITTLE_ENDIAN__)
+#elif defined(_WIN32) || defined(__x86_64__) || defined(__i386__) || defined(__aarch64__) || defined(_M_X64) || defined(_M_IX86)
     #define TARGET_LITTLE_ENDIAN 1
 #else
     #define TARGET_LITTLE_ENDIAN 0
+#endif
+
+// The port only supports little-endian hosts: on a big-endian host every BE(...) field would be
+// read unswapped (and m_Do_lib's AGB conversions would pick the swap path). Fail loudly.
+#if defined(__BYTE_ORDER__) && defined(__ORDER_LITTLE_ENDIAN__)
+static_assert(__BYTE_ORDER__ == __ORDER_LITTLE_ENDIAN__,
+              "the native port requires a little-endian host: BE(T) swaps against the disc's "
+              "big-endian layout");
 #endif
 
 #if TARGET_LITTLE_ENDIAN
@@ -39,8 +51,11 @@
         #define BSWAP64(x) __builtin_bswap64(x)
     #endif
 #else
+    // A big-endian host: host order already matches the disc, so every swap is the identity. The
+    // static_assert above still fails first; these keep the file self-consistent.
     #define BSWAP16(x) (x)
     #define BSWAP32(x) (x)
+    #define BSWAP64(x) (x)
 #endif
 
 // clang-format off
