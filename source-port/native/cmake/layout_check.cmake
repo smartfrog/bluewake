@@ -40,8 +40,11 @@ add_custom_command(
 add_library(cos_layout_check_host OBJECT EXCLUDE_FROM_ALL "${_layout_cpp}")
 target_link_libraries(cos_layout_check_host PRIVATE cos_game_headers)
 target_compile_options(cos_layout_check_host PRIVATE -fno-access-control)
-# After the game's -ferror-limit=50, so every failing check is reported.
-set_source_files_properties("${_layout_cpp}" PROPERTIES COMPILE_OPTIONS "-ferror-limit=0")
+# After the game's -ferror-limit=50, so every failing check is reported. Clang only: GCC does not
+# accept this spelling (its equivalent is -fmax-errors=N).
+if (CMAKE_CXX_COMPILER_ID MATCHES "Clang")
+    set_source_files_properties("${_layout_cpp}" PROPERTIES COMPILE_OPTIONS "-ferror-limit=0")
+endif ()
 
 # The GameCube configuration (no game flags, no TARGET_PC); reruns when the unit changes, i.e.
 # when the tool, either list or a listed header changes.
