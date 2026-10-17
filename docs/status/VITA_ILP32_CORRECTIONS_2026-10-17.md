@@ -109,7 +109,9 @@ ninja -C <build> cos_sdk_smoke cos_pc_tests cos_layout_check_host
 | `d330fb9` | `push_macro("_C")` around `fopMsgM_unk_struct` |
 | `05082f7` | ILP32 assertion profile and its 32-bit-only CMake target |
 | `96e7838` | layout check: gate `-ferror-limit=0` on Clang |
-| (this file) | manifest and provenance refresh, journal |
+| `5186c6e` | journal, manifest and provenance for the ILP32 corrections |
+| `db36632` | fix the profile's introduction (two offset exceptions named) and wrap its long lines |
+| (this commit) | list the fix in the branch table |
 
 ## Next
 
