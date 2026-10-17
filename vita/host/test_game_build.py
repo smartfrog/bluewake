@@ -56,6 +56,18 @@ class DstAlphaOptionTest(unittest.TestCase):
         self.assertEqual(module.dst_alpha_configure_option(False), [])
 
 
+class IdleDeadlineAdvanceOptionTest(unittest.TestCase):
+    def test_configure_option_is_always_explicit(self):
+        spec = importlib.util.spec_from_file_location('ww05_game_build',
+                                                      ROOT / 'scripts/vita/ww05/game_build.py')
+        module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(module)
+        self.assertEqual(module.idle_deadline_advance_configure_option(True),
+                         ['-DWW_IDLE_DEADLINE_ADVANCE=ON'])
+        self.assertEqual(module.idle_deadline_advance_configure_option(False),
+                         ['-DWW_IDLE_DEADLINE_ADVANCE=OFF'])
+
+
 class EdgeObservationAdmitOptionTest(unittest.TestCase):
     def test_configure_option_is_always_explicit(self):
         spec = importlib.util.spec_from_file_location('ww05_game_build',
@@ -80,16 +92,29 @@ class EdgeObservationAdmitOptionTest(unittest.TestCase):
                 '-DWW05_MODULE_OPT_LEVEL=1', '-DWW05_ENABLE_VI_CLOCK=OFF',
                 '-DWW05_ENABLE_PAD_INPUT=OFF']
 
-        def arguments(enabled):
+        def arguments(enabled, idle=False):
             return [str(value) for value in module.vita_configure_arguments(
                 'cmake', 'ninja', 'source', 'output', 'toolchain', 'recompcore', 'composite',
-                'identity', 'dol', 'vitagl', 'sdk', '1', False, False, False, enabled)]
+                'identity', 'dol', 'vitagl', 'sdk', '1', False, False, False, enabled, idle)]
 
-        expected = {'ON': ['-DWW_EDGE_OBSERVATION_ADMIT=ON'],
-                    'OFF': ['-DWW_EDGE_OBSERVATION_ADMIT=OFF']}
+        expected = {'ON': ['-DWW_EDGE_OBSERVATION_ADMIT=ON', '-DWW_IDLE_DEADLINE_ADVANCE=OFF'],
+                    'OFF': ['-DWW_EDGE_OBSERVATION_ADMIT=OFF', '-DWW_IDLE_DEADLINE_ADVANCE=OFF']}
         for state, option in expected.items():
             with self.subTest(state=state):
                 self.assertEqual(arguments(state == 'ON'), base + option)
+
+    def test_vita_configure_arguments_carry_the_idle_advance_when_requested(self):
+        spec = importlib.util.spec_from_file_location('ww05_game_build',
+                                                      ROOT / 'scripts/vita/ww05/game_build.py')
+        module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(module)
+        arguments = [str(value) for value in module.vita_configure_arguments(
+            'cmake', 'ninja', 'source', 'output', 'toolchain', 'recompcore', 'composite',
+            'identity', 'dol', 'vitagl', 'sdk', '1', True, False, True, True, True)]
+        self.assertIn('-DWW_IDLE_DEADLINE_ADVANCE=ON', arguments)
+        self.assertIn('-DWW_EDGE_OBSERVATION_ADMIT=ON', arguments)
+        self.assertIn('-DWW_RENDERER_DST_ALPHA_ADMIT=ON', arguments)
+        self.assertIn('-DWW05_ENABLE_VI_CLOCK=ON', arguments)
 
 
 if __name__ == '__main__':
