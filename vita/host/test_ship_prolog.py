@@ -17,8 +17,168 @@ def branch(source, target, link=True):
     return 0x48000000 | ((target - source) & 0x03FFFFFC) | int(link)
 
 
+def unlink_restoration(base):
+    """The guest's own OSUnlink restoration of the header and section table the
+    link fixed up. r3 holds the module header; clobbers r0 and r4-r7."""
+    words, labels, fixups = [], {}, []
+
+    def at():
+        return base + len(words) * 4
+
+    def emit(word):
+        words.append(word & 0xFFFFFFFF)
+
+    def label(name):
+        labels[name] = at()
+
+    def jump(name, bo=None, bi=0):
+        fixups.append((len(words), at(), name, bo, bi))
+        words.append(0)
+
+    def lis(rt, value):
+        emit(0x3C000000 | (rt << 21) | (value & 0xFFFF))
+
+    def addi(rt, ra, value):
+        emit(0x38000000 | (rt << 21) | (ra << 16) | (value & 0xFFFF))
+
+    def lwz(rt, ra, offset):
+        emit(0x80000000 | (rt << 21) | (ra << 16) | (offset & 0xFFFF))
+
+    def lbz(rt, ra, offset):
+        emit(0x88000000 | (rt << 21) | (ra << 16) | (offset & 0xFFFF))
+
+    def stw(rs, ra, offset):
+        emit(0x90000000 | (rs << 21) | (ra << 16) | (offset & 0xFFFF))
+
+    def stb(rs, ra, offset):
+        emit(0x98000000 | (rs << 21) | (ra << 16) | (offset & 0xFFFF))
+
+    def lwzx(rt, ra, rb):
+        emit(0x7C00002E | (rt << 21) | (ra << 16) | (rb << 11))
+
+    def subf(rt, ra, rb):
+        emit(0x7C000050 | (rt << 21) | (ra << 16) | (rb << 11))
+
+    def add(rt, ra, rb):
+        emit(0x7C000214 | (rt << 21) | (ra << 16) | (rb << 11))
+
+    def cmplwi(ra, value):
+        emit(0x28000000 | (ra << 16) | (value & 0xFFFF))
+
+    def cmpwi(ra, value):
+        emit(0x2C000000 | (ra << 16) | (value & 0xFFFF))
+
+    def cmplw(ra, rb):
+        emit(0x7C000040 | (ra << 16) | (rb << 11))
+
+    def rlwinm(ra, rs, sh, mb, me):
+        emit(0x54000000 | (rs << 21) | (ra << 16) | (sh << 11) | (mb << 6) | (me << 1))
+
+    # name: subtract the live name base
+    lis(4, 0x8000)
+    lwz(4, 4, 0x30D0)
+    cmplwi(4, 0)
+    jump('name_done', 12, 2)
+    lwz(0, 3, 0x14)
+    subf(0, 4, 0)
+    stw(0, 3, 0x14)
+    label('name_done')
+
+    # prolog, epilog and unresolved: subtract their section's linked start
+    addi(6, 0, 0)
+    label('life_loop')
+    addi(6, 6, 1)
+    cmpwi(6, 3)
+    jump('life_done', 12, 1)
+    add(5, 3, 6)
+    lbz(0, 5, 0x2F)
+    cmplwi(0, 0)
+    jump('life_next', 12, 2)
+    rlwinm(5, 0, 3, 0, 28)
+    lwz(7, 3, 0x10)
+    lwzx(4, 7, 5)
+    rlwinm(4, 4, 0, 0, 30)
+    rlwinm(5, 6, 2, 0, 29)
+    add(5, 3, 5)
+    lwz(0, 5, 0x30)
+    subf(0, 4, 0)
+    stw(0, 5, 0x30)
+    label('life_next')
+    jump('life_loop')
+    label('life_done')
+
+    # import streams: subtract the module base
+    lwz(4, 3, 0x28)
+    lwz(5, 3, 0x2C)
+    add(5, 4, 5)
+    label('import_check')
+    cmplw(4, 5)
+    jump('import_done', 4, 0)
+    lwz(0, 4, 4)
+    subf(0, 3, 0)
+    stw(0, 4, 4)
+    addi(4, 4, 8)
+    jump('import_check')
+    label('import_done')
+
+    # section entries: the bss marker zeroes, every other entry subtracts the module
+    split = len(words)
+    lwz(4, 3, 0x10)
+    lbz(7, 3, 0x33)
+    addi(6, 0, 0)
+    label('section_loop')
+    addi(6, 6, 1)
+    lwz(0, 3, 0x0C)
+    cmplw(6, 0)
+    jump('section_done', 4, 0)
+    rlwinm(5, 6, 3, 0, 28)
+    add(5, 4, 5)
+    cmplw(6, 7)
+    jump('section_unfix', 4, 2)
+    addi(0, 0, 0)
+    stw(0, 5, 0)
+    jump('section_next')
+    label('section_unfix')
+    lwz(0, 5, 0)
+    cmplwi(0, 0)
+    jump('section_next', 12, 2)
+    subf(0, 3, 0)
+    stw(0, 5, 0)
+    label('section_next')
+    jump('section_loop')
+    label('section_done')
+    addi(0, 0, 0)
+    stb(0, 3, 0x33)
+
+    # section table pointer, import offset and import size
+    lwz(0, 3, 0x24)
+    subf(0, 3, 0)
+    stw(0, 3, 0x24)
+    lwz(0, 3, 0x28)
+    subf(0, 3, 0)
+    stw(0, 3, 0x28)
+    lwz(0, 3, 0x10)
+    subf(0, 3, 0)
+    stw(0, 3, 0x10)
+
+    for index, source, name, bo, bi in fixups:
+        delta = labels[name] - source
+        if bo is None:
+            words[index] = 0x48000000 | (delta & 0x03FFFFFC)
+        else:
+            words[index] = 0x40000000 | (bo << 21) | (bi << 16) | (delta & 0xFFFC)
+    return words, split
+
+
 def instructions():
     walker_pc = 0xC02411F8
+    surgery = [0x80830004, 0x80A30008, 0x3CC08000, 0x2C040000, 0x4082000C,
+               0x90A630CC, 0x48000008, 0x90A40008, 0x2C050000, 0x4082000C,
+               0x908630C8, 0x48000008, 0x90850004]
+    restoration, split = unlink_restoration(0x803056BC + len(surgery) * 4)
+    unlink_head = surgery + restoration[:split]
+    unlink_tail_address = 0x803056BC + len(unlink_head) * 4
+    unlink_tail = restoration[split:] + [0x38600001, 0x4E800020]
     return {
         0x80007000: [0x80A40198, 0x7CBA03A6, 0x80A4019C, 0x7CBB03A6,
                      0x8064000C, 0x80840010, 0x4C000064],
@@ -38,9 +198,8 @@ def instructions():
                      0x819F0000, 0x2C0C0000, 0x41820014, 0x7D8903A6, 0x4E800421,
                      0x3BFF0004, branch(walker_pc + 0x38, walker_pc + 0x20, False),
                      0x83E1000C, 0x80010014, 0x7C0803A6, 0x38210010, 0x4E800020],
-        0x803056BC: [0x80830004, 0x80A30008, 0x3CC08000, 0x2C040000, 0x4082000C,
-                     0x90A630CC, 0x48000008, 0x90A40008, 0x2C050000, 0x4082000C,
-                     0x908630C8, 0x48000008, 0x90850004, 0x38600001, 0x4E800020],
+        0x803056BC: unlink_head,
+        unlink_tail_address: unlink_tail,
         0xC1B100F4: [0x9421FFF0, 0x7C0802A6, 0x90010014, 0x3C60C1B2, 0x3863DAF0,
                      branch(0xC1B10108, 0xC0241178), branch(0xC1B1010C, 0xC02410B4),
                      0x80010014, 0x7C0803A6, 0x38210010, 0x4E800020,

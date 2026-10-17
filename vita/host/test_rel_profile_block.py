@@ -168,3 +168,6 @@ class ResidentProfileBlockTest(unittest.TestCase):
 
     def test_unlinked_block_accounting_is_one_shot(self):
         self.run_probe('title-unlink-accounting-repeat')
+
+    def test_unlinked_block_accounting_requires_its_restored_image(self):
+        self.run_probe('title-unlink-accounting-tampered')

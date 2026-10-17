@@ -576,6 +576,63 @@ static bool unlink_publication(WwHost* host, const WwRelPendingUnlink* pending) 
         image->owner == pending->owner && image->guest == pending->guest && image->linked;
 }
 
+static const char* unlinked_image(WwHost* host, const WwRelImage* unlinked, u64* hash) {
+    const BlueWakeRelInitContractV1* certificate = unlinked->certificate;
+    const StaticRecompRelModule* rel = ww_host_rel_descriptor(host, unlinked->module_id);
+    u8* live = NULL;
+    if (certificate == NULL || certificate != ww_host_rel_certificate(host, unlinked->module_id) ||
+        rel == NULL || unlinked->bytes != certificate->rel_size || unlinked->bytes > unlinked->capacity ||
+        !ppc_guest_alias_get_storage(unlinked->guest, unlinked->capacity, &live))
+        return "REL SDK unlink restoration lost its certificate or live image";
+    const u8* raw = certificate->rel_bytes;
+    u8* expected = malloc(unlinked->bytes);
+    if (expected == NULL)
+        return "REL SDK unlink restoration allocation failed";
+    memcpy(expected, raw, unlinked->bytes);
+    const char* error = ww_rel_replay(host, rel, raw, unlinked->bytes, expected, unlinked, true);
+    if (error == NULL)
+        error = ww_rel_sdk_structure(unlinked, raw, expected, unlinked->sdk_next);
+    if (error == NULL) {
+        /* The guest's own unlink restores the header and section table the link fixed up:
+         * the name, the three lifecycle entries, the import streams, the section entries
+         * (the bss marker entry zeroes instead) and the three table pointers. */
+        write_be32(expected + 0x14u, bluewake_archive_be32(raw + 0x14u));
+        for (u32 at = 0u; at < 3u; ++at) {
+            const u32 index = raw[0x30u + at];
+            if (index != 0u)
+                write_be32(expected + 0x34u + at * 4u, bluewake_archive_be32(raw + 0x34u + at * 4u));
+        }
+        const u32 imports = bluewake_archive_be32(raw + 0x28u);
+        const u32 import_bytes = bluewake_archive_be32(expected + 0x2Cu);
+        const u32 table = bluewake_archive_be32(raw + 0x10u);
+        const u32 sections = bluewake_archive_be32(raw + 0x0Cu);
+        if ((u64)imports + import_bytes > unlinked->bytes ||
+            (u64)table + (u64)sections * 8u > unlinked->bytes)
+            error = "REL SDK unlink restoration table is outside its raw image";
+        else {
+            for (u32 at = imports; at < imports + import_bytes; at += 8u)
+                write_be32(expected + at + 4u, bluewake_archive_be32(raw + at + 4u));
+            const u8 bss = expected[0x33u];
+            for (u32 at = 1u; at < sections; ++at) {
+                const u32 entry = bluewake_archive_be32(expected + table + at * 8u);
+                if (at == bss)
+                    write_be32(expected + table + at * 8u, 0u);
+                else if (entry != 0u)
+                    write_be32(expected + table + at * 8u, entry - unlinked->guest);
+            }
+            expected[0x33u] = 0u;
+            write_be32(expected + 0x24u, bluewake_archive_be32(raw + 0x24u));
+            write_be32(expected + 0x28u, bluewake_archive_be32(raw + 0x28u));
+            write_be32(expected + 0x10u, bluewake_archive_be32(raw + 0x10u));
+            *hash = ww_host_rel_raw_hash(expected, unlinked->bytes);
+            if (memcmp(expected, live, unlinked->bytes) != 0)
+                error = "REL SDK unlink restoration differs from the expected unlinked image";
+        }
+    }
+    free(expected);
+    return error;
+}
+
 static const char* reconcile_unlink(WwHost* host, WwRelImage* unlinked) {
     const u32 head = mem_read32(&host->cpu, WW_REL_SDK_HEAD);
     const u32 tail = mem_read32(&host->cpu, WW_REL_SDK_TAIL);
@@ -616,8 +673,13 @@ static const char* reconcile_unlink(WwHost* host, WwRelImage* unlinked) {
     }
     if (guest != 0u || previous != tail || visited != members)
         return "REL SDK unlink list is not the expected single-member removal";
+    u64 restored_hash = 0u;
+    const char* restoration = unlinked_image(host, unlinked, &restored_hash);
+    if (restoration != NULL)
+        return restoration;
     host->rel_sdk_head = head;
     host->rel_sdk_tail = tail;
+    unlinked->raw_hash = restored_hash;
     unlinked->linked = false;
     unlinked->unlinked = true;
     return NULL;

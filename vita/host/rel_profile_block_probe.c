@@ -346,7 +346,8 @@ static void title_unlink_chain(WwHost* host, WwRelImage* image) {
     cpu->pc = 0x803056BCu;
     cpu->lr = 0x80240F8Cu;
     cpu->gpr[3] = image->guest;
-    assert(ww_host_dispatch(host, cpu->pc) == 1);
+    for (u32 turn = 0u; turn < 32u && cpu->pc != 0x80240F8Cu && host->error == NULL; ++turn)
+        assert(ww_host_dispatch(host, cpu->pc) == 1);
     assert(host->error == NULL && cpu->pc == 0x80240F8Cu);
     assert(host->rel_pending_unlink.phase == WW_REL_UNLINK_SDK_ACTIVE);
     assert(ww_host_dispatch(host, cpu->pc) == 0);
@@ -361,6 +362,7 @@ static void title_unload_accounting(WwHost* host, WwRelImage* image, const char*
     const bool owner_status = strcmp(variant, "r31") == 0;
     const bool nonzero_argument = strcmp(variant, "r4") == 0;
     const bool repeat = strcmp(variant, "repeat") == 0;
+    const bool tampered = strcmp(variant, "tampered") == 0;
     cpu->pc = 0x80001004u;
     cpu->lr = 0x80001004u;
     assert(ww_host_dispatch(host, cpu->pc) == 0);
@@ -369,6 +371,9 @@ static void title_unload_accounting(WwHost* host, WwRelImage* image, const char*
         title_unlink_chain(host, image);
     else
         assert(image->linked && !image->unlinked);
+    if (tampered)
+        mem_write32(&host->cpu, image->guest + 0x24u,
+                    mem_read32(&host->cpu, image->guest + 0x24u) ^ 1u);
     const u32 window = host->rel_title_block.window;
     const u32 logical = host->rel_title_block.logical_size;
     cpu->pc = 0x802B07ECu;
@@ -384,7 +389,7 @@ static void title_unload_accounting(WwHost* host, WwRelImage* image, const char*
         assert(image->linked && !image->unlinked);
         return;
     }
-    if (second_site || owner_status || nonzero_argument) {
+    if (second_site || owner_status || nonzero_argument || tampered) {
         assert(host->error != NULL && strcmp(host->error,
             "REL resident profile block operation has inconsistent ownership, arguments or sequence") == 0);
         assert(image->unlinked && !image->linked);

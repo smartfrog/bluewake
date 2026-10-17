@@ -136,6 +136,7 @@ static int translated_chunk(CPUState* cpu, u32 address) {
     case 0x802411F8u: case 0x8024122Cu:
         func_C02411F8(cpu); return 1;
     case 0x803056BCu: func_803056BC(cpu); return 1;
+    case 0x8030577Cu: func_8030577C(cpu); return 1;
     case 0x81B100F4u: case 0x81B1010Cu: case 0x81B10110u:
     case 0x81B10120u: case 0x81B10130u: case 0x81B1013Cu:
         func_C1B100F4(cpu); return 1;
@@ -448,6 +449,8 @@ int main(int argc, char** argv) {
         cpu->pc = 0x803056BCu;
         cpu->lr = 0x80240F8Cu;
         cpu->gpr[3] = guest;
+        cpu->cycle_budget = 4096;
+        cpu->downcount = 4096;
         assert(ww_host_dispatch(host, cpu->pc) == 1);
         assert(host->error == NULL && cpu->pc == 0x80240F8Cu);
         assert(host->rel_pending_unlink.phase == WW_REL_UNLINK_SDK_RETURNED);

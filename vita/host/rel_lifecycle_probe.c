@@ -744,6 +744,8 @@ static void unlink_scenario(WwHost* host, const char* scenario, WwRelImage* imag
     const u32 epilog = image->certificate->lifecycle->epilog_address;
     const u32 table = 0xC1E01F60u;
     const u32 walker = 0xC02411F8u;
+    cpu->cycle_budget = 4096;
+    cpu->downcount = 4096;
     if (is("epilog-absent")) {
         cpu->pc = epilog;
         cpu->lr = 0x80240F80u;
@@ -1011,6 +1013,7 @@ static void unlink_scenario(WwHost* host, const char* scenario, WwRelImage* imag
         assert(!ww_host_edge(host, cpu, cpu->pc));
         assert(host->error == NULL && host->rel_pending_unlink.phase == WW_REL_UNLINK_SDK_ACTIVE);
         func_803056BC(cpu);
+        func_8030577C(cpu);
         assert(cpu->pc == 0x80240F8Cu);
         if (is("sdk-list")) mem_write32(cpu, profile->guest + 8u, 0xDEADBEEFu);
         if (is("sdk-reconstruction")) mem_write8(cpu, neighbor->guest + 0x18u, 1u);
