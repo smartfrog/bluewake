@@ -3,6 +3,10 @@
 #include <stdarg.h>
 #include <stdlib.h>
 
+#ifndef WW05_ENABLE_VI_CLOCK
+#error "vi_clock_probe requires the configured WW05_ENABLE_VI_CLOCK value; ww05_services must export it"
+#endif
+
 #define RETRACE_CYCLES 8100000ull
 #define VI_DI0 (DOL_VI_BASE + DOL_VI_DI0_OFF)
 
