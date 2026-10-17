@@ -629,8 +629,12 @@ static const char* unlink_sdk(WwHost* host, u32 address) {
     if (address == 0x803056BCu) {
         if (pending->phase == WW_REL_UNLINK_NONE || pending->image == NULL)
             return "REL SDK unlink requires its admitted native unlink contract";
-        if (pending->phase != WW_REL_UNLINK_EPILOG_RETURNED)
+        if (pending->phase != WW_REL_UNLINK_EPILOG_RETURNED) {
+            if (pending->phase == WW_REL_UNLINK_SDK_ACTIVE && cpu->pc == address &&
+                cpu->lr == 0x80240F8Cu && cpu->gpr[3] == pending->guest)
+                return NULL;
             return "REL SDK unlink requires its completed epilog return";
+        }
         if (cpu->pc != address)
             return "REL SDK unlink requires its exact translated entry pc";
         if (cpu->lr != 0x80240F8Cu)
@@ -647,6 +651,11 @@ static const char* unlink_sdk(WwHost* host, u32 address) {
     }
     if (address != 0x80240F8Cu)
         return NULL;
+    if (pending->phase == WW_REL_UNLINK_SDK_RETURNED) {
+        if (cpu->pc == address && cpu->lr == 0x80240F8Cu && cpu->gpr[3] == 1u)
+            return NULL;
+        return "REL SDK unlink return requires its admitted call";
+    }
     if (pending->phase != WW_REL_UNLINK_SDK_ACTIVE || pending->image == NULL)
         return "REL SDK unlink return requires its admitted call";
     if (cpu->pc != address)
@@ -663,7 +672,7 @@ static const char* unlink_sdk(WwHost* host, u32 address) {
     if (fprintf(stderr, "[rel-unlink] module=%u stage=reconciled head=%08X tail=%08X\n",
                 pending->module_id, host->rel_sdk_head, host->rel_sdk_tail) < 0)
         return "REL SDK unlink reconciliation trace failed";
-    memset(pending, 0, sizeof(*pending));
+    pending->phase = WW_REL_UNLINK_SDK_RETURNED;
     return NULL;
 }
 

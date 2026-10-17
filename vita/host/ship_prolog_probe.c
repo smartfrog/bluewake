@@ -450,8 +450,11 @@ int main(int argc, char** argv) {
         cpu->gpr[3] = guest;
         assert(ww_host_dispatch(host, cpu->pc) == 1);
         assert(host->error == NULL && cpu->pc == 0x80240F8Cu);
-        assert(host->rel_pending_unlink.phase == WW_REL_UNLINK_NONE);
+        assert(host->rel_pending_unlink.phase == WW_REL_UNLINK_SDK_RETURNED);
         assert(!image->linked && image->unlinked);
+        cpu->pc = 0x80240F90u;
+        assert(!ww_host_edge(host, cpu, cpu->pc));
+        assert(host->error == NULL && host->rel_pending_unlink.phase == WW_REL_UNLINK_NONE);
         assert(host->rel_sdk_head == 0u && host->rel_sdk_tail == 0u);
         assert(ww_host_collect_rels(host) != NULL);
         assert(get_ram_ptr(cpu, guest, 4u, NULL) != NULL);

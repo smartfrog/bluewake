@@ -699,6 +699,45 @@ static void run_actor_batch(WwHost* host, const char* requested) {
 }
 #endif
 
+static void unlink_epilog_flow(WwHost* host, WwRelImage* image) {
+    CPUState* cpu = &host->cpu;
+    cpu->pc = image->certificate->lifecycle->epilog_address;
+    cpu->lr = 0x80240F80u;
+    cpu->gpr[3] = image->guest;
+    cpu->gpr[31] = image->owner;
+    assert(ww_host_dispatch(host, cpu->pc) == 1);
+    assert(host->error == NULL && cpu->pc == 0x80240F80u);
+    assert(host->rel_pending_unlink.phase == WW_REL_UNLINK_EPILOG_RETURNED);
+}
+
+static void unlink_sdk_flow(WwHost* host, WwRelImage* image) {
+    CPUState* cpu = &host->cpu;
+    cpu->pc = 0x803056BCu;
+    cpu->lr = 0x80240F8Cu;
+    cpu->gpr[3] = image->guest;
+    assert(ww_host_dispatch(host, cpu->pc) == 1);
+    assert(host->error == NULL && cpu->pc == 0x80240F8Cu);
+    assert(host->rel_pending_unlink.phase == WW_REL_UNLINK_SDK_RETURNED);
+}
+
+static void unlink_advance(WwHost* host) {
+    CPUState* cpu = &host->cpu;
+    cpu->pc = 0x80240F90u;
+    cpu->lr = 0x80240F8Cu;
+    cpu->gpr[3] = 1u;
+    assert(!ww_host_edge(host, cpu, cpu->pc));
+    assert(host->error == NULL && host->rel_pending_unlink.phase == WW_REL_UNLINK_NONE);
+}
+
+static void unlink_collect(WwHost* host, WwRelImage* image) {
+    CPUState* cpu = &host->cpu;
+    assert(ww_host_collect_rels(host) != NULL);
+    assert(get_ram_ptr(cpu, image->guest, 4u, NULL) != NULL);
+    mem_write32(cpu, image->owner + 0x10u, 0u);
+    assert(ww_host_collect_rels(host) == NULL);
+    assert(get_ram_ptr(cpu, image->guest, 4u, NULL) == NULL);
+}
+
 static void unlink_scenario(WwHost* host, const char* scenario, WwRelImage* image,
                             WwRelImage* neighbor, WwRelImage* profile) {
     CPUState* cpu = &host->cpu;
@@ -794,8 +833,9 @@ static void unlink_scenario(WwHost* host, const char* scenario, WwRelImage* imag
         cpu->gpr[3] = guest;
         assert(ww_host_dispatch(host, cpu->pc) == 1);
         assert(host->error == NULL && cpu->pc == 0x80240F8Cu);
-        assert(host->rel_pending_unlink.phase == WW_REL_UNLINK_NONE);
+        assert(host->rel_pending_unlink.phase == WW_REL_UNLINK_SDK_RETURNED);
         assert(!image->linked && image->unlinked);
+        unlink_advance(host);
         mem_write32(cpu, owner + 0x10u, 0u);
         assert(ww_host_collect_rels(host) == NULL);
         return;
@@ -824,10 +864,101 @@ static void unlink_scenario(WwHost* host, const char* scenario, WwRelImage* imag
     if (is("epilog-second")) {
         assert(!ww_host_edge(host, cpu, cpu->pc));
         assert(host->rel_pending_unlink.phase == WW_REL_UNLINK_EPILOG_ACTIVE);
-        cpu->lr = 0x80240F80u;
-        cpu->gpr[3] = image->guest;
+        cpu->lr = 0x80240F84u;
         assert(ww_host_edge(host, cpu, cpu->pc) && host->error != NULL);
         assert(strcmp(host->error, "REL epilog entry requires its admitted native unlink contract") == 0);
+        return;
+    }
+    if (is("epilog-reentry")) {
+        assert(!ww_host_edge(host, cpu, cpu->pc));
+        assert(host->error == NULL && host->rel_pending_unlink.phase == WW_REL_UNLINK_EPILOG_ACTIVE);
+        assert(!ww_host_edge(host, cpu, cpu->pc));
+        assert(host->error == NULL && host->rel_pending_unlink.phase == WW_REL_UNLINK_EPILOG_ACTIVE);
+        unlink_epilog_flow(host, image);
+        unlink_sdk_flow(host, image);
+        unlink_advance(host);
+        unlink_collect(host, image);
+        return;
+    }
+    if (is("epilog-return-reentry")) {
+        unlink_epilog_flow(host, image);
+        cpu->pc = 0x80240F80u;
+        cpu->lr = 0x80240F80u;
+        assert(!ww_host_edge(host, cpu, cpu->pc));
+        assert(host->error == NULL && host->rel_pending_unlink.phase == WW_REL_UNLINK_EPILOG_RETURNED);
+        unlink_sdk_flow(host, image);
+        unlink_advance(host);
+        unlink_collect(host, image);
+        return;
+    }
+    if (is("sdk-reentry")) {
+        unlink_epilog_flow(host, image);
+        cpu->pc = 0x803056BCu;
+        cpu->lr = 0x80240F8Cu;
+        cpu->gpr[3] = image->guest;
+        assert(!ww_host_edge(host, cpu, cpu->pc));
+        assert(host->error == NULL && host->rel_pending_unlink.phase == WW_REL_UNLINK_SDK_ACTIVE);
+        assert(!ww_host_edge(host, cpu, cpu->pc));
+        assert(host->error == NULL && host->rel_pending_unlink.phase == WW_REL_UNLINK_SDK_ACTIVE);
+        unlink_sdk_flow(host, image);
+        unlink_advance(host);
+        unlink_collect(host, image);
+        return;
+    }
+    if (is("sdk-return-reentry")) {
+        unlink_epilog_flow(host, image);
+        unlink_sdk_flow(host, image);
+        cpu->pc = 0x80240F8Cu;
+        cpu->lr = 0x80240F8Cu;
+        cpu->gpr[3] = 1u;
+        assert(!ww_host_edge(host, cpu, cpu->pc));
+        assert(host->error == NULL && host->rel_pending_unlink.phase == WW_REL_UNLINK_SDK_RETURNED);
+        unlink_advance(host);
+        unlink_collect(host, image);
+        return;
+    }
+    if (is("sdk-second")) {
+        unlink_epilog_flow(host, image);
+        cpu->pc = 0x803056BCu;
+        cpu->lr = 0x80240F8Cu;
+        cpu->gpr[3] = image->guest;
+        assert(!ww_host_edge(host, cpu, cpu->pc));
+        assert(host->error == NULL && host->rel_pending_unlink.phase == WW_REL_UNLINK_SDK_ACTIVE);
+        cpu->lr = 0x80240F90u;
+        assert(ww_host_edge(host, cpu, cpu->pc) && host->error != NULL);
+        assert(strcmp(host->error, "REL SDK unlink requires its completed epilog return") == 0);
+        return;
+    }
+    if (is("sdk-return-late")) {
+        unlink_epilog_flow(host, image);
+        unlink_sdk_flow(host, image);
+        cpu->pc = 0x80240F8Cu;
+        cpu->lr = 0x80240F8Cu;
+        cpu->gpr[3] = 0u;
+        assert(ww_host_edge(host, cpu, cpu->pc) && host->error != NULL);
+        assert(strcmp(host->error, "REL SDK unlink return requires its admitted call") == 0);
+        return;
+    }
+    if (is("unlink-after-same")) {
+        unlink_epilog_flow(host, image);
+        unlink_sdk_flow(host, image);
+        unlink_advance(host);
+        cpu->pc = 0x80240F54u;
+        cpu->lr = 0x80240314u;
+        cpu->gpr[3] = cpu->gpr[31] = image->owner;
+        assert(ww_host_edge(host, cpu, cpu->pc) && host->error != NULL);
+        assert(strcmp(host->error, "REL native unlink requires unchanged live ownership") == 0);
+        return;
+    }
+    if (is("unlink-after-other")) {
+        unlink_epilog_flow(host, image);
+        unlink_sdk_flow(host, image);
+        unlink_advance(host);
+        cpu->pc = 0x80240F54u;
+        cpu->lr = 0x80240314u;
+        cpu->gpr[3] = cpu->gpr[31] = neighbor->owner;
+        assert(!ww_host_edge(host, cpu, cpu->pc));
+        assert(host->error == NULL && host->rel_pending_unlink.phase == WW_REL_UNLINK_ENTRY_READY);
         return;
     }
     if (is("epilog-return-without-walk")) {
@@ -852,8 +983,9 @@ static void unlink_scenario(WwHost* host, const char* scenario, WwRelImage* imag
             cpu->gpr[3] = guest;
             assert(ww_host_dispatch(host, cpu->pc) == 1);
             assert(host->error == NULL && cpu->pc == 0x80240F8Cu);
-            assert(host->rel_pending_unlink.phase == WW_REL_UNLINK_NONE);
+            assert(host->rel_pending_unlink.phase == WW_REL_UNLINK_SDK_RETURNED);
             assert(!image->linked && image->unlinked);
+            unlink_advance(host);
             assert(ww_host_collect_rels(host) != NULL);
             assert(get_ram_ptr(cpu, guest, 4u, NULL) != NULL);
             mem_write32(cpu, owner + 0x10u, 0u);

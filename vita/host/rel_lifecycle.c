@@ -143,8 +143,12 @@ static const char* unlink_epilog(WwHost* host, WwRelImage* image, u32 canonical)
         pending->phase == WW_REL_UNLINK_NONE || pending->image != image)
         return "REL epilog or unresolved entry has no supported lifecycle contract";
     CPUState* cpu = &host->cpu;
-    if (pending->phase != WW_REL_UNLINK_ENTRY_READY)
+    if (pending->phase != WW_REL_UNLINK_ENTRY_READY) {
+        if (pending->phase == WW_REL_UNLINK_EPILOG_ACTIVE && cpu->lr == 0x80240F80u &&
+            cpu->gpr[3] == image->guest)
+            return NULL;
         return "REL epilog entry requires its admitted native unlink contract";
+    }
     if (cpu->lr != 0x80240F80u)
         return "REL epilog entry requires its translated do_unlink successor";
     if (cpu->gpr[3] != image->guest)
@@ -161,6 +165,9 @@ static const char* unlink_epilog(WwHost* host, WwRelImage* image, u32 canonical)
 static const char* unlink_epilog_return(WwHost* host, u32 address) {
     WwRelPendingUnlink* pending = &host->rel_pending_unlink;
     CPUState* cpu = &host->cpu;
+    if (pending->phase == WW_REL_UNLINK_EPILOG_RETURNED && pending->image != NULL &&
+        address == 0x80240F80u && cpu->pc == address)
+        return NULL;
     if (pending->phase != WW_REL_UNLINK_EPILOG_ACTIVE || pending->image == NULL)
         return "REL unlink continuation requires its admitted epilog call";
     if (cpu->pc != address)
@@ -189,6 +196,8 @@ static const char* boundary(WwHost* host, u32 address) {
     WwRelPendingInit* pending = &host->rel_pending_init;
     CPUState* cpu = &host->cpu;
     const u32 canonical = address & ~0x40000000u;
+    if (host->rel_pending_unlink.phase == WW_REL_UNLINK_SDK_RETURNED && canonical != 0x80240F8Cu)
+        memset(&host->rel_pending_unlink, 0, sizeof(host->rel_pending_unlink));
     const char* profile_error = ww_host_rel_profile_lifecycle(host, address);
     if (profile_error != NULL)
         return profile_error;

@@ -48,7 +48,8 @@ typedef enum WwRelUnlinkPhase {
     WW_REL_UNLINK_ENTRY_READY,
     WW_REL_UNLINK_EPILOG_ACTIVE,
     WW_REL_UNLINK_EPILOG_RETURNED,
-    WW_REL_UNLINK_SDK_ACTIVE
+    WW_REL_UNLINK_SDK_ACTIVE,
+    WW_REL_UNLINK_SDK_RETURNED
 } WwRelUnlinkPhase;
 
 typedef struct WwRelPendingUnlink {

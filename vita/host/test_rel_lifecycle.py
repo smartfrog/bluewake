@@ -205,11 +205,37 @@ class RelLifecycleTest(unittest.TestCase):
         for stage in ('epilog-entered', 'dtor-completed', 'epilog-returned', 'sdk-unlink', 'reconciled'):
             self.assertIn(f'[rel-unlink] module=400 stage={stage}', log)
 
+    def test_native_unlink_epilog_entry_reentry_is_idempotent_for_the_same_arrival(self):
+        log = self.run_probe('epilog-reentry')
+        self.assertEqual(log.count('[rel-unlink] module=400 stage=epilog-entered'), 1, log)
+        for stage in ('dtor-completed', 'epilog-returned', 'sdk-unlink', 'reconciled'):
+            self.assertIn(f'[rel-unlink] module=400 stage={stage}', log)
+
+    def test_native_unlink_return_reentry_is_idempotent_for_the_same_arrival(self):
+        log = self.run_probe('epilog-return-reentry')
+        self.assertEqual(log.count('[rel-unlink] module=400 stage=epilog-returned'), 1, log)
+        for stage in ('sdk-unlink', 'reconciled'):
+            self.assertIn(f'[rel-unlink] module=400 stage={stage}', log)
+
+    def test_native_unlink_sdk_entry_reentry_is_idempotent_for_the_same_arrival(self):
+        log = self.run_probe('sdk-reentry')
+        self.assertEqual(log.count('[rel-unlink] module=400 stage=sdk-unlink'), 1, log)
+        self.assertIn('[rel-unlink] module=400 stage=reconciled', log)
+
+    def test_native_unlink_sdk_return_reentry_is_idempotent_and_clears_on_advance(self):
+        log = self.run_probe('sdk-return-reentry')
+        self.assertEqual(log.count('[rel-unlink] module=400 stage=reconciled'), 1, log)
+
+    def test_native_unlink_after_consumption_refuses_the_same_image_and_admits_a_new_one(self):
+        self.run_probe('unlink-after-same')
+        log = self.run_probe('unlink-after-other')
+        self.assertIn('[rel-unlink] module=168 stage=entered', log)
+
     def test_native_unlink_entry_and_epilog_keep_every_unmatched_shape_denied(self):
         for scenario in ('unlink-wrong-caller', 'unlink-wrong-owner', 'unlink-module-1', 'unlink-uncertified',
                          'unlink-importer', 'unlink-changed-raw', 'unlink-changed-section', 'unlink-pending',
                          'unlink-late', 'epilog-wrong-lr', 'epilog-wrong-header', 'epilog-second',
-                         'epilog-return-without-walk'):
+                         'epilog-return-without-walk', 'sdk-second', 'sdk-return-late'):
             with self.subTest(scenario=scenario):
                 self.run_probe(scenario)
 
