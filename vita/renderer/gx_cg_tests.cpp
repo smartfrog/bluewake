@@ -6,6 +6,7 @@
 // explicit (no assert).
 
 #include "gx_cg.h"
+#include "gx_dst_alpha.h"
 
 #include "../feasibility/gx/gx_fixture.hpp"
 
@@ -28,12 +29,18 @@ namespace {
 
 struct KeyCapture {
   gxc::ShaderKey key{};
+#if defined(WW_RENDERER_DST_ALPHA_ADMIT)
+  gxc::PipelineKey pipeline{};
+#endif
   bool have = false;
 };
 
 void capture_key(const gxc::DrawPlan& plan, void* user) {
   auto* capture = static_cast<KeyCapture*>(user);
   capture->key = plan.pipeline.shader;
+#if defined(WW_RENDERER_DST_ALPHA_ADMIT)
+  capture->pipeline = plan.pipeline;
+#endif
   capture->have = true;
 }
 
@@ -51,6 +58,23 @@ bool replay_key(const char* scenario, gxc::ShaderKey& key) {
   key = capture.key;
   return true;
 }
+
+#if defined(WW_RENDERER_DST_ALPHA_ADMIT)
+bool replay_pipeline(const char* scenario, gxc::PipelineKey& pipeline) {
+  KeyCapture capture;
+  std::string error;
+  if (!gx_fixture::replay_scenario(scenario, capture_key, &capture, &error)) {
+    std::fprintf(stderr, "%s: replay failed: %s\n", scenario, error.c_str());
+    return false;
+  }
+  if (!capture.have) {
+    std::fprintf(stderr, "%s: no plan\n", scenario);
+    return false;
+  }
+  pipeline = capture.pipeline;
+  return true;
+}
+#endif
 
 bool contains(const std::string& text, const char* needle) {
   return text.find(needle) != std::string::npos;
@@ -217,14 +241,12 @@ int cross_source_texgen_coverage() {
 }
 
 int unsupported_pixel_state_coverage() {
-  for (int feature = 0; feature < 3; ++feature) {
+  for (int feature = 0; feature < 2; ++feature) {
     auto key = tev_key();
     if (feature == 0)
       key.fog_fsel = 1;
-    else if (feature == 1)
-      key.ztex_op = 2;
     else
-      key.use_dst_alpha = 1;
+      key.ztex_op = 2;
     const auto cg = gx_vita::generate_cg(key);
     CHECK(!cg.ok);
     CHECK(cg.unsupported_reason != nullptr);
@@ -232,6 +254,125 @@ int unsupported_pixel_state_coverage() {
   }
   return 0;
 }
+
+// The shader-key entry has no blend facts, so it keeps refusing every BP 0x42
+// key with the original reason. This is the flag-off contract (and the
+// shader-only contract while the admission is compiled in).
+int dst_alpha_shader_key_is_refused() {
+  auto key = tev_key();
+  key.use_dst_alpha = 1;
+  key.dst_alpha = 0x80;
+  const auto cg = gx_vita::generate_cg(key);
+  CHECK(!cg.ok);
+  CHECK(std::string(cg.unsupported_reason) ==
+        "destination alpha requires dual-source blending");
+  std::printf("dst alpha shader-key refusal kept\n");
+  return 0;
+}
+
+#if defined(WW_RENDERER_DST_ALPHA_ADMIT)
+// The guest's documented pattern leaves colour updates off, so the colour
+// channel cannot observe the fragment alpha: one exact pass writes the
+// constant, with no extra draw or program variant.
+int dst_alpha_colour_update_off_is_admitted() {
+  gxc::PipelineKey pipeline;
+  CHECK(replay_pipeline("dstalpha_stamp_triangle", pipeline));
+  CHECK(pipeline.shader.use_dst_alpha == 1u);
+  CHECK(pipeline.shader.dst_alpha == 0x80u);
+  CHECK(pipeline.blend_enable == 1u && pipeline.color_update == 0u);
+  CHECK(pipeline.src_factor == 4u && pipeline.dst_factor == 5u);
+  CHECK(gx_vita::dst_alpha::mono_pass_refusal(pipeline) == nullptr);
+  const auto cg = gx_vita::generate_cg(pipeline);
+  CHECK(cg.ok);
+  CHECK(contains(cg.fragment,
+                 "float4(tex2D(tex0, uv0.xy).rgb, 128.0 / 255.0)"));
+  std::printf("dst alpha colour-updates-off admitted\n");
+  return 0;
+}
+
+// With blending off the colour channel cannot read the fragment alpha either.
+// The TEV path still runs the alpha test, ZTexture depth and fog before the
+// constant alpha replaces the output.
+int dst_alpha_blend_off_tev_keeps_alpha_test_order() {
+  auto shader = tev_key();
+  shader.textured = 1;
+  shader.num_tex_gens = 1;
+  shader.tex_gens[0].sourcerow = 5;
+  shader.tev_stages[0].tevorders_enable = 1;
+  shader.ztex_op = 2;
+  shader.ztex_type = 2;
+  shader.fog_fsel = 2;
+  shader.alpha_comp0 = 4; // greater than the reference
+  shader.use_dst_alpha = 1;
+  shader.dst_alpha = 0x40;
+  gxc::PipelineKey pipeline;
+  pipeline.shader = shader;
+  pipeline.color_update = 1;
+  CHECK(gx_vita::dst_alpha::mono_pass_refusal(pipeline) == nullptr);
+  const auto cg = gx_vita::generate_cg(pipeline);
+  CHECK(cg.ok);
+  const auto stamp = cg.fragment.find("64.0 / 255.0");
+  CHECK(stamp != std::string::npos);
+  CHECK(cg.fragment.find("discard;") < stamp);
+  CHECK(cg.fragment.find("fragment_depth =") < stamp);
+  CHECK(cg.fragment.find("float fog_z") < stamp);
+  std::printf("dst alpha blend-off TEV admission keeps the ordering\n");
+  return 0;
+}
+
+// The untextured passthrough path has no TEV alpha to preserve: the constant
+// replaces the vertex alpha in the same single pass.
+int dst_alpha_untextured_is_admitted() {
+  gxc::PipelineKey pipeline;
+  pipeline.shader.use_dst_alpha = 1;
+  pipeline.shader.dst_alpha = 0x20;
+  pipeline.alpha_update = 1;
+  CHECK(gx_vita::dst_alpha::mono_pass_refusal(pipeline) == nullptr);
+  const auto cg = gx_vita::generate_cg(pipeline);
+  CHECK(cg.ok);
+  CHECK(contains(cg.fragment, "float4(color0.rgb, 32.0 / 255.0)"));
+  std::printf("dst alpha untextured admitted\n");
+  return 0;
+}
+
+// The conflict class: colour updates on and a colour factor that reads the
+// computed alpha. One pass cannot serve both alphas; keep it refused.
+int dst_alpha_conflict_is_refused() {
+  gxc::PipelineKey pipeline;
+  CHECK(replay_pipeline("dstalpha_triangle", pipeline));
+  CHECK(pipeline.blend_enable == 1u && pipeline.color_update == 1u);
+  CHECK(pipeline.src_factor == 4u && pipeline.dst_factor == 5u);
+  CHECK(gx_vita::dst_alpha::mono_pass_refusal(pipeline) != nullptr);
+  const auto cg = gx_vita::generate_cg(pipeline);
+  CHECK(!cg.ok);
+  CHECK(std::string(cg.unsupported_reason) ==
+        "destination alpha conflicts with the colour blend source alpha (two-pass split required)");
+  gxc::PipelineKey framebuffer_alpha = pipeline;
+  framebuffer_alpha.src_factor = 6; // DSTALPHA reads the framebuffer, not the fragment
+  framebuffer_alpha.dst_factor = 7;
+  CHECK(gx_vita::dst_alpha::mono_pass_refusal(framebuffer_alpha) == nullptr);
+  CHECK(gx_vita::generate_cg(framebuffer_alpha).ok);
+  std::printf("dst alpha conflict refused\n");
+  return 0;
+}
+
+// Subtract mode forces ONE/ONE on the reference line, but this path has not
+// been verified against it: keep every subtract draw refused.
+int dst_alpha_subtract_is_refused() {
+  gxc::PipelineKey pipeline;
+  pipeline.shader.use_dst_alpha = 1;
+  pipeline.shader.dst_alpha = 0x80;
+  pipeline.alpha_update = 1;
+  pipeline.blend_subtract = 1;
+  CHECK(gx_vita::dst_alpha::mono_pass_refusal(pipeline) != nullptr);
+  const auto cg = gx_vita::generate_cg(pipeline);
+  CHECK(!cg.ok);
+  CHECK(std::string(cg.unsupported_reason) ==
+        "destination alpha with blend subtract stays refused until the ONE/ONE rule is verified here");
+  std::printf("dst alpha subtract refused\n");
+  return 0;
+}
+#endif
 
 int fog_mode_coverage() {
   for (std::uint8_t mode : {2, 4, 5, 6, 7}) {
@@ -527,6 +668,14 @@ int main(int argc, char** argv) {
   CHECK(texgen_boundary_coverage() == 0);
   CHECK(cross_source_texgen_coverage() == 0);
   CHECK(unsupported_pixel_state_coverage() == 0);
+  CHECK(dst_alpha_shader_key_is_refused() == 0);
+#if defined(WW_RENDERER_DST_ALPHA_ADMIT)
+  CHECK(dst_alpha_colour_update_off_is_admitted() == 0);
+  CHECK(dst_alpha_blend_off_tev_keeps_alpha_test_order() == 0);
+  CHECK(dst_alpha_untextured_is_admitted() == 0);
+  CHECK(dst_alpha_conflict_is_refused() == 0);
+  CHECK(dst_alpha_subtract_is_refused() == 0);
+#endif
   {
     gxc::ShaderKey key;
     CHECK(replay_key("cel_triangle", key));

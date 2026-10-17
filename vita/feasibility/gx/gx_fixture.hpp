@@ -341,6 +341,23 @@ inline std::vector<std::uint8_t> build_dstalpha_triangle() {
   return fifo;
 }
 
+// The guest's documented capture-stamp pattern: constant destination alpha
+// with colour updates off. The colour channel cannot observe the fragment
+// alpha, so one exact pass can write the constant.
+inline std::vector<std::uint8_t> build_dstalpha_stamp_triangle() {
+  std::vector<std::uint8_t> fifo;
+  push_common_state(fifo);
+  push_bp(fifo, DOL_GX_BP_REG_GENMODE, (1u << 0u));
+  push_bp(fifo, 0x41u, 1u | (4u << 8u) | (5u << 5u) | (1u << 4u));
+  push_bp(fifo, DOL_GX_BP_REG_PE_CONTROL, 1u);
+  push_bp(fifo, 0x42u, (1u << 8u) | 0x80u);
+  push_bp(fifo, DOL_GX_BP_REG_TX_SETIMAGE0,
+          tex_image0(kTextureWidth, kTextureHeight, 6u));
+  push_bp(fifo, DOL_GX_BP_REG_TX_SETIMAGE3, kTextureBase >> 5u);
+  push_triangle(fifo);
+  return fifo;
+}
+
 // One textured draw followed by an EFB copy-to-texture: source rectangle 0,0
 // 4x4, destination at kCopyBase, R8 format (trigger field 2), no half-scale,
 // no clear. The sink's copy observer carries the resolved command.
@@ -409,7 +426,8 @@ inline bool known_scenario(const std::string& name) {
   return name == "textured_triangle" || name == "ci8_triangle" ||
          name == "state_triangle" || name == "cel_triangle" ||
          name == "lines_pair" || name == "subtract_triangle" ||
-         name == "dstalpha_triangle" || name == "copy_triangle" ||
+         name == "dstalpha_triangle" || name == "dstalpha_stamp_triangle" ||
+         name == "copy_triangle" ||
          name == "hud_quad" || name == "indirect_triangle";
 }
 
@@ -429,6 +447,8 @@ inline std::vector<std::uint8_t> build_scenario(const std::string& name) {
     return build_subtract_triangle();
   if (name == "dstalpha_triangle")
     return build_dstalpha_triangle();
+  if (name == "dstalpha_stamp_triangle")
+    return build_dstalpha_stamp_triangle();
   if (name == "copy_triangle")
     return build_copy_triangle();
   if (name == "hud_quad")

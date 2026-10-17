@@ -2,6 +2,9 @@
 // VITA-WW-02 bounded Cg generation. See gx_cg.h.
 
 #include "gx_cg.h"
+#if defined(WW_RENDERER_DST_ALPHA_ADMIT)
+#include "gx_dst_alpha.h"
+#endif
 #include "gx_tev.h"
 #include "gx_ztexture.h"
 #include "gx_texgen.h"
@@ -31,9 +34,13 @@ bool texgen_coord(const gxc::ShaderKey& key, std::uint8_t texcoord,
   return true;
 }
 
-} // namespace
+// The shader-key entry carries no blend facts, so it cannot admit a BP 0x42
+// draw and keeps the original fail-closed reason.
+constexpr const char* kDstAlphaDualSourceReason =
+    "destination alpha requires dual-source blending";
 
-CgProgram generate_cg(const gxc::ShaderKey& key) {
+CgProgram generate_impl(const gxc::ShaderKey& key,
+                        const char* dst_alpha_refusal) {
   CgProgram program;
   if (key.num_tex_gens > gxc::kMaxTexGens ||
       key.num_tev_stages > gxc::kMaxTevStages ||
@@ -54,10 +61,14 @@ CgProgram generate_cg(const gxc::ShaderKey& key) {
     program.unsupported_reason = "invalid ZTexture configuration";
     return program;
   }
-  if (key.use_dst_alpha != 0) {
-    program.unsupported_reason = "destination alpha requires dual-source blending";
+  if (key.use_dst_alpha != 0 && dst_alpha_refusal != nullptr) {
+    program.unsupported_reason = dst_alpha_refusal;
     return program;
   }
+#if defined(WW_RENDERER_DST_ALPHA_ADMIT)
+  const bool dst_alpha_admitted =
+      key.use_dst_alpha != 0 && dst_alpha_refusal == nullptr;
+#endif
 
   // Which vertex outputs the fragment needs: uv slots per stage texcoord and
   // the vertex colour for raster args or Colour texgens.
@@ -269,13 +280,35 @@ CgProgram generate_cg(const gxc::ShaderKey& key) {
         ztexture::emit_depth(out, key);
       if (key.fog_fsel != 0)
         fog::emit(out, key);
-      out += "  return prev / 255.0;\n";
+#if defined(WW_RENDERER_DST_ALPHA_ADMIT)
+      if (dst_alpha_admitted)
+        out += "  return float4(prev.rgb / 255.0, " +
+               std::to_string(key.dst_alpha) + ".0 / 255.0);\n";
+      else
+#endif
+        out += "  return prev / 255.0;\n";
     } else if (key.textured != 0u) {
-      out += key.num_tex_gens > 0 && key.tex_gens[0].projection
-                 ? "  return tex2D(tex0, uv0.xy / max(uv0.z, 0.000001));\n"
-                 : "  return tex2D(tex0, uv0.xy);\n";
+#if defined(WW_RENDERER_DST_ALPHA_ADMIT)
+      if (dst_alpha_admitted) {
+        const std::string sample =
+            key.num_tex_gens > 0 && key.tex_gens[0].projection
+                ? "tex2D(tex0, uv0.xy / max(uv0.z, 0.000001))"
+                : "tex2D(tex0, uv0.xy)";
+        out += "  return float4(" + sample + ".rgb, " +
+               std::to_string(key.dst_alpha) + ".0 / 255.0);\n";
+      } else
+#endif
+        out += key.num_tex_gens > 0 && key.tex_gens[0].projection
+                   ? "  return tex2D(tex0, uv0.xy / max(uv0.z, 0.000001));\n"
+                   : "  return tex2D(tex0, uv0.xy);\n";
     } else {
-      out += "  return float4(color0.rgb, color0.a);\n";
+#if defined(WW_RENDERER_DST_ALPHA_ADMIT)
+      if (dst_alpha_admitted)
+        out += "  return float4(color0.rgb, " +
+               std::to_string(key.dst_alpha) + ".0 / 255.0);\n";
+      else
+#endif
+        out += "  return float4(color0.rgb, color0.a);\n";
     }
     out += "}\n";
   }
@@ -283,5 +316,17 @@ CgProgram generate_cg(const gxc::ShaderKey& key) {
   program.ok = true;
   return program;
 }
+
+} // namespace
+
+CgProgram generate_cg(const gxc::ShaderKey& key) {
+  return generate_impl(key, kDstAlphaDualSourceReason);
+}
+
+#if defined(WW_RENDERER_DST_ALPHA_ADMIT)
+CgProgram generate_cg(const gxc::PipelineKey& key) {
+  return generate_impl(key.shader, dst_alpha::mono_pass_refusal(key));
+}
+#endif
 
 } // namespace gx_vita

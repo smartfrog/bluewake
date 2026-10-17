@@ -10,6 +10,7 @@
 // Checks are explicit (no assert): a release build must fail loudly too.
 
 #include "gx_vita.h"
+#include "gx_cg.h"
 
 #include "../feasibility/gx/gx_fixture.hpp"
 
@@ -47,6 +48,19 @@ void capture(const gxc::DrawPlan& plan, void* user) {
   *static_cast<gx_vita::TranslatedDraw*>(user) = gx_vita::translate(plan);
 }
 
+#if defined(WW_RENDERER_DST_ALPHA_ADMIT)
+struct PipelineCapture {
+  gxc::PipelineKey pipeline{};
+  bool have = false;
+};
+
+void capture_pipeline(const gxc::DrawPlan& plan, void* user) {
+  auto* capture = static_cast<PipelineCapture*>(user);
+  capture->pipeline = plan.pipeline;
+  capture->have = true;
+}
+#endif
+
 bool replay(const char* scenario, gx_vita::TranslatedDraw& out) {
   std::string error;
   if (!gx_fixture::replay_scenario(scenario, capture, &out, &error)) {
@@ -55,6 +69,23 @@ bool replay(const char* scenario, gx_vita::TranslatedDraw& out) {
   }
   return true;
 }
+
+#if defined(WW_RENDERER_DST_ALPHA_ADMIT)
+bool replay_pipeline(const char* scenario, gxc::PipelineKey& out) {
+  PipelineCapture capture;
+  std::string error;
+  if (!gx_fixture::replay_scenario(scenario, capture_pipeline, &capture, &error)) {
+    std::fprintf(stderr, "%s: replay failed: %s\n", scenario, error.c_str());
+    return false;
+  }
+  if (!capture.have) {
+    std::fprintf(stderr, "%s: no plan\n", scenario);
+    return false;
+  }
+  out = capture.pipeline;
+  return true;
+}
+#endif
 
 std::uint8_t texel(const std::vector<std::uint8_t>& rgba, std::uint32_t width,
                    std::uint32_t x, std::uint32_t y, int channel) {
@@ -809,6 +840,26 @@ int main() {
     CHECK(draw.pipeline.dst_alpha == 0x80u);
     CHECK(draw.pipeline.blend_src_alpha == gx_vita::kGlOne);
     CHECK(draw.pipeline.blend_dst_alpha == gx_vita::kGlZero);
+#if defined(WW_RENDERER_DST_ALPHA_ADMIT)
+    gxc::PipelineKey pipeline;
+    CHECK(replay_pipeline("dstalpha_triangle", pipeline));
+    CHECK(pipeline.shader.use_dst_alpha == 1u);
+    CHECK(pipeline.shader.dst_alpha == 0x80u);
+    // The fixture's colour blend reads the source alpha: the genuine conflict.
+    const gx_vita::CgProgram conflict = gx_vita::generate_cg(pipeline);
+    CHECK(!conflict.ok);
+    CHECK(std::string(conflict.unsupported_reason) ==
+          "destination alpha conflicts with the colour blend source alpha (two-pass split required)");
+    // The guest's documented pattern leaves colour updates off: admitted.
+    gxc::PipelineKey alpha_only = pipeline;
+    alpha_only.color_update = 0;
+    const gx_vita::CgProgram admitted = gx_vita::generate_cg(alpha_only);
+    CHECK(admitted.ok);
+    CHECK(admitted.fragment.find(
+              "float4(tex2D(tex0, uv0.xy).rgb, 128.0 / 255.0)") !=
+          std::string::npos);
+    std::printf("dstalpha_triangle admitted ok\n");
+#endif
     std::printf("dstalpha_triangle ok dst_alpha=0x%02x\n",
                 draw.pipeline.dst_alpha);
   }

@@ -477,8 +477,32 @@ int main(int argc, char** argv) {
     CHECK(run_stream(gx_fixture::build_dstalpha_triangle(), result));
     CHECK(result.counts.plans == 1u && result.counts.programs_refused == 1u);
     CHECK(result.counts.programs == 0u && result.program_refusals.size() == 1u);
+#if defined(WW_RENDERER_DST_ALPHA_ADMIT)
+    CHECK(result.program_refusals[0] ==
+          "destination alpha conflicts with the colour blend source alpha (two-pass split required)");
+#else
     CHECK(result.program_refusals[0] == "destination alpha requires dual-source blending");
+#endif
     std::printf("bridge destination alpha refused: %s\n", result.program_refusals[0].c_str());
+  }
+
+  {
+    // The documented capture stamp leaves colour updates off: the mono-pass
+    // admission reaches exactly one program, and the default build refuses it.
+    gx_bridge::Result result;
+    CHECK(run_stream(gx_fixture::build_dstalpha_stamp_triangle(), result));
+    CHECK(result.counts.plans == 1u && result.counts.plans_skipped == 0u);
+#if defined(WW_RENDERER_DST_ALPHA_ADMIT)
+    CHECK(result.counts.programs == 1u && result.counts.programs_refused == 0u);
+    CHECK(result.counts.programs_distinct == 1u && result.program_refusals.empty());
+    std::printf("bridge destination alpha stamp admitted\n");
+#else
+    CHECK(result.counts.programs == 0u && result.counts.programs_refused == 1u);
+    CHECK(result.program_refusals.size() == 1u &&
+          result.program_refusals[0] ==
+              "destination alpha requires dual-source blending");
+    std::printf("bridge destination alpha stamp refused\n");
+#endif
   }
 
   {

@@ -16,6 +16,9 @@
 //   - GX linear/exponential/backwards fog, native-X range table and RGB blend.
 //   - four indirect orders, formats, bias, bump alpha, matrices, wrap/add-prev.
 //   - emboss coordinates prepared by CPU translation when the plan has lights.
+//   - BP 0x42 constant destination alpha in the mono-pass when the colour pass
+//     cannot observe the fragment alpha (WW_RENDERER_DST_ALPHA_ADMIT; off by
+//     default).
 // Integer TEV steps use exactly representable float arithmetic and floor;
 // the pinned WGSL generator remains the semantics reference. This does not
 // imply GPU pixel parity for sampling, lighting or unsupported texgens.
@@ -38,5 +41,13 @@ struct CgProgram {
 // Generate the Cg program pair for a shader key; equal keys yield
 // byte-identical sources.
 CgProgram generate_cg(const gxruntime::gxcore::ShaderKey& key);
+
+#if defined(WW_RENDERER_DST_ALPHA_ADMIT)
+// Full-pipeline entry: admits the BP 0x42 constant destination alpha in the
+// mono-pass when gx_dst_alpha.h says the colour channel cannot observe the
+// fragment alpha. The shader-key entry above has no blend facts, so it keeps
+// refusing every destination-alpha key.
+CgProgram generate_cg(const gxruntime::gxcore::PipelineKey& key);
+#endif
 
 } // namespace gx_vita

@@ -55,6 +55,8 @@ struct DrawRecord {
   std::uint8_t blend_enable = 0;
   std::uint16_t blend_src = 0;
   std::uint16_t blend_dst = 0;
+  std::uint16_t blend_src_alpha = 0;
+  std::uint16_t blend_dst_alpha = 0;
   std::uint16_t blend_equation = 0;
   std::uint8_t cull_enable = 0;
   std::uint16_t cull_face = 0;
@@ -111,6 +113,8 @@ public:
     record.blend_enable = draw.pipeline.blend_enable;
     record.blend_src = draw.pipeline.blend_src;
     record.blend_dst = draw.pipeline.blend_dst;
+    record.blend_src_alpha = draw.pipeline.blend_src_alpha;
+    record.blend_dst_alpha = draw.pipeline.blend_dst_alpha;
     record.blend_equation = draw.pipeline.blend_equation;
     record.cull_enable = draw.pipeline.cull_enable;
     record.cull_face = draw.pipeline.cull_face;
@@ -929,10 +933,53 @@ int refused_program_cannot_confirm_completion() {
   ww_renderer_stats(renderer, &stats);
   CHECK(stats.plans == 1u && stats.programs_refused == 1u && stats.draws == 0u);
   CHECK(stats.refusal_count == 1u);
+#if defined(WW_RENDERER_DST_ALPHA_ADMIT)
+  CHECK(std::strcmp(stats.refusal_reasons[0],
+                    "destination alpha conflicts with the colour blend source alpha (two-pass split required)") == 0);
+#else
   CHECK(std::strcmp(stats.refusal_reasons[0],
                     "destination alpha requires dual-source blending") == 0);
+#endif
   CHECK(ww_renderer_finish(renderer) != nullptr);
   CHECK(backend.finishes == 0 && backend.presents == 0);
+  ww_renderer_destroy(renderer);
+  std::printf("renderer program refusal kept ok\n");
+  return 0;
+}
+
+// The admitted destination-alpha stamp is one exact pass: one program, one
+// submit_draw, the alpha mask on and the colour mask off. Without the flag the
+// same draw is refused and never reaches the backend.
+int dst_alpha_stamp_submits_one_draw() {
+  Fixture fixture;
+  RecordingBackend backend;
+  WwRenderer* renderer = nullptr;
+  WwRendererConfig config = fixture.config();
+  CHECK(ww_renderer_create(&renderer, &config, &backend) == nullptr);
+  const auto fifo = gx_fixture::build_dstalpha_stamp_triangle();
+  CHECK(ww_renderer_write(renderer, fifo.data(), fifo.size()) == nullptr);
+  WwRendererStats stats{};
+  ww_renderer_stats(renderer, &stats);
+  CHECK(stats.plans == 1u);
+#if defined(WW_RENDERER_DST_ALPHA_ADMIT)
+  CHECK(stats.draws == 1u && stats.programs == 1u);
+  CHECK(stats.programs_distinct == 1u && stats.programs_refused == 0u);
+  CHECK(backend.draws.size() == 1u);
+  const DrawRecord& draw = backend.draws[0];
+  CHECK(draw.color_write == 0u && draw.alpha_write == 1u);
+  CHECK(draw.blend_enable == 1u);
+  CHECK(draw.blend_src_alpha == gx_vita::kGlOne);
+  CHECK(draw.blend_dst_alpha == gx_vita::kGlZero);
+  CHECK(draw.cg_fragment.find("128.0 / 255.0") != std::string::npos);
+  std::printf("renderer destination alpha stamp admitted in one draw\n");
+#else
+  CHECK(stats.draws == 0u && stats.programs == 0u);
+  CHECK(stats.programs_refused == 1u && stats.refusal_count == 1u);
+  CHECK(backend.draws.empty());
+  CHECK(std::strcmp(stats.refusal_reasons[0],
+                    "destination alpha requires dual-source blending") == 0);
+  std::printf("renderer destination alpha stamp refused by default\n");
+#endif
   ww_renderer_destroy(renderer);
   return 0;
 }
@@ -1273,28 +1320,9 @@ int main() {
   }
 
   {
-    // A refused Cg program is counted and kept with its reason; no draw is
-    // submitted for it.
-    Fixture fixture;
-    RecordingBackend backend;
-    WwRenderer* renderer = nullptr;
-    WwRendererConfig config = fixture.config();
-    CHECK(ww_renderer_create(&renderer, &config, &backend) == nullptr);
-    std::vector<std::uint8_t> fifo;
-    gx_fixture::push_bp(fifo, 0x43, 1);
-    gx_fixture::push_bp(fifo, 0x42, 0x180);
-    const auto triangle = gx_fixture::build_indirect_triangle();
-    fifo.insert(fifo.end(), triangle.begin(), triangle.end());
-    CHECK(ww_renderer_write(renderer, fifo.data(), fifo.size()) == nullptr);
-    CHECK(backend.draws.empty());
-    WwRendererStats stats{};
-    ww_renderer_stats(renderer, &stats);
-    CHECK(stats.plans == 1u && stats.programs_refused == 1u);
-    CHECK(stats.refusal_count == 1u);
-    CHECK(std::strcmp(stats.refusal_reasons[0],
-                       "destination alpha requires dual-source blending") == 0);
-    ww_renderer_destroy(renderer);
-    std::printf("renderer program refusal kept ok\n");
+    // The destination-alpha stamp: one exact draw with the flag, a kept
+    // refusal without it.
+    CHECK(dst_alpha_stamp_submits_one_draw() == 0);
   }
 
   {

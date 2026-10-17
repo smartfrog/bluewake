@@ -6,6 +6,8 @@ set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 
 get_filename_component(RENDERER_DIR "${CMAKE_CURRENT_SOURCE_DIR}/../../renderer" ABSOLUTE)
 
+option(WW_RENDERER_DST_ALPHA_ADMIT "Admit destination-alpha draws in the mono-pass (off by default; see vita/renderer/gx_dst_alpha.h)" OFF)
+
 if(VITA)
     # Vita side: the pinned frontend/gxcore for ARM plus the demo fixture,
     # submitted through vitaGL (Cg runtime shaders).
@@ -23,6 +25,9 @@ if(VITA)
     add_library(gx_vita STATIC "${RENDERER_DIR}/gx_vita.cpp" "${RENDERER_DIR}/gx_cg.cpp")
     target_link_libraries(gx_vita PUBLIC GXRuntime::gxcore)
     target_include_directories(gx_vita PUBLIC "${RENDERER_DIR}")
+    if(WW_RENDERER_DST_ALPHA_ADMIT)
+        target_compile_definitions(gx_vita PUBLIC WW_RENDERER_DST_ALPHA_ADMIT=1)
+    endif()
 
     # The Vita3K-friendly (no-splash) vitaGL archive can be supplied here; the
     # default is the SDK's library.
@@ -75,6 +80,9 @@ else()
     add_library(gx_vita STATIC "${RENDERER_DIR}/gx_vita.cpp" "${RENDERER_DIR}/gx_cg.cpp")
     target_link_libraries(gx_vita PUBLIC GXRuntime::gxcore)
     target_include_directories(gx_vita PUBLIC "${RENDERER_DIR}")
+    if(WW_RENDERER_DST_ALPHA_ADMIT)
+        target_compile_definitions(gx_vita PUBLIC WW_RENDERER_DST_ALPHA_ADMIT=1)
+    endif()
     target_compile_options(gx_vita PRIVATE -O2 -Wall -Wextra)
 
     add_executable(gx_replay gx_replay.cpp)

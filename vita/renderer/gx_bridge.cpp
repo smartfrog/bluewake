@@ -77,7 +77,11 @@ void observe_plan(const gxc::DrawPlan& plan, void* user) {
     return;
   }
   ++result->counts.plans_ok;
+#if defined(WW_RENDERER_DST_ALPHA_ADMIT)
+  const gx_vita::CgProgram program = gx_vita::generate_cg(plan.pipeline);
+#else
   const gx_vita::CgProgram program = gx_vita::generate_cg(plan.pipeline.shader);
+#endif
   if (!program.ok) {
     ++result->counts.programs_refused;
     result->program_refusals.emplace_back(program.unsupported_reason != nullptr

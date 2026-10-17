@@ -76,7 +76,11 @@ struct PipelineState {
   std::uint16_t blend_equation = kGlFuncAdd; // SUBTRACT -> kGlFuncSubtract
   // BP 0x42 constant destination alpha: the Cg fragment shader replaces the
   // output alpha with dst_alpha/255 when use_dst_alpha is set (vitaGL has no
-  // blend colour, so this is a shader contract, not a GL state).
+  // blend colour, so this is a shader contract, not a GL state). The mono-pass
+  // admission (WW_RENDERER_DST_ALPHA_ADMIT, gx_dst_alpha.h) only takes the
+  // draws whose colour blend cannot observe the fragment alpha; the rest stay
+  // refused. gxcore forces the alpha factors to ONE/ZERO, so the stored alpha
+  // is the constant.
   std::uint8_t use_dst_alpha = 0;
   std::uint8_t dst_alpha = 0;
   std::uint8_t cull_enable = 0;
