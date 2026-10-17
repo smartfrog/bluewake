@@ -1410,8 +1410,7 @@ int ww_host_dispatch(WwHost* host, u32 address) {
 #if WW05_DISPATCH_ABI_SENTINEL
     const int result = ww_abi_gate(&host->cpu, linked, (void*)host->module->dispatch);
     if (ww_abi_state == 2u || ww_abi_state == 4u) {
-        ww_host_fail(host, ww_abi_dump.io_error ? "dispatch ABI diagnostic incomplete: capsule write failed" :
-                     "dispatch ABI mismatch: diagnostic stop", address, cpu->pc);
+        ww_host_fail(host, ww_abi_stop_reason(ww_abi_dump.failure, ww_abi_dump.io_error), address, cpu->pc);
         return -1;
     }
     return result;

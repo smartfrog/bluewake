@@ -43,6 +43,13 @@ static bool invoke(void) {
 
 int main(int argc, char** argv) {
     assert(argc == 2);
+    assert(strcmp(ww_abi_stop_reason(0u, 0u), "dispatch ABI mismatch: diagnostic stop") == 0);
+    assert(strcmp(ww_abi_stop_reason(WW_ABI_INTERNAL, 0u),
+                  "dispatch ABI mismatch: internal finish-frame capture") == 0);
+    assert(strcmp(ww_abi_stop_reason(WW_ABI_SP | WW_ABI_REGISTER | WW_ABI_INTERNAL, 0u),
+                  "dispatch ABI mismatch: internal finish-frame capture") == 0);
+    assert(strcmp(ww_abi_stop_reason(0u, 1u),
+                  "dispatch ABI diagnostic incomplete: capsule write failed") == 0);
     ww_abi_init(0x1234u, sink, NULL);
     if (strcmp(argv[1], "unarmed") == 0) {
         assert(ww_abi_state == 0u && writes == 0u);
@@ -76,6 +83,46 @@ int main(int argc, char** argv) {
             assert(memcmp(&ww_abi_active, &pair, sizeof(pair)) == 0);
             assert(ww_abi_state == 1u && writes == 0u);
         }
+        return 0;
+    } else if (strcmp(argv[1], "internal-classifier") == 0) {
+        WwAbiSnapshot before = ww_abi_active.before;
+        WwAbiSnapshot after = before;
+        after.r0 = 1u;
+        assert(!ww_abi_internal_capture(&before, &after));
+        after.sp = before.sp - 24u;
+        assert(ww_abi_internal_capture(&before, &after));
+        after = before;
+        after.lr = (uint32_t)(uintptr_t)&ww_abi_finish;
+        assert(ww_abi_internal_capture(&before, &after));
+        after.lr = (uint32_t)(uintptr_t)&ww_abi_finish + WW_ABI_FINISH_SPAN - 1u;
+        assert(ww_abi_internal_capture(&before, &after));
+        after.lr = (uint32_t)(uintptr_t)&ww_abi_finish + WW_ABI_FINISH_SPAN;
+        assert(!ww_abi_internal_capture(&before, &after));
+        after.sp = before.sp - 20u;
+        assert(!ww_abi_internal_capture(&before, &after));
+        return 0;
+    } else if (strcmp(argv[1], "internal-capsule") == 0) {
+        assert(invoke());
+        ww_abi_active.after.sp = ww_abi_active.before.sp - 24u;
+        ww_abi_active.after.r[0] = 0x96DEAFF0u;
+        assert(!ww_abi_finish());
+        assert(ww_abi_dump.failure == (WW_ABI_SP | WW_ABI_REGISTER | WW_ABI_INTERNAL));
+    } else if (strcmp(argv[1], "internal-lr") == 0) {
+        assert(invoke());
+        ww_abi_active.after.lr = (uint32_t)(uintptr_t)&ww_abi_finish + 8u;
+        assert(!ww_abi_finish());
+        assert(ww_abi_dump.failure == WW_ABI_INTERNAL);
+    } else if (strcmp(argv[1], "real-mismatch") == 0) {
+        assert(invoke());
+        ww_abi_active.after.sp = ww_abi_active.before.sp + 72u;
+        ww_abi_active.after.lr = 0x2001u;
+        ww_abi_active.after.r[0] = 1u;
+        assert(!ww_abi_finish());
+        assert(ww_abi_dump.failure == (WW_ABI_SP | WW_ABI_REGISTER));
+    } else if (strcmp(argv[1], "internal-absent") == 0) {
+        assert(invoke());
+        assert(ww_abi_finish());
+        assert(ww_abi_dump.failure == 0u && ww_abi_dump.count == 1u && writes == 0u);
         return 0;
     } else if (strcmp(argv[1], "ctx-one") == 0) {
         ww_abi_active.before.r0 = 1u;
