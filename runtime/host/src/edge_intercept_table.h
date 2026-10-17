@@ -66,16 +66,19 @@ static const u32 g_edge_keys_all[BLUEWAKE_EDGE_KEY_COUNT] = {
     0x8031F93Cu, 0x8031F984u, 0x80322B20u, 0x80322BC8u, 0x80328F84u, 0x81E000D4u, 0x81E01B88u, 0x81E01BA4u,
 };
 
-/* Probe until the address is found or an empty slot ends the chain. */
+/* Probe until the address is found or an empty slot ends the chain.
+ * Zero is the empty marker, never a key: it has to end the chain before
+ * the key compare, or address 0 matches the empty slot it hashes to and a
+ * null guest pc is reported as a desktop edge. */
 static inline bool bluewake_edge_maybe_intercept(u32 address) {
     u32 slot = (address * BLUEWAKE_EDGE_KEY_MULT) >>
                BLUEWAKE_EDGE_KEY_SHIFT;
     for (;;) {
         const u32 key = g_edge_keys[slot];
-        if (key == address)
-            return true;
         if (key == 0u)
             return false;
+        if (key == address)
+            return true;
         slot = (slot + 1u) % BLUEWAKE_EDGE_KEY_SLOTS;
     }
 }

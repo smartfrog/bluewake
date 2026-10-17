@@ -18,6 +18,15 @@ int main(void) {
     for (size_t i = 0u; i < BLUEWAKE_EDGE_KEY_COUNT; i++)
         assert(bluewake_edge_maybe_intercept(g_edge_keys_all[i]));
 
+    // Zero is the table's empty marker, not a key. The miss test has to run
+    // before the compare, or address 0 matches the empty slot it hashes to and
+    // any null guest pc is handed to the chassis as a "desktop edge" - which is
+    // what the 2026-10-17 watch run logged as an unsupported interception
+    // instead of the real fault. A genuine key still hits.
+    assert(!bluewake_edge_maybe_intercept(0u));
+    assert(bluewake_edge_maybe_intercept(0x80328F84u));
+    assert(bluewake_edge_maybe_intercept(0x8030F5A4u));
+
     static const u32 semantic_addresses[] = {
         0x803193ACu, 0x80308A9Cu, 0x80322B20u, 0x80322BC8u,
         0x8030F2B0u, 0x8030F618u, 0x8030F5A4u, 0x80017FD8u,
