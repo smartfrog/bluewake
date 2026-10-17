@@ -4,8 +4,8 @@
 // CMAKE_SIZEOF_VOID_P == 4). It fails loudly if an assumption the ILP32 port relies on breaks: the
 // pointer and size types are 32 bits, the JKR block header is the GameCube's 0x10, and the
 // offset-commented fields that hold pointers or sizes (census §2.3) sit at their GameCube offsets
-// again. The unit compiles with -fno-access-control (as cos_layout_check) so offsetof can name
-// private members.
+// again (two do not, for reasons other than width: their asserts say why). The unit compiles with
+// -fno-access-control (as cos_layout_check) so offsetof can name private members.
 #include "pc/cos_pointer_width.h"
 
 static_assert(COS_HOST_ILP32, "cos_ilp32_check is for 32-bit host targets only");
@@ -68,16 +68,21 @@ static_assert(offsetof(JKRCompArchive, field_0x64) == 0x68,
               "JKRCompArchive::field_0x64 (PC layout: JKRArchive's mFileData side table)");
 
 #include "JSystem/JUtility/JUTDirectPrint.h"
-static_assert(offsetof(JUTDirectPrint, mFrameBufferSize) == 0x0C, "JUTDirectPrint::mFrameBufferSize");
+static_assert(offsetof(JUTDirectPrint, mFrameBufferSize) == 0x0C,
+              "JUTDirectPrint::mFrameBufferSize");
 
 #include "d/d_camera.h"
 static_assert(offsetof(dCamera__EventParam, mValue) == 0x10, "dCamera__EventParam::mValue");
 
 #include "f_op/f_op_msg_mng.h"
-static_assert(offsetof(fopMsgM_msgDataProc_c, field_0x2C) == 0x02C, "fopMsgM_msgDataProc_c::field_0x2C");
-static_assert(offsetof(fopMsgM_msgDataProc_c, field_0x30) == 0x030, "fopMsgM_msgDataProc_c::field_0x30");
-static_assert(offsetof(fopMsgM_msgDataProc_c, field_0x34) == 0x034, "fopMsgM_msgDataProc_c::field_0x34");
-static_assert(offsetof(fopMsgM_msgDataProc_c, field_0x38) == 0x038, "fopMsgM_msgDataProc_c::field_0x38");
+static_assert(offsetof(fopMsgM_msgDataProc_c, field_0x2C) == 0x02C,
+              "fopMsgM_msgDataProc_c::field_0x2C");
+static_assert(offsetof(fopMsgM_msgDataProc_c, field_0x30) == 0x030,
+              "fopMsgM_msgDataProc_c::field_0x30");
+static_assert(offsetof(fopMsgM_msgDataProc_c, field_0x34) == 0x034,
+              "fopMsgM_msgDataProc_c::field_0x34");
+static_assert(offsetof(fopMsgM_msgDataProc_c, field_0x38) == 0x038,
+              "fopMsgM_msgDataProc_c::field_0x38");
 
 #include "m_Do/m_Do_ext.h"
 // PC layout, not the GC offset (the comment says 0x58): the class chain goes through the virtual
