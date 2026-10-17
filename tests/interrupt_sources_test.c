@@ -11,9 +11,11 @@ typedef struct Fixture {
     unsigned deadline_calls;
 } Fixture;
 
-static u64 deadline(const CPUState* cpu, void* user) {
+static u64 deadline(const CPUState* cpu, u32* source, void* user) {
     Fixture* fixture = user;
     fixture->deadline_calls++;
+    if (source != NULL)
+        *source = BLUEWAKE_DEADLINE_NONE;
     return (cpu->msr & PPC_MSR_EE) != 0u &&
                    dol_interrupts_external_pending(&fixture->interrupts)
                ? 1u

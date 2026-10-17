@@ -1218,7 +1218,7 @@ int main(int argc, char** argv) {
             const int redirected = dup2(fds[1], STDERR_FILENO);
             (void)redirected;
             close(fds[1]);
-            ww_host_null_guard("loop", 0u);
+            ww_host_end_dispatch(NULL);
             _exit(0);
         }
         close(fds[1]);

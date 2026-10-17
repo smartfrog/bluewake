@@ -1377,7 +1377,8 @@ static u64 host_cycle_min_source(u64 current, u64 candidate, int tag,
     return current;
 }
 
-static u64 host_cycle_deadline_distance(const CPUState* cpu, void* user) {
+static u64 host_cycle_deadline_distance(const CPUState* cpu, u32* source_out,
+                                        void* user) {
     (void)cpu;
     (void)user;
     u64 distance = UINT64_MAX;
@@ -1455,6 +1456,31 @@ static u64 host_cycle_deadline_distance(const CPUState* cpu, void* user) {
             g_deadline_window_counts[bucket]++;
             if (distance == 1u)
                 g_deadline_window_one_cycle_counts[bucket]++;
+        }
+    }
+    if (source_out != NULL) {
+        switch (source) {
+        case BLUEWAKE_DEADLINE_SOURCE_VI:
+            *source_out = BLUEWAKE_DEADLINE_VI;
+            break;
+        case BLUEWAKE_DEADLINE_SOURCE_DSP:
+            *source_out = BLUEWAKE_DEADLINE_DSP_INIT;
+            break;
+        case BLUEWAKE_DEADLINE_SOURCE_AUDIO:
+            *source_out = BLUEWAKE_DEADLINE_DSP_ARAM;
+            break;
+        case BLUEWAKE_DEADLINE_SOURCE_DECREMENTER:
+            *source_out = BLUEWAKE_DEADLINE_DEC_EXPIRY;
+            break;
+        case BLUEWAKE_DEADLINE_SOURCE_CLAMP:
+            *source_out = BLUEWAKE_DEADLINE_DEC_PENDING;
+            break;
+        case BLUEWAKE_DEADLINE_SOURCE_CAP:
+            *source_out = BLUEWAKE_DEADLINE_CAP;
+            break;
+        default:
+            *source_out = BLUEWAKE_DEADLINE_NONE;
+            break;
         }
     }
     return distance;

@@ -933,9 +933,6 @@ void ww_host_note_idle_grant(WwHost* host) {
     const BluewakeCycleDomain* domain = &host->cycles;
     if (!domain->last_idle_grant)
         return;
-    g_idle_lever.last_turn = host->turns;
-    g_idle_lever.last_dist = domain->last_distance;
-    g_idle_lever.last_src = domain->last_source;
     if (g_idle_lever.jump_prints < 4u ||
         (g_idle_lever.jump_prints % 256u) == 0u) {
         if (fprintf(stderr,
@@ -952,11 +949,16 @@ void ww_host_note_idle_grant(WwHost* host) {
 }
 
 // The charge the turn actually took: budget == dist plus this == budget is the
-// proof the jump was bounded and consumed.
+// proof the jump was bounded and consumed. The durable record is committed only
+// here, so a [host-null] line names one turn's jump as a coherent set.
 void ww_host_note_idle_taken(WwHost* host, u64 elapsed) {
-    if (elapsed <= 256u)
+    const BluewakeCycleDomain* domain = &host->cycles;
+    if (!domain->last_idle_grant)
         return;
+    g_idle_lever.last_turn = host->turns;
     g_idle_lever.last_elapsed = elapsed;
+    g_idle_lever.last_dist = domain->last_distance;
+    g_idle_lever.last_src = domain->last_source;
     if (g_idle_lever.taken_prints < 4u ||
         (g_idle_lever.taken_prints % 256u) == 0u) {
         if (fprintf(stderr, "[idle-jump-taken] turn=%llu elapsed=%llu\n",

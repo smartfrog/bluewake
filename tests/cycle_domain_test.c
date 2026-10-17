@@ -77,6 +77,27 @@ static void test_idle_advance_reaches_the_deadline_in_one_turn(void) {
     assert(cpu.timebase == 682u);
 }
 
+// The idle cap is below the deadline: the grant is capped and attributed to CAP.
+static void test_idle_advance_reports_the_idle_cap_as_the_source(void) {
+    CPUState cpu;
+    memset(&cpu, 0, sizeof(cpu));
+    Fixture fixture = {.deadline = 8192u};
+    BluewakeCycleDomain domain;
+    bluewake_cycle_domain_init(&domain, 256, advance, deadline, &fixture);
+    bluewake_cycle_domain_set_idle_advance(&domain, 4096);
+
+    bluewake_cycle_domain_begin_turn(&domain, &cpu);
+    bluewake_cycle_domain_set_idle_turn(&domain, true);
+    bluewake_cycle_domain_prepare_dispatch(&domain, &cpu);
+    assert(cpu.cycle_budget == 4096);
+    assert(cpu.cycle_deadline_active == 0u);
+    assert(domain.last_idle_grant);
+    assert(domain.last_source == BLUEWAKE_DEADLINE_CAP);
+    assert(domain.last_budget == 4096u);
+    assert(domain.last_distance == 8192u);
+    assert(domain.last_budget < domain.last_distance);
+}
+
 // An event lands inside the distance: the turn stops on it and the device sees
 // exactly the event cycle, not the idle cap.
 static void test_idle_advance_clamps_at_the_event(void) {
@@ -199,6 +220,7 @@ static void test_idle_turn_does_not_leak_into_the_next_turn(void) {
 int main(void) {
     test_idle_advance_reaches_the_deadline_in_one_turn();
     test_idle_advance_clamps_at_the_event();
+    test_idle_advance_reports_the_idle_cap_as_the_source();
     test_idle_advance_without_a_mark_keeps_the_standard_budget();
     test_idle_advance_without_a_configured_cap_keeps_the_standard_budget();
     test_idle_advance_requires_a_known_deadline();

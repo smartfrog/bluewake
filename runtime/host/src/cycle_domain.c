@@ -69,9 +69,8 @@ static s64 bounded_budget(const BluewakeCycleDomain* domain,
 
 // Record what the caller granted, for the host's [idle-jump] diagnostic.
 static void record_grant(BluewakeCycleDomain* domain, s64 budget) {
-    const s64 base_cap = domain->cap > 0 ? domain->cap : 256;
     domain->last_budget = budget > 0 ? (u64)budget : 0u;
-    domain->last_idle_grant = domain->idle_turn && budget > base_cap;
+    domain->last_idle_grant = domain->idle_turn && budget > domain->cap;
 }
 
 void bluewake_cycle_domain_init(BluewakeCycleDomain* domain, s64 cap,

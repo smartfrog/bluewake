@@ -169,5 +169,22 @@ int main(void) {
     assert(bluewake_cycle_domain_end_turn(&host->cycles, cpu) == ARAM_CYCLES);
     assert(host->dsp.aram_cycles_remaining == 0u);
     assert(host->vi_retraces == 1u);
+
+    // The grant decides whether this line belongs to a jump, not the charge:
+    // a turn that leaves early still reports the jump it was given.
+    host->decrementer_pending = false;
+    host->decrementer = 74u;
+    assert(ww_host_idle_poll_ready(host));
+    bluewake_cycle_domain_begin_turn(&host->cycles, cpu);
+    bluewake_cycle_domain_set_idle_turn(&host->cycles, true);
+    bluewake_cycle_domain_prepare_dispatch(&host->cycles, cpu);
+    assert(cpu->cycle_budget == 900);
+    ww_host_note_idle_grant(host);
+    assert(jump_hits == 2u);
+    cpu->downcount = -200;
+    assert(bluewake_cycle_domain_end_turn(&host->cycles, cpu) == 200u);
+    ww_host_note_idle_taken(host, 200u);
+    assert(taken_hits == 2u);
+    assert(strstr(taken_line, "elapsed=200") != NULL);
     return 0;
 }

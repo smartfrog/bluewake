@@ -238,8 +238,6 @@ int fixture_run(int argc, char** argv) {
     u64 next_progress = 0u;
     bool traced_dispatch = false;
     while (loaded && !error && host->error == NULL && !host->edge_stopped) {
-        if (host == NULL)
-            ww_host_null_guard("loop", 0u);
         if (log_handler_boundary(host, "edge-enter")) {
             error = 1;
             break;
