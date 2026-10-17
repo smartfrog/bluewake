@@ -196,6 +196,100 @@ static void test_idle_advance_is_bounded_and_repeatable(void) {
     assert(fixture.advanced == moving_base && fixture.advances == 3u);
 }
 
+// A zero request keeps the parent's fixed cap; only a positive POC value
+// replaces it.
+static void test_turn_cap_selection_keeps_the_parent_default(void) {
+    assert(bluewake_cycle_domain_select_cap(0) == 256);
+    assert(bluewake_cycle_domain_select_cap(-1) == 256);
+
+    CPUState cpu;
+    memset(&cpu, 0, sizeof(cpu));
+    Fixture fixture = {.deadline = 100000u};
+    BluewakeCycleDomain domain;
+    bluewake_cycle_domain_init(&domain,
+                               bluewake_cycle_domain_select_cap(0),
+                               advance, deadline, &fixture);
+    assert(domain.cap == 256);
+}
+
+// The POC package asks for 4096 cycles per turn.
+static void test_turn_cap_selection_accepts_the_poc_cap(void) {
+    assert(bluewake_cycle_domain_select_cap(4096) == 4096);
+
+    CPUState cpu;
+    memset(&cpu, 0, sizeof(cpu));
+    Fixture fixture = {.deadline = 100000u};
+    BluewakeCycleDomain domain;
+    bluewake_cycle_domain_init(&domain,
+                               bluewake_cycle_domain_select_cap(4096),
+                               advance, deadline, &fixture);
+    assert(domain.cap == 4096);
+}
+
+// A device event nearer than the POC cap still ends the turn exactly on it.
+static void test_poc_turn_cap_still_stops_at_the_device_deadline(void) {
+    CPUState cpu;
+    memset(&cpu, 0, sizeof(cpu));
+    Fixture fixture = {.deadline = 900u};
+    BluewakeCycleDomain domain;
+    bluewake_cycle_domain_init(&domain,
+                               bluewake_cycle_domain_select_cap(4096),
+                               advance, deadline, &fixture);
+
+    bluewake_cycle_domain_begin_turn(&domain, &cpu);
+    bluewake_cycle_domain_prepare_dispatch(&domain, &cpu);
+    assert(cpu.cycle_budget == 900);
+    assert(cpu.cycle_deadline_active == 1u);
+    assert(cpu.cycle_deadline_budget == 900);
+    assert(domain.last_source == BLUEWAKE_DEADLINE_VI);
+}
+
+// With no nearer device event the POC cap bounds the turn and is attributed
+// to the cap, not to a deadline.
+static void test_poc_turn_cap_bounds_a_turn_without_a_nearer_event(void) {
+    CPUState cpu;
+    memset(&cpu, 0, sizeof(cpu));
+    Fixture fixture = {.deadline = 100000u};
+    BluewakeCycleDomain domain;
+    bluewake_cycle_domain_init(&domain,
+                               bluewake_cycle_domain_select_cap(4096),
+                               advance, deadline, &fixture);
+
+    bluewake_cycle_domain_begin_turn(&domain, &cpu);
+    bluewake_cycle_domain_prepare_dispatch(&domain, &cpu);
+    assert(cpu.cycle_budget == 4096);
+    assert(cpu.cycle_deadline_active == 0u);
+    assert(cpu.cycle_deadline_budget == 100000);
+    assert(domain.last_source == BLUEWAKE_DEADLINE_CAP);
+}
+
+// Repeating bounded turns lands exactly on the event: never past it and never
+// with a growing overshoot.
+static void test_poc_turn_cap_is_bounded_and_repeatable(void) {
+    CPUState cpu;
+    memset(&cpu, 0, sizeof(cpu));
+    Fixture fixture = {0};
+    moving_base = 20000u;
+    BluewakeCycleDomain domain;
+    bluewake_cycle_domain_init(&domain,
+                               bluewake_cycle_domain_select_cap(4096),
+                               advance, moving_deadline, &fixture);
+    moving_domain = &domain;
+
+    const u64 expected[] = {4096u, 4096u, 4096u, 4096u, 3616u};
+    u64 advanced = 0u;
+    for (unsigned turn = 0u; turn < 5u; ++turn) {
+        bluewake_cycle_domain_begin_turn(&domain, &cpu);
+        bluewake_cycle_domain_prepare_dispatch(&domain, &cpu);
+        assert((u64)cpu.cycle_budget == expected[turn]);
+        cpu.downcount = -cpu.cycle_budget;
+        advanced += bluewake_cycle_domain_end_turn(&domain, &cpu);
+    }
+    assert(advanced == moving_base);
+    assert(domain.absolute_cycles == moving_base);
+    assert(fixture.advanced == moving_base && fixture.advances == 5u);
+}
+
 // One idle turn must not leak into the next: begin_turn clears it and the
 // standard 256-cycle budget comes back.
 static void test_idle_turn_does_not_leak_into_the_next_turn(void) {
@@ -225,6 +319,11 @@ int main(void) {
     test_idle_advance_without_a_configured_cap_keeps_the_standard_budget();
     test_idle_advance_requires_a_known_deadline();
     test_idle_advance_is_bounded_and_repeatable();
+    test_turn_cap_selection_keeps_the_parent_default();
+    test_turn_cap_selection_accepts_the_poc_cap();
+    test_poc_turn_cap_still_stops_at_the_device_deadline();
+    test_poc_turn_cap_bounds_a_turn_without_a_nearer_event();
+    test_poc_turn_cap_is_bounded_and_repeatable();
     test_idle_turn_does_not_leak_into_the_next_turn();
 
     CPUState cpu;

@@ -14,11 +14,15 @@ u64 g_cycle_credit_sum;
 u64 g_cycle_credit_max;
 u64 g_cycle_credit_over_budget;
 
+s64 bluewake_cycle_domain_select_cap(s64 requested) {
+    return requested > 0 ? requested : BLUEWAKE_CYCLE_DOMAIN_DEFAULT_CAP;
+}
+
 static s64 bounded_budget(const BluewakeCycleDomain* domain,
                           const CPUState* cpu, u32* deadline_active,
                           s64* deadline_budget, u32* source,
                           u64* distance_out) {
-    const s64 base_cap = domain->cap > 0 ? domain->cap : 256;
+    const s64 base_cap = bluewake_cycle_domain_select_cap(domain->cap);
     s64 budget = base_cap;
     bool bounded_by_deadline = false;
     u64 distance = UINT64_MAX;
@@ -79,7 +83,7 @@ void bluewake_cycle_domain_init(BluewakeCycleDomain* domain, s64 cap,
     if (domain == NULL)
         return;
     memset(domain, 0, sizeof(*domain));
-    domain->cap = cap > 0 ? cap : 256;
+    domain->cap = bluewake_cycle_domain_select_cap(cap);
     domain->advance = advance;
     domain->deadline = deadline;
     domain->user = user;
