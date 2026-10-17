@@ -331,11 +331,11 @@ int main(int argc, char** argv) {
         .num_code_ranges=sizeof(profile_ranges)/sizeof(profile_ranges[0]),.chunk_ranges=chunks,
         .chunk_hashes=hashes,.num_chunk_ranges=5u,.rel_modules=descriptors,.num_rel_modules=3u,
         .dispatch=translated_dispatch};
-    BlueWakeRelData data[] = {fixture_data[0],fixture_data[1],
+    BlueWakeRelData data[] = {fixture_data[0],fixture_data[1],fixture_data[2],
         {1u,2u,0xC1F80170u,4u,resident_ctors},{1u,4u,0xC1F80178u,16u,resident_data},block_title_canonical[1]};
     host->module = &module;
     host->rel_data = data;
-    host->rel_data_count = 5u;
+    host->rel_data_count = 6u;
     BlueWakeRelInitContractV1 title_certificate = {.module_id=400u,.rel_bytes=block_title_raw,
         .rel_size=sizeof(block_title_raw),.canonical_sections=block_title_canonical,.section_count=2u,
         .ctor_table_section=2u,.ctor_return_pc=0xC1E000F4u,.lifecycle=&block_title_lifecycle,
@@ -353,7 +353,7 @@ int main(int argc, char** argv) {
     host->rel_title_admission = !off && !ship;
     if (strncmp(scenario, "title-", 6u) == 0)
         mem_write32(&host->cpu, 0x800030D0u, 0x80006000u);
-    for (u32 index = 0u; index < 5u; ++index)
+    for (u32 index = 0u; index < host->rel_data_count; ++index)
         assert(ppc_guest_alias_add(data[index].linked_start, data[index].size, data[index].bytes));
     assert(ww_host_materialize_rel(host, 0x80002400u, "f_pc_profile_lst") == NULL);
     WwRelImage* profile = ww_host_rel_owned(host, 0x80002400u);

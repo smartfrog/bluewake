@@ -132,8 +132,14 @@ static int translated_chunk(CPUState* cpu, u32 address) {
     case 0x80241178u: case 0x80241198u: case 0x802411ACu: case 0x802411B4u:
         func_C0241178(cpu); return 1;
     case 0x802410B4u: func_C02410B4(cpu); return 1;
+    case 0x802410B8u: func_C02410B8(cpu); return 1;
+    case 0x802411F8u: case 0x8024122Cu:
+        func_C02411F8(cpu); return 1;
+    case 0x803056BCu: func_803056BC(cpu); return 1;
     case 0x81B100F4u: case 0x81B1010Cu: case 0x81B10110u:
+    case 0x81B10120u: case 0x81B10130u: case 0x81B1013Cu:
         func_C1B100F4(cpu); return 1;
+    case 0x81B10188u: func_C1B10184(cpu); return 1;
     case 0x81B1D414u: case 0x81B1D424u: case 0x81B1D428u:
         func_C1B1D414(cpu); return 1;
     case 0x81B1016Cu: func_C1B1016C(cpu); return 1;
@@ -157,7 +163,7 @@ int main(int argc, char** argv) {
         .rel_modules = &rel, .num_rel_modules = 1u, .dispatch = translated_dispatch};
     host->module = &module;
     host->rel_data = fixture_data;
-    host->rel_data_count = 2u;
+    host->rel_data_count = 3u;
     StaticRecompRange* scratch_ranges = NULL;
     if (argc >= 3) {
         assert(strncmp(scenario, "scratch-", 8u) == 0 || strncmp(scenario, "icbi-", 5u) == 0 ||
@@ -230,7 +236,7 @@ int main(int argc, char** argv) {
         hashes[0] ^= 1u;
         module.chunk_hashes = hashes;
     }
-    for (u32 at = 0u; at < 2u; ++at)
+    for (u32 at = 0u; at < host->rel_data_count; ++at)
         assert(ppc_guest_alias_add(fixture_data[at].linked_start, fixture_data[at].size, fixture_data[at].bytes));
     if (strcmp(scenario, "scratch-alias") == 0)
         assert(ppc_guest_alias_add(0xC1F90000u, 32u, NULL));
@@ -423,16 +429,42 @@ int main(int argc, char** argv) {
         assert(error != NULL && image->linked && !image->unlinked);
         assert(mem_read32(cpu, image->owner + 0x10u) == image->guest);
         fprintf(stderr, "PASS rejected reason=%s\n", error);
-    } else if (strncmp(scenario, "epilog-", 7u) == 0 || strncmp(scenario, "unresolved-", 11u) == 0 ||
-               strcmp(scenario, "native-unlink") == 0) {
+    } else if (strcmp(scenario, "native-unlink") == 0) {
+        const u32 owner = image->owner;
+        const u32 guest = image->guest;
+        cpu->pc = 0x80240F54u;
+        cpu->lr = 0x80240314u;
+        cpu->gpr[3] = cpu->gpr[31] = owner;
+        assert(!ww_host_edge(host, cpu, cpu->pc));
+        assert(host->error == NULL && host->rel_pending_unlink.phase == WW_REL_UNLINK_ENTRY_READY);
+        cpu->pc = 0xC1B10120u;
+        cpu->lr = 0x80240F80u;
+        cpu->gpr[3] = guest;
+        cpu->gpr[31] = owner;
+        assert(ww_host_dispatch(host, cpu->pc) == 1);
+        assert(host->error == NULL && cpu->pc == 0x80240F80u);
+        assert(host->rel_pending_unlink.phase == WW_REL_UNLINK_EPILOG_RETURNED);
+        assert(mem_read32(cpu, 0xC1B224D0u) == 1u);
+        cpu->pc = 0x803056BCu;
+        cpu->lr = 0x80240F8Cu;
+        cpu->gpr[3] = guest;
+        assert(ww_host_dispatch(host, cpu->pc) == 1);
+        assert(host->error == NULL && cpu->pc == 0x80240F8Cu);
+        assert(host->rel_pending_unlink.phase == WW_REL_UNLINK_NONE);
+        assert(!image->linked && image->unlinked);
+        assert(host->rel_sdk_head == 0u && host->rel_sdk_tail == 0u);
+        assert(ww_host_collect_rels(host) != NULL);
+        assert(get_ram_ptr(cpu, guest, 4u, NULL) != NULL);
+        mem_write32(cpu, owner + 0x10u, 0u);
+        assert(ww_host_collect_rels(host) == NULL);
+        assert(get_ram_ptr(cpu, guest, 4u, NULL) == NULL);
+        assert(host->alias_count == 0u && host->alias_bytes == 0u);
+        fprintf(stderr, "PASS native-unlink epilog-returned sdk-reconciled collected\n");
+    } else if (strncmp(scenario, "epilog-", 7u) == 0 || strncmp(scenario, "unresolved-", 11u) == 0) {
         const bool epilog = strncmp(scenario, "epilog-", 7u) == 0;
         cpu->pc = epilog ? 0xC1B10120u : 0xC1B1014Cu;
         if (strstr(scenario, "scratch") != NULL) {
             cpu->pc = mem_read32(cpu, image->guest + (epilog ? 0x38u : 0x3Cu));
-        }
-        if (strcmp(scenario, "native-unlink") == 0) {
-            cpu->pc = 0x80240F54u;
-            cpu->gpr[3] = image->owner;
         }
         assert(ww_host_dispatch(host, cpu->pc) == -1 && host->error != NULL && image->linked);
         fprintf(stderr, "PASS rejected reason=%s\n", host->error);

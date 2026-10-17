@@ -18,6 +18,7 @@ def branch(source, target, link=True):
 
 
 def instructions():
+    walker_pc = 0xC02411F8
     return {
         0x80007000: [0x80A40198, 0x7CBA03A6, 0x80A4019C, 0x7CBB03A6,
                      0x8064000C, 0x80840010, 0x4C000064],
@@ -31,13 +32,30 @@ def instructions():
                      0x3BFF0004, branch(0xC02411B0, 0xC0241198, False),
                      0x83E1000C, 0x80010014, 0x7C0803A6, 0x38210010, 0x4E800020],
         0xC02410B4: [0x4E800020],
+        0xC02410B8: [0x4E800020],
+        0xC02411F8: [0x9421FFF0, 0x7C0802A6, 0x90010014, 0x93E1000C, 0x7C7F1B78,
+                     branch(walker_pc + 0x14, walker_pc + 0x20, False), 0x60000000, 0x60000000,
+                     0x819F0000, 0x2C0C0000, 0x41820014, 0x7D8903A6, 0x4E800421,
+                     0x3BFF0004, branch(walker_pc + 0x38, walker_pc + 0x20, False),
+                     0x83E1000C, 0x80010014, 0x7C0803A6, 0x38210010, 0x4E800020],
+        0x803056BC: [0x80830004, 0x80A30008, 0x3CC08000, 0x2C040000, 0x4082000C,
+                     0x90A630CC, 0x48000008, 0x90A40008, 0x2C050000, 0x4082000C,
+                     0x908630C8, 0x48000008, 0x90850004, 0x38600001, 0x4E800020],
         0xC1B100F4: [0x9421FFF0, 0x7C0802A6, 0x90010014, 0x3C60C1B2, 0x3863DAF0,
                      branch(0xC1B10108, 0xC0241178), branch(0xC1B1010C, 0xC02410B4),
-                     0x80010014, 0x7C0803A6, 0x38210010, 0x4E800020] + [0x60000000] * 13,
+                     0x80010014, 0x7C0803A6, 0x38210010, 0x4E800020,
+                     0x9421FFF0, 0x7C0802A6, 0x90010014,
+                     branch(0xC1B1012C, 0xC02410B8), 0x3C60C1B2, 0x3863DAF8,
+                     branch(0xC1B10138, 0xC02411F8),
+                     0x80010014, 0x7C0803A6, 0x38210010, 0x4E800020,
+                     0x60000000, 0x60000000],
+        0xC1B10154: [0x60000000] * 6,
+        0xC1B1016C: [0x3C80C1B2, 0x388424D0, 0x80A40000, 0x38A50001, 0x90A40000, 0x4E800020],
+        0xC1B10184: [0x60000000, 0x3C80C1B2, 0x388424D0, 0x80A40000,
+                     0x38A5FFFF, 0x90A40000, 0x4E800020],
         0xC1B1D414: [0x9421FFF0, 0x7C0802A6, 0x90010014,
                      branch(0xC1B1D420, 0xC1B1016C), branch(0xC1B1D424, 0xC1B1016C),
                      0x80010014, 0x7C0803A6, 0x38210010, 0x4E800020],
-        0xC1B1016C: [0x3C80C1B2, 0x388424D0, 0x80A40000, 0x38A50001, 0x90A40000, 0x4E800020],
     }
 
 
@@ -51,17 +69,27 @@ def fnv(data):
 def fixture(output):
     code = instructions()
     raw = bytearray(74960)
-    for offset, value in ((0, 168), (0xC, 6), (0x10, 0x4C), (0x1C, 3), (0x20, 16),
+    for offset, value in ((0, 168), (0xC, 7), (0x10, 0x4C), (0x1C, 3), (0x20, 16),
                           (0x24, 0x2B0), (0x28, 0x2A0), (0x2C, 16), (0x38, 44), (0x3C, 88), (0x48, 0xE3B8)):
         struct.pack_into('>I', raw, offset, value)
     raw[0x30:0x33] = bytes([1, 1, 1])
-    sections = [(1, 0xC1B100F4, 0xF4, 96), (2, 0xC1B1D414, 0x200, 36),
-                (3, 0xC1B1016C, 0x230, 24), (4, 0xC1B1DAF0, 0x260, 12),
-                (5, 0xC1B224D0, 0, 16)]
+    sections = [(1, 0xC1B100F4, 0xF4, 172), (2, 0xC1B1D414, 0x200, 36),
+                (3, 0xC1B1016C, 0x230, 24), (4, 0xC1B1DAF0, 0x260, 8),
+                (5, 0xC1B224D0, 0, 16), (6, 0xC1B1DAF8, 0x270, 8)]
+
+    def emitted(address, size):
+        data = b''
+        while len(data) < size:
+            words = code[address + len(data)]
+            data += struct.pack(f'>{len(words)}I', *words)
+        assert len(data) == size
+        return data
+
     for index, address, offset, size in sections:
         struct.pack_into('>II', raw, 0x4C + index * 8, offset | int(index < 4), size)
         if index < 4:
-            raw[offset:offset + size] = struct.pack(f'>{len(code[address])}I', *code[address])
+            raw[offset:offset + size] = emitted(address, size)
+    struct.pack_into('>II', raw, 0x270, 0xC1B10188, 0)
     canonical = bytearray(raw)
     struct.pack_into('>I', canonical, 0x260, 0xC1B1D414)
     struct.pack_into('>I', raw, 0x100, 0x3C600000)
@@ -95,11 +123,13 @@ def fixture(output):
     lines.extend(f'0x{fnv(canonical[offset:offset + size]):016X}ull,' for _, _, offset, size in executable)
     lines += ['};', 'static const StaticRecompRelSection fixture_sections[] = {']
     lines.extend(f'{{168u, {index}u, 0x{address:08X}u, {size}u}},' for index, address, _, size in sections)
-    lines += ['};', 'static const StaticRecompRelModule fixture_rel = {.module_id=168u, .section_count=6u,',
-              f'.section_info_offset=0x4Cu, .file_size={len(raw)}u, .sections=fixture_sections, .num_sections=5u}};',
-              'static const u8 fixture_ctors[] = {0xC1, 0xB1, 0xD4, 0x14, 0, 0, 0, 0, 0, 0, 0, 0};',
+    lines += ['};', 'static const StaticRecompRelModule fixture_rel = {.module_id=168u, .section_count=7u,',
+              f'.section_info_offset=0x4Cu, .file_size={len(raw)}u, .sections=fixture_sections, .num_sections=6u}};',
+              'static const u8 fixture_ctors[] = {0xC1, 0xB1, 0xD4, 0x14, 0, 0, 0, 0};',
+              'static const u8 fixture_dtors[] = {0xC1, 0xB1, 0x01, 0x88, 0, 0, 0, 0};',
               'static const BlueWakeRelData fixture_data[] = {',
-              '{168u, 4u, 0xC1B1DAF0u, 12u, fixture_ctors}, {168u, 5u, 0xC1B224D0u, 16u, NULL}};']
+              '{168u, 4u, 0xC1B1DAF0u, 8u, fixture_ctors}, {168u, 5u, 0xC1B224D0u, 16u, NULL},',
+              '{168u, 6u, 0xC1B1DAF8u, 8u, fixture_dtors}};']
     (output / 'ship_fixture.inc').write_text('\n'.join(lines) + '\n')
     section_map = [{'index': index, 'offset': offset, 'size': size, 'linked_start': address,
                     'executable': index < 4, 'bytes': canonical[offset:offset + size] if offset else None}
@@ -331,8 +361,8 @@ class ShipPrologTest(unittest.TestCase):
     def test_icbi_unknown_target_keeps_the_existing_refusal_text_and_context(self):
         self.assertIn('PASS icbi refused target=90000000', self.run_probe('icbi-unknown'))
 
-    def test_native_actor_unlink_remains_gated(self):
-        self.assertIn('native REL unlink', self.run_probe('native-unlink'))
+    def test_native_unlink_runs_the_real_epilog_destructors_and_sdk_reconciliation(self):
+        self.assertIn('PASS native-unlink epilog-returned sdk-reconciled collected', self.run_probe('native-unlink'))
 
     def test_changed_constructor_table_cannot_dispatch_a_constructor(self):
         self.assertIn('constructor target requires translated code owned by its caller', self.run_probe('ctor-mutated'))

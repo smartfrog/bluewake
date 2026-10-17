@@ -41,7 +41,7 @@ static void change_schema(const char* field, BlueWakeRelInitContractSetV1* set,
     else if (strcmp(field, "canonical-count") == 0) certificates[1].section_count = 1u;
     else if (strcmp(field, "canonical-duplicate") == 0) canonical[1] = canonical[0];
     else if (strcmp(field, "canonical-code") == 0) { code[0] ^= 1u; canonical[0].bytes = code; }
-    else if (strcmp(field, "export-duplicate") == 0) data[3] = data[2];
+    else if (strcmp(field, "export-duplicate") == 0) data[4] = data[3];
     else if (strcmp(field, "lifecycle-id") == 0) lifecycle->module_id = 168u;
     else if (strcmp(field, "lifecycle-selector") == 0) raw[0x30u] = 7u;
     else if (strcmp(field, "lifecycle-offset") == 0) write_be32(raw + 0x34u, 4u);
@@ -49,7 +49,7 @@ static void change_schema(const char* field, BlueWakeRelInitContractSetV1* set,
         write_be32(ctors, 0xC1E000DCu);
         write_be32(raw + 0xC0u, 0xC1E000DCu);
         canonical[1].bytes = ctors;
-        data[2].bytes = ctors;
+        data[3].bytes = ctors;
     } else if (strcmp(field, "imports") == 0) write_be32(raw + 0xD0u, 168u);
     else if (strcmp(field, "relocation") == 0) raw[0xEAu] = 11u;
     else if (strcmp(field, "stream-end") == 0) raw[0xF2u] = 201u;
@@ -112,10 +112,10 @@ int main(int argc, char** argv) {
         .rel_modules = descriptors, .num_rel_modules = 3u};
     host->module = &module;
     static const u8 profile_bytes[16];
-    BlueWakeRelData data[] = {fixture_data[0],fixture_data[1],title_canonical[1],
+    BlueWakeRelData data[] = {fixture_data[0],fixture_data[1],fixture_data[2],title_canonical[1],
                             {1u,4u,0xC1F80178u,16u,profile_bytes}};
     host->rel_data = data;
-    host->rel_data_count = 4u;
+    host->rel_data_count = 5u;
     if (strcmp(argv[1], "legacy-ctor-terminator") == 0) {
         legacy_terminator(host);
     } else {
@@ -150,7 +150,7 @@ int main(int argc, char** argv) {
             for (u32 at = 0u; at < 8u; ++at) catalog_sections[at].module_id = 401u;
             descriptors[1].sections = catalog_sections;
             for (u32 at = 0u; at < 2u; ++at) canonical[at].module_id = 401u;
-            data[2].module_id = 401u;
+            data[3].module_id = 401u;
         }
         if (strcmp(argv[1], "uncertified") == 0)
             set.contract_count = 1u;
@@ -178,7 +178,7 @@ int main(int argc, char** argv) {
                 free(host);
                 return 0;
             }
-            for (u32 at = 0u; at < 4u; ++at)
+            for (u32 at = 0u; at < host->rel_data_count; ++at)
                 assert(ppc_guest_alias_add(data[at].linked_start, data[at].size, data[at].bytes));
             WwRelImage* profile = strcmp(argv[1], "empty-list") == 0 ? NULL : publish(host, 0x80002100u, "f_pc_profile_lst");
             mem_write32(&host->cpu, 0x800030C8u, profile == NULL ? 0u : profile->guest);

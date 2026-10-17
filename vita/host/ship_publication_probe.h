@@ -9,7 +9,7 @@ static void relocate_ship_payload(WwHost* host, const WwRelImage* image) {
 static void seed_ship_profile(WwHost* host) {
     static StaticRecompModuleDesc module;
     static StaticRecompRelModule descriptors[2];
-    static BlueWakeRelData data[3];
+    static BlueWakeRelData data[4];
     static const u8 profile_bytes[4];
     static const StaticRecompRelSection profile_section = {1u,4u,0xC1F80178u,4u};
     module = *host->module;
@@ -17,18 +17,20 @@ static void seed_ship_profile(WwHost* host) {
     descriptors[1] = (StaticRecompRelModule){.module_id=1u,.sections=&profile_section,.num_sections=1u};
     module.rel_modules = descriptors;
     module.num_rel_modules = 2u;
-    memcpy(data, host->rel_data, 2u * sizeof(*data));
-    data[2] = (BlueWakeRelData){1u,4u,0xC1F80178u,4u,profile_bytes};
+    assert(host->rel_data_count <= 3u);
+    memcpy(data, host->rel_data, host->rel_data_count * sizeof(*data));
+    const u32 count = host->rel_data_count + 1u;
+    data[count - 1u] = (BlueWakeRelData){1u,4u,0xC1F80178u,4u,profile_bytes};
     host->module = &module;
     host->rel_data = data;
-    host->rel_data_count = 3u;
+    host->rel_data_count = count;
     assert(ppc_guest_alias_add(0x81822E80u, 32u, NULL));
-    assert(ppc_guest_alias_add(data[2].linked_start, data[2].size, data[2].bytes));
+    assert(ppc_guest_alias_add(data[count - 1u].linked_start, data[count - 1u].size, data[count - 1u].bytes));
     host->rel_images[0] = (WwRelImage){.owner=0x80002400u,.guest=0x81822E80u,.bytes=32u,.capacity=32u,
                                      .module_id=1u,.linked=true};
     host->rel_image_count = 1u;
     mem_write32(&host->cpu, 0x81822E80u, 1u);
-    mem_write32(&host->cpu, 0x803F6A68u, data[2].linked_start);
+    mem_write32(&host->cpu, 0x803F6A68u, data[count - 1u].linked_start);
     mem_write32(&host->cpu, 0x800030C8u, 0x81822E80u);
     mem_write32(&host->cpu, 0x800030CCu, 0x81822E80u);
 }

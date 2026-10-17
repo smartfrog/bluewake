@@ -88,6 +88,7 @@ typedef struct WwHost {
     bool rel_test_admission;
 #endif
     WwRelPendingInit rel_pending_init;
+    WwRelPendingUnlink rel_pending_unlink;
     WwRelProfileBlock rel_profile_block;
     WwRelBlock rel_title_block;
     WwDspInterface dsp;

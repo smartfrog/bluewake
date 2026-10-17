@@ -179,16 +179,44 @@ class RelLifecycleTest(unittest.TestCase):
     def test_a_completed_image_cannot_initialize_twice(self):
         self.run_probe('repeat-init')
 
-    def test_epilog_and_unresolved_canonical_and_scratch_entries_stay_denied(self):
-        for entry in ('epilog', 'unresolved'):
-            for address in ('canonical', 'scratch'):
-                with self.subTest(entry=entry, address=address):
-                    self.run_probe(entry + '-' + address)
+    def test_epilog_entries_are_admitted_under_the_native_unlink_contract(self):
+        for address in ('canonical', 'scratch'):
+            with self.subTest(address=address):
+                log = self.run_probe('epilog-' + address)
+                self.assertIn('[rel-unlink] module=400 stage=entered', log)
+                self.assertIn('[rel-unlink] module=400 stage=epilog-entered', log)
 
-    def test_api_and_native_unlink_keep_all_ownership(self):
-        for entry in ('unlink', 'native-unlink'):
+    def test_epilog_and_unresolved_entries_without_the_pending_contract_stay_denied(self):
+        for entry in ('epilog-absent', 'unresolved-canonical', 'unresolved-scratch'):
             with self.subTest(entry=entry):
                 self.run_probe(entry)
+
+    def test_api_and_native_unlink_keep_all_ownership(self):
+        self.run_probe('unlink')
+
+    def test_native_unlink_runs_the_certified_destruction_and_reconciles_the_sdk_list(self):
+        log = self.run_probe('native-unlink')
+        for stage in ('entered', 'epilog-entered', 'dtor-completed', 'epilog-returned', 'sdk-unlink', 'reconciled'):
+            self.assertIn(f'[rel-unlink] module=400 stage={stage}', log)
+
+    def test_native_unlink_entry_and_epilog_keep_every_unmatched_shape_denied(self):
+        for scenario in ('unlink-wrong-caller', 'unlink-wrong-owner', 'unlink-module-1', 'unlink-uncertified',
+                         'unlink-importer', 'unlink-changed-raw', 'unlink-changed-section', 'unlink-pending',
+                         'epilog-wrong-lr', 'epilog-wrong-header', 'epilog-second', 'epilog-return-without-walk'):
+            with self.subTest(scenario=scenario):
+                self.run_probe(scenario)
+
+    def test_destructor_walk_requires_its_admitted_epilog_and_certified_table(self):
+        for scenario in ('dtor-without-active', 'dtor-wrong-caller', 'dtor-foreign-table', 'dtor-terminator',
+                         'dtor-foreign-target', 'dtor-changed-table', 'dtor-nested', 'dtor-during-walk'):
+            with self.subTest(scenario=scenario):
+                self.run_probe(scenario)
+
+    def test_osunlink_observation_requires_its_admitted_contract_and_reconciliation(self):
+        for scenario in ('sdk-without-contract', 'sdk-wrong-caller', 'sdk-wrong-header', 'sdk-success',
+                         'sdk-list', 'sdk-reconstruction'):
+            with self.subTest(scenario=scenario):
+                self.run_probe(scenario)
 
     def test_registered_ikada_needs_its_own_production_admission(self):
         for policy in ('registered-only', 'ship-only', 'title-only', 'off'):

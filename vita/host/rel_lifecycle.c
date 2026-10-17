@@ -8,6 +8,7 @@
 void ww_host_rel_lifecycle_revoke(WwHost* host) {
     ww_host_rel_profile_revoke(host);
     memset(&host->rel_pending_init, 0, sizeof(host->rel_pending_init));
+    memset(&host->rel_pending_unlink, 0, sizeof(host->rel_pending_unlink));
     host->rel_constructor_owner = 0u;
     host->rel_constructor_return = 0u;
     host->rel_constructor_table = 0u;
@@ -67,6 +68,108 @@ static bool caller_matches(const WwHost* host) {
         cpu->gpr[31] == pending->r31 && pending->r31 == pending->owner && cpu->lr == pending->successor;
 }
 
+bool ww_host_rel_unlink_identity(WwHost* host, const WwRelPendingUnlink* pending) {
+    const WwRelImage* image = pending->image;
+    return image != NULL && ww_host_rel_owned(host, pending->owner) == image &&
+        ww_host_rel_live(host, pending->module_id) == image && image->certificate == pending->certificate &&
+        pending->certificate != NULL && pending->certificate->rel_bytes == pending->identity &&
+        pending->certificate->rel_size == pending->bytes && image->module_id == pending->module_id &&
+        image->owner == pending->owner && image->guest == pending->guest && image->bytes == pending->bytes &&
+        image->capacity == pending->capacity && image->sections == pending->sections &&
+        policy_permits(host, image) && image->sdk_phase == WW_REL_SDK_CERTIFIED &&
+        ww_host_rel_sections_match_post_link(image) && ww_host_rel_raw_unchanged(image) &&
+        ww_host_rel_sdk_integrity(host);
+}
+
+const char* ww_host_rel_unlink_entry(WwHost* host, u32 address) {
+    CPUState* cpu = &host->cpu;
+    WwRelImage* image = ww_host_rel_owned(host, cpu->gpr[3]);
+    if (image == NULL)
+        return NULL;
+    if ((address & ~0x40000000u) != 0x80240F54u || cpu->pc != address)
+        return "REL native unlink requires its exact translated entry pc";
+    if (host->rel_pending_unlink.phase != WW_REL_UNLINK_NONE)
+        return "REL native unlink requires no pending unlink";
+    if (host->rel_pending_init.phase != WW_REL_INIT_NONE)
+        return "REL native unlink requires no pending initialization";
+    if (cpu->gpr[3] != cpu->gpr[31])
+        return "REL native unlink requires its exact owner in r3 and r31";
+    if (cpu->lr != 0x80240314u)
+        return "REL native unlink requires its translated vtable caller";
+    if (image->module_id == 1u)
+        return "REL profile-list resident contract does not support unload";
+    if (!image->linked || ww_host_rel_live(host, image->module_id) != image)
+        return "REL native unlink requires unchanged live ownership";
+    if (!image->initialization_completed)
+        return "REL native unlink requires its completed initialization";
+    if (image->certificate == NULL || image->sdk_phase != WW_REL_SDK_CERTIFIED)
+        return "REL native unlink requires its certified destruction contract";
+    if (!policy_permits(host, image))
+        return "REL native unlink requires its admitted certificate policy";
+    if (ww_rel_validate_certificate(host, image->certificate) != NULL)
+        return "REL native unlink requires its valid certificate";
+    if (!ww_host_rel_sections_match_post_link(image) || !ww_host_rel_raw_unchanged(image))
+        return "REL native unlink requires unchanged raw and section state";
+    if (!ww_host_rel_sdk_integrity(host))
+        return "REL native unlink requires the intact SDK list";
+    for (u32 at = 0u; at < host->rel_image_count; ++at) {
+        const WwRelImage* importer = &host->rel_images[at];
+        if (!importer->linked)
+            continue;
+        for (u32 dependency = 0u; dependency < importer->dependency_count; ++dependency)
+            if (importer->dependencies[dependency] == image->module_id)
+                return "REL native unlink would invalidate a live importing module";
+    }
+    if (fprintf(stderr, "[rel-unlink] module=%u stage=entered pc=%08X owner=%08X\n",
+                image->module_id, address, image->owner) < 0)
+        return "REL native unlink entry trace failed";
+    host->rel_pending_unlink = (WwRelPendingUnlink){.phase = WW_REL_UNLINK_ENTRY_READY, .image = image,
+        .certificate = image->certificate, .identity = image->certificate->rel_bytes,
+        .sections = image->sections, .module_id = image->module_id, .owner = image->owner,
+        .guest = image->guest, .bytes = image->bytes, .capacity = image->capacity, .r31 = cpu->gpr[31]};
+    return NULL;
+}
+
+static const char* unlink_epilog(WwHost* host, WwRelImage* image, u32 canonical) {
+    WwRelPendingUnlink* pending = &host->rel_pending_unlink;
+    const BlueWakeRelLifecycleV2* lifecycle = image->certificate->lifecycle;
+    if (canonical != (lifecycle->epilog_address & ~0x40000000u) ||
+        pending->phase == WW_REL_UNLINK_NONE || pending->image != image)
+        return "REL epilog or unresolved entry has no supported lifecycle contract";
+    CPUState* cpu = &host->cpu;
+    if (pending->phase != WW_REL_UNLINK_ENTRY_READY)
+        return "REL epilog entry requires its admitted native unlink contract";
+    if (cpu->lr != 0x80240F80u)
+        return "REL epilog entry requires its translated do_unlink successor";
+    if (cpu->gpr[3] != image->guest)
+        return "REL epilog entry requires its owned module header";
+    if (!ww_host_rel_unlink_identity(host, pending))
+        return "REL epilog entry lost its exact live owner";
+    if (fprintf(stderr, "[rel-unlink] module=%u stage=epilog-entered pc=%08X owner=%08X\n",
+                image->module_id, canonical, image->owner) < 0)
+        return "REL unlink epilog entry trace failed";
+    pending->phase = WW_REL_UNLINK_EPILOG_ACTIVE;
+    return NULL;
+}
+
+static const char* unlink_epilog_return(WwHost* host, u32 address) {
+    WwRelPendingUnlink* pending = &host->rel_pending_unlink;
+    CPUState* cpu = &host->cpu;
+    if (pending->phase != WW_REL_UNLINK_EPILOG_ACTIVE || pending->image == NULL)
+        return "REL unlink continuation requires its admitted epilog call";
+    if (cpu->pc != address)
+        return "REL unlink continuation requires its exact translated successor";
+    if (!ww_host_rel_unlink_identity(host, pending))
+        return "REL unlink epilog return lost its exact live owner";
+    if (!pending->destructor_completed)
+        return "REL unlink epilog return requires its completed destructor walk";
+    if (fprintf(stderr, "[rel-unlink] module=%u stage=epilog-returned pc=%08X owner=%08X\n",
+                pending->module_id, address, pending->owner) < 0)
+        return "REL unlink epilog return trace failed";
+    pending->phase = WW_REL_UNLINK_EPILOG_RETURNED;
+    return NULL;
+}
+
 bool ww_host_rel_return_qualified(WwHost* host, u32 address) {
     if (ww_host_rel_profile_return_qualified(host, address))
         return true;
@@ -86,21 +189,28 @@ static const char* boundary(WwHost* host, u32 address) {
     if (pending->phase == WW_REL_INIT_NONE && ww_host_rel_profile_return_qualified(host, address))
         return NULL;
     WwRelImage* entering = NULL;
+    WwRelImage* epilog = NULL;
     for (u32 at = 0u; at < host->rel_image_count; ++at) {
         WwRelImage* image = &host->rel_images[at];
         const BlueWakeRelInitContractV1* certificate = image->certificate;
         if (certificate == NULL || certificate->lifecycle == NULL)
             continue;
         const BlueWakeRelLifecycleV2* lifecycle = certificate->lifecycle;
-        if (canonical == (lifecycle->epilog_address & ~0x40000000u) ||
-            canonical == (lifecycle->unresolved_address & ~0x40000000u))
+        if (canonical == (lifecycle->unresolved_address & ~0x40000000u))
             return "REL epilog or unresolved entry has no supported lifecycle contract";
+        if (canonical == (lifecycle->epilog_address & ~0x40000000u)) {
+            if (epilog != NULL)
+                return "REL epilog entry ownership is ambiguous";
+            epilog = image;
+        }
         if (canonical == (lifecycle->prolog_address & ~0x40000000u)) {
             if (entering != NULL)
                 return "REL initialization entry ownership is ambiguous";
             entering = image;
         }
     }
+    if (canonical == 0x80240F80u)
+        return unlink_epilog_return(host, address);
     if (pending->phase == WW_REL_INIT_RETURN_SUSPENDED) {
         if (cpu->exception != 0u)
             return "REL suspended return does not support a nested exception";
@@ -140,6 +250,12 @@ static const char* boundary(WwHost* host, u32 address) {
                 ww_native_arm_title(pending->module_id);
 #endif
         }
+        return NULL;
+    }
+    if (epilog != NULL) {
+        const char* unlink_error = unlink_epilog(host, epilog, canonical);
+        if (unlink_error != NULL)
+            return unlink_error;
         return NULL;
     }
     if (entering == NULL)
@@ -247,6 +363,33 @@ const char* ww_host_rel_constructor_complete(WwHost* host, const WwRelImage* ima
         return "REL constructor completion trace failed";
     pending->constructor_completed = true;
     pending->entry_observation_open = false;
+    return NULL;
+}
+
+const char* ww_host_rel_destructor_qualify(WwHost* host, const WwRelImage* image,
+                                           u32 section, u32 offset, u32 caller) {
+    WwRelPendingUnlink* pending = &host->rel_pending_unlink;
+    if (pending->phase != WW_REL_UNLINK_EPILOG_ACTIVE || pending->image != image ||
+        !ww_host_rel_unlink_identity(host, pending) || pending->destructor_open ||
+        pending->destructor_completed || image->certificate == NULL ||
+        image->certificate->lifecycle == NULL || (caller & 3u) != 0u ||
+        !ww_rel_translated_section(host, caller, 4u) || image->sections == NULL ||
+        section >= image->section_count || (offset & 3u) != 0u ||
+        (u64)offset + 4u > image->sections[section].size)
+        return "REL destructor walk requires its matching admitted epilog and certified table";
+    return NULL;
+}
+
+const char* ww_host_rel_destructor_complete(WwHost* host, const WwRelImage* image, u32 address) {
+    WwRelPendingUnlink* pending = &host->rel_pending_unlink;
+    if (pending->phase != WW_REL_UNLINK_EPILOG_ACTIVE || pending->image != image ||
+        !ww_host_rel_unlink_identity(host, pending) || !pending->destructor_open ||
+        pending->destructor_completed || address != pending->destructor_return ||
+        (ww_host_rel_address(host, host->cpu.pc) & ~0x40000000u) != (address & ~0x40000000u))
+        return "REL destructor completion requires its matching admitted epilog";
+    if (fprintf(stderr, "[rel-unlink] module=%u stage=dtor-completed pc=%08X owner=%08X\n",
+                image->module_id, address, image->owner) < 0)
+        return "REL destructor completion trace failed";
     return NULL;
 }
 

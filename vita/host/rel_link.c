@@ -590,6 +590,104 @@ const char* ww_host_rel_constructor_boundary(WwHost* host, u32 address) {
     return error;
 }
 
+static const char* destructor_boundary(WwHost* host, u32 address) {
+    CPUState* cpu = &host->cpu;
+    WwRelPendingUnlink* pending = &host->rel_pending_unlink;
+    if (pending->destructor_open) {
+        const WwRelImage* image = pending->image;
+        if (image == NULL || ww_host_rel_owned(host, pending->owner) != image ||
+            ww_host_rel_live(host, image->module_id) != image)
+            return "REL destructor continuation requires its live owner";
+        if (!ww_host_rel_sections_match_post_link(image) || !ww_host_rel_raw_unchanged(image))
+            return "REL destructor raw image changed after validation";
+        const u8* table = get_ram_ptr(cpu, pending->destructor_table, pending->destructor_size, NULL);
+        if (table == NULL || memcmp(table, pending->destructor_bytes, pending->destructor_size) != 0)
+            return "REL destructor table changed during its owned walk";
+        if ((address & ~0x40000000u) == (pending->destructor_return & ~0x40000000u)) {
+            const char* error = ww_host_rel_destructor_complete(host, image, address);
+            if (error != NULL)
+                return error;
+            pending->destructor_open = false;
+            pending->destructor_completed = true;
+        } else if ((address & ~0x40000000u) != 0x802411F8u) {
+            pending->destructor_observation_open = false;
+        }
+    }
+    if ((address & ~0x40000000u) != 0x802411F8u)
+        return NULL;
+    WwRelImage* image = pending->image;
+    if (pending->phase != WW_REL_UNLINK_EPILOG_ACTIVE || image == NULL ||
+        !ww_host_rel_unlink_identity(host, pending))
+        return "REL destructor walk requires its admitted native unlink epilog";
+    const u32 caller = ww_host_rel_address(host, cpu->lr);
+    if (!owned_executable(host, image, caller))
+        return "REL destructor walk requires its caller inside the certified epilog";
+    if (pending->destructor_open) {
+        if (pending->destructor_completed || !pending->destructor_observation_open ||
+            caller != pending->destructor_return)
+            return "REL nested destructor walk requires an unsupported call contract";
+        return NULL;
+    }
+    if (pending->destructor_completed)
+        return "REL destructor walk requires its single certified table";
+    const u32 input = cpu->gpr[3];
+    const BlueWakeRelData* table = NULL;
+    u32 offset = 0u;
+    for (u32 at = 0u; at < image->section_count; ++at) {
+        const WwRelSection* section = &image->sections[at];
+        if ((section->flags & 1u) != 0u || (section->flags & ~1u) == 0u)
+            continue;
+        u32 start = section->linked_start;
+        if (input < start || (u64)input + 4u > (u64)start + section->size) {
+            start = image->guest + (section->flags & ~1u);
+            const u32 raw_input = input & ~0x40000000u;
+            if (raw_input < start || (u64)raw_input + 4u > (u64)start + section->size)
+                continue;
+            offset = raw_input - start;
+        } else {
+            offset = input - start;
+        }
+        table = ww_rel_data(host, image->module_id, at);
+        if (table == NULL || table->bytes == NULL || table->linked_start != section->linked_start ||
+            table->size != section->size || ((table->linked_start + offset) & 3u) != 0u)
+            return "REL destructor table requires its exact mapped data section";
+        break;
+    }
+    if (table == NULL)
+        return "REL destructor table is outside its caller's owned data sections";
+    const char* qualification = ww_host_rel_destructor_qualify(host, image, table->section_index, offset, caller);
+    if (qualification != NULL)
+        return qualification;
+    const u8* mapped = get_ram_ptr(cpu, table->linked_start, table->size, NULL);
+    if (mapped == NULL)
+        return "REL destructor table storage is unavailable";
+    for (u32 at = offset; (u64)at + 4u <= table->size; at += 4u) {
+        const u32 target = bluewake_archive_be32(mapped + at);
+        if (target != 0u && !owned_executable(host, image, ww_host_rel_address(host, target)))
+            return "REL destructor target requires translated code owned by its caller";
+        if (memcmp(mapped + at, table->bytes + at, 4u) != 0)
+            return "REL destructor table changed from its prelinked export";
+        if (target == 0u) {
+            cpu->gpr[3] = table->linked_start + offset;
+            pending->destructor_return = caller;
+            pending->destructor_table = table->linked_start + offset;
+            pending->destructor_size = at + 4u - offset;
+            pending->destructor_bytes = table->bytes + offset;
+            pending->destructor_open = true;
+            pending->destructor_observation_open = true;
+            return NULL;
+        }
+    }
+    return "REL destructor table has no terminator within its owned section";
+}
+
+const char* ww_host_rel_destructor_boundary(WwHost* host, u32 address) {
+    const char* error = destructor_boundary(host, address);
+    if (error != NULL)
+        ww_host_rel_lifecycle_revoke(host);
+    return error;
+}
+
 static const WwRelImage* linked_image_at(WwHost* host, u32 address) {
     const u32 canonical = address & ~0x40000000u;
     const bool legacy = canonical >= WW_REL_SCRATCH_BASE && canonical < WW_REL_SCRATCH_LIMIT;

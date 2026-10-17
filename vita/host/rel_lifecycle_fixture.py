@@ -232,10 +232,28 @@ def fixture(output):
                        0x60000000, 0x60000000, 0x60000000, 0x60000000, 0x81830034, 0x7D8903A6, 0x4E800421,
                        0x83E1000C, 0x80010014, 0x7C0803A6, 0x38210010, 0x4E800020]
     title_pc = 0xC1E000DC
+    title_table = 0xC1E01F60
+    title_target = 0xC1E01F30
+    title_epilog = [0x9421FFF0, 0x7C0802A6, 0x90010014,
+                    branch(title_pc + 0x38, 0xC02410B4), *load(3, title_table),
+                    branch(title_pc + 0x44, 0xC02411F8),
+                    0x80010014, 0x7C0803A6, 0x38210010, 0x4E800020]
     title_words = [0x9421FFF0, 0x7C0802A6, 0x90010014, 0x3C60C1E0, 0x38631F28,
                    branch(title_pc + 20, 0xC0241178), branch(title_pc + 24, 0xC02410B4),
-                   0x80010014, 0x7C0803A6, 0x38210010, 0x4E800020] + [0x60000000] * 13
+                   0x80010014, 0x7C0803A6, 0x38210010, 0x4E800020,
+                   *title_epilog, 0x60000000, 0x60000000]
     code[title_pc] = title_words
+    code[title_target] = [*load(4, 0x80005200), 0x80A40000, 0x38A50001, 0x90A40000, 0x4E800020]
+    walker_pc = 0xC02411F8
+    code[walker_pc] = [0x9421FFF0, 0x7C0802A6, 0x90010014, 0x93E1000C, 0x7C7F1B78,
+                       branch(walker_pc + 0x14, walker_pc + 0x20, False), 0x60000000, 0x60000000,
+                       0x819F0000, 0x2C0C0000, 0x41820014, 0x7D8903A6, 0x4E800421,
+                       0x3BFF0004, branch(walker_pc + 0x38, walker_pc + 0x20, False),
+                       0x83E1000C, 0x80010014, 0x7C0803A6, 0x38210010, 0x4E800020]
+    unlink_pc = 0x803056BC
+    code[unlink_pc] = [0x80830004, 0x80A30008, 0x3CC08000, 0x2C040000, 0x4082000C,
+                       0x90A630CC, 0x48000008, 0x90A40008, 0x2C050000, 0x4082000C,
+                       0x908630C8, 0x48000008, 0x90850004, 0x38600001, 0x4E800020]
     raw = bytearray(512)
     for at, value in ((0, 400), (0xC, 8), (0x10, 0x4C), (0x1C, 3), (0x24, 0x140),
                       (0x28, 0x130), (0x2C, 16), (0x38, 44), (0x3C, 88), (0x40, 8), (0x48, 0x13C)):
@@ -243,10 +261,17 @@ def fixture(output):
     raw[0x30:0x33] = bytes([1, 1, 1])
     struct.pack_into('>II', raw, 0x54, 0xA1, 96)
     struct.pack_into('>II', raw, 0x5C, 0x100, 4)
+    struct.pack_into('>II', raw, 0x64, 0x105, 24)
+    struct.pack_into('>II', raw, 0x6C, 0x11C, 8)
+    struct.pack_into('>II', raw, 0x74, 0x124, 8)
     canonical = struct.pack('>24I', *title_words)
     raw[0xA0:0x100] = canonical
     for at, value in ((0xAC, 0x3C600000), (0xB0, 0x38630000), (0xB4, 0x48000001), (0xB8, 0x48000001)):
         struct.pack_into('>I', raw, at, value)
+    target_bytes = struct.pack('>6I', *code[title_target])
+    raw[0x104:0x11C] = target_bytes
+    struct.pack_into('>II', raw, 0x11C, title_target, 0)
+    struct.pack_into('>II', raw, 0x124, title_target, title_target)
     struct.pack_into('>4I', raw, 0x130, 400, 0x140, 0, 0x170)
     for index, entry in enumerate(((0, 202, 1, 0), (14, 6, 2, 0), (4, 4, 2, 0), (0, 203, 0, 0))):
         struct.pack_into('>HBBI', raw, 0x140 + index * 8, *entry)
@@ -332,11 +357,18 @@ def fixture(output):
              f'static const u8 lifecycle_title_raw[] = {{{",".join(map(str, raw))}}};',
              f'static const u8 lifecycle_title_code[] = {{{",".join(map(str, canonical))}}};',
              'static const u8 lifecycle_title_ctors[4];',
+             f'static const u8 lifecycle_title_target[] = {{{",".join(map(str, target_bytes))}}};',
+             'static const u8 lifecycle_title_dtors[] = {0xC1,0xE0,0x1F,0x30,0,0,0,0};',
+             'static const u8 lifecycle_title_dtors_open[] = {0xC1,0xE0,0x1F,0x30,0xC1,0xE0,0x1F,0x30};',
              'static const BlueWakeRelData lifecycle_title_canonical[] = {',
-             '{400u,1u,0xC1E000DCu,96u,lifecycle_title_code},{400u,2u,0xC1E01F28u,4u,lifecycle_title_ctors}};',
+             '{400u,1u,0xC1E000DCu,96u,lifecycle_title_code},{400u,2u,0xC1E01F28u,4u,lifecycle_title_ctors},',
+             '{400u,3u,0xC1E01F30u,24u,lifecycle_title_target},{400u,4u,0xC1E01F60u,8u,lifecycle_title_dtors},',
+             '{400u,5u,0xC1E01F68u,8u,lifecycle_title_dtors_open}};',
              f'static const u64 lifecycle_title_hash = 0x{fnv(canonical):016X}ull;',
+             f'static const u64 lifecycle_title_target_hash = 0x{fnv(target_bytes):016X}ull;',
              'static const StaticRecompRelSection lifecycle_title_sections[] = {',
-             '{400u,1u,0xC1E000DCu,96u},{400u,2u,0xC1E01F28u,4u}};']
+             '{400u,1u,0xC1E000DCu,96u},{400u,2u,0xC1E01F28u,4u},{400u,3u,0xC1E01F30u,24u},',
+             '{400u,4u,0xC1E01F60u,8u},{400u,5u,0xC1E01F68u,8u}};']
     ship = (output / 'ship.rel').read_bytes()
     for name, value in (('ship', sdk_expected(ship, 0x81820100, 0x81820000, 0x807FF620)),
                         ('ship_nonfixed', sdk_expected(ship, 0x81820100, 0x81820000, 0x807FF620, fixed=False)),

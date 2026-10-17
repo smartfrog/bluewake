@@ -420,7 +420,7 @@ class RelMaterializeTest(unittest.TestCase):
     def test_raw_actor_entry_uses_the_real_host_dispatch_path(self):
         self.run_probe('second-dispatch')
 
-    def test_native_unlink_without_an_epilog_and_destruction_contract_fails_closed(self):
+    def test_uninitialized_or_uncertified_native_unlink_fails_closed(self):
         self.run_probe('second-native-unlink')
 
     def test_composite_successor_is_checked_before_its_first_instruction(self):

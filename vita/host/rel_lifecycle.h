@@ -43,13 +43,47 @@ typedef struct WwRelPendingInit {
     WwRelRfiStage rfi_stage;
 } WwRelPendingInit;
 
+typedef enum WwRelUnlinkPhase {
+    WW_REL_UNLINK_NONE,
+    WW_REL_UNLINK_ENTRY_READY,
+    WW_REL_UNLINK_EPILOG_ACTIVE,
+    WW_REL_UNLINK_EPILOG_RETURNED,
+    WW_REL_UNLINK_SDK_ACTIVE
+} WwRelUnlinkPhase;
+
+typedef struct WwRelPendingUnlink {
+    WwRelUnlinkPhase phase;
+    WwRelImage* image;
+    const BlueWakeRelInitContractV1* certificate;
+    const u8* identity;
+    WwRelSection* sections;
+    u32 module_id;
+    u32 owner;
+    u32 guest;
+    u32 bytes;
+    u32 capacity;
+    u32 r31;
+    bool destructor_open;
+    bool destructor_observation_open;
+    bool destructor_completed;
+    u32 destructor_return;
+    u32 destructor_table;
+    u32 destructor_size;
+    const u8* destructor_bytes;
+} WwRelPendingUnlink;
+
 struct WwHost;
 void ww_host_rel_lifecycle_revoke(struct WwHost* host);
 const char* ww_host_rel_lifecycle_boundary(struct WwHost* host, u32 address);
 bool ww_host_rel_return_qualified(struct WwHost* host, u32 address);
+const char* ww_host_rel_unlink_entry(struct WwHost* host, u32 address);
+bool ww_host_rel_unlink_identity(struct WwHost* host, const WwRelPendingUnlink* pending);
 const char* ww_host_rel_constructor_qualify(struct WwHost* host, const WwRelImage* image,
                                           u32 section, u32 offset, u32 caller);
 const char* ww_host_rel_constructor_complete(struct WwHost* host, const WwRelImage* image, u32 address);
+const char* ww_host_rel_destructor_qualify(struct WwHost* host, const WwRelImage* image,
+                                         u32 section, u32 offset, u32 caller);
+const char* ww_host_rel_destructor_complete(struct WwHost* host, const WwRelImage* image, u32 address);
 const char* ww_host_rel_suspend_return(struct WwHost* host, u32 address, u32 exception, u32 vector);
 const char* ww_host_rel_rfi_prepare(struct WwHost* host, u32 cia, u32 verified_vector);
 const char* ww_host_rel_rfi_finish(struct WwHost* host, u32 cia, bool vector_handoff);

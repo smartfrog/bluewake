@@ -266,8 +266,9 @@ static bool verify_list(WwHost* host, WwRelImage* candidate, u64* candidate_hash
         return false;
     u32 members = candidate == NULL ? 0u : 1u;
     for (u32 at = 0u; at < host->rel_image_count; ++at)
-        members += host->rel_images[at].sdk_phase == WW_REL_SDK_CERTIFIED ||
-            host->rel_images[at].sdk_phase == WW_REL_SDK_RESIDENT;
+        members += host->rel_images[at].linked &&
+            (host->rel_images[at].sdk_phase == WW_REL_SDK_CERTIFIED ||
+             host->rel_images[at].sdk_phase == WW_REL_SDK_RESIDENT);
     u32 guest = head, previous = 0u, visited = 0u;
     while (guest != 0u && visited < members) {
         WwRelImage* image = image_at(host, guest);
@@ -567,7 +568,108 @@ const char* ww_host_rel_sdk_finish(WwHost* host, WwRelImage* image) {
     return error;
 }
 
+static bool unlink_publication(WwHost* host, const WwRelPendingUnlink* pending) {
+    const WwRelImage* image = pending->image;
+    return image != NULL && ww_host_rel_owned(host, pending->owner) == image &&
+        ww_host_rel_live(host, pending->module_id) == image && image->certificate == pending->certificate &&
+        pending->certificate != NULL && image->module_id == pending->module_id &&
+        image->owner == pending->owner && image->guest == pending->guest && image->linked;
+}
+
+static const char* reconcile_unlink(WwHost* host, WwRelImage* unlinked) {
+    const u32 head = mem_read32(&host->cpu, WW_REL_SDK_HEAD);
+    const u32 tail = mem_read32(&host->cpu, WW_REL_SDK_TAIL);
+    u32 members = 0u;
+    for (u32 at = 0u; at < host->rel_image_count; ++at) {
+        const WwRelImage* member = &host->rel_images[at];
+        if (member == unlinked)
+            continue;
+        members += member->linked && (member->sdk_phase == WW_REL_SDK_CERTIFIED ||
+            member->sdk_phase == WW_REL_SDK_RESIDENT);
+    }
+    u32 guest = head, previous = 0u, visited = 0u;
+    while (guest != 0u && visited <= members) {
+        WwRelImage* image = image_at(host, guest);
+        if (image == NULL || image == unlinked || !image->linked ||
+            (image->sdk_phase != WW_REL_SDK_CERTIFIED && image->sdk_phase != WW_REL_SDK_RESIDENT))
+            return "REL SDK unlink list contains an unknown or uncertified member";
+        const u32 next = mem_read32(&host->cpu, guest + 4u);
+        const u32 prev = mem_read32(&host->cpu, guest + 8u);
+        if (prev != previous)
+            return "REL SDK unlink list neighbor links disagree";
+        if (image->sdk_phase != WW_REL_SDK_RESIDENT) {
+            const u32 previous_before = image->sdk_previous;
+            image->sdk_previous = prev;
+            u64 hash = 0u;
+            const char* error = expected_image(host, image, next, &hash);
+            if (error != NULL) {
+                image->sdk_previous = previous_before;
+                return "REL SDK unlink neighbor reconstruction failed";
+            }
+            image->raw_hash = hash;
+        }
+        image->sdk_next = next;
+        image->sdk_previous = prev;
+        previous = guest;
+        guest = next;
+        visited++;
+    }
+    if (guest != 0u || previous != tail || visited != members)
+        return "REL SDK unlink list is not the expected single-member removal";
+    host->rel_sdk_head = head;
+    host->rel_sdk_tail = tail;
+    unlinked->linked = false;
+    unlinked->unlinked = true;
+    return NULL;
+}
+
+static const char* unlink_sdk(WwHost* host, u32 address) {
+    WwRelPendingUnlink* pending = &host->rel_pending_unlink;
+    CPUState* cpu = &host->cpu;
+    if (address == 0x803056BCu) {
+        if (pending->phase == WW_REL_UNLINK_NONE || pending->image == NULL)
+            return "REL SDK unlink requires its admitted native unlink contract";
+        if (pending->phase != WW_REL_UNLINK_EPILOG_RETURNED)
+            return "REL SDK unlink requires its completed epilog return";
+        if (cpu->pc != address)
+            return "REL SDK unlink requires its exact translated entry pc";
+        if (cpu->lr != 0x80240F8Cu)
+            return "REL SDK unlink requires its translated do_unlink successor";
+        if (cpu->gpr[3] != pending->guest)
+            return "REL SDK unlink requires its owned module header";
+        if (!ww_host_rel_unlink_identity(host, pending))
+            return "REL SDK unlink lost its exact live owner";
+        if (fprintf(stderr, "[rel-unlink] module=%u stage=sdk-unlink pc=%08X owner=%08X\n",
+                    pending->module_id, address, pending->owner) < 0)
+            return "REL SDK unlink observation trace failed";
+        pending->phase = WW_REL_UNLINK_SDK_ACTIVE;
+        return NULL;
+    }
+    if (address != 0x80240F8Cu)
+        return NULL;
+    if (pending->phase != WW_REL_UNLINK_SDK_ACTIVE || pending->image == NULL)
+        return "REL SDK unlink return requires its admitted call";
+    if (cpu->pc != address)
+        return "REL SDK unlink return requires its exact translated entry pc";
+    if (cpu->lr != 0x80240F8Cu)
+        return "REL SDK unlink return requires its translated caller";
+    if (cpu->gpr[3] != 1u)
+        return "REL SDK unlink return requires its success";
+    if (!unlink_publication(host, pending))
+        return "REL SDK unlink return lost its exact live owner";
+    const char* error = reconcile_unlink(host, pending->image);
+    if (error != NULL)
+        return error;
+    if (fprintf(stderr, "[rel-unlink] module=%u stage=reconciled head=%08X tail=%08X\n",
+                pending->module_id, host->rel_sdk_head, host->rel_sdk_tail) < 0)
+        return "REL SDK unlink reconciliation trace failed";
+    memset(pending, 0, sizeof(*pending));
+    return NULL;
+}
+
 const char* ww_host_rel_sdk_observe(WwHost* host, u32 address) {
+    if (address == 0x803056BCu || address == 0x80240F8Cu)
+        return unlink_sdk(host, address);
 #if WW05_ENABLE_ACTOR_BATCH_CONTRACTS
     bool actor_handled = false;
     const char* actor_error = ww_host_rel_actor_observe(host, address, &actor_handled);

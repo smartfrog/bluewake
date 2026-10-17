@@ -520,7 +520,7 @@ static void second_module_case(WwHost* host, const char* scenario, StaticRecompR
         if (strstr(scenario, "unowned") != NULL)
             assert(strstr(host->error, "live linked ownership") != NULL);
         if (strstr(scenario, "unlink") != NULL)
-            assert(strstr(host->error, "epilog and destruction") != NULL);
+            assert(strstr(host->error, "REL native unlink requires") != NULL);
         assert(mem_read32(cpu, 0x80002010u) == profile.guest && host->alias_count == 2u);
     } else if (strcmp(scenario, "second-independent") == 0) {
         request_rel(host, 0x80002200u, 0x80003200u, "ww34_fixture_b");

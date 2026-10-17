@@ -309,8 +309,11 @@ static bool rel_execution_blocked(WwHost* host, u32 address, u32* linked) {
         return true;
     }
     if ((address & ~0x40000000u) == 0x80240F54u && ww_host_rel_owned(host, host->cpu.gpr[3]) != NULL) {
-        ww_host_fail(host, "native REL unlink requires an unsupported epilog and destruction contract", address, host->cpu.pc);
-        return true;
+        const char* unlink_error = ww_host_rel_unlink_entry(host, address);
+        if (unlink_error != NULL) {
+            ww_host_fail(host, unlink_error, address, host->cpu.pc);
+            return true;
+        }
     }
     *linked = ww_host_rel_address(host, address);
     if (host->error != NULL)
@@ -336,6 +339,11 @@ static bool rel_execution_blocked(WwHost* host, u32 address, u32* linked) {
     const char* constructor_error = ww_host_rel_constructor_boundary(host, *linked);
     if (constructor_error != NULL) {
         ww_host_fail(host, constructor_error, address, host->cpu.pc);
+        return true;
+    }
+    const char* destructor_error = ww_host_rel_destructor_boundary(host, *linked);
+    if (destructor_error != NULL) {
+        ww_host_fail(host, destructor_error, address, host->cpu.pc);
         return true;
     }
     if (!ww_host_rel_code_owned(host, *linked)) {

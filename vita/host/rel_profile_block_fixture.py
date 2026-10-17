@@ -47,10 +47,15 @@ def fixture(output):
     code[0x80305424] = [branch(0x80305424, 0x80008000, False)]
     title_raw = bytearray((output / 'lifecycle_title.rel').read_bytes())
     struct.pack_into('>II', title_raw, 0x14, 0x20, 4)
+    for index in (3, 4, 5):
+        struct.pack_into('>II', title_raw, 0x4C + index * 8, 0, 0)
     (output / 'block_title.rel').write_bytes(title_raw)
-    title_words = [0x9421FFF0, 0x7C0802A6, 0x90010014, 0x3C60C1E0, 0x38631F28,
-                   branch(0xC1E000F0, 0xC0241178), branch(0xC1E000F4, 0xC02410B4),
-                   0x80010014, 0x7C0803A6, 0x38210010, 0x4E800020] + [0x60000000] * 13
+    title_code = bytearray(title_raw[0xA0:0x100])
+    struct.pack_into('>H', title_code, 0xE, 0xC1E0)
+    struct.pack_into('>H', title_code, 0x12, 0x1F28)
+    struct.pack_into('>I', title_code, 0x14, branch(0xC1E000F0, 0xC0241178))
+    struct.pack_into('>I', title_code, 0x18, branch(0xC1E000F4, 0xC02410B4))
+    title_words = list(struct.unpack('>24I', bytes(title_code)))
     code[0xC1E000DC] = title_words
     code[0x80305448] = [0x80A30000, 0x2C050001, 0x41820008,
                        branch(0x80305454, 0x80009000, False), branch(0x80305458, 0x8000A000, False)]

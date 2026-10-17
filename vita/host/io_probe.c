@@ -446,16 +446,17 @@ const StaticRecompModuleDesc* staticrecomp_get_module(void) {
 const BlueWakeRelData* staticrecomp_get_rel_data(u32* count) {
 #if WW05_ENABLE_IKADA_CONTRACT
     if (ikada_fixture_enabled()) {
-        static BlueWakeRelData selected[14];
-        selected[0] = fixture_data[0]; selected[1] = fixture_data[1]; selected[2] = title_canonical[1];
-        for (u32 at = 1u; at < 5u; ++at) selected[at + 2u] = ikada_canonical[at];
-        selected[7] = (BlueWakeRelData){60u,6u,0xC15581A0u,532u,NULL};
-        *count = 8u;
+        static BlueWakeRelData selected[15];
+        selected[0] = fixture_data[0]; selected[1] = fixture_data[1]; selected[2] = fixture_data[2];
+        selected[3] = title_canonical[1];
+        for (u32 at = 1u; at < 5u; ++at) selected[at + 3u] = ikada_canonical[at];
+        selected[8] = (BlueWakeRelData){60u,6u,0xC15581A0u,532u,NULL};
+        *count = 9u;
 #if WW05_ENABLE_ACTOR_BATCH_CONTRACTS
         for (u32 at = 1u; at < 4u; ++at) {
-            selected[7u + at] = actor_84_canonical[at]; selected[10u + at] = actor_85_canonical[at];
+            selected[8u + at] = actor_84_canonical[at]; selected[11u + at] = actor_85_canonical[at];
         }
-        *count = 14u;
+        *count = 15u;
 #endif
         return selected;
     }

@@ -66,5 +66,6 @@ struct WwHost;
 bool ww_host_rel_raw_unchanged(const WwRelImage* image);
 uint64_t ww_host_rel_raw_hash(const uint8_t* bytes, uint32_t size);
 const char* ww_host_rel_constructor_boundary(struct WwHost* host, uint32_t address);
+const char* ww_host_rel_destructor_boundary(struct WwHost* host, uint32_t address);
 
 #endif

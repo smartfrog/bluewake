@@ -699,6 +699,196 @@ static void run_actor_batch(WwHost* host, const char* requested) {
 }
 #endif
 
+static void unlink_scenario(WwHost* host, const char* scenario, WwRelImage* image,
+                            WwRelImage* neighbor, WwRelImage* profile) {
+    CPUState* cpu = &host->cpu;
+    const u32 epilog = image->certificate->lifecycle->epilog_address;
+    const u32 table = 0xC1E01F60u;
+    const u32 walker = 0xC02411F8u;
+    if (is("epilog-absent")) {
+        cpu->pc = epilog;
+        cpu->lr = 0x80240F80u;
+        cpu->gpr[3] = image->guest;
+        cpu->gpr[31] = image->owner;
+        assert(ww_host_edge(host, cpu, cpu->pc) && host->error != NULL);
+        assert(strcmp(host->error, "REL epilog or unresolved entry has no supported lifecycle contract") == 0);
+        return;
+    }
+    if (is("dtor-without-active")) {
+        cpu->pc = walker;
+        cpu->lr = epilog + 0x1Cu;
+        cpu->gpr[3] = table;
+        assert(ww_host_edge(host, cpu, cpu->pc) && host->error != NULL);
+        assert(strcmp(host->error, "REL destructor walk requires its admitted native unlink epilog") == 0);
+        return;
+    }
+    if (is("sdk-without-contract")) {
+        cpu->pc = 0x803056BCu;
+        cpu->lr = 0x80240F8Cu;
+        cpu->gpr[3] = image->guest;
+        assert(ww_host_edge(host, cpu, cpu->pc) && host->error != NULL);
+        assert(strcmp(host->error, "REL SDK unlink requires its admitted native unlink contract") == 0);
+        return;
+    }
+    cpu->pc = 0x80240F54u;
+    cpu->lr = is("unlink-wrong-caller") ? 0x80240318u : 0x80240314u;
+    cpu->gpr[3] = is("unlink-wrong-owner") ? neighbor->owner : is("unlink-module-1") ? profile->owner : image->owner;
+    cpu->gpr[31] = is("unlink-module-1") ? profile->owner : image->owner;
+    if (is("unlink-uncertified")) image->certificate = NULL;
+    if (is("unlink-importer")) {
+        neighbor->dependencies[0] = image->module_id;
+        neighbor->dependency_count = 1u;
+    }
+    if (is("unlink-changed-raw")) mem_write8(cpu, image->guest + image->bytes - 1u, 1u);
+    if (is("unlink-changed-section")) mem_write32(cpu, image->guest + image->section_table + 12u, 0u);
+    if (is("unlink-wrong-caller") || is("unlink-wrong-owner") || is("unlink-module-1") ||
+        is("unlink-uncertified") || is("unlink-importer") || is("unlink-changed-raw") ||
+        is("unlink-changed-section")) {
+        assert(ww_host_edge(host, cpu, cpu->pc) && host->error != NULL);
+        assert(strcmp(host->error, is("unlink-wrong-caller") ? "REL native unlink requires its translated vtable caller" :
+            is("unlink-wrong-owner") ? "REL native unlink requires its exact owner in r3 and r31" :
+            is("unlink-module-1") ? "REL profile-list resident contract does not support unload" :
+            is("unlink-uncertified") ? "REL native unlink requires its certified destruction contract" :
+            is("unlink-importer") ? "REL native unlink would invalidate a live importing module" :
+            "REL native unlink requires unchanged raw and section state") == 0);
+        assert(image->linked && !image->unlinked);
+        return;
+    }
+    assert(!ww_host_edge(host, cpu, cpu->pc));
+    assert(host->error == NULL && host->rel_pending_unlink.phase == WW_REL_UNLINK_ENTRY_READY);
+    if (is("unlink-pending")) {
+        assert(ww_host_edge(host, cpu, cpu->pc) && host->error != NULL);
+        assert(strcmp(host->error, "REL native unlink requires no pending unlink") == 0);
+        return;
+    }
+    if (is("epilog-scratch") || is("epilog-canonical")) {
+        const bool scratch = is("epilog-scratch");
+        cpu->pc = scratch ? image->guest + (image->sections[1].flags & ~1u) + 44u : epilog;
+        cpu->lr = 0x80240F80u;
+        cpu->gpr[3] = image->guest;
+        cpu->gpr[31] = image->owner;
+        assert(ww_host_edge(host, cpu, cpu->pc) == scratch);
+        assert(host->error == NULL && host->rel_pending_unlink.phase == WW_REL_UNLINK_EPILOG_ACTIVE);
+        return;
+    }
+    cpu->pc = epilog;
+    cpu->lr = is("epilog-wrong-lr") ? 0x80240F84u : 0x80240F80u;
+    cpu->gpr[3] = is("epilog-wrong-header") ? neighbor->guest : image->guest;
+    cpu->gpr[31] = image->owner;
+    if (is("epilog-wrong-lr") || is("epilog-wrong-header")) {
+        assert(ww_host_edge(host, cpu, cpu->pc) && host->error != NULL);
+        assert(strcmp(host->error, is("epilog-wrong-lr") ?
+            "REL epilog entry requires its translated do_unlink successor" :
+            "REL epilog entry requires its owned module header") == 0);
+        return;
+    }
+    if (is("epilog-second")) {
+        assert(!ww_host_edge(host, cpu, cpu->pc));
+        assert(host->rel_pending_unlink.phase == WW_REL_UNLINK_EPILOG_ACTIVE);
+        cpu->lr = 0x80240F80u;
+        cpu->gpr[3] = image->guest;
+        assert(ww_host_edge(host, cpu, cpu->pc) && host->error != NULL);
+        assert(strcmp(host->error, "REL epilog entry requires its admitted native unlink contract") == 0);
+        return;
+    }
+    if (is("epilog-return-without-walk")) {
+        assert(!ww_host_edge(host, cpu, cpu->pc));
+        assert(host->rel_pending_unlink.phase == WW_REL_UNLINK_EPILOG_ACTIVE);
+        cpu->pc = 0x80240F80u;
+        cpu->lr = 0x80240F80u;
+        assert(ww_host_edge(host, cpu, cpu->pc) && host->error != NULL);
+        assert(strcmp(host->error, "REL unlink epilog return requires its completed destructor walk") == 0);
+        return;
+    }
+    if (is("native-unlink") || strncmp(scenario, "sdk-", 4u) == 0) {
+        assert(ww_host_dispatch(host, cpu->pc) == 1);
+        assert(host->error == NULL && cpu->pc == 0x80240F80u);
+        assert(host->rel_pending_unlink.phase == WW_REL_UNLINK_EPILOG_RETURNED);
+        if (is("native-unlink")) {
+            const u32 owner = image->owner;
+            const u32 guest = image->guest;
+            assert(mem_read32(cpu, 0x80005200u) == 1u);
+            cpu->pc = 0x803056BCu;
+            cpu->lr = 0x80240F8Cu;
+            cpu->gpr[3] = guest;
+            assert(ww_host_dispatch(host, cpu->pc) == 1);
+            assert(host->error == NULL && cpu->pc == 0x80240F8Cu);
+            assert(host->rel_pending_unlink.phase == WW_REL_UNLINK_NONE);
+            assert(!image->linked && image->unlinked);
+            assert(ww_host_collect_rels(host) != NULL);
+            assert(get_ram_ptr(cpu, guest, 4u, NULL) != NULL);
+            mem_write32(cpu, owner + 0x10u, 0u);
+            assert(ww_host_collect_rels(host) == NULL);
+            assert(get_ram_ptr(cpu, guest, 4u, NULL) == NULL);
+            assert(host->alias_count == 2u && host->rel_image_count == 2u);
+            assert(ww_host_materialize_rel(host, 0x80002500u, "d_a_title") == NULL);
+            WwRelImage* fresh = ww_host_rel_owned(host, 0x80002500u);
+            assert(fresh != NULL && fresh->guest != 0u && fresh->bytes == 512u);
+            assert(host->alias_count == 3u && host->rel_image_count == 3u);
+            return;
+        }
+        cpu->pc = 0x803056BCu;
+        cpu->lr = is("sdk-wrong-caller") ? 0x80240F90u : 0x80240F8Cu;
+        cpu->gpr[3] = is("sdk-wrong-header") ? neighbor->guest : image->guest;
+        if (is("sdk-wrong-caller") || is("sdk-wrong-header")) {
+            assert(ww_host_edge(host, cpu, cpu->pc) && host->error != NULL);
+            assert(strcmp(host->error, is("sdk-wrong-caller") ?
+                "REL SDK unlink requires its translated do_unlink successor" :
+                "REL SDK unlink requires its owned module header") == 0);
+            return;
+        }
+        assert(!ww_host_edge(host, cpu, cpu->pc));
+        assert(host->error == NULL && host->rel_pending_unlink.phase == WW_REL_UNLINK_SDK_ACTIVE);
+        func_803056BC(cpu);
+        assert(cpu->pc == 0x80240F8Cu);
+        if (is("sdk-list")) mem_write32(cpu, profile->guest + 8u, 0xDEADBEEFu);
+        if (is("sdk-reconstruction")) mem_write8(cpu, neighbor->guest + 0x18u, 1u);
+        cpu->lr = 0x80240F8Cu;
+        cpu->gpr[3] = is("sdk-success") ? 0u : 1u;
+        assert(ww_host_edge(host, cpu, cpu->pc) && host->error != NULL);
+        assert(strcmp(host->error, is("sdk-success") ? "REL SDK unlink return requires its success" :
+            is("sdk-list") ? "REL SDK unlink list neighbor links disagree" :
+            "REL SDK unlink neighbor reconstruction failed") == 0);
+        return;
+    }
+    assert(!ww_host_edge(host, cpu, cpu->pc));
+    assert(host->error == NULL && host->rel_pending_unlink.phase == WW_REL_UNLINK_EPILOG_ACTIVE);
+    assert(strncmp(scenario, "dtor-", 5u) == 0);
+    cpu->pc = walker;
+        cpu->lr = is("dtor-wrong-caller") ? 0x80001004u : epilog + 0x1Cu;
+        cpu->gpr[3] = is("dtor-foreign-table") ? 0x80005200u : is("dtor-terminator") ? 0xC1E01F68u : table;
+        if (is("dtor-foreign-target")) mem_write32(cpu, table, 0x80001000u);
+        if (is("dtor-changed-table")) mem_write32(cpu, table + 4u, 0xC1E01F30u);
+        if (is("dtor-nested") || is("dtor-during-walk")) {
+            assert(!ww_host_edge(host, cpu, cpu->pc));
+            assert(host->rel_pending_unlink.destructor_open);
+            if (is("dtor-nested")) {
+                cpu->pc = 0xC1E01F30u;
+                cpu->lr = 0x8024122Cu;
+                assert(!ww_host_edge(host, cpu, cpu->pc));
+                cpu->pc = walker;
+                cpu->lr = epilog + 0x1Cu;
+                cpu->gpr[3] = table;
+                assert(ww_host_edge(host, cpu, cpu->pc) && host->error != NULL);
+                assert(strcmp(host->error, "REL nested destructor walk requires an unsupported call contract") == 0);
+            } else {
+                mem_write32(cpu, table, 0x80001000u);
+                cpu->pc = epilog + 0x1Cu;
+                cpu->lr = epilog + 0x1Cu;
+                assert(ww_host_edge(host, cpu, cpu->pc) && host->error != NULL);
+                assert(strcmp(host->error, "REL destructor table changed during its owned walk") == 0);
+            }
+            return;
+        }
+        assert(ww_host_edge(host, cpu, cpu->pc) && host->error != NULL);
+        assert(strcmp(host->error, is("dtor-wrong-caller") ?
+            "REL destructor walk requires its caller inside the certified epilog" :
+            is("dtor-foreign-table") ? "REL destructor table is outside its caller's owned data sections" :
+            is("dtor-terminator") ? "REL destructor table has no terminator within its owned section" :
+            is("dtor-foreign-target") ? "REL destructor target requires translated code owned by its caller" :
+            "REL destructor table changed from its prelinked export") == 0);
+}
+
 int main(int argc, char** argv) {
     assert(argc == 2);
     scenario = argv[1];
@@ -712,7 +902,7 @@ int main(int argc, char** argv) {
     if (resident) profile_sections[0] = (StaticRecompRelSection){1u,1u,0xC1F800D4u,44u};
     StaticRecompRelModule descriptors[] = {fixture_rel,
         {.module_id=400u,.section_count=8u,.section_info_offset=0x4Cu,.file_size=sizeof(lifecycle_title_raw),
-         .sections=lifecycle_title_sections,.num_sections=2u},
+         .sections=lifecycle_title_sections,.num_sections=5u},
         {.module_id=1u,.section_count=5u,.section_info_offset=0x4Cu,.file_size=256u,
            .sections=profile_sections,.num_sections=resident ? 3u : 2u},
         {.module_id=60u,.section_count=21u,.section_info_offset=0x4Cu,.file_size=sizeof(ikada_raw),
@@ -722,29 +912,32 @@ int main(int argc, char** argv) {
         {.module_id=85u,.section_count=17u,.section_info_offset=0x4Cu,.file_size=sizeof(actor_85_raw),
           .sections=actor_85_sections,.num_sections=4u}};
     StaticRecompRange chunks[] = {fixture_chunks[0],fixture_chunks[1],fixture_chunks[2],{0xC1E000DCu,0xC1E0013Cu},
+                                  {0xC1E01F30u,0xC1E01F48u},
                                  {0xC1F800D4u,0xC1F80100u},
                                   {0xC15500F4u,0xC1550154u},{0xC1550154u,0xC1550174u},
                                   {0xC19A00D4u,0xC19A0134u},{0xC19A0134u,0xC19A0154u},
                                   {0xC19B00D4u,0xC19B0134u},{0xC19B0134u,0xC19B0154u}};
-    u64 hashes[] = {fixture_hashes[0],fixture_hashes[1],fixture_hashes[2],lifecycle_title_hash,lifecycle_profile_hash,
+    u64 hashes[] = {fixture_hashes[0],fixture_hashes[1],fixture_hashes[2],lifecycle_title_hash,
+                     lifecycle_title_target_hash,lifecycle_profile_hash,
                      ikada_hashes[0],ikada_hashes[1],actor_84_hashes[0],actor_84_hashes[1],
                      actor_85_hashes[0],actor_85_hashes[1]};
     StaticRecompModuleDesc module = {.code_ranges=lifecycle_ranges,
         .num_code_ranges=sizeof(lifecycle_ranges)/sizeof(lifecycle_ranges[0]), .chunk_ranges=chunks,
-        .chunk_hashes=hashes,.num_chunk_ranges=batch_requested ? 11u : ikada_requested ? 7u : resident ? 5u : 4u,
+        .chunk_hashes=hashes,.num_chunk_ranges=batch_requested ? 12u : ikada_requested ? 8u : resident ? 6u : 5u,
         .rel_modules=descriptors,.num_rel_modules=batch_requested ? 6u : ikada_requested ? 4u : 3u,
         .dispatch=translated_dispatch};
     static const u8 profile_bytes[16];
     static const u8 profile_ctors[4];
-    BlueWakeRelData data[] = {fixture_data[0],fixture_data[1],lifecycle_title_canonical[1],
+    BlueWakeRelData data[] = {fixture_data[0],fixture_data[1],fixture_data[2],lifecycle_title_canonical[1],
                               {1u,4u,0xC1F80178u,16u,profile_bytes},{1u,2u,0xC1F80170u,4u,profile_ctors},
                               ikada_canonical[1],ikada_canonical[2],ikada_canonical[3],ikada_canonical[4],
                                {60u,6u,0xC15581A0u,532u,NULL},
                                actor_84_canonical[1],actor_84_canonical[2],actor_84_canonical[3],
-                               actor_85_canonical[1],actor_85_canonical[2],actor_85_canonical[3]};
+                               actor_85_canonical[1],actor_85_canonical[2],actor_85_canonical[3],
+                               lifecycle_title_canonical[3],lifecycle_title_canonical[4]};
     host->module = &module;
     host->rel_data = data;
-    host->rel_data_count = batch_requested ? 16u : ikada_requested ? 10u : resident ? 5u : 4u;
+    host->rel_data_count = 19u;
     BlueWakeRelLifecycleV2 ship_lifecycle = {168u,0xC1B100F4u,0xC1B10120u,0xC1B1014Cu};
     BlueWakeRelLifecycleV2 title_lifecycle = {400u,0xC1E000DCu,0xC1E00108u,0xC1E00134u};
     BlueWakeRelLifecycleV2 ikada_lifecycle = {60u,0xC15500F4u,0xC1550120u,0xC155014Cu};
@@ -755,7 +948,7 @@ int main(int argc, char** argv) {
          .canonical_sections=s_ship_contract.canonical_sections,.section_count=s_ship_contract.section_count,
          .ctor_table_section=4u,.ctor_return_pc=0xC1B1010Cu,.lifecycle=&ship_lifecycle,.build_identity=s_ship_contract.build_identity},
         {.module_id=400u,.rel_bytes=lifecycle_title_raw,.rel_size=sizeof(lifecycle_title_raw),
-         .canonical_sections=lifecycle_title_canonical,.section_count=2u,.ctor_table_section=2u,
+         .canonical_sections=lifecycle_title_canonical,.section_count=5u,.ctor_table_section=2u,
           .ctor_return_pc=0xC1E000F4u,.lifecycle=&title_lifecycle,.build_identity=s_ship_contract.build_identity},
         {.module_id=60u,.rel_bytes=ikada_raw,.rel_size=sizeof(ikada_raw),.canonical_sections=ikada_canonical,
          .section_count=5u,.ctor_table_section=2u,.ctor_return_pc=0xC155010Cu,.lifecycle=&ikada_lifecycle,
@@ -796,8 +989,8 @@ int main(int argc, char** argv) {
     }
     if (is("ikada-duplicate")) certificates[2].module_id = 168u;
     if (is("ikada-invalid-certificate")) certificates[2].ctor_return_pc = 0u;
-    if (is("ikada-wrong-chunk-0")) hashes[5] ^= 1u;
-    if (is("ikada-wrong-chunk-1")) hashes[6] ^= 1u;
+    if (is("ikada-wrong-chunk-0")) hashes[6] ^= 1u;
+    if (is("ikada-wrong-chunk-1")) hashes[7] ^= 1u;
     if (ikada_requested)
         for (u32 at = 1u; at < module.num_chunk_ranges; ++at)
             for (u32 previous = at; previous != 0u && chunks[previous].start < chunks[previous - 1u].start; --previous) {
@@ -809,19 +1002,20 @@ int main(int argc, char** argv) {
                 hashes[previous - 1u] = hash;
             }
     u8 catalog_raw[sizeof(lifecycle_title_raw)];
-    StaticRecompRelSection catalog_sections[2];
-    BlueWakeRelData catalog_canonical[2];
+    StaticRecompRelSection catalog_sections[5];
+    BlueWakeRelData catalog_canonical[5];
     if (is("title-catalog-id")) {
         memcpy(catalog_raw, lifecycle_title_raw, sizeof(catalog_raw));
         write_be32(catalog_raw, 401u);
         write_be32(catalog_raw + 0x130u, 401u);
         memcpy(catalog_sections, lifecycle_title_sections, sizeof(catalog_sections));
         memcpy(catalog_canonical, lifecycle_title_canonical, sizeof(catalog_canonical));
-        for (u32 at = 0u; at < 2u; ++at) {
+        for (u32 at = 0u; at < 5u; ++at) {
             catalog_sections[at].module_id = 401u;
             catalog_canonical[at].module_id = 401u;
         }
-        descriptors[1].module_id = certificates[1].module_id = title_lifecycle.module_id = data[2].module_id = 401u;
+        descriptors[1].module_id = certificates[1].module_id = title_lifecycle.module_id = 401u;
+        data[3].module_id = data[17].module_id = data[18].module_id = 401u;
         descriptors[1].sections = catalog_sections;
         certificates[1].rel_bytes = catalog_raw;
         certificates[1].canonical_sections = catalog_canonical;
@@ -1076,9 +1270,15 @@ int main(int argc, char** argv) {
         }
         assert(ww_host_dispatch(host, cpu->pc) == -1);
     }
+    const bool unlink_family = is("native-unlink") || strncmp(scenario, "epilog-", 7u) == 0 ||
+        strncmp(scenario, "unlink-", 7u) == 0 || strncmp(scenario, "dtor-", 5u) == 0 ||
+        strncmp(scenario, "sdk-", 4u) == 0;
+    if (unlink_family) {
+        unlink_scenario(host, scenario, selected, neighbor, profile);
+        goto done;
+    }
     const bool positive = is("success") || is("title-enabled") || is("observations") || strncmp(scenario, "interrupt-", 10u) == 0 ||
-        is("expiry") || is("repeat-init") || strncmp(scenario, "epilog-", 7u) == 0 ||
-        strncmp(scenario, "unresolved-", 11u) == 0 || is("unlink") || is("native-unlink");
+        is("expiry") || is("repeat-init") || strncmp(scenario, "unresolved-", 11u) == 0 || is("unlink");
     if (positive) {
         if (host->error != NULL || host->cpu.pc != 0x80001004u)
             fprintf(stderr, "lifecycle: %s pc=%08X exception=%08X budget=%lld downcount=%lld\n",
@@ -1094,16 +1294,14 @@ int main(int argc, char** argv) {
         if (is("observations")) assert(entry_yields == 2u && return_yields == 2u);
         if (strncmp(scenario, "interrupt-", 10u) == 0) assert(handoffs == restorations && handoffs != 0u);
         if (is("unlink")) assert(ww_host_unlink_rel(host, selected->owner) != NULL);
-        if (is("expiry") || is("repeat-init") || is("native-unlink") ||
-            strncmp(scenario, "epilog-", 7u) == 0 || strncmp(scenario, "unresolved-", 11u) == 0) {
+        if (is("expiry") || is("repeat-init") || strncmp(scenario, "unresolved-", 11u) == 0) {
             CPUState* cpu = &host->cpu;
             cpu->pc = is("expiry") ? 0x80240EE8u : is("repeat-init") ? title_lifecycle.prolog_address :
-                is("native-unlink") ? 0x80240F54u : strncmp(scenario, "epilog-", 7u) == 0 ?
-                title_lifecycle.epilog_address : title_lifecycle.unresolved_address;
+                title_lifecycle.unresolved_address;
             if (strstr(scenario, "scratch") != NULL)
-                cpu->pc = selected->guest + 0xA0u + (strncmp(scenario, "epilog-", 7u) == 0 ? 44u : 88u);
+                cpu->pc = selected->guest + 0xA0u + 88u;
             cpu->lr = 0x80240EE8u;
-            cpu->gpr[3] = is("native-unlink") ? selected->owner : selected->guest;
+            cpu->gpr[3] = selected->guest;
             cpu->gpr[31] = selected->owner;
             assert(ww_host_dispatch(host, cpu->pc) == -1 && host->error != NULL);
         }
