@@ -7,6 +7,7 @@ set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 get_filename_component(RENDERER_DIR "${CMAKE_CURRENT_SOURCE_DIR}/../../renderer" ABSOLUTE)
 
 option(WW_RENDERER_DST_ALPHA_ADMIT "Admit destination-alpha draws in the mono-pass (off by default; see vita/renderer/gx_dst_alpha.h)" OFF)
+option(WW_PROGRAM_CACHE "Persist compiled vitaGL program binaries on the player's device (POC, off by default; see vita/renderer/program_cache.h)" OFF)
 
 if(VITA)
     # Vita side: the pinned frontend/gxcore for ARM plus the demo fixture,
@@ -36,11 +37,14 @@ if(VITA)
     # VITA-WW-17: the host-facing renderer with the real vitaGL backend. The
     # host build (below) compiles the same core with a recording backend.
     add_library(ww_renderer STATIC "${RENDERER_DIR}/ww_renderer.cpp"
-        "${RENDERER_DIR}/vita_gl_backend.cpp")
+        "${RENDERER_DIR}/vita_gl_backend.cpp" "${RENDERER_DIR}/program_cache.cpp")
     target_link_libraries(ww_renderer PUBLIC gx_vita GXRuntime::retail_gx_frontend
         ${WW02_VITAGL_LIBRARY} vitashark SceShaccCgExt
         SceShaccCg_stub_weak SceGxm_stub_weak SceDisplay_stub_weak
         SceLibKernel_stub SceIofilemgr_stub SceProcessmgr_stub)
+    if(WW_PROGRAM_CACHE)
+        target_compile_definitions(ww_renderer PUBLIC WW_PROGRAM_CACHE=1)
+    endif()
     target_compile_options(ww_renderer PRIVATE -mcpu=cortex-a9 -mfpu=neon
         -mfloat-abi=hard -O2 -Wall -Wextra)
 
@@ -121,10 +125,27 @@ else()
     target_include_directories(vita_gl_backend_tests PRIVATE "${RENDERER_DIR}/test_gl")
     target_link_libraries(vita_gl_backend_tests PRIVATE GXRuntime::gxcore)
     target_compile_options(vita_gl_backend_tests PRIVATE -O2 -Wall -Wextra)
+
+    # Persisted program cache: the pure key/store/load module, plus the real
+    # backend compiled with the POC flag so the hit, corrupt-entry fallback and
+    # link-failure fallback paths run on the host with the recording fake.
+    add_executable(program_cache_tests "${RENDERER_DIR}/program_cache.cpp"
+        "${RENDERER_DIR}/program_cache_tests.cpp")
+    target_compile_options(program_cache_tests PRIVATE -O2 -Wall -Wextra)
+
+    add_executable(vita_gl_backend_cache_tests "${RENDERER_DIR}/vita_gl_backend.cpp"
+        "${RENDERER_DIR}/vita_gl_backend_tests.cpp" "${RENDERER_DIR}/program_cache.cpp")
+    target_compile_definitions(vita_gl_backend_cache_tests PRIVATE __vita__ WW_PROGRAM_CACHE=1)
+    target_include_directories(vita_gl_backend_cache_tests PRIVATE "${RENDERER_DIR}/test_gl")
+    target_link_libraries(vita_gl_backend_cache_tests PRIVATE GXRuntime::gxcore)
+    target_compile_options(vita_gl_backend_cache_tests PRIVATE -O2 -Wall -Wextra)
+
     enable_testing()
     foreach(scenario distinct same draw readback error shutdown)
         add_test(NAME vita_gl_backend_${scenario} COMMAND vita_gl_backend_tests ${scenario})
     endforeach()
+    add_test(NAME program_cache COMMAND program_cache_tests)
+    add_test(NAME vita_gl_backend_cache COMMAND vita_gl_backend_cache_tests cache)
 
     add_executable(png_capture_tests png_capture_tests.c png_capture.c)
     target_compile_options(png_capture_tests PRIVATE -O2 -Wall -Wextra)
