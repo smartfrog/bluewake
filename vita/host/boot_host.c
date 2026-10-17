@@ -945,8 +945,23 @@ bool ww_host_edge(void* user, CPUState* cpu, u32 address) {
         }
     }
     const bool compiled_rel_resume = ww_host_rel_return_qualified(host, address);
+    // checkLavaFace's return from GroundCross: the module already compiles the
+    // body at 0x80120188 (stfs f1, 13780(r29)), and the shared classification
+    // lists this exact key only in the observation switch, never in the
+    // host-service switch (edge_intercepts.c), so no queue or IO service runs
+    // at this boundary. The desktop observation it names - f1 against the check
+    // object's ground constant - is waived here, not emulated: the refusal
+    // capsule keeps r3/r13/r31 but not r29/f1, so re-checking it would need
+    // more retained state. The guest executes its own compiled block with no
+    // host change to PC, LR, registers or MSR. See docs/vita/VITA-WW-05.md.
+    bool admitted_observation = false;
+#if WW_EDGE_OBSERVATION_ADMIT
+    admitted_observation = address == 0x80120188u && cpu->pc == address && cpu->lr == address &&
+                           !ww_host_linked_alias_overlaps(address, 4u);
+#endif
     const bool compiled_cpu_boundary = (compiled_rel_resume || address == 0x80328F84u || address == 0x80303A50u || observed_dsp_task || observed_card_probe ||
-                                       observed_retrace_sleep || observed_draw_done_sleep || observed_async_draw_done || observed_receive_sleep) &&
+                                       observed_retrace_sleep || observed_draw_done_sleep || observed_async_draw_done || observed_receive_sleep ||
+                                       admitted_observation) &&
                                          ww_host_module_contains_address(host->module, address);
     const bool desktop_edge = bluewake_edge_maybe_intercept(address);
     if (address == 0x80307EF4u && ww_host_rel_linked(host, 1u) &&

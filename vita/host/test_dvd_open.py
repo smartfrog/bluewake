@@ -12,13 +12,13 @@ class DvdOpenTest(unittest.TestCase):
     def setUpClass(cls):
         test_di_read.DiscReadTest.setUpClass()
 
-    def run_probe(self, scenario):
+    def run_probe(self, scenario, *arguments):
         with tempfile.TemporaryDirectory(dir=test_host.OUT, prefix='dvd-open-') as directory:
             root = Path(directory)
             if scenario not in ('missing-disc', 'archive-missing-disc'):
                 test_di_read.DiscReadTest.image.write_image(root / 'ux0:data/bluewake/GZLE01.iso')
-            return subprocess.run([str(test_host.OUT / 'dvd_open_probe'), scenario], cwd=root, check=True,
-                                  capture_output=scenario.startswith('rel-'), text=True)
+            return subprocess.run([str(test_host.OUT / 'dvd_open_probe'), scenario, *arguments], cwd=root,
+                                  check=True, capture_output=scenario.startswith('rel-'), text=True)
 
     def test_real_path_opens_through_the_pinned_fst_and_returns_to_the_guest(self):
         self.run_probe('open')
@@ -88,8 +88,22 @@ class DvdOpenTest(unittest.TestCase):
     def test_archive_path_trace_failure_stops_before_mutating_the_guest(self):
         self.run_probe('archive-trace')
 
-    def test_unrelated_desktop_edges_are_still_refused(self):
-        self.run_probe('archive-unrelated')
+    def test_module_owned_ground_cross_caller_return_follows_the_admission_option(self):
+        enabled = any(line.strip() == 'WW_EDGE_OBSERVATION_ADMIT:BOOL=ON'
+                      for line in (test_host.OUT / 'CMakeCache.txt').read_text().splitlines())
+        self.run_probe('archive-unrelated', 'admit' if enabled else 'refuse')
+
+    def test_unowned_ground_cross_caller_return_is_refused_in_either_build(self):
+        self.run_probe('archive-unrelated-unowned', 'refuse')
+
+    def test_ground_cross_caller_return_requires_pc_and_lr_to_agree(self):
+        self.run_probe('archive-unrelated-mismatch', 'refuse')
+
+    def test_another_observation_only_key_is_not_admitted(self):
+        self.run_probe('archive-unrelated-observation', 'refuse')
+
+    def test_a_host_service_key_is_not_admitted(self):
+        self.run_probe('archive-unrelated-service', 'refuse')
 
 
 if __name__ == '__main__':

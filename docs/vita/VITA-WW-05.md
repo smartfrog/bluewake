@@ -3099,3 +3099,37 @@ verification remains in `docs/WINDOWS_TASKS.md`.
 Private VPKs, game inputs and every attempt remain ignored and local. No network, shared
 profile, protected `build-r1`/`build-f8`/`build-f9`/`build-f11` tree, other worktree or player
 data was changed. The final delivery does not publish or attach any personal game build.
+
+## GroundCross caller-return admission is a diagnostic waiver, off by default
+
+Trial #11 with the destination-alpha admission reached the title sequence: the title module
+returned through its translated caller at frame 296, module 400 at frame 297, `TlogoE.arc`
+opened and 307 presents were counted. It then stopped on the designed guard at
+`address=80120188 pc=80120188` with `module_owned=1`, all eight admission predicates zero
+and no capsule IO error.
+
+`0x80120188` is `checkLavaFace`'s return from `bl 0x802468E4` (GroundCross) in main-DOL
+text; the instruction there is `stfs f1, 13780(r29)` and that body is already compiled into
+the module. The shared classification in `runtime/host/src/edge_intercepts.c` treats the
+exact key as observation-only - `bluewake_edge_address_requires_host` is false and
+`bluewake_edge_observation_requires_host` is true - so no host service or device IO is owed
+at this boundary. The Vita guard refused it because `vita/host/boot_host.c` tests the raw
+shared table and the address was not in its compiled-boundary list.
+
+With `-DWW_EDGE_OBSERVATION_ADMIT=ON` (off by default) the host admits exactly this key:
+the address must be `0x80120188`, module-owned, `address == pc == lr` (a caller return, not
+an arbitrary entry) and free of a linked alias. The host does not change PC, LR, registers
+or MSR; the guest executes its own compiled block from `0x80120188`.
+
+The option is a diagnostic waiver, not an emulation of the desktop observation: the Vita
+host does **not** perform the desktop GroundCross `f1`/lava-constant check at this boundary.
+The refusal capsule retains `r3/r13/r31` but not `r29`/`f1`, so a faithful re-check would
+need more retained state. Unowned keys, non-caller-return shapes, other observation-only
+keys and every key that requires a host service are still refused.
+
+The `archive-unrelated` refusal fixture in `vita/host/dvd_open_probe.c` asserts admission
+only when its build has the option on and the original refusal otherwise. With the option
+off, `boot_host.c` compiles to the same object as `7173841d`
+(sha256 `60ed6c15a88d38be67aeeb11afbd80e91227c78eeac258f53aa20aaa946727bd`), so the refusal,
+its message and its STOP are unchanged. At this tree both host builds pass **78/78** CTest
+and **1164** Python host tests (one skip for the missing Vita SDK).
