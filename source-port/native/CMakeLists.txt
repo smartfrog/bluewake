@@ -127,6 +127,8 @@ include(cmake/dsp_hle.cmake)
 include(cmake/sdk.cmake)
 # The game's GF sources (game/src/dolphin/gf) compiled into cos_sdk.
 include(cmake/sdk_gf.cmake)
+# E3 POC: the GX/GD stub a renderer-less Vita build links (no-op on host builds).
+include(cmake/vita_gx_stub.cmake)
 # E1: the Vita package of the headless skeleton (no-op on host builds).
 include(cmake/vita.cmake)
 # Link census (phase 2): `ninja cos_link_census` lists what the non-REL units still need.
