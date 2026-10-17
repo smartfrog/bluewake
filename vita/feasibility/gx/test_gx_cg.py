@@ -22,6 +22,7 @@ SOURCES = [
     ROOT / "vita/renderer/gx_vita.h",
     ROOT / "vita/renderer/gx_cg.h",
     ROOT / "vita/renderer/gx_cg.cpp",
+    ROOT / "vita/renderer/gx_dst_alpha.h",
     ROOT / "vita/renderer/gx_cg_tests.cpp",
 ]
 

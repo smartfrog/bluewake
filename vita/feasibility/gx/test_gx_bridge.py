@@ -27,6 +27,7 @@ SOURCES = [
     ROOT / "vita/renderer/gx_bridge.h",
     ROOT / "vita/renderer/gx_bridge.cpp",
     ROOT / "vita/renderer/gx_bridge_tests.cpp",
+    ROOT / "vita/renderer/gx_dst_alpha.h",
     ROOT / "vita/feasibility/gx/gx_bridge_main.cpp",
 ]
 
@@ -56,6 +57,16 @@ def report(frontier):
 
 def build_dir():
     return Path(os.environ.get("WW02_BUILD", DEFAULT_BUILD))
+
+
+def dst_alpha_refusal_reason(build=None):
+    """The reason the fixture's colour-updates-on draw is refused in this build."""
+    cache = (build_dir() if build is None else build) / "gx-host" / "CMakeCache.txt"
+    enabled = cache.is_file() and any(
+        line.strip() == "WW_RENDERER_DST_ALPHA_ADMIT:BOOL=ON"
+        for line in cache.read_text().splitlines())
+    return ("destination alpha conflicts with the colour blend source alpha (two-pass split required)"
+            if enabled else "destination alpha requires dual-source blending")
 
 
 def check_binary(binary):
@@ -91,7 +102,7 @@ class CoreChecksTest(unittest.TestCase):
         self.assertIn("bridge textured_triangle ok", self.output)
 
     def test_shader_refusal_keeps_its_reason(self):
-        self.assertIn("bridge destination alpha refused: destination alpha requires dual-source blending",
+        self.assertIn(f"bridge destination alpha refused: {dst_alpha_refusal_reason()}",
                       self.output)
 
     def test_indirect_fixture_reaches_one_cg_program(self):
@@ -122,7 +133,7 @@ class FixtureCliTest(unittest.TestCase):
         result = self.run_cli("--fixture", "dstalpha_triangle")
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertIn("programs_refused=1", result.stdout)
-        self.assertIn("refused reason=destination alpha requires dual-source blending", result.stdout)
+        self.assertIn(f"refused reason={dst_alpha_refusal_reason()}", result.stdout)
 
     def test_indirect_triangle_reaches_one_cg_program(self):
         result = self.run_cli("--fixture", "indirect_triangle")

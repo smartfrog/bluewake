@@ -271,9 +271,9 @@ int dst_alpha_shader_key_is_refused() {
 }
 
 #if defined(WW_RENDERER_DST_ALPHA_ADMIT)
-// The guest's documented pattern leaves colour updates off, so the colour
-// channel cannot observe the fragment alpha: one exact pass writes the
-// constant, with no extra draw or program variant.
+// The colour-updates-off class: the colour channel cannot observe the
+// fragment alpha, so one exact pass writes the constant, with no extra draw or
+// program variant.
 int dst_alpha_colour_update_off_is_admitted() {
   gxc::PipelineKey pipeline;
   CHECK(replay_pipeline("dstalpha_stamp_triangle", pipeline));
@@ -317,6 +317,46 @@ int dst_alpha_blend_off_tev_keeps_alpha_test_order() {
   CHECK(cg.fragment.find("fragment_depth =") < stamp);
   CHECK(cg.fragment.find("float fog_z") < stamp);
   std::printf("dst alpha blend-off TEV admission keeps the ordering\n");
+  return 0;
+}
+
+// Blending off wins over the colour factors: the colour channel never reads
+// them, so SRCALPHA/INVSRCALPHA still admit in the mono-pass.
+int dst_alpha_blend_off_with_source_alpha_factors_is_admitted() {
+  gxc::PipelineKey pipeline;
+  pipeline.shader.use_dst_alpha = 1;
+  pipeline.shader.dst_alpha = 0x80;
+  pipeline.alpha_update = 1;
+  pipeline.blend_enable = 0;
+  pipeline.color_update = 1;
+  pipeline.src_factor = 4; // SRCALPHA
+  pipeline.dst_factor = 5; // INVSRCALPHA
+  CHECK(gx_vita::dst_alpha::mono_pass_refusal(pipeline) == nullptr);
+  const auto cg = gx_vita::generate_cg(pipeline);
+  CHECK(cg.ok);
+  CHECK(contains(cg.fragment, "128.0 / 255.0"));
+  std::printf("dst alpha blend-off with source-alpha factors admitted\n");
+  return 0;
+}
+
+// The OR protects the mixed pair: DSTALPHA reads the framebuffer (allowed),
+// but INVSRCALPHA still reads the computed fragment alpha, so one pass cannot
+// serve both alphas.
+int dst_alpha_mixed_factor_pair_is_refused() {
+  gxc::PipelineKey pipeline;
+  pipeline.shader.use_dst_alpha = 1;
+  pipeline.shader.dst_alpha = 0x80;
+  pipeline.alpha_update = 1;
+  pipeline.blend_enable = 1;
+  pipeline.color_update = 1;
+  pipeline.src_factor = 6; // DSTALPHA
+  pipeline.dst_factor = 5; // INVSRCALPHA
+  CHECK(gx_vita::dst_alpha::mono_pass_refusal(pipeline) != nullptr);
+  const auto cg = gx_vita::generate_cg(pipeline);
+  CHECK(!cg.ok);
+  CHECK(std::string(cg.unsupported_reason) ==
+        "destination alpha conflicts with the colour blend source alpha (two-pass split required)");
+  std::printf("dst alpha mixed factor pair refused\n");
   return 0;
 }
 
@@ -672,6 +712,8 @@ int main(int argc, char** argv) {
 #if defined(WW_RENDERER_DST_ALPHA_ADMIT)
   CHECK(dst_alpha_colour_update_off_is_admitted() == 0);
   CHECK(dst_alpha_blend_off_tev_keeps_alpha_test_order() == 0);
+  CHECK(dst_alpha_blend_off_with_source_alpha_factors_is_admitted() == 0);
+  CHECK(dst_alpha_mixed_factor_pair_is_refused() == 0);
   CHECK(dst_alpha_untextured_is_admitted() == 0);
   CHECK(dst_alpha_conflict_is_refused() == 0);
   CHECK(dst_alpha_subtract_is_refused() == 0);

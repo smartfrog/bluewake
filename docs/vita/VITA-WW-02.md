@@ -26,8 +26,8 @@ plug into later. It is not a general GX/Aurora rewrite and not a full renderer.
     (diffuse in slot 0, ramp in slot 1);
   - `lines_pair`, `subtract_triangle`, `dstalpha_triangle`: primitive topology, GX
     SUBTRACT blending, BP 0x42 constant destination alpha;
-  - `dstalpha_stamp_triangle`: the guest's capture-stamp pattern, BP 0x42 with
-    colour updates off.
+  - `dstalpha_stamp_triangle`: BP 0x42 with colour updates off, the class the
+    mono-pass admission can carry.
 - `vita/renderer/gx_vita.{h,cpp}` — one `DrawPlan` becomes the command set a vitaGL
   submission would issue:
   - pipeline state in GL tokens (depth, blend with separate alpha factors and
@@ -86,7 +86,7 @@ so a future run on hardware fails loudly if pixels are still wrong.
 | HUD (2D draws) | **delivered (fixture)** | `hud_quad`: four screen-space vertices, two triangles, alpha blend, no depth. |
 | EFB copy → texture | **delivered (host)** | `translate_copy`: destination, format, source rectangle, write masks and the following clear; a display copy is refused with a reason. |
 | EFB readback to guest memory | **delivered (host logic)** | `copy_readback_to_guest`: RGBA8 rows into the guest stride with per-row dirty marking and bounds refusal. The device read (glReadPixels) comes with the Vita3K demo. |
-| Cg program generation | **bounded, delivered** | `vita/renderer/gx_cg.{h,cpp}`: untextured passthrough, textured passthrough, regular TEV combines (Prev/Tex/Raster/Zero/One/Half args, add/subtract, clamp, 1x/2x/4x scale, Regular and Colour texgens), and the BP 0x42 constant destination alpha in the mono-pass when the colour pass cannot observe the fragment alpha (`WW_RENDERER_DST_ALPHA_ADMIT`, off by default; `gx_dst_alpha.h`). Anything else is refused with a reason. Compiled by the Vita's Cg runtime in the demo. |
+| Cg program generation | **bounded, delivered** | `vita/renderer/gx_cg.{h,cpp}`: untextured passthrough, textured passthrough, regular TEV combines (Prev/Tex/Raster/Zero/One/Half args, add/subtract, clamp, 1x/2x/4x scale, Regular and Colour texgens), and the BP 0x42 constant destination alpha in the mono-pass when the colour pass cannot observe the fragment alpha (`WW_RENDERER_DST_ALPHA_ADMIT`, off by default; `gx_dst_alpha.h`). Anything else is refused with a reason. The demo keeps the shader-key entry, so it does not compile the admitted destination-alpha program; the host tests exercise it. |
 | Vita3K / device run | **run delivered, pixels blocked** | The demo path runs on Vita3K (init, Cg compile, draws, copy, readback, capture); rendered pixels are not readable from guest memory on this emulator build. See the Vita3K section. |
 | Physical console | **PENDING** | No hardware measurement; emulator timings never extrapolate to hardware. The pixel checks must be re-run on hardware. |
 
@@ -110,7 +110,9 @@ so a future run on hardware fails loudly if pixels are still wrong.
   class. Subtract-mode draws stay refused with
   `destination alpha with blend subtract stays refused until the ONE/ONE rule is
   verified here` until that rule is checked on this path. The admission is not
-  yet measured on Vita hardware, so the flag stays off.
+  yet measured on Vita hardware, so the flag stays off; a private ON build is
+  requested with `scripts/vita/ww05/game_build.py --dst-alpha-admit`, which
+  records `config.dst_alpha_admit` in the build receipt.
 - Multi-texmap uploads are limited to the 8 GX texture slots.
 
 ## Rules kept
@@ -118,6 +120,8 @@ so a future run on hardware fails loudly if pixels are still wrong.
 - Pins read-only (`ref/vita-ww-01/RecompCore`, pristine `ddd031b`); no pin or
   dependency change.
 - Fixtures are synthetic; no game data, disc content or private capture is committed.
-- This scope is `vita/renderer/**`, `vita/feasibility/gx/**`, `scripts/vita/gx/**`
-  and this document; the VITA-WW-13 disc work in the same worktree is another
+- This scope is `vita/renderer/**`, `vita/feasibility/gx/**`,
+  `vita/host/CMakeLists.txt`, the matching `vita/host/test_*.py` build and
+  live-frame tests, `scripts/vita/gx/**`, `scripts/vita/ww05/game_build.py` and
+  this document; the VITA-WW-13 disc work in the same worktree is another
   writer's and is never touched.

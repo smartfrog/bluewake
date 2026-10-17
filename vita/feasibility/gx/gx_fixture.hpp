@@ -341,9 +341,8 @@ inline std::vector<std::uint8_t> build_dstalpha_triangle() {
   return fifo;
 }
 
-// The guest's documented capture-stamp pattern: constant destination alpha
-// with colour updates off. The colour channel cannot observe the fragment
-// alpha, so one exact pass can write the constant.
+// Constant destination alpha with colour updates off. The colour channel
+// cannot observe the fragment alpha, so one exact pass can write the constant.
 inline std::vector<std::uint8_t> build_dstalpha_stamp_triangle() {
   std::vector<std::uint8_t> fifo;
   push_common_state(fifo);

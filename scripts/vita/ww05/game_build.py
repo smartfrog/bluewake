@@ -98,6 +98,10 @@ class Build:
         print('PASS ' + name, flush=True)
 
 
+def dst_alpha_configure_option(enabled):
+    return ['-DWW_RENDERER_DST_ALPHA_ADMIT=ON'] if enabled else []
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--disc', type=Path, required=True)
@@ -105,6 +109,8 @@ def main():
     parser.add_argument('--prepare-only', action='store_true')
     parser.add_argument('--vi-clock', action='store_true', help='enable the experimental guest-cycle VI clock (off by default)')
     parser.add_argument('--pad-input', action='store_true', help='enable experimental Vita controls through guest SI (off by default)')
+    parser.add_argument('--dst-alpha-admit', action='store_true',
+                        help='admit the non-conflict destination-alpha mono-pass (off by default)')
     parser.add_argument('--jobs', type=int, default=2)
     parser.add_argument('--opt-level', choices=('1', '2', '3'), default='1',
                         help='translated module optimization level (default matches the verified private module)')
@@ -204,7 +210,8 @@ def main():
                                    f'-DWW05_VITAGL_LIBRARY={vitagl}', f'-DWW05_RENDERER_SDK={renderer_sdk}',
                                    f'-DWW05_MODULE_OPT_LEVEL={args.opt_level}',
                                     f'-DWW05_ENABLE_VI_CLOCK={"ON" if args.vi_clock else "OFF"}',
-                                    f'-DWW05_ENABLE_PAD_INPUT={"ON" if args.pad_input else "OFF"}'])
+                                    f'-DWW05_ENABLE_PAD_INPUT={"ON" if args.pad_input else "OFF"}',
+                                    *dst_alpha_configure_option(args.dst_alpha_admit)])
     build.run('vita-build', [cmake, '--build', vita, '-j', args.jobs])
     from inspect_build import inspect
     inspect(vita)
@@ -229,7 +236,8 @@ def main():
         'artifacts': artifacts, 'config': {'static_module': True, 'aurora': False, 'aurora_recomp': True,
         'optimization': int(args.opt_level), 'compiler_pass_disabled': 'tree-dominator-opts', 'fp_patch': None,
          'lazy_fp': True, 'fp_exception_suffix_refund': True, 'vi_clock': args.vi_clock,
-         'pad_input': args.pad_input, 'pad_sampling': 'guest-SI-only'},
+         'pad_input': args.pad_input, 'pad_sampling': 'guest-SI-only',
+         'dst_alpha_admit': args.dst_alpha_admit},
         'footprint_sha256': sha256(output / 'footprint.json'),
         'snapshot': str(snapshot)}, indent=2) + '\n'
     (snapshot / 'build-evidence.json').write_text(receipt)

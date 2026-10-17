@@ -45,5 +45,16 @@ class GameInputTest(unittest.TestCase):
             self.assertFalse((output / 'private/main.dol').exists())
 
 
+class DstAlphaOptionTest(unittest.TestCase):
+    def test_configure_option_is_passed_only_when_requested(self):
+        spec = importlib.util.spec_from_file_location('ww05_game_build',
+                                                      ROOT / 'scripts/vita/ww05/game_build.py')
+        module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(module)
+        self.assertEqual(module.dst_alpha_configure_option(True),
+                         ['-DWW_RENDERER_DST_ALPHA_ADMIT=ON'])
+        self.assertEqual(module.dst_alpha_configure_option(False), [])
+
+
 if __name__ == '__main__':
     unittest.main()

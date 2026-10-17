@@ -487,7 +487,7 @@ int main(int argc, char** argv) {
   }
 
   {
-    // The documented capture stamp leaves colour updates off: the mono-pass
+    // Constant destination alpha with colour updates off: the mono-pass
     // admission reaches exactly one program, and the default build refuses it.
     gx_bridge::Result result;
     CHECK(run_stream(gx_fixture::build_dstalpha_stamp_triangle(), result));

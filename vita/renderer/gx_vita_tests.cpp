@@ -850,7 +850,7 @@ int main() {
     CHECK(!conflict.ok);
     CHECK(std::string(conflict.unsupported_reason) ==
           "destination alpha conflicts with the colour blend source alpha (two-pass split required)");
-    // The guest's documented pattern leaves colour updates off: admitted.
+    // The colour-updates-off class: admitted in the same pass.
     gxc::PipelineKey alpha_only = pipeline;
     alpha_only.color_update = 0;
     const gx_vita::CgProgram admitted = gx_vita::generate_cg(alpha_only);

@@ -13,6 +13,15 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[2] / 'scripts/vita/armv7
 sys.path.insert(0, str(Path(__file__).resolve().parents[2] / 'scripts/vita/ww05'))
 
 
+def dst_alpha_refusal_reason():
+    cache = test_host.OUT / 'CMakeCache.txt'
+    enabled = cache.is_file() and any(
+        line.strip() == 'WW_RENDERER_DST_ALPHA_ADMIT:BOOL=ON'
+        for line in cache.read_text().splitlines())
+    return ('destination alpha conflicts with the colour blend source alpha (two-pass split required)'
+            if enabled else 'destination alpha requires dual-source blending')
+
+
 class LiveFramesTest(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
@@ -173,7 +182,7 @@ class LiveFramesTest(unittest.TestCase):
             self.assertEqual(metadata['draws'], 1)
             self.assertEqual(metadata['renderer']['plans'], 2)
             self.assertEqual(metadata['renderer']['programs_refused'], 1)
-            self.assertIn('category=shader audio=strict reason=destination alpha requires dual-source blending', log)
+            self.assertIn(f'category=shader audio=strict reason={dst_alpha_refusal_reason()}', log)
 
     def test_renderer_refusal_trace_failure_stops_and_preserves_the_actual_published_frame(self):
         with tempfile.TemporaryDirectory(dir='/tmp/opencode', prefix='ww16-live-') as directory:

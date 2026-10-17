@@ -21,6 +21,7 @@ SOURCES = [
     ROOT / "vita/feasibility/gx/gx_fixture.hpp",
     ROOT / "vita/renderer/gx_vita.h",
     ROOT / "vita/renderer/gx_vita.cpp",
+    ROOT / "vita/renderer/gx_dst_alpha.h",
     ROOT / "vita/renderer/gx_vita_tests.cpp",
 ]
 
