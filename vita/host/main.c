@@ -4,6 +4,9 @@
 #include "ww05_identity.h"
 #include "diagnostic_io.h"
 #include "fixture.h"
+#if defined(__vita__) && WW05_ENABLE_MAX_CLOCKS
+#include "vita_clocks.h"
+#endif
 
 #include <stdlib.h>
 
@@ -73,6 +76,13 @@ static int requested_limit(const char* path, u32 maximum, const char* token, con
 
 int fixture_run(int argc, char** argv) {
     (void)argv;
+#if defined(__vita__) && WW05_ENABLE_MAX_CLOCKS
+    // DuskGXM requests the official ceiling at init. A failed request is logged
+    // and never stops the boot; the lever is off by default until it is measured
+    // on hardware (Vita3K need not honor ScePower clock requests).
+    if (bw_vita_clocks_apply_max() != 0)
+        fprintf(stderr, "[vita-clocks] result=failed continuing\n");
+#endif
     char token[33], source[41], package[65];
     u32 command_log_limit;
     u32 memory_capture_limit;

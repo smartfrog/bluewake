@@ -4,6 +4,7 @@ set(CMAKE_C_STANDARD 11)
 set(CMAKE_C_STANDARD_REQUIRED ON)
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 option(WW05_TESTS_ONLY "Build game-free host contract tests only" OFF)
+option(WW05_ENABLE_MAX_CLOCKS "Request the official Vita clock ceiling at boot (hardware target)" OFF)
 option(WW05_ENABLE_VI_CLOCK "Experimental guest-cycle VI clock for private boot trials" OFF)
 option(WW05_ENABLE_PAD_INPUT "Experimental Vita controls sampled only by guest SI requests" OFF)
 option(WW05_ENABLE_SHIP_PROLOG "Experimental exact-contract ship prolog through translated caller" OFF)
@@ -71,7 +72,7 @@ target_compile_options(gxruntime PRIVATE -ffp-contract=off -fno-fast-math -fstac
 add_library(ww05_services STATIC boot_host.c gx_checkpoint.c gx_stream.c fifo_gather.c fifo_consumer.c
     code_guard.c dsp_interface.c bat_contract.c disc_service.c rel_provider.c rel_service.c rel_link.c rel_contract.c rel_sdk.c rel_lifecycle.c rel_profile_block.c ship_contract.c
     scheduler_observation.c game_stop.c vi_clock.c gx_draw_observation.c gpu_finish.c frame_timing.c mem1_capture.c frame_capture.cpp
-    dsp_rom_mail.c dsp_deferred.c pad_input.c
+    dsp_rom_mail.c dsp_deferred.c pad_input.c clocks/vita_clocks.c
     $<TARGET_OBJECTS:ww13_dvd_pin>
     "${BLUEWAKE_ROOT}/runtime/host/src/cycle_domain.c"
     "${BLUEWAKE_ROOT}/runtime/host/src/aram_dma.c"
@@ -83,6 +84,7 @@ add_library(ww05_services STATIC boot_host.c gx_checkpoint.c gx_stream.c fifo_ga
     "${BLUEWAKE_ROOT}/runtime/host/src/rel_scratch_allocator.c"
     "${BLUEWAKE_ROOT}/runtime/host/src/interrupt_sources.c")
 target_include_directories(ww05_services PUBLIC "${CMAKE_CURRENT_SOURCE_DIR}"
+    "${CMAKE_CURRENT_SOURCE_DIR}/clocks"
     "${BLUEWAKE_ROOT}/runtime/host/src" "${BLUEWAKE_ROOT}/cmake/composite" "${ABI_DIR}"
     "${BLUEWAKE_ROOT}/apple/ios/src")
 target_include_directories(ww05_services PRIVATE "${BLUEWAKE_ROOT}/vita/feasibility/armv7")
@@ -123,6 +125,7 @@ if(WW05_OBSERVE_NATIVE_CTX)
 endif()
 target_compile_definitions(ww05_services PUBLIC WW05_ENABLE_VI_CLOCK=$<BOOL:${WW05_ENABLE_VI_CLOCK}>)
 target_compile_definitions(ww05_services PUBLIC WW05_ENABLE_PAD_INPUT=$<BOOL:${WW05_ENABLE_PAD_INPUT}>)
+target_compile_definitions(ww05_services PUBLIC WW05_ENABLE_MAX_CLOCKS=$<BOOL:${WW05_ENABLE_MAX_CLOCKS}>)
 target_compile_definitions(ww05_services PUBLIC WW05_ENABLE_SHIP_PROLOG=$<BOOL:${WW05_ENABLE_SHIP_PROLOG}>)
 target_compile_definitions(ww05_services PUBLIC WW05_ENABLE_TITLE_CONTRACT=$<BOOL:${WW05_ENABLE_TITLE_CONTRACT}>)
 target_compile_definitions(ww05_services PUBLIC WW05_ENABLE_IKADA_CONTRACT=$<BOOL:${WW05_ENABLE_IKADA_CONTRACT}>)
@@ -355,7 +358,8 @@ else()
         target_link_directories(ww05_host PRIVATE "${WW05_RENDERER_SDK}/lib")
     endif()
     target_link_libraries(ww05_host PRIVATE gGZLE01_recomp ww05_services
-        SceLibKernel_stub SceKernelThreadMgr_stub SceIofilemgr_stub SceProcessmgr_stub SceSysmem_stub)
+        SceLibKernel_stub SceKernelThreadMgr_stub SceIofilemgr_stub SceProcessmgr_stub SceSysmem_stub
+        ScePower_stub)
     target_link_libraries(ww_renderer PUBLIC
         "${WW05_VITAGL_LIBRARY}" vitashark SceShaccCgExt SceShaccCg_stub_weak SceGxm_stub_weak
         SceDisplay_stub_weak SceSysmodule_stub_weak SceCommonDialog_stub_weak SceAppMgr_stub_weak
