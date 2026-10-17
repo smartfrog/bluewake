@@ -3137,9 +3137,14 @@ that requires a host service are still refused. The admission is reported once p
 `[edge-admit] address=80120188 module_owned=1 reason=observation-only` so the next trial can
 tell that it fired.
 
-A private ON build is requested with `scripts/vita/ww05/game_build.py --edge-observation-admit`,
-which passes `-DWW_EDGE_OBSERVATION_ADMIT=ON` and records `config.edge_observation_admit` in
-the build receipt; without the flag the option stays off and nothing is passed.
+A private ON build is requested with `scripts/vita/ww05/game_build.py --edge-observation-admit`.
+Every run passes the option explicitly: `-DWW_EDGE_OBSERVATION_ADMIT=ON` with the flag and
+`-DWW_EDGE_OBSERVATION_ADMIT=OFF` without it, and records `config.edge_observation_admit` in
+the build receipt. The explicit OFF matters because `output/vita` is a reused CMake tree: an
+omitted argument would leave an earlier ON in the cache while the receipt recorded off.
+`scripts/vita/ww05/check_edge_observation_cache.py --work SCRATCH --recompcore DIR` proves
+the reused-tree flip from ON to OFF with a configure-only tests-only tree (no translated
+compile).
 
 The `archive-unrelated` fixture in `vita/host/dvd_open_probe.c` selects its expectation at
 compile time from the PUBLIC `WW_EDGE_OBSERVATION_ADMIT` define: admission in an option-on

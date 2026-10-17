@@ -103,7 +103,7 @@ def dst_alpha_configure_option(enabled):
 
 
 def edge_observation_admit_configure_option(enabled):
-    return ['-DWW_EDGE_OBSERVATION_ADMIT=ON'] if enabled else []
+    return [f'-DWW_EDGE_OBSERVATION_ADMIT={"ON" if enabled else "OFF"}']
 
 
 def vita_configure_arguments(cmake, ninja, source, output, toolchain, recompcore, composite, identity, dol,

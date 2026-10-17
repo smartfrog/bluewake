@@ -57,28 +57,39 @@ class DstAlphaOptionTest(unittest.TestCase):
 
 
 class EdgeObservationAdmitOptionTest(unittest.TestCase):
-    def test_configure_option_is_passed_only_when_requested(self):
+    def test_configure_option_is_always_explicit(self):
         spec = importlib.util.spec_from_file_location('ww05_game_build',
                                                       ROOT / 'scripts/vita/ww05/game_build.py')
         module = importlib.util.module_from_spec(spec)
         spec.loader.exec_module(module)
         self.assertEqual(module.edge_observation_admit_configure_option(True),
                          ['-DWW_EDGE_OBSERVATION_ADMIT=ON'])
-        self.assertEqual(module.edge_observation_admit_configure_option(False), [])
+        self.assertEqual(module.edge_observation_admit_configure_option(False),
+                         ['-DWW_EDGE_OBSERVATION_ADMIT=OFF'])
 
-    def test_vita_configure_arguments_carry_the_admission_only_when_requested(self):
+    def test_vita_configure_arguments_carry_the_admission_explicitly(self):
         spec = importlib.util.spec_from_file_location('ww05_game_build',
                                                       ROOT / 'scripts/vita/ww05/game_build.py')
         module = importlib.util.module_from_spec(spec)
         spec.loader.exec_module(module)
+        base = ['cmake', '-S', 'source', '-B', 'output', '-G', 'Ninja',
+                '-DCMAKE_TOOLCHAIN_FILE=toolchain', '-DCMAKE_MAKE_PROGRAM=ninja',
+                '-DCMAKE_BUILD_TYPE=Release', '-DRECOMPCORE_DIR=recompcore',
+                '-DCOMPOSITE_DIR=composite', '-DWW05_IDENTITY_DIR=identity', '-DWW05_DOL=dol',
+                '-DWW05_VITAGL_LIBRARY=vitagl', '-DWW05_RENDERER_SDK=sdk',
+                '-DWW05_MODULE_OPT_LEVEL=1', '-DWW05_ENABLE_VI_CLOCK=OFF',
+                '-DWW05_ENABLE_PAD_INPUT=OFF']
 
         def arguments(enabled):
             return [str(value) for value in module.vita_configure_arguments(
                 'cmake', 'ninja', 'source', 'output', 'toolchain', 'recompcore', 'composite',
                 'identity', 'dol', 'vitagl', 'sdk', '1', False, False, False, enabled)]
 
-        self.assertIn('-DWW_EDGE_OBSERVATION_ADMIT=ON', arguments(True))
-        self.assertFalse(any(value.startswith('-DWW_EDGE_OBSERVATION_ADMIT') for value in arguments(False)))
+        expected = {'ON': ['-DWW_EDGE_OBSERVATION_ADMIT=ON'],
+                    'OFF': ['-DWW_EDGE_OBSERVATION_ADMIT=OFF']}
+        for state, option in expected.items():
+            with self.subTest(state=state):
+                self.assertEqual(arguments(state == 'ON'), base + option)
 
 
 if __name__ == '__main__':
