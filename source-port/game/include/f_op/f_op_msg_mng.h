@@ -64,6 +64,13 @@ struct fopMsg_prm_timer : public fopMsg_prm_class {
     /* 0x2C */ cXy mRupeePos;
 }; // Size: 0x34
 
+#if TARGET_PC
+// VitaSDK's <ctype.h> defines _C as an octal constant (its ctype class table); the struct's field
+// uses the name. Hide the macro for the declaration only and restore it right after, so
+// libstdc++'s ctype headers (which use _C) still see it.
+#pragma push_macro("_C")
+#undef _C
+#endif
 struct fopMsgM_unk_struct {
     u16 _0;
     u16 _2;
@@ -75,6 +82,9 @@ struct fopMsgM_unk_struct {
     u16 _E;
     u8 _10;
 };
+#if TARGET_PC
+#pragma pop_macro("_C")
+#endif
 
 class J2DScreen;
 
