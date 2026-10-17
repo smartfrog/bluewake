@@ -145,3 +145,12 @@ add_custom_target(cos_sdk_shadow_check
         DEPENDS cos_sdk_header_check
         USES_TERMINAL
         COMMENT "Checking that no SDK header resolves under game/include/dolphin")
+
+# ILP32 assertion profile (build-f5/runtime-next/ilp32-census-c415b56e §7.1): only for 32-bit host
+# targets (the Vita/ARMv7 build). -fno-access-control lets offsetof name private members, as
+# cos_layout_check does.
+if (CMAKE_SIZEOF_VOID_P EQUAL 4)
+    add_library(cos_ilp32_check OBJECT check/ilp32_check.cpp)
+    target_link_libraries(cos_ilp32_check PRIVATE cos_game_headers)
+    target_compile_options(cos_ilp32_check PRIVATE -fno-access-control -Wno-invalid-offsetof)
+endif ()
