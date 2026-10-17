@@ -97,6 +97,12 @@ set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS ON)
 set(CMAKE_POSITION_INDEPENDENT_CODE ON)
+if (CMAKE_SIZEOF_VOID_P EQUAL 4)
+    # The Vita is not PIE, and vita-elf-create rejects the PLT relocations (R_ARM_JUMP_SLOT,
+    # "Invalid relocation type 25!") that PIC code leaves behind in a -q link: the whole 32-bit
+    # build is non-PIC. E1 correction, build-f5/runtime-next/e1-skeleton-*.
+    set(CMAKE_POSITION_INDEPENDENT_CODE OFF)
+endif ()
 set(CMAKE_COLOR_DIAGNOSTICS ON)
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 

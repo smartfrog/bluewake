@@ -20,9 +20,21 @@ include("$ENV{VITASDK}/share/vita.cmake" REQUIRED)
 # The E1 binary: cos_sdk_smoke, the headless skeleton smoke (no window, no GPU; it prints "ok"
 # and exits 0 when every SDK test passes). Runs are E2's.
 if (TARGET cos_sdk_smoke)
-    # vita-elf-create appends the SCE data at the end of segment 0 and fails when segment 1
-    # starts too close: anchor the RW base with margin, as the WW-02 fixture does.
-    target_link_options(cos_sdk_smoke PRIVATE "-Wl,--section-start=.init_array=0x81100000")
+    # The binary is bigger than the WW-02 fixture: anchor the RW base well above .text
+    # (vita-elf-create appends the SCE data at the end of segment 0 and fails when segment 1
+    # starts too close).
+    target_link_options(cos_sdk_smoke PRIVATE "-Wl,--section-start=.init_array=0x81400000")
+    # E1 scope: the services the skeleton does not build yet are skipped loudly by the tests
+    # (COS_SDK_SMOKE_NO_*), and two libc functions newlib declares but does not implement are
+    # stubbed (native/vita/stubs_libc.cpp).
+    target_compile_definitions(cos_sdk_smoke PRIVATE
+            COS_SDK_SMOKE_NO_DVD=1    # no aurora::dvd on this target (host-only for now)
+            COS_SDK_SMOKE_NO_GX=1     # no aurora_gx/aurora_gd (GX is E3/E4)
+            COS_SDK_SMOKE_NO_CHILD=1) # no child processes on the Vita
+    target_sources(cos_sdk_smoke PRIVATE "${COS_NATIVE_ROOT}/vita/stubs_libc.cpp")
+    # Aurora's libraries reference each other in a cycle (core <-> vi): group them, as a static
+    # link of the pair requires.
+    target_link_libraries(cos_sdk_smoke PRIVATE "-Wl,--start-group" ${COS_AURORA_LIBS} "-Wl,--end-group")
     vita_create_self(cos_sdk_smoke.self cos_sdk_smoke)
     vita_create_vpk(cos_e1_skeleton.vpk BWWG00031 cos_sdk_smoke.self VERSION 00.01
             NAME "BlueWake source skeleton (headless smoke)")

@@ -24,6 +24,14 @@
 #include <sys/wait.h>
 #include <unistd.h>
 
+#ifdef COS_SDK_SMOKE_NO_GX
+// E1: no aurora_gx/aurora_gd on this target (GX is E3/E4): the whole test is a loud skip.
+COS_SMOKE_TEST(gf) {
+    std::fprintf(stderr, "gf: skipped (no aurora_gx/aurora_gd on this build; GX is E3/E4)\n");
+    return true;
+}
+#else
+
 namespace {
 
 constexpr u32 kBufSize = 1024;
@@ -235,3 +243,5 @@ COS_SMOKE_TEST(gf) {
     }
     return true;
 }
+
+#endif // COS_SDK_SMOKE_NO_GX

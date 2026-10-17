@@ -17,6 +17,9 @@
 #include <chrono>
 #include <cstdint>
 #include <cstdlib>
+#if defined(__NEWLIB__)
+#include <malloc.h> // memalign, where std::aligned_alloc is missing (E1, the Vita)
+#endif
 #include <new>
 #include <thread>
 
@@ -44,9 +47,18 @@ void* CountedAlloc(std::size_t size, std::size_t align) {
     if (size == 0) {
         size = 1;
     }
-    void* p = align <= alignof(std::max_align_t)
-                  ? std::malloc(size)
-                  : std::aligned_alloc(align, (size + align - 1) & ~(align - 1));
+    void* p;
+    if (align <= alignof(std::max_align_t)) {
+        p = std::malloc(size);
+    } else {
+#if defined(__NEWLIB__)
+        // Newlib has no std::aligned_alloc (C11); memalign is the one that links, as host_alloc.h
+        // does on this target.
+        p = memalign(align, (size + align - 1) & ~(align - 1));
+#else
+        p = std::aligned_alloc(align, (size + align - 1) & ~(align - 1));
+#endif
+    }
     if (p == nullptr) {
         std::abort();
     }

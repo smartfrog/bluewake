@@ -30,6 +30,7 @@ extern "C" u32 __OSBusClock;
 
 namespace {
 
+#ifndef COS_SDK_SMOKE_NO_CHILD
 struct ChildResult {
     bool exited = false;   // ended through exit/_Exit
     int exitCode = -1;     // when exited
@@ -93,6 +94,7 @@ bool ExitedZero(const ChildResult& r, const char* text) {
     }
     return true;
 }
+#endif // COS_SDK_SMOKE_NO_CHILD
 
 // ---- reset ------------------------------------------------------------------------------------
 
@@ -206,12 +208,16 @@ bool TestReset() {
     COS_SMOKE_CHECK(!OSGetResetSwitchState() && !OSGetResetButtonState());
 
     // Without a hook OSResetSystem ends the process (exit code 0), as it never returns.
+#ifndef COS_SDK_SMOKE_NO_CHILD
     COS_SMOKE_CHECK(ExitedZero(RunChild([] {
                                    OSResetSystem(OS_RESET_SHUTDOWN, 0, FALSE);
                                    std::fputs("OSResetSystem returned\n", stderr);
                                    std::abort();
                                }),
                                "no reset hook is set"));
+#else
+    std::fprintf(stderr, "reset: child-process check skipped (no child processes on this target)\n");
+#endif
     return true;
 }
 
@@ -373,6 +379,7 @@ bool TestMisc() {
 
 // ---- report, panic, fatal and other ends ------------------------------------------------------
 
+#ifndef COS_SDK_SMOKE_NO_CHILD
 bool TestEnds() {
     ChildResult r = RunChild([] { OSReport("report %d %s\n", 7, "ok"); });
     COS_SMOKE_CHECK(ExitedZero(r, "report 7 ok\n"));
@@ -398,6 +405,12 @@ bool TestEnds() {
     COS_SMOKE_CHECK(Aborted(RunChild([] { OSSetErrorHandler(17, nullptr); }), "out of range"));
     return true;
 }
+#else
+bool TestEnds() {
+    std::fprintf(stderr, "misc: child-process checks skipped (no child processes on this target)\n");
+    return true;
+}
+#endif // COS_SDK_SMOKE_NO_CHILD
 
 } // namespace
 

@@ -48,6 +48,7 @@ namespace {
     return true;
 }();
 
+#ifndef COS_SDK_SMOKE_NO_CHILD
 // Runs `fn` in a forked child with stderr captured; true if the child aborted (SIGABRT) and its
 // stderr contains `text`.
 bool ChildAborts(void (*fn)(), const char* text) {
@@ -85,6 +86,7 @@ bool ChildAborts(void (*fn)(), const char* text) {
     }
     return ok;
 }
+#endif // COS_SDK_SMOKE_NO_CHILD
 
 // ---- ar ---------------------------------------------------------------------------------------
 
@@ -165,8 +167,12 @@ COS_SMOKE_TEST(ar) {
     ARFree(nullptr);
 
     // A console address in place of a MEM1 physical one, and a range past the end of ARAM, abort.
+#ifndef COS_SDK_SMOKE_NO_CHILD
     COS_SMOKE_CHECK(ChildAborts(ConsoleAddressDma, "not inside MEM1"));
     COS_SMOKE_CHECK(ChildAborts(AramOverrunDma, "not inside ARAM"));
+#else
+    std::fprintf(stderr, "ar: child-process checks skipped (no child processes on this target)\n");
+#endif
     return true;
 }
 
@@ -210,7 +216,11 @@ COS_SMOKE_TEST(gba) {
     COS_SMOKE_CHECK(status == 0xAB); // never written
     COS_SMOKE_CHECK(data[0] == 1 && data[3] == 4);
     COS_SMOKE_CHECK(sGbaCallbacks == 0); // refused requests never call back
+#ifndef COS_SDK_SMOKE_NO_CHILD
     COS_SMOKE_CHECK(ChildAborts(BadGbaChannel, "invalid GBA channel 4"));
+#else
+    std::fprintf(stderr, "gba: child-process check skipped (no child processes on this target)\n");
+#endif
     return true;
 }
 
@@ -386,6 +396,10 @@ COS_SMOKE_TEST(db) {
     DBOpen();
     DBClose();
 
+#ifndef COS_SDK_SMOKE_NO_CHILD
     COS_SMOKE_CHECK(ChildAborts(ExceptionToDebugger, "routed to the debugger"));
+#else
+    std::fprintf(stderr, "db: child-process check skipped (no child processes on this target)\n");
+#endif
     return true;
 }

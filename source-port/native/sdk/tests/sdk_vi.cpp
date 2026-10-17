@@ -61,6 +61,7 @@ void OtherPreRetrace(u32) {}
 
 // ---- gx ------------------------------------------------------------------------------------------
 
+#ifndef COS_SDK_SMOKE_NO_GX
 u16 sSyncToken = 0;
 int sSyncCalls = 0;
 bool sSyncHadInterruptsOn = false;
@@ -85,6 +86,7 @@ void SelfRemovingSyncCallback(u16 token) {
     }
     OSRestoreInterrupts(level);
 }
+#endif // COS_SDK_SMOKE_NO_GX
 
 } // namespace
 
@@ -183,6 +185,13 @@ COS_SMOKE_TEST(vi) {
     return true;
 }
 
+#ifdef COS_SDK_SMOKE_NO_GX
+// E1: no aurora_gx/aurora_gd on this target (GX is E3/E4): the draw-sync test is a loud skip.
+COS_SMOKE_TEST(gx) {
+    std::fprintf(stderr, "gx: skipped (no aurora_gx/aurora_gd on this build; GX is E3/E4)\n");
+    return true;
+}
+#else
 COS_SMOKE_TEST(gx) {
     // Draw sync: the callback gets the token, with interrupts disabled, and is returned as the
     // previous callback.
@@ -281,3 +290,4 @@ COS_SMOKE_TEST(gx) {
     GXAbortFrame();
     return true;
 }
+#endif // COS_SDK_SMOKE_NO_GX
