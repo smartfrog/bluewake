@@ -3,6 +3,10 @@
 #include <stdarg.h>
 #include <stdlib.h>
 
+#ifndef WW05_ENABLE_VI_CLOCK
+#error "vi_clock_probe requires the configured WW05_ENABLE_VI_CLOCK value; ww05_services must export it"
+#endif
+
 #define RETRACE_CYCLES 8100000ull
 #define VI_DI0 (DOL_VI_BASE + DOL_VI_DI0_OFF)
 
@@ -30,8 +34,14 @@ int main(int argc, char** argv) {
     const StaticRecompRange range = {cpu->pc, cpu->pc + 4u};
     const StaticRecompModuleDesc module = {.code_ranges = &range, .num_code_ranges = 1u};
     host->module = &module;
+#if WW05_ENABLE_VI_CLOCK
+    assert(host->vi_clock_enabled);
+#else
     assert(!host->vi_clock_enabled);
-    if (strcmp(scenario, "off") != 0)
+#endif
+    if (strcmp(scenario, "off") == 0)
+        host->vi_clock_enabled = false;
+    else
         host->vi_clock_enabled = true;
     cpu->external_write(cpu, VI_DI0, 0x1000u, 2u);
     cpu->external_write(cpu, DOL_PI_INTERRUPT_MASK, DOL_PI_CAUSE_VI, 4u);

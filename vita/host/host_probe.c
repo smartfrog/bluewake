@@ -2,16 +2,23 @@
 #include "probe_support.h"
 #include <assert.h>
 #include <errno.h>
+#include <signal.h>
 #include <stdarg.h>
 #include <stdlib.h>
 #include <stdio.h>
 #include <string.h>
+#include <sys/wait.h>
+#include <unistd.h>
 
 void* __real_calloc(size_t count, size_t size);
 static unsigned allocation;
 static unsigned fail_allocation;
 static u32 exi_logs;
 static u32 fail_exi_log;
+static char pointer_line[160];
+static unsigned pointer_lines;
+static char lever_line[200];
+static unsigned lever_lines;
 void* __wrap_calloc(size_t count, size_t size) {
     if (++allocation == fail_allocation)
         return NULL;
@@ -25,6 +32,20 @@ int __wrap_fprintf(FILE* stream, const char* format, ...) {
     }
     va_list arguments;
     va_start(arguments, format);
+    if (stream == stderr && strncmp(format, "[host-ptr]", 10u) == 0) {
+        va_list copy;
+        va_copy(copy, arguments);
+        vsnprintf(pointer_line, sizeof(pointer_line), format, copy);
+        va_end(copy);
+        ++pointer_lines;
+    }
+    if (stream == stderr && strncmp(format, "[idle-lever]", 12u) == 0) {
+        va_list copy;
+        va_copy(copy, arguments);
+        vsnprintf(lever_line, sizeof(lever_line), format, copy);
+        va_end(copy);
+        ++lever_lines;
+    }
     const int result = vfprintf(stream, format, arguments);
     va_end(arguments);
     return result;
@@ -1191,6 +1212,78 @@ int main(int argc, char** argv) {
             assert(!ppc_guest_alias_get_storage(0xC0401000u, 256u, &storage));
             assert(host->cpu.pc == module.entry_point);
         }
+    } else if (strcmp(argv[1], "idle-lever-alias") == 0) {
+        // The first runtime REL scratch alias sits past the real 24 MiB MEM1
+        // end but below the coarse 0x90000000 end, so it raises the coarse
+        // "aliases overlap MEM1" flag the emitted poll predicate refuses on.
+        // The idle lever must still fire: the poll word itself is unshadowed.
+        assert(ppc_guest_alias_add(0x81822E80u, 16500u, NULL));
+        assert(ww_host_idle_poll_stable(&host->cpu));
+        // The guard must still bite when the word really is shadowed.
+        assert(ppc_guest_alias_add(0x803F7A30u, 4u, NULL));
+        assert(!ww_host_idle_poll_stable(&host->cpu));
+        ppc_guest_alias_clear();
+        assert(ww_host_idle_poll_stable(&host->cpu));
+    } else if (strcmp(argv[1], "host-ptr-reload") == 0) {
+        // A dispatch that loses the loop's pointer is repaired from the startup
+        // pointer without dereferencing the stale one, and a null anchor only
+        // reports zeros. The report is one-shot; recovery continues.
+        host->cpu.pc = 0x80307EF4u;
+        host->cpu.gpr[1] = 0x81234560u;
+        WwHost* stale = host;
+        assert(!ww_host_pointer_reload(&stale, NULL));
+        assert(stale == host);
+        assert(pointer_lines == 1u);
+        assert(strstr(pointer_line, "[host-ptr] restored=") != NULL);
+        assert(strstr(pointer_line, "before=") != NULL);
+        assert(strstr(pointer_line, "pc=00000000") != NULL);
+        assert(strstr(pointer_line, "sp=00000000") != NULL);
+        stale = NULL;
+        assert(ww_host_pointer_reload(&stale, host));
+        assert(stale == host);
+        assert(pointer_lines == 1u);
+        stale = NULL;
+        assert(ww_host_pointer_reload(&stale, host));
+        assert(stale == host);
+        assert(pointer_lines == 1u);
+        assert(!ww_host_pointer_reload(&stale, host));
+        assert(pointer_lines == 1u);
+        // Shutdown reports the lever line; only the two real restores count.
+        assert(!ww_host_idle_poll_ready(host));
+        ww_host_shutdown(host);
+        assert(lever_lines == 1u);
+        assert(strstr(lever_line, "ptr_restores=2") != NULL);
+        free(host);
+        return 0;
+    } else if (strcmp(argv[1], "host-null") == 0) {
+        // The observed crash class: a null host reaches the loop path. The
+        // guard must print the durable record once and abort, never continue.
+        int fds[2];
+        assert(pipe(fds) == 0);
+        const pid_t child = fork();
+        assert(child >= 0);
+        if (child == 0) {
+            close(fds[0]);
+            const int redirected = dup2(fds[1], STDERR_FILENO);
+            (void)redirected;
+            close(fds[1]);
+            ww_host_end_dispatch(NULL);
+            _exit(0);
+        }
+        close(fds[1]);
+        char buffer[512] = {0};
+        const ssize_t got = read(fds[0], buffer, sizeof(buffer) - 1u);
+        close(fds[0]);
+        int status = 0;
+        assert(waitpid(child, &status, 0) == child);
+        assert(got > 0);
+        assert(strstr(buffer, "[host-null] where=loop") != NULL);
+        assert(strstr(buffer, "last_jump_turn=") != NULL);
+        assert(strstr(buffer, "last_src=") != NULL);
+        assert(strstr(buffer, "last_dist=") != NULL);
+        assert(WIFSIGNALED(status) && WTERMSIG(status) == SIGABRT);
+        free(host);
+        return 0;
     } else {
         return 2;
     }

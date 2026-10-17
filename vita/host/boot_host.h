@@ -128,6 +128,7 @@ typedef struct WwHost {
     u64 backing_bytes;
     u32 alias_count;
     u64 edges;
+    u64 turns;
     u64 exi_transfers;
     u64 disc_reads;
     u64 next_edge_progress;
@@ -202,6 +203,22 @@ bool ww_host_rel_code_owned(WwHost* host, u32 address);
 bool ww_host_rel_sections_match(const WwRelImage* slot);
 bool ww_host_rel_sections_match_post_link(const WwRelImage* slot);
 const char* ww_host_observe_scheduler_idle(WwHost* host);
+// True when the guest is spinning in the scheduler idle poll and only a
+// host-delivered event can leave it. See the contract in boot_host.c.
+bool ww_host_idle_poll_ready(WwHost* host);
+// The poll word in real, unaliased MEM1 and still zero: the word check the
+// idle predicate uses (exposed for the idle-lever alias test).
+bool ww_host_idle_poll_stable(CPUState* cpu);
+// Idle-lever diagnostics: the granted budget and the limit that bounded it
+// (call after prepare_dispatch), and the charge the turn actually took (call
+// with end_turn's return value). Both are inert when the lever is not armed.
+void ww_host_note_idle_grant(WwHost* host);
+void ww_host_note_idle_taken(WwHost* host, u64 elapsed);
+// Restore *local from the authoritative startup pointer when a dispatch lost
+// it, reporting the first recovery once. Returns true when it restored.
+bool ww_host_pointer_reload(WwHost** local, WwHost* authoritative);
+// One-shot [host-null] report and immediate stop. Never returns.
+void ww_host_null_guard(const char* where, u32 pc);
 const char* ww_host_observe_dsp_task_boot(WwHost* host);
 const char* ww_host_observe_card_probe(WwHost* host);
 const char* ww_host_observe_game_stop(WwHost* host, u32 address);

@@ -6,6 +6,7 @@
 #include "di_inquiry.h"
 #include "edge_intercept_table.h"
 #include "callback_delivery.h"
+#include "scheduler_contract.h"
 #include "gxruntime/boot.h"
 #include "gxruntime/guest_memory_dirty.h"
 #include "gxruntime/aram.h"
@@ -29,6 +30,8 @@
 #define WW_HOST_CYCLES_PER_TIMEBASE_TICK GUEST_CYCLES_PER_TIMEBASE_TICK
 
 void ww_host_fail(WwHost* host, const char* error, u32 address, u32 pc) {
+    if (host == NULL)
+        ww_host_null_guard("fail", pc);
     ww_host_rel_lifecycle_revoke(host);
     if (host->error == NULL) {
         host->error = error;
@@ -93,33 +96,61 @@ static void advance(CPUState* cpu, u64 cycles, void* user) {
     ww_host_vi_advance(host, cycles);
 }
 
-static u64 deadline(const CPUState* cpu, void* user) {
+static u64 deadline(const CPUState* cpu, u32* source, void* user) {
     const WwHost* host = user;
-    if (cpu->exception == 0u && (cpu->msr & PPC_MSR_EE) && host->decrementer_pending)
+    if (cpu->exception == 0u && (cpu->msr & PPC_MSR_EE) && host->decrementer_pending) {
+        if (source != NULL)
+            *source = BLUEWAKE_DEADLINE_DEC_PENDING;
         return 1u;
+    }
+    u32 src = BLUEWAKE_DEADLINE_NONE;
     const u64 decrementer_expiry = host->decrementer_valid ?
         ((u64)host->decrementer + 1u) * WW_HOST_CYCLES_PER_TIMEBASE_TICK - host->clock_remainder : UINT64_MAX;
+    u64 expiry = decrementer_expiry;
+    if (decrementer_expiry != UINT64_MAX)
+        src = BLUEWAKE_DEADLINE_DEC_EXPIRY;
     const u64 dsp_expiry = ww_dsp_interface_deadline(&host->dsp);
-    u64 expiry = decrementer_expiry < dsp_expiry ? decrementer_expiry : dsp_expiry;
+    if (dsp_expiry < expiry) {
+        const u64 aram_expiry = host->dsp.aram_cycles_remaining != 0u
+                                    ? host->dsp.aram_cycles_remaining
+                                    : UINT64_MAX;
+        expiry = dsp_expiry;
+        src = dsp_expiry == aram_expiry ? BLUEWAKE_DEADLINE_DSP_ARAM
+                                        : BLUEWAKE_DEADLINE_DSP_INIT;
+    }
     if (host->vi_clock_enabled) {
         u64 next;
         if (dol_event_clock_next_deadline(&host->vi_clock.events, &next)) {
             const u64 now = dol_vi_clock_now(&host->vi_clock);
             const u64 vi_expiry = next > now ? next - now : 1u;
-            if (vi_expiry < expiry)
+            if (vi_expiry < expiry) {
                 expiry = vi_expiry;
+                src = BLUEWAKE_DEADLINE_VI;
+            }
         }
     }
     if (host->dsp.init_ticks_remaining != 0u) {
         const u64 init_expiry = (u64)host->dsp.init_ticks_remaining * WW_HOST_CYCLES_PER_TIMEBASE_TICK - host->clock_remainder;
-        if (init_expiry < expiry)
+        if (init_expiry < expiry) {
             expiry = init_expiry;
+            src = BLUEWAKE_DEADLINE_DSP_INIT;
+        }
     }
-    if (host->cycles.dispatch_cycles == 0u)
+    if (host->cycles.dispatch_cycles == 0u) {
+        if (source != NULL)
+            *source = src;
         return expiry;
+    }
     const u64 remaining = host->cycles.dispatch_cycles < (u64)host->cycles.cap ?
         (u64)host->cycles.cap - host->cycles.dispatch_cycles : 1u;
-    return expiry < remaining ? expiry : remaining;
+    if (remaining < expiry) {
+        if (source != NULL)
+            *source = BLUEWAKE_DEADLINE_CAP;
+        return remaining;
+    }
+    if (source != NULL)
+        *source = src;
+    return expiry;
 }
 
 static void close_spent_quantum(WwHost* host, CPUState* cpu) {
@@ -810,6 +841,221 @@ static void mmio_write(CPUState* cpu, u32 address, u64 value, u8 size) {
     refresh(host);
 }
 
+// The poll word in real, unaliased MEM1. get_ram_ptr resolves aliases when the
+// coarse overlap flag is set, so a covering alias makes the identity fail while
+// an alias elsewhere in the address space does not. Same shape as real_mem1 in
+// scheduler_observation.c and ww_host_linked_alias_overlaps above.
+static bool idle_poll_word_real(CPUState* cpu, u32* reason) {
+    const u32 at = 0x803F7A30u;
+    if ((at & 3u) != 0u || cpu->ram == NULL || 4u > cpu->ram_size) {
+        *reason |= 1u;
+        return false;
+    }
+    const u32 offset = at - GC_RAM_BASE;
+    if (offset > cpu->ram_size - 4u) {
+        *reason |= 4u;
+        return false;
+    }
+    if (get_ram_ptr(cpu, at, 4u, NULL) != cpu->ram + offset) {
+        *reason |= 2u;
+        return false;
+    }
+    return true;
+}
+
+bool ww_host_idle_poll_stable(CPUState* cpu) {
+    u32 reason = 0u;
+    return idle_poll_word_real(cpu, &reason) &&
+           mem_read32(cpu, 0x803F7A30u) == 0u;
+}
+
+// The engagement record survives a fatal fault: it lives outside WwHost so a
+// null or corrupt host pointer can still be reported with the last jump. One
+// guest CPU per process, so a file-static record is enough.
+typedef struct {
+    u64 armed;
+    u32 first_false;
+    u64 turns;
+    u64 edges;
+    u64 cycles;
+    u64 last_turn;
+    u64 last_elapsed;
+    u64 last_dist;
+    u32 last_src;
+    u64 next_cycles;
+    u64 next_armed;
+    u32 jump_prints;
+    u32 taken_prints;
+    u64 ptr_restores;
+    // The jump granted at prepare time, captured so a mid-turn rebudget (an
+    // edge flush or a decrementer rebudget) cannot clear this turn's taken line.
+    bool pending;
+    u64 pending_turn;
+    u64 pending_dist;
+    u32 pending_src;
+} WwIdleLeverRecord;
+
+static WwIdleLeverRecord g_idle_lever;
+
+static void idle_lever_reset(void) {
+    memset(&g_idle_lever, 0, sizeof(g_idle_lever));
+    g_idle_lever.next_cycles = 2000000u;
+    g_idle_lever.next_armed = 4096u;
+}
+
+static void idle_lever_report(WwHost* host) {
+    if (fprintf(stderr,
+                "[idle-lever] armed=%llu first_false=%08X turns=%llu edges=%llu cycles=%llu ptr_restores=%llu\n",
+                (unsigned long long)g_idle_lever.armed,
+                g_idle_lever.first_false,
+                (unsigned long long)g_idle_lever.turns,
+                (unsigned long long)g_idle_lever.edges,
+                (unsigned long long)g_idle_lever.cycles,
+                (unsigned long long)g_idle_lever.ptr_restores) < 0)
+        ww_host_fail(host, "idle-lever report write failed", 0x80307EF4u,
+                     host->cpu.pc);
+}
+
+// Periodic, non-latching: every 2M guest cycles or 4096 armed jumps. Asserting
+// a fatal fault after this point still leaves the count in the log.
+static void idle_lever_periodic(WwHost* host) {
+    g_idle_lever.turns = host->turns;
+    g_idle_lever.edges = host->edges;
+    g_idle_lever.cycles = host->cycles.absolute_cycles;
+    if (g_idle_lever.cycles < g_idle_lever.next_cycles &&
+        g_idle_lever.armed < g_idle_lever.next_armed)
+        return;
+    g_idle_lever.next_cycles = g_idle_lever.cycles + 2000000u;
+    g_idle_lever.next_armed = g_idle_lever.armed + 4096u;
+    idle_lever_report(host);
+}
+
+static void idle_lever_fail(WwHost* host, u32 reason) {
+    (void)host;
+    if (g_idle_lever.first_false == 0u)
+        g_idle_lever.first_false = reason != 0u ? reason : 8u;
+}
+
+// One-shot, then 1-in-256: the granted budget and the limit that bounded it.
+void ww_host_note_idle_grant(WwHost* host) {
+    const BluewakeCycleDomain* domain = &host->cycles;
+    // Capture the grant now: later flushes and rebudgets rewrite
+    // last_idle_grant while this turn is still marked idle.
+    g_idle_lever.pending = domain->last_idle_grant;
+    if (!g_idle_lever.pending)
+        return;
+    g_idle_lever.pending_turn = host->turns;
+    g_idle_lever.pending_dist = domain->last_distance;
+    g_idle_lever.pending_src = domain->last_source;
+    if (g_idle_lever.jump_prints < 4u ||
+        (g_idle_lever.jump_prints % 256u) == 0u) {
+        if (fprintf(stderr,
+                    "[idle-jump] turn=%llu cap=%lld budget=%lld dist=%llu src=%u\n",
+                    (unsigned long long)host->turns,
+                    (long long)domain->cap,
+                    (long long)domain->last_budget,
+                    (unsigned long long)domain->last_distance,
+                    domain->last_source) < 0)
+            ww_host_fail(host, "idle-jump report write failed", 0x80307EF4u,
+                         host->cpu.pc);
+    }
+    ++g_idle_lever.jump_prints;
+}
+
+// The final tail this turn took: end_turn returns only the last unflushed
+// period, so a turn that crossed an edge reports a smaller elapsed than its
+// granted budget; host->cycles.dispatch_cycles is the turn total. The durable
+// record is committed only here, from the grant captured at prepare time, so a
+// [host-null] line names one turn's jump as a coherent set.
+void ww_host_note_idle_taken(WwHost* host, u64 elapsed) {
+    if (!g_idle_lever.pending)
+        return;
+    g_idle_lever.pending = false;
+    g_idle_lever.last_turn = g_idle_lever.pending_turn;
+    g_idle_lever.last_elapsed = elapsed;
+    g_idle_lever.last_dist = g_idle_lever.pending_dist;
+    g_idle_lever.last_src = g_idle_lever.pending_src;
+    if (g_idle_lever.taken_prints < 4u ||
+        (g_idle_lever.taken_prints % 256u) == 0u) {
+        if (fprintf(stderr, "[idle-jump-taken] turn=%llu elapsed=%llu\n",
+                    (unsigned long long)g_idle_lever.pending_turn,
+                    (unsigned long long)elapsed) < 0)
+            ww_host_fail(host, "idle-jump-taken write failed", 0x80307EF4u,
+                         host->cpu.pc);
+    }
+    ++g_idle_lever.taken_prints;
+}
+
+// Trial 13 lost the loop's host pointer across ww_host_dispatch: the post-call
+// block passed zero to end_dispatch. The startup pointer is authoritative.
+// Restore it without dereferencing the stale local; report the first recovery
+// once and keep the run going, so the null guard stays the last resort.
+// Recurrences are counted in [idle-lever] ptr_restores, not logged again. A null
+// anchor is reported with zero pc/sp and never overwrites the local.
+bool ww_host_pointer_reload(WwHost** local, WwHost* authoritative) {
+    if (*local == authoritative)
+        return false;
+    if (authoritative != NULL)
+        ++g_idle_lever.ptr_restores;
+    static bool reported;
+    if (!reported) {
+        reported = true;
+        (void)fprintf(stderr,
+                      "[host-ptr] restored=%p before=%p pc=%08X sp=%08X\n",
+                      (void*)authoritative, (void*)*local,
+                      authoritative != NULL ? authoritative->cpu.pc : 0u,
+                      authoritative != NULL ? authoritative->cpu.gpr[1] : 0u);
+    }
+    // A null anchor is no recovery: leave the stale local for the null guard.
+    if (authoritative == NULL)
+        return false;
+    *local = authoritative;
+    return true;
+}
+
+// A null host must never reach an epilogue that dereferences it. Print the
+// engagement record (it survives in the file static) and stop immediately.
+void ww_host_null_guard(const char* where, u32 pc) {
+    static bool reported;
+    if (!reported) {
+        reported = true;
+        (void)fprintf(stderr,
+                      "[host-null] where=%s pc=%08X last_jump_turn=%llu last_elapsed=%llu last_src=%u last_dist=%llu\n",
+                      where, pc,
+                      (unsigned long long)g_idle_lever.last_turn,
+                      (unsigned long long)g_idle_lever.last_elapsed,
+                      g_idle_lever.last_src,
+                      (unsigned long long)g_idle_lever.last_dist);
+    }
+    abort();
+}
+
+bool ww_host_idle_poll_ready(WwHost* host) {
+    CPUState* cpu = &host->cpu;
+    // Only the retail scheduler's idle poll, only after the port has observed
+    // that scheduler, and only with interrupts deliverable.
+    if (cpu->pc != 0x80307EF4u)
+        return false;
+    if (cpu->exception != 0u || !host->scheduler_idle_observed ||
+        (cpu->msr & PPC_MSR_EE) == 0u ||
+        !bluewake_scheduler_interrupt_safe(cpu->pc) ||
+        host->dvd_completions.count != 0u || host->dvd_callback_active ||
+        cpu->gpr[13] - 26288u != 0x803F7A30u) {
+        idle_lever_fail(host, 8u);
+        return false;
+    }
+    // A runnable thread would leave the loop on the first iteration.
+    if (!ww_host_idle_poll_stable(cpu)) {
+        u32 reason = 0u;
+        (void)idle_poll_word_real(cpu, &reason);
+        idle_lever_fail(host, reason);
+        return false;
+    }
+    ++g_idle_lever.armed;
+    idle_lever_periodic(host);
+    return true;
+}
+
 bool ww_host_edge(void* user, CPUState* cpu, u32 address) {
     WwHost* host = user;
     host->edges++;
@@ -1133,6 +1379,10 @@ bool ww_host_resume_exception(WwHost* host) {
 }
 
 u64 ww_host_end_dispatch(WwHost* host) {
+    // The observed crash class: a null host reaches this call and the first
+    // dereference faults inside the epilogue. Report and stop here instead.
+    if (host == NULL)
+        ww_host_null_guard("loop", 0u);
     CPUState* cpu = &host->cpu;
     if (cpu->exception == PPC_EXC_FP_UNAVAILABLE && cpu->cycle_observation_suffix != 0u) {
         const s64 unexecuted = (s64)cpu->cycle_observation_suffix;
@@ -1208,6 +1458,7 @@ bool ww_host_init(WwHost* host) {
     if (host == NULL)
         return false;
     memset(host, 0, sizeof(*host));
+    idle_lever_reset();
     if (aram_buffer() != NULL)
         return false;
     BlueWakeModuleStorage storage = {.cpu = &host->cpu};
@@ -1240,6 +1491,12 @@ bool ww_host_init(WwHost* host) {
     ww_bat_init(&host->bat);
     host->decrementer_valid = true;
     bluewake_cycle_domain_init(&host->cycles, 256, advance, deadline, host);
+#if WW_IDLE_DEADLINE_ADVANCE
+    // Off by default. One VI period is the natural ceiling for a single idle
+    // turn: the VI retrace is the periodic event that ends every guest wait.
+    bluewake_cycle_domain_set_idle_advance(&host->cycles,
+                                           GUEST_CPU_CYCLES_PER_VI_RETRACE);
+#endif
     dol_interrupts_init(&host->interrupts);
     dol_vi_clock_init(&host->vi_clock);
     dol_vi_clock_configure(&host->vi_clock, GUEST_CPU_CYCLES_PER_VI_RETRACE, GUEST_VI_REFRESH_HZ,
@@ -1266,6 +1523,8 @@ bool ww_host_init(WwHost* host) {
 }
 
 void ww_host_shutdown(WwHost* host) {
+    if (g_idle_lever.armed != 0u || g_idle_lever.first_false != 0u)
+        idle_lever_report(host);
 #if WW05_OBSERVE_NATIVE_CTX
     ww_native_close();
 #endif
