@@ -364,6 +364,11 @@ void* DmaThreadMain(void*) {
     }
 }
 
+// The DMA thread pushes the audio frames into the SDL stream, and SDL resamples them on the
+// caller's stack: PTE's pthread default is its 4 KiB floor (pthread_attr_init leaves the size
+// at 0), which the NEON resampler overflows below the allocated block (E2-ter). 256 KiB.
+constexpr size_t kDmaThreadStackSize = 256 * 1024;
+
 // Starts the AI DMA thread. Needs Lock().
 void StartDmaThreadLocked() {
     if (sAI.threadStarted) {
@@ -376,6 +381,7 @@ void StartDmaThreadLocked() {
     pthread_attr_t attr;
     pthread_attr_init(&attr);
     pthread_attr_setdetachstate(&attr, PTHREAD_CREATE_DETACHED);
+    pthread_attr_setstacksize(&attr, kDmaThreadStackSize);
     pthread_t handle;
     const int err = pthread_create(&handle, &attr, &DmaThreadMain, nullptr);
     pthread_attr_destroy(&attr);
