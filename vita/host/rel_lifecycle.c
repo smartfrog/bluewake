@@ -88,8 +88,14 @@ const char* ww_host_rel_unlink_entry(WwHost* host, u32 address) {
         return NULL;
     if ((address & ~0x40000000u) != 0x80240F54u || cpu->pc != address)
         return "REL native unlink requires its exact translated entry pc";
-    if (host->rel_pending_unlink.phase != WW_REL_UNLINK_NONE)
+    if (host->rel_pending_unlink.phase != WW_REL_UNLINK_NONE) {
+        const WwRelPendingUnlink* pending = &host->rel_pending_unlink;
+        if (pending->phase == WW_REL_UNLINK_ENTRY_READY && pending->image == image &&
+            pending->owner == cpu->gpr[3] && cpu->gpr[3] == cpu->gpr[31] &&
+            pending->guest == image->guest)
+            return NULL;
         return "REL native unlink requires no pending unlink";
+    }
     if (host->rel_pending_init.phase != WW_REL_INIT_NONE)
         return "REL native unlink requires no pending initialization";
     if (cpu->gpr[3] != cpu->gpr[31])

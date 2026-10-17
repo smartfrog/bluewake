@@ -199,10 +199,17 @@ class RelLifecycleTest(unittest.TestCase):
         for stage in ('entered', 'epilog-entered', 'dtor-completed', 'epilog-returned', 'sdk-unlink', 'reconciled'):
             self.assertIn(f'[rel-unlink] module=400 stage={stage}', log)
 
+    def test_native_unlink_entry_reentry_is_idempotent_for_the_same_arrival(self):
+        log = self.run_probe('unlink-reentry')
+        self.assertEqual(log.count('[rel-unlink] module=400 stage=entered'), 1, log)
+        for stage in ('epilog-entered', 'dtor-completed', 'epilog-returned', 'sdk-unlink', 'reconciled'):
+            self.assertIn(f'[rel-unlink] module=400 stage={stage}', log)
+
     def test_native_unlink_entry_and_epilog_keep_every_unmatched_shape_denied(self):
         for scenario in ('unlink-wrong-caller', 'unlink-wrong-owner', 'unlink-module-1', 'unlink-uncertified',
                          'unlink-importer', 'unlink-changed-raw', 'unlink-changed-section', 'unlink-pending',
-                         'epilog-wrong-lr', 'epilog-wrong-header', 'epilog-second', 'epilog-return-without-walk'):
+                         'unlink-late', 'epilog-wrong-lr', 'epilog-wrong-header', 'epilog-second',
+                         'epilog-return-without-walk'):
             with self.subTest(scenario=scenario):
                 self.run_probe(scenario)
 

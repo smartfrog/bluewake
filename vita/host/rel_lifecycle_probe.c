@@ -757,8 +757,47 @@ static void unlink_scenario(WwHost* host, const char* scenario, WwRelImage* imag
     assert(!ww_host_edge(host, cpu, cpu->pc));
     assert(host->error == NULL && host->rel_pending_unlink.phase == WW_REL_UNLINK_ENTRY_READY);
     if (is("unlink-pending")) {
+        cpu->gpr[3] = cpu->gpr[31] = neighbor->owner;
         assert(ww_host_edge(host, cpu, cpu->pc) && host->error != NULL);
         assert(strcmp(host->error, "REL native unlink requires no pending unlink") == 0);
+        return;
+    }
+    if (is("unlink-late")) {
+        cpu->pc = epilog;
+        cpu->lr = 0x80240F80u;
+        cpu->gpr[3] = image->guest;
+        cpu->gpr[31] = image->owner;
+        assert(!ww_host_edge(host, cpu, cpu->pc));
+        assert(host->error == NULL && host->rel_pending_unlink.phase == WW_REL_UNLINK_EPILOG_ACTIVE);
+        cpu->pc = 0x80240F54u;
+        cpu->lr = 0x80240314u;
+        cpu->gpr[3] = cpu->gpr[31] = image->owner;
+        assert(ww_host_edge(host, cpu, cpu->pc) && host->error != NULL);
+        assert(strcmp(host->error, "REL native unlink requires no pending unlink") == 0);
+        return;
+    }
+    if (is("unlink-reentry")) {
+        const u32 owner = image->owner;
+        const u32 guest = image->guest;
+        assert(ww_host_dispatch(host, cpu->pc) == 0);
+        assert(host->error == NULL && host->rel_pending_unlink.phase == WW_REL_UNLINK_ENTRY_READY);
+        cpu->pc = epilog;
+        cpu->lr = 0x80240F80u;
+        cpu->gpr[3] = guest;
+        cpu->gpr[31] = owner;
+        assert(ww_host_dispatch(host, cpu->pc) == 1);
+        assert(host->error == NULL && cpu->pc == 0x80240F80u);
+        assert(host->rel_pending_unlink.phase == WW_REL_UNLINK_EPILOG_RETURNED);
+        assert(mem_read32(cpu, 0x80005200u) == 1u);
+        cpu->pc = 0x803056BCu;
+        cpu->lr = 0x80240F8Cu;
+        cpu->gpr[3] = guest;
+        assert(ww_host_dispatch(host, cpu->pc) == 1);
+        assert(host->error == NULL && cpu->pc == 0x80240F8Cu);
+        assert(host->rel_pending_unlink.phase == WW_REL_UNLINK_NONE);
+        assert(!image->linked && image->unlinked);
+        mem_write32(cpu, owner + 0x10u, 0u);
+        assert(ww_host_collect_rels(host) == NULL);
         return;
     }
     if (is("epilog-scratch") || is("epilog-canonical")) {
