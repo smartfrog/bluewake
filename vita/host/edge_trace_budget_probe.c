@@ -8,10 +8,11 @@
 #include <stdio.h>
 #include <string.h>
 
-/* The [edge] trace budget belongs to the run, not to whichever WwHost the edge
- * service is handed. A stale or wrong user pointer must not be able to open a
- * second allowance: the 2026-10-17 watch run printed 5,844,424 of these lines
- * against a 16-print arm, because the budget lived in the object `user` named.
+/* The trace budget belongs to the run, not to whichever WwHost the edge service
+ * is handed. The 2026-10-17 watch run measured host pointer/state corruption
+ * and printed 5,844,424 trace lines against a 16-line arm; a budget that moves
+ * with the object `user` names cannot bound that. This contains the flood; the
+ * corruption is not fixed here.
  *
  * The hosts below are static and zeroed; a non-null error makes ww_host_edge
  * return right after the trace, so nothing past the print is ever walked. */
@@ -52,6 +53,13 @@ int main(int argc, char** argv) {
         poke(&hosts[0], WW_EDGE_TRACE_BUDGET / 2u + 2u);
         poke(&hosts[1], WW_EDGE_TRACE_BUDGET / 2u + 2u);
         assert(edge_lines == WW_EDGE_TRACE_BUDGET);
+    } else if (strcmp(argv[1], "rearm") == 0) {
+        arm(&hosts[0]);
+        poke(&hosts[0], WW_EDGE_TRACE_BUDGET);
+        arm(&hosts[1]);
+        poke(&hosts[1], 1u);
+        assert(edge_lines == WW_EDGE_TRACE_BUDGET);
+        assert(hosts[1].dispatch_trace_remaining == WW_EDGE_TRACE_BUDGET);
     } else if (strcmp(argv[1], "disarmed") == 0) {
         hosts[0].error = "edge trace budget probe stop";
         poke(&hosts[0], WW_EDGE_TRACE_BUDGET + 4u);

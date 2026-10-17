@@ -92,7 +92,11 @@ def collect():
         keys.update(found)
     for fn in CARD_FUNCS:
         keys.update(cases(card, fn))
-    return sorted(k for k in keys if k != 0)
+    if 0 in keys:
+        sys.exit(
+            "gen_edge_intercept_table: case 0 is the empty marker and cannot be a key"
+        )
+    return sorted(keys)
 
 
 def build(keys, multiplier, shift):

@@ -8,10 +8,11 @@
 #define WW05_QUIET_LOGGING 0
 #endif
 
-/* The [edge] boundary trace is armed once, for the boot probe dispatch at
- * 0x803077D4, and disarmed when that dispatch returns. Sixteen lines is the
- * whole run's allowance: the counter lives outside WwHost so a wrong or stale
- * edge-service user cannot open a second budget. */
+/* The boot trace window is armed once, for the probe dispatch at 0x803077D4,
+ * and disarmed when that dispatch returns. Sixteen lines is the whole run's
+ * allowance, shared by [edge] and [spr-fallback]; the count lives outside
+ * WwHost so it does not move with the object the edge service names. It bounds
+ * a flood, it does not repair host corruption. */
 enum { WW_EDGE_TRACE_BUDGET = 16u };
 
 static inline bool ww_host_trace_transfer(uint64_t transfer) {

@@ -42,6 +42,20 @@ static WwHost* owner(CPUState* cpu) {
     return cpu->external_user_data;
 }
 
+/* The trace arm record lives in WwHost, but the allowance does not: it must not
+ * move with an object whose pointer the host cannot re-verify. The 2026-10-17
+ * watch run measured host pointer/state corruption (the host base and its
+ * +0xe8000 alias disagreed) and printed 5,844,424 trace lines from one 16-line
+ * arm. This bounds that flood; the corruption itself is not fixed here. */
+static u32 s_trace_prints;
+
+static bool trace_take(void) {
+    if (s_trace_prints >= WW_EDGE_TRACE_BUDGET)
+        return false;
+    ++s_trace_prints;
+    return true;
+}
+
 bool ww_host_linked_alias_overlaps(u32 address, u32 size) {
     for (u32 offset = 0u; offset < size; ++offset) {
         u8* alias;
@@ -271,8 +285,8 @@ static void fallback(CPUState* cpu, u32 raw, u32 cia) {
         if (xo == 339u || xo == 467u) {
             WwHost* host = owner(cpu);
             const bool trace = host->dispatch_trace_remaining != 0u && spr == 1008u;
-            if (trace && fprintf(stderr, "[spr-fallback] stage=enter pc=%08X spr=%u value=%08X\n",
-                                 cia, spr, cpu->gpr[reg]) < 0) {
+            if (trace && trace_take() && fprintf(stderr, "[spr-fallback] stage=enter pc=%08X spr=%u value=%08X\n",
+                                                 cia, spr, cpu->gpr[reg]) < 0) {
                 ww_host_fail(host, "SPR fallback trace write failed", spr, cia);
                 return;
             }
@@ -282,8 +296,8 @@ static void fallback(CPUState* cpu, u32 raw, u32 cia) {
                 ppc_mtspr(cpu, spr, cpu->gpr[reg], cia);
             if (!cpu->exception)
                 cpu->pc = cia + 4u;
-            if (trace && fprintf(stderr, "[spr-fallback] stage=return pc=%08X spr=%u hid0=%08X exception=%08X\n",
-                                 cpu->pc, spr, host->hid0, cpu->exception) < 0)
+            if (trace && trace_take() && fprintf(stderr, "[spr-fallback] stage=return pc=%08X spr=%u hid0=%08X exception=%08X\n",
+                                                 cpu->pc, spr, host->hid0, cpu->exception) < 0)
                 ww_host_fail(host, "SPR fallback trace write failed", spr, cia);
             return;
         }
@@ -810,18 +824,14 @@ static void mmio_write(CPUState* cpu, u32 address, u64 value, u8 size) {
     refresh(host);
 }
 
-/* The arm record lives in WwHost, but the allowance does not: the edge service
- * is called with a user pointer the host cannot re-verify, and a wrong or stale
- * one must not open a second budget. The 2026-10-17 watch run printed 5,844,424
- * [edge] lines from one 16-line arm because the counter moved with the object. */
-static u32 s_edge_trace_prints;
-
+/* The arm record stays in WwHost; the allowance is process-wide (see
+ * trace_take above), so a wrong or stale edge-service user can consume it but
+ * never open another. */
 bool ww_host_edge(void* user, CPUState* cpu, u32 address) {
     WwHost* host = user;
     host->edges++;
-    if (host->dispatch_trace_remaining != 0u && s_edge_trace_prints < WW_EDGE_TRACE_BUDGET) {
+    if (host->dispatch_trace_remaining != 0u && trace_take()) {
         --host->dispatch_trace_remaining;
-        ++s_edge_trace_prints;
         if (fprintf(stderr, "[edge] pc=%08X downcount=%lld budget=%lld exception=%08X\n",
                     address, (long long)cpu->downcount, (long long)cpu->cycle_budget, cpu->exception) < 0) {
             ww_host_fail(host, "dispatch edge trace write failed", address, cpu->pc);

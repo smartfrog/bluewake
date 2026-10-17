@@ -20,9 +20,9 @@ int main(void) {
 
     // Zero is the table's empty marker, not a key. The miss test has to run
     // before the compare, or address 0 matches the empty slot it hashes to and
-    // any null guest pc is handed to the chassis as a "desktop edge" - which is
-    // what the 2026-10-17 watch run logged as an unsupported interception
-    // instead of the real fault. A genuine key still hits.
+    // any null guest pc is handed to the chassis as a "desktop edge". This is a
+    // latent defect: the 2026-10-17 watch run failed before this path, so it is
+    // not what explains that run.
     assert(!bluewake_edge_maybe_intercept(0u));
     assert(bluewake_edge_maybe_intercept(0x80328F84u));
     assert(bluewake_edge_maybe_intercept(0x8030F5A4u));
