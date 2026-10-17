@@ -30,7 +30,8 @@ if (TARGET cos_sdk_smoke)
     target_compile_definitions(cos_sdk_smoke PRIVATE
             COS_SDK_SMOKE_NO_DVD=1    # no aurora::dvd on this target (host-only for now)
             COS_SDK_SMOKE_NO_GX=1     # no aurora_gx/aurora_gd (GX is E3/E4)
-            COS_SDK_SMOKE_NO_CHILD=1) # no child processes on the Vita
+            COS_SDK_SMOKE_NO_CHILD=1  # no child processes on the Vita
+            COS_SDK_SMOKE_NO_DSP=1)   # no DSP HLE on this target (the stub makes DSPInit abort)
     target_sources(cos_sdk_smoke PRIVATE "${COS_NATIVE_ROOT}/vita/stubs_libc.cpp")
     # Aurora's libraries reference each other in a cycle (core <-> vi): group them, as a static
     # link of the pair requires.

@@ -14,6 +14,7 @@
 #include <dolphin/os.h>
 
 #include <cstdint>
+#include <cstdio>
 
 extern "C" {
 // Declared by the decomp's dolphin/dsp.h and MSL's extras.h; Aurora's headers lack them.
@@ -65,6 +66,13 @@ COS_SMOKE_TEST(audio) {
     AISetStreamPlayState(AI_STREAM_STOP);
     COS_SMOKE_CHECK(AIGetStreamSampleCount() == 0);
 
+#ifdef COS_SDK_SMOKE_NO_DSP
+    // The DSP HLE is not built on this target (COS_DSP_HLE=OFF, the Vita skeleton): DSPInit
+    // would hit the stub, whose Initialize returns false, and the SDK's DSPInit turns that
+    // into a Fatal (abort). The DSP checks are skipped with this printed line; the AI checks
+    // above still ran. Set by cmake/vita.cmake for the Vita build.
+    std::fprintf(stderr, "audio: DSP checks skipped (the DSP HLE is not built on this target)\n");
+#else
     // DSP (step 5.A): Dolphin's DSPHLE, which reads MEM1 (OSInit) and ARAM (ARInit). After
     // DSPInit its boot ROM has sent 0x8071FEED; it answers a mail that is not a boot command
     // with 0xFEEE plus the mail's low half. The DSP takes every mail at once.
@@ -110,6 +118,7 @@ COS_SMOKE_TEST(audio) {
     __DSP_remove_task(&c);
     COS_SMOKE_CHECK(__DSP_first_task == nullptr && __DSP_last_task == nullptr);
     COS_SMOKE_CHECK(DSPCancelTask(&a) == &a && (a.flags & 2) != 0);
+#endif // COS_SDK_SMOKE_NO_DSP
 
 #ifndef COS_SDK_SMOKE_NO_DVD // the TSan build leaves DTK.cpp out (no aurora::dvd; sdk.cmake)
     // DTK: an empty playlist runs and stops at once; volume and repeat mode read back.

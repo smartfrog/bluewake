@@ -73,8 +73,15 @@ static bool AiToneTest() {
         dumpPath = env;
     } else {
         const char* tmp = std::getenv("TMPDIR");
-        dumpPath = std::string(tmp != nullptr ? tmp : "/tmp") + "/cos_ai_tone_" +
-                   std::to_string(getpid()) + ".wav";
+#ifdef __vita__
+        // The console and the emulator reject a path without a device (sceIoOpen returns
+        // ENOENT for "/tmp/..."), so the fallback dump lives on ux0, which the file system
+        // creates at startup.
+        const std::string directory = tmp != nullptr ? tmp : "ux0:data";
+#else
+        const std::string directory = tmp != nullptr ? tmp : "/tmp";
+#endif
+        dumpPath = directory + "/cos_ai_tone_" + std::to_string(getpid()) + ".wav";
         ownDump = true;
         setenv("COS_AUDIO_DUMP", dumpPath.c_str(), 1);
     }
