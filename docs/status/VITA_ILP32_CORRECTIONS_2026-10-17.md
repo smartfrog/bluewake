@@ -96,6 +96,9 @@ ninja -C <build> cos_sdk_smoke cos_pc_tests cos_layout_check_host
    `J3DMtxCalc`'s Itanium-ABI layout is 4 bytes tighter than Metrowerks'). Both classes are
    runtime-only, not disc-mapped; the profile locks the measured offsets with a comment.
 3. The `_C` collision (above) is a toolchain-level trap for this decomp on VitaSDK, not a width bug.
+   The header's push/pop covers only the struct declaration, so `f_op_msg_mng.cpp` itself kept the
+   macro and did not compile for VitaSDK either (review finding B1); the unit now hides `_C` for
+   its whole body and the ARMv7 compile test covers it.
 4. The layout check could not build under GCC before the Clang gate; the `--gc-verify` half stays
    clang-only by design.
 
@@ -111,7 +114,30 @@ ninja -C <build> cos_sdk_smoke cos_pc_tests cos_layout_check_host
 | `96e7838` | layout check: gate `-ferror-limit=0` on Clang |
 | `5186c6e` | journal, manifest and provenance for the ILP32 corrections |
 | `db36632` | fix the profile's introduction (two offset exceptions named) and wrap its long lines |
-| (this commit) | list the fix in the branch table |
+| `ccae9d9` | list the fix in the branch table |
+| `da5a2c6` | hide `_C` for the whole `f_op_msg_mng.cpp` unit (review B1) |
+| `930b445` | `d_s_play` 2D heap through `COS_HEAP_X3` (review O1) |
+| (this commit) | the review corrections in this journal (B1, O1, O2) |
+
+## Review corrections (independent review, 2026-10-17)
+
+Verdict: CHANGES REQUIRED — one blocking finding and two optional ones, everything else confirmed
+(including the two locked offsets, 0x68 and 0x54). All three applied:
+
+- **B1 (blocking): `f_op_msg_mng.cpp` did not compile for VitaSDK.** The header's push/pop around
+  `fopMsgM_unk_struct` restores `_C`, so the unit's `sp40._C` expanded to `sp40.040`. The unit now
+  hides `_C` for its whole body (`push_macro`/`undef` after the includes, `pop_macro` at the end),
+  and the ARMv7 compile test covers it: the file compiles clean (15 units now, 0 errors; the
+  preprocessed unit keeps `sp40._C` and has no `sp40.040`).
+- **O1: the last inline scaling.** `d_s_play.cpp`'s 2D heap (`VERSION_SELECT(...) * 3`) now uses
+  `COS_HEAP_X3`, like `d_message_paper`'s; ILP32 keeps the GameCube value (about 1 MiB less
+  over-allocation).
+- **O2: the layout replay's evidence.** The replay log now carries the command, the toolchain, the
+  unit's hash, the assert count and an explicit `RESULT: 0 error, rc 0` line.
+
+The refreshed evidence lives in the sealed revision
+`build-f5/runtime-next/ilp32-corrections-review-*/`; `ilp32-corrections-3c69f8c7` stays as the
+pre-review record.
 
 ## Next
 
