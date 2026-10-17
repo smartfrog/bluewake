@@ -22,6 +22,12 @@ option(WW05_QUIET_LOGGING "Suppress high-volume success diagnostics for private 
 # deadline set has no VI entry), so the private builder enables both together.
 option(WW_IDLE_DEADLINE_ADVANCE
     "Let a guest scheduler-idle turn run to the next device deadline (needs WW05_ENABLE_VI_CLOCK=ON)" OFF)
+# POC only: 0 keeps the parent's 256-cycle turn cap, 4096 is the mid-frame
+# turn-cap experiment. Default off means no change to the shipped host.
+set(WW_TURN_CAP 0 CACHE STRING "POC host turn cap in guest cycles (0 keeps 256)")
+if(NOT WW_TURN_CAP MATCHES "^[0-9]+$")
+    message(FATAL_ERROR "WW_TURN_CAP must be a non-negative integer")
+endif()
 option(WW05_OBSERVE_NATIVE_CTX "Diagnostic log-only ARM native-context boundary observation" OFF)
 option(WW05_DISPATCH_ABI_SENTINEL "Experimental fail-stop ARM dispatch ABI capsule" OFF)
 if(WW05_DISPATCH_ABI_SENTINEL AND WW05_OBSERVE_NATIVE_CTX)
@@ -129,6 +135,7 @@ target_compile_definitions(ww05_services PUBLIC WW05_ENABLE_IKADA_CONTRACT=$<BOO
 target_compile_definitions(ww05_services PUBLIC WW05_ENABLE_ACTOR_BATCH_CONTRACTS=$<BOOL:${WW05_ENABLE_ACTOR_BATCH_CONTRACTS}>)
 target_compile_definitions(ww05_services PUBLIC WW05_QUIET_LOGGING=$<BOOL:${WW05_QUIET_LOGGING}>)
 target_compile_definitions(ww05_services PUBLIC WW_IDLE_DEADLINE_ADVANCE=$<BOOL:${WW_IDLE_DEADLINE_ADVANCE}>)
+target_compile_definitions(ww05_services PUBLIC WW_TURN_CAP=${WW_TURN_CAP})
 if(VITA AND WW05_ENABLE_PAD_INPUT)
     target_sources(ww05_services PRIVATE pad_vita.c)
     target_link_libraries(ww05_services PUBLIC SceCtrl_stub)
