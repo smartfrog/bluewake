@@ -53,6 +53,25 @@ END frontier=PASS live=0 rendered=0
         with self.assertRaisesRegex(ValueError, 'renderer'):
             self.validate(self.content.replace('events=0', 'events=unknown'), TOKEN, SOURCE, PACKAGE)
 
+    def test_renderer_diagnostics_are_accepted_and_validated(self):
+        content = self.continuation_report().replace(
+            'RENDER fifo_bytes=0 events=0 plans=0 plans_skipped=0 draws=0 programs=0 programs_distinct=0 '
+            'programs_refused=0 copies=0 copies_refused=0 display_copies=0 presented=0 gaps=0',
+            'RENDER fifo_bytes=0 events=0 plans=0 plans_skipped=0 draws=0 programs=0 programs_distinct=0 '
+            'programs_refused=1 copies=0 copies_refused=0 display_copies=0 presented=0 gaps=1\n'
+            'RENDER-REFUSAL group=shader reason=indirect texture resource unavailable\n'
+            'RENDER-GAP name=indirect_ignored value=1')
+        self.assertEqual(self.validate(content, TOKEN, SOURCE, PACKAGE, continue_gx=64), 'PASS')
+
+    def test_renderer_diagnostic_records_are_strictly_validated(self):
+        for bad in ('RENDER-REFUSAL group=plan', 'RENDER-REFUSAL group=other reason=x',
+                    'RENDER-REFUSAL group=shader reason=', 'RENDER-GAP name=indirect_ignored',
+                    'RENDER-GAP value=1', 'RENDER-GAP name=Indirect value=1'):
+            with self.subTest(bad=bad), self.assertRaises(ValueError):
+                self.validate(self.continuation_report().replace(
+                    'END frontier=PASS live=0 rendered=0', bad + '\nEND frontier=PASS live=0 rendered=0'),
+                    TOKEN, SOURCE, PACKAGE, continue_gx=64)
+
     def continuation_report(self):
         return self.content.replace('STOP reason=first complete GX command; no renderer address=00000000 pc=00000000',
                                     'GX_STREAM mode=continue decoded=1 logged=1 limit=64 pending=0 read_bytes=32\n'

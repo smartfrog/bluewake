@@ -381,6 +381,22 @@ int fixture_run(int argc, char** argv) {
                      (unsigned long long)renderer_stats.copies_refused,
                      (unsigned long long)renderer_stats.display_copies,
                      (unsigned long long)renderer_stats.presented, renderer_stats.gap_count) < 0;
+    // The kept refusal and skip reasons plus the nonzero gap names. Diagnostic
+    // output only: the counters above already gate the finish and nothing here
+    // changes a decision. The records sit between RENDER and END.
+    for (u32 at = 0u; at < renderer_stats.skip_count; ++at)
+        error |= fprintf(report, "RENDER-REFUSAL group=plan reason=%s\n",
+                         renderer_stats.skip_reasons[at] != NULL ? renderer_stats.skip_reasons[at] : "unknown") < 0;
+    for (u32 at = 0u; at < renderer_stats.refusal_count; ++at)
+        error |= fprintf(report, "RENDER-REFUSAL group=shader reason=%s\n",
+                         renderer_stats.refusal_reasons[at] != NULL ? renderer_stats.refusal_reasons[at] : "unknown") < 0;
+    for (u32 at = 0u; at < renderer_stats.copy_refusal_count; ++at)
+        error |= fprintf(report, "RENDER-REFUSAL group=copy reason=%s\n",
+                         renderer_stats.copy_refusal_reasons[at] != NULL ? renderer_stats.copy_refusal_reasons[at] : "unknown") < 0;
+    for (u32 at = 0u; at < renderer_stats.gap_count; ++at)
+        error |= fprintf(report, "RENDER-GAP name=%s value=%llu\n",
+                         renderer_stats.gaps[at].name != NULL ? renderer_stats.gaps[at].name : "unknown",
+                         (unsigned long long)renderer_stats.gaps[at].value) < 0;
     const bool success = loaded && frontier->complete &&
         (host->stream.enabled || (host->edge_stopped && host->error == NULL));
     const bool failed = !success || host->error != NULL;
