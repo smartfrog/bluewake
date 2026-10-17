@@ -810,11 +810,18 @@ static void mmio_write(CPUState* cpu, u32 address, u64 value, u8 size) {
     refresh(host);
 }
 
+/* The arm record lives in WwHost, but the allowance does not: the edge service
+ * is called with a user pointer the host cannot re-verify, and a wrong or stale
+ * one must not open a second budget. The 2026-10-17 watch run printed 5,844,424
+ * [edge] lines from one 16-line arm because the counter moved with the object. */
+static u32 s_edge_trace_prints;
+
 bool ww_host_edge(void* user, CPUState* cpu, u32 address) {
     WwHost* host = user;
     host->edges++;
-    if (host->dispatch_trace_remaining != 0u) {
+    if (host->dispatch_trace_remaining != 0u && s_edge_trace_prints < WW_EDGE_TRACE_BUDGET) {
         --host->dispatch_trace_remaining;
+        ++s_edge_trace_prints;
         if (fprintf(stderr, "[edge] pc=%08X downcount=%lld budget=%lld exception=%08X\n",
                     address, (long long)cpu->downcount, (long long)cpu->cycle_budget, cpu->exception) < 0) {
             ww_host_fail(host, "dispatch edge trace write failed", address, cpu->pc);

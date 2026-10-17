@@ -284,7 +284,7 @@ int fixture_run(int argc, char** argv) {
                 break;
             }
             traced_dispatch = true;
-            host->dispatch_trace_remaining = 16u;
+            host->dispatch_trace_remaining = WW_EDGE_TRACE_BUDGET;
         }
         const int dispatched = ww_host_dispatch(host, host->cpu.pc);
         error |= dispatched < 0;
