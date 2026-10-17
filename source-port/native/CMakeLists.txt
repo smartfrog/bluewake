@@ -121,6 +121,8 @@ include(cmake/dsp_hle.cmake)
 include(cmake/sdk.cmake)
 # The game's GF sources (game/src/dolphin/gf) compiled into cos_sdk.
 include(cmake/sdk_gf.cmake)
+# E1: the Vita package of the headless skeleton (no-op on host builds).
+include(cmake/vita.cmake)
 # Link census (phase 2): `ninja cos_link_census` lists what the non-REL units still need.
 include(cmake/census.cmake)
 # The game executable (phase 3, step 3.8): `ninja switchwaker` links every module, cos_sdk and Aurora.

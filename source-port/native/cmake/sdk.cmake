@@ -27,8 +27,15 @@ target_include_directories(cos_sdk PUBLIC "${COS_SDK_ROOT}/include")
 target_compile_definitions(cos_sdk PUBLIC MTX_USE_PS=1)
 target_compile_definitions(cos_sdk PRIVATE "COS_AURORA_COMMIT_STR=\"${COS_AURORA_COMMIT}\"")
 target_link_libraries(cos_sdk PUBLIC ${COS_AURORA_LIBS})
-# The DSP behind src/audio/DSP.cpp: Dolphin's DSPHLE (cmake/dsp_hle.cmake).
-target_link_libraries(cos_sdk PRIVATE cos_dsp_hle)
+# The DSP behind src/audio/DSP.cpp: Dolphin's DSPHLE (cmake/dsp_hle.cmake). Absent when
+# COS_DSP_HLE=OFF (the Vita skeleton), where native/vita/stubs_dsp.cpp keeps the DSP's entry
+# points explicit and loud.
+if (TARGET cos_dsp_hle)
+    target_link_libraries(cos_sdk PRIVATE cos_dsp_hle)
+else ()
+    target_sources(cos_sdk PRIVATE "${COS_NATIVE_ROOT}/vita/stubs_dsp.cpp")
+    target_include_directories(cos_sdk PRIVATE "${COS_NATIVE_ROOT}/dsp_hle")
+endif ()
 # Aurora's <dolphin/os.h> declares OSReport, OSVReport and OSPanic DECL_WEAK (weak), so every
 # reference to them is a weak reference. ld64 still loads the archive member that defines them;
 # ELF linkers (ld.lld, GNU ld) do not, and a program whose only definitions are cos_sdk's weak

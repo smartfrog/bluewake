@@ -131,6 +131,64 @@ if (FETCHCONTENT_SOURCE_DIR_AURORA AND _cos_aurora_patches AND NOT COS_AURORA_PR
     set(FETCHCONTENT_SOURCE_DIR_AURORA "${_cos_aurora_copy}")
 endif ()
 
+# Vita/newlib (E1): abseil's cctz reads tm_gmtoff/tm_zone, absent from newlib's struct tm, so
+# abseil's time target (in cos_sdk's closure through absl::flat_hash_map) does not compile. A
+# build-local patched copy of the abseil source is used (native/patches/abseil), as the Aurora
+# copy above. Host builds (8-byte pointers) are untouched.
+if (CMAKE_SIZEOF_VOID_P EQUAL 4 AND FETCHCONTENT_SOURCE_DIR_ABSEIL-CPP)
+    set(_cos_abseil_local "${FETCHCONTENT_SOURCE_DIR_ABSEIL-CPP}")
+    set(_cos_abseil_patch_dir "${CMAKE_CURRENT_LIST_DIR}/../patches/abseil")
+    get_filename_component(_cos_abseil_patch_dir "${_cos_abseil_patch_dir}" ABSOLUTE)
+    file(GLOB _cos_abseil_patches LIST_DIRECTORIES false CONFIGURE_DEPENDS "${_cos_abseil_patch_dir}/*.patch")
+    if (_cos_abseil_patches)
+        set(_cos_abseil_copy "${CMAKE_BINARY_DIR}/_deps/abseil-patched-src")
+        set(_cos_abseil_state "")
+        foreach (_patch IN LISTS _cos_abseil_patches)
+            file(SHA256 "${_patch}" _hash)
+            get_filename_component(_name "${_patch}" NAME)
+            string(APPEND _cos_abseil_state "${_name}=${_hash};")
+        endforeach ()
+        string(SHA256 _cos_abseil_stamp "${_cos_abseil_local}\n${_cos_abseil_state}")
+        set(_cos_abseil_stamp_file "${CMAKE_BINARY_DIR}/_deps/abseil-patched-src.stamp")
+        set(_cos_abseil_old_stamp "")
+        if (EXISTS "${_cos_abseil_stamp_file}" AND EXISTS "${_cos_abseil_copy}")
+            file(READ "${_cos_abseil_stamp_file}" _cos_abseil_old_stamp)
+        endif ()
+        if (NOT _cos_abseil_old_stamp STREQUAL _cos_abseil_stamp)
+            message(STATUS "cos_native: copying abseil from ${_cos_abseil_local} to ${_cos_abseil_copy} for patching")
+            file(REMOVE_RECURSE "${_cos_abseil_copy}")
+            file(MAKE_DIRECTORY "${_cos_abseil_copy}")
+            file(GLOB _entries LIST_DIRECTORIES true "${_cos_abseil_local}/*" "${_cos_abseil_local}/.*")
+            list(FILTER _entries EXCLUDE REGEX "/\\.git$")
+            file(COPY ${_entries} DESTINATION "${_cos_abseil_copy}")
+            foreach (_patch IN LISTS _cos_abseil_patches)
+                execute_process(COMMAND "${CMAKE_COMMAND}" -E env
+                        "GIT_CEILING_DIRECTORIES=${CMAKE_BINARY_DIR}/_deps"
+                        "${GIT_EXECUTABLE}" apply "${_patch}"
+                        WORKING_DIRECTORY "${_cos_abseil_copy}" RESULT_VARIABLE _result)
+                if (NOT _result EQUAL 0)
+                    message(FATAL_ERROR "cos_native: applying ${_patch} to the abseil copy failed")
+                endif ()
+            endforeach ()
+            file(WRITE "${_cos_abseil_stamp_file}" "${_cos_abseil_stamp}")
+        endif ()
+        # A normal variable shadows the cache entry for this configure only.
+        set(FETCHCONTENT_SOURCE_DIR_ABSEIL-CPP "${_cos_abseil_copy}")
+    endif ()
+endif ()
+
+# Vita/newlib (E1): Tracy's client does not know the platform ("Unsupported platform!" in
+# TracySystem.cpp). Profiling is out of the skeleton's scope: an empty Tracy::TracyClient target
+# (native/vita/stubs_tracy.cpp) keeps Aurora's link line unchanged without compiling Tracy. Its
+# headers still compile for the target (Aurora includes <tracy/Tracy.hpp> with TRACY_ENABLE off),
+# so the stub exposes the source's public/ include directory. Host builds fetch Tracy as before.
+if (CMAKE_SIZEOF_VOID_P EQUAL 4 AND NOT TARGET Tracy::TracyClient AND FETCHCONTENT_SOURCE_DIR_TRACY)
+    add_library(cos_vita_tracy_stub STATIC "${CMAKE_CURRENT_LIST_DIR}/../vita/stubs_tracy.cpp")
+    target_include_directories(cos_vita_tracy_stub INTERFACE "${FETCHCONTENT_SOURCE_DIR_TRACY}/public")
+    add_library(Tracy::TracyClient ALIAS cos_vita_tracy_stub)
+    message(STATUS "cos_native: Tracy::TracyClient is the empty E1 stub (no Tracy code on this target)")
+endif ()
+
 include(FetchContent)
 FetchContent_Declare(aurora
         GIT_REPOSITORY "${COS_AURORA_REPOSITORY}"
@@ -148,8 +206,17 @@ unset(_cos_aurora_head)
 target_compile_definitions(aurora_mtx PRIVATE MTX_USE_PS=1)
 
 # The SDK libraries the game links (Dusklight's GAME_LIBS, minus the libraries it adds itself).
-set(COS_AURORA_LIBS
-        aurora::core aurora::gx aurora::gd aurora::si aurora::vi aurora::pad aurora::mtx
-        aurora::os aurora::dvd aurora::thp aurora::card
-        CACHE INTERNAL "Aurora SDK libraries")
+# A library the option set did not create is left out (the Vita skeleton builds without
+# GX/GD/DVD/THP/CARD; their services are stubbed for the headless milestones). The order is the
+# host list's, so host links are unchanged.
+set(_cos_aurora_lib_order core gx gd si vi pad mtx os dvd thp card)
+set(COS_AURORA_LIBS "")
+foreach (_lib IN LISTS _cos_aurora_lib_order)
+    if (TARGET aurora::${_lib})
+        list(APPEND COS_AURORA_LIBS aurora::${_lib})
+    else ()
+        message(STATUS "cos_native: aurora::${_lib} not built; left out of COS_AURORA_LIBS")
+    endif ()
+endforeach ()
+set(COS_AURORA_LIBS "${COS_AURORA_LIBS}" CACHE INTERNAL "Aurora SDK libraries")
 message(STATUS "cos_native: Aurora ${COS_AURORA_COMMIT} from ${aurora_SOURCE_DIR}")

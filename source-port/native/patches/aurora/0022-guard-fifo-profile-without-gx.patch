@@ -1,0 +1,42 @@
+--- a/lib/aurora.cpp
++++ b/lib/aurora.cpp
+@@ -8,7 +8,9 @@
+ #include "gfx/render_worker.hpp"
+ #include "gx/command_processor.hpp"
+ #include "gx/fifo.hpp"
++#ifdef AURORA_ENABLE_GX
+ #include "gx/fifo_profile.hpp"
++#endif
+ #include "gx/gx.hpp"
+ #include "gx/texture.hpp"
+ #include "imgui.hpp"
+@@ -531,10 +533,15 @@
+ #endif
+ }
+ void aurora_fifo_profile_enable(bool enabled) {
++#ifdef AURORA_ENABLE_GX
+   if (enabled) {
+     aurora::gx::fifo::profile::start_sampler();
+   }
+   aurora::gx::fifo::profile::g_enabled.store(enabled, std::memory_order_relaxed);
++#else
++  // A build without GX (the Vita skeleton, E1) has no FIFO profile to enable.
++  (void)enabled;
++#endif
+ }
+ void aurora_set_fifo_fast_paths(bool enabled) {
+ #ifdef AURORA_ENABLE_GX
+@@ -545,8 +552,13 @@
+ }
+ void aurora_fifo_profile_get(uint64_t* out, size_t count) {
+   for (size_t i = 0; i < count; ++i) {
++#ifdef AURORA_ENABLE_GX
+     out[i] = i < AURORA_FIFO_PROFILE_COUNT ? aurora::gx::fifo::profile::g_values[i].load(std::memory_order_relaxed)
+                                            : 0;
++#else
++    // A build without GX (the Vita skeleton, E1) has no counters to read.
++    out[i] = 0;
++#endif
+   }
+ }
+ AuroraBackend aurora_get_backend() { return aurora::g_config.desiredBackend; }

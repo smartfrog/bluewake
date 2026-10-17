@@ -13,6 +13,14 @@ if (NOT COS_WITH_AURORA)
     return() # only cos_sdk uses it, and fmt comes with Aurora
 endif ()
 
+# The Vita skeleton (E1) builds without the DSP: off, cos_sdk does not link it (sdk.cmake) and
+# the audio services stay the caller's stubs. The host builds keep it on.
+option(COS_DSP_HLE "Build the Dolphin DSP HLE backend behind cos_sdk" ON)
+if (NOT COS_DSP_HLE)
+    message(STATUS "cos_native: cos_dsp_hle disabled (-DCOS_DSP_HLE=ON to build it)")
+    return()
+endif ()
+
 set(COS_DSP_HLE_ROOT "${CMAKE_CURRENT_LIST_DIR}/../dsp_hle")
 cmake_path(NORMAL_PATH COS_DSP_HLE_ROOT)
 
