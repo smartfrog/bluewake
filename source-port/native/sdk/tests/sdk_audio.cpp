@@ -36,6 +36,13 @@ void StreamCallback(u32) {}
 COS_SMOKE_TEST(audio) {
     OSInit();
 
+#ifdef COS_SDK_SMOKE_NO_AI
+    // The AI engine is not started on this target (see ai-tone): AIInit spawns the SDK's detached
+    // DMA thread, whose stack accesses fault in the emulator's memory bitmap and then crash the
+    // host emulator (E2-quater). The AI checks are skipped with this printed line; the DSP and
+    // DTK sections below still run under their own guards. Set by cmake/vita.cmake.
+    std::fprintf(stderr, "audio: AI checks skipped (the AI engine is not started on this target)\n");
+#else
     // AI: before AIInit the DSP rate reads 48 kHz (the register's reset value); AIInit sets 32 kHz.
     COS_SMOKE_CHECK(AIGetDSPSampleRate() == AI_SAMPLERATE_48KHZ);
     AIInit(nullptr);
@@ -65,6 +72,7 @@ COS_SMOKE_TEST(audio) {
     COS_SMOKE_CHECK(AIGetStreamPlayState() == AI_STREAM_START);
     AISetStreamPlayState(AI_STREAM_STOP);
     COS_SMOKE_CHECK(AIGetStreamSampleCount() == 0);
+#endif // COS_SDK_SMOKE_NO_AI
 
 #ifdef COS_SDK_SMOKE_NO_DSP
     // The DSP HLE is not built on this target (COS_DSP_HLE=OFF, the Vita skeleton): DSPInit
@@ -135,8 +143,10 @@ COS_SMOKE_TEST(audio) {
     COS_SMOKE_CHECK(DTKGetPosition() == 0);
 #endif
 
+#ifndef COS_SDK_SMOKE_NO_AI
     AIReset();
     COS_SMOKE_CHECK(!AICheckInit());
+#endif // COS_SDK_SMOKE_NO_AI
     return true;
 }
 

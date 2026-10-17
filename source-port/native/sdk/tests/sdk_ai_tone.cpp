@@ -65,6 +65,17 @@ static bool AiToneTest();
 [[maybe_unused]] static const int sAiToneReg = ::cos_smoke::Register("ai-tone", &AiToneTest);
 
 static bool AiToneTest() {
+#ifdef COS_SDK_SMOKE_NO_AI
+    // The AI engine is not started on this target: AIInit spawns the SDK's detached DMA thread,
+    // whose stack accesses fault in the emulator's memory bitmap and then crash the host
+    // emulator (E2-quater). AIStopDMA/AIReset do not stop that thread, so the only reliable
+    // short-term path is to never start it. Audio is deferred; skipped with this printed line.
+    // Set by cmake/vita.cmake for the Vita build.
+    std::fprintf(stderr,
+                 "ai-tone: skipped (the AI engine is not started on this target; audio is "
+                 "deferred)\n");
+    return true;
+#else
     OSInit();
 
     std::string dumpPath;
@@ -180,4 +191,5 @@ static bool AiToneTest() {
     AISetDSPSampleRate(AI_SAMPLERATE_48KHZ);
     AIReset();
     return true;
+#endif // COS_SDK_SMOKE_NO_AI
 }

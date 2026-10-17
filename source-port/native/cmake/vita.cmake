@@ -31,7 +31,9 @@ if (TARGET cos_sdk_smoke)
             COS_SDK_SMOKE_NO_DVD=1    # no aurora::dvd on this target (host-only for now)
             COS_SDK_SMOKE_NO_GX=1     # no aurora_gx/aurora_gd (GX is E3/E4)
             COS_SDK_SMOKE_NO_CHILD=1  # no child processes on the Vita
-            COS_SDK_SMOKE_NO_DSP=1)   # no DSP HLE on this target (the stub makes DSPInit abort)
+            COS_SDK_SMOKE_NO_DSP=1    # no DSP HLE on this target (the stub makes DSPInit abort)
+            COS_SDK_SMOKE_NO_AI=1)    # no AI engine: its detached DMA thread's stack faults in the
+                                      # emulator (E2-quater); audio is deferred by decision
     target_sources(cos_sdk_smoke PRIVATE "${COS_NATIVE_ROOT}/vita/stubs_libc.cpp")
     # libstdc++ references the pthread functions weakly (its __gthrw declarations): a weak
     # reference does not pull an archive member, the symbol stays undefined and GNU ld patches
