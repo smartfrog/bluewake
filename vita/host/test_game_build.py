@@ -1,4 +1,6 @@
+import contextlib
 import importlib.util
+import io
 import os
 from pathlib import Path
 import subprocess
@@ -8,11 +10,16 @@ import unittest
 ROOT = Path(__file__).resolve().parents[2]
 
 
+def load_module():
+    spec = importlib.util.spec_from_file_location('ww05_game_build', ROOT / 'scripts/vita/ww05/game_build.py')
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
 class GameInputTest(unittest.TestCase):
     def test_rebuild_preserves_previous_artifact_bytes(self):
-        spec = importlib.util.spec_from_file_location('ww05_game_build', ROOT / 'scripts/vita/ww05/game_build.py')
-        module = importlib.util.module_from_spec(spec)
-        spec.loader.exec_module(module)
+        module = load_module()
         with tempfile.TemporaryDirectory(dir='/home/fred/projects/zeldaWWHDRecomp/build-f5', prefix='ww05-artifacts-') as directory:
             output = Path(directory)
             vita = output / 'vita'
@@ -37,9 +44,7 @@ class GameInputTest(unittest.TestCase):
             subprocess.run([os.environ['CC'], '-O2', '-Iapple/ios/src',
                             'scripts/ios/disc_extract.c', 'apple/ios/src/disc_import.c',
                             '-o', str(extractor)], cwd=ROOT, check=True)
-            spec = importlib.util.spec_from_file_location('game_build', ROOT / 'scripts/vita/ww05/game_build.py')
-            module = importlib.util.module_from_spec(spec)
-            spec.loader.exec_module(module)
+            module = load_module()
             with self.assertRaisesRegex(RuntimeError, 'disc verification'):
                 module.verify_disc(disc, extractor, output / 'private')
             self.assertFalse((output / 'private/main.dol').exists())
@@ -47,10 +52,7 @@ class GameInputTest(unittest.TestCase):
 
 class DstAlphaOptionTest(unittest.TestCase):
     def test_configure_option_is_passed_only_when_requested(self):
-        spec = importlib.util.spec_from_file_location('ww05_game_build',
-                                                      ROOT / 'scripts/vita/ww05/game_build.py')
-        module = importlib.util.module_from_spec(spec)
-        spec.loader.exec_module(module)
+        module = load_module()
         self.assertEqual(module.dst_alpha_configure_option(True),
                          ['-DWW_RENDERER_DST_ALPHA_ADMIT=ON'])
         self.assertEqual(module.dst_alpha_configure_option(False), [])
@@ -58,10 +60,7 @@ class DstAlphaOptionTest(unittest.TestCase):
 
 class IdleDeadlineAdvanceOptionTest(unittest.TestCase):
     def test_configure_option_is_always_explicit(self):
-        spec = importlib.util.spec_from_file_location('ww05_game_build',
-                                                      ROOT / 'scripts/vita/ww05/game_build.py')
-        module = importlib.util.module_from_spec(spec)
-        spec.loader.exec_module(module)
+        module = load_module()
         self.assertEqual(module.idle_deadline_advance_configure_option(True),
                          ['-DWW_IDLE_DEADLINE_ADVANCE=ON'])
         self.assertEqual(module.idle_deadline_advance_configure_option(False),
@@ -70,20 +69,14 @@ class IdleDeadlineAdvanceOptionTest(unittest.TestCase):
 
 class EdgeObservationAdmitOptionTest(unittest.TestCase):
     def test_configure_option_is_always_explicit(self):
-        spec = importlib.util.spec_from_file_location('ww05_game_build',
-                                                      ROOT / 'scripts/vita/ww05/game_build.py')
-        module = importlib.util.module_from_spec(spec)
-        spec.loader.exec_module(module)
+        module = load_module()
         self.assertEqual(module.edge_observation_admit_configure_option(True),
                          ['-DWW_EDGE_OBSERVATION_ADMIT=ON'])
         self.assertEqual(module.edge_observation_admit_configure_option(False),
                          ['-DWW_EDGE_OBSERVATION_ADMIT=OFF'])
 
     def test_vita_configure_arguments_carry_the_admission_explicitly(self):
-        spec = importlib.util.spec_from_file_location('ww05_game_build',
-                                                      ROOT / 'scripts/vita/ww05/game_build.py')
-        module = importlib.util.module_from_spec(spec)
-        spec.loader.exec_module(module)
+        module = load_module()
         base = ['cmake', '-S', 'source', '-B', 'output', '-G', 'Ninja',
                 '-DCMAKE_TOOLCHAIN_FILE=toolchain', '-DCMAKE_MAKE_PROGRAM=ninja',
                 '-DCMAKE_BUILD_TYPE=Release', '-DRECOMPCORE_DIR=recompcore',
@@ -95,7 +88,7 @@ class EdgeObservationAdmitOptionTest(unittest.TestCase):
         def arguments(enabled, idle=False):
             return [str(value) for value in module.vita_configure_arguments(
                 'cmake', 'ninja', 'source', 'output', 'toolchain', 'recompcore', 'composite',
-                'identity', 'dol', 'vitagl', 'sdk', '1', False, False, False, enabled, idle)]
+                'identity', 'dol', 'vitagl', 'sdk', '1', False, False, False, enabled, idle, 0, False)]
 
         expected = {'ON': ['-DWW_EDGE_OBSERVATION_ADMIT=ON', '-DWW_IDLE_DEADLINE_ADVANCE=OFF'],
                     'OFF': ['-DWW_EDGE_OBSERVATION_ADMIT=OFF', '-DWW_IDLE_DEADLINE_ADVANCE=OFF']}
@@ -103,18 +96,63 @@ class EdgeObservationAdmitOptionTest(unittest.TestCase):
             with self.subTest(state=state):
                 self.assertEqual(arguments(state == 'ON'), base + option)
 
-    def test_vita_configure_arguments_carry_the_idle_advance_when_requested(self):
-        spec = importlib.util.spec_from_file_location('ww05_game_build',
-                                                      ROOT / 'scripts/vita/ww05/game_build.py')
-        module = importlib.util.module_from_spec(spec)
-        spec.loader.exec_module(module)
+    def test_vita_configure_arguments_carry_the_perf_options_when_requested(self):
+        module = load_module()
         arguments = [str(value) for value in module.vita_configure_arguments(
             'cmake', 'ninja', 'source', 'output', 'toolchain', 'recompcore', 'composite',
-            'identity', 'dol', 'vitagl', 'sdk', '1', True, False, True, True, True)]
-        self.assertIn('-DWW_IDLE_DEADLINE_ADVANCE=ON', arguments)
-        self.assertIn('-DWW_EDGE_OBSERVATION_ADMIT=ON', arguments)
-        self.assertIn('-DWW_RENDERER_DST_ALPHA_ADMIT=ON', arguments)
-        self.assertIn('-DWW05_ENABLE_VI_CLOCK=ON', arguments)
+            'identity', 'dol', 'vitagl', 'sdk', '1', True, False, True, True, True, 8, True)]
+        self.assertEqual(arguments, [
+            'cmake', '-S', 'source', '-B', 'output', '-G', 'Ninja',
+            '-DCMAKE_TOOLCHAIN_FILE=toolchain', '-DCMAKE_MAKE_PROGRAM=ninja',
+            '-DCMAKE_BUILD_TYPE=Release', '-DRECOMPCORE_DIR=recompcore',
+            '-DCOMPOSITE_DIR=composite', '-DWW05_IDENTITY_DIR=identity', '-DWW05_DOL=dol',
+            '-DWW05_VITAGL_LIBRARY=vitagl', '-DWW05_RENDERER_SDK=sdk',
+            '-DWW05_MODULE_OPT_LEVEL=1', '-DWW05_ENABLE_VI_CLOCK=ON',
+            '-DWW05_ENABLE_PAD_INPUT=OFF', '-DWW_RENDERER_DST_ALPHA_ADMIT=ON',
+            '-DWW_EDGE_OBSERVATION_ADMIT=ON', '-DWW_IDLE_DEADLINE_ADVANCE=ON',
+            '-DWW_TURN_CAP=8', '-DWW_PROGRAM_CACHE=ON'])
+
+
+class TurnCapOptionTest(unittest.TestCase):
+    def test_configure_option_is_absent_at_the_default(self):
+        self.assertEqual(load_module().turn_cap_configure_option(0), [])
+
+    def test_configure_option_is_passed_when_requested(self):
+        self.assertEqual(load_module().turn_cap_configure_option(6), ['-DWW_TURN_CAP=6'])
+
+    def test_negative_cap_is_rejected(self):
+        with self.assertRaisesRegex(ValueError, 'turn cap'):
+            load_module().turn_cap_configure_option(-1)
+
+    def test_parser_rejects_a_negative_cap(self):
+        with self.assertRaises(SystemExit), contextlib.redirect_stderr(io.StringIO()):
+            load_module().parse_arguments(['--disc', 'disc.iso', '--turn-cap', '-1'])
+
+    def test_parser_rejects_a_non_numeric_cap(self):
+        with self.assertRaises(SystemExit), contextlib.redirect_stderr(io.StringIO()):
+            load_module().parse_arguments(['--disc', 'disc.iso', '--turn-cap', 'many'])
+
+
+class ProgramCacheOptionTest(unittest.TestCase):
+    def test_configure_option_is_passed_only_when_requested(self):
+        module = load_module()
+        self.assertEqual(module.program_cache_configure_option(True), ['-DWW_PROGRAM_CACHE=ON'])
+        self.assertEqual(module.program_cache_configure_option(False), [])
+
+
+class BuildEvidenceConfigTest(unittest.TestCase):
+    def test_config_records_the_perf_options(self):
+        module = load_module()
+        config = module.evidence_config(
+            module.parse_arguments(['--disc', 'disc.iso', '--turn-cap', '8', '--program-cache']))
+        self.assertEqual(config['turn_cap'], 8)
+        self.assertTrue(config['program_cache'])
+
+    def test_config_records_the_defaults(self):
+        module = load_module()
+        config = module.evidence_config(module.parse_arguments(['--disc', 'disc.iso']))
+        self.assertEqual(config['turn_cap'], 0)
+        self.assertFalse(config['program_cache'])
 
 
 if __name__ == '__main__':
