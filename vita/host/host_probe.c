@@ -15,6 +15,8 @@ static unsigned allocation;
 static unsigned fail_allocation;
 static u32 exi_logs;
 static u32 fail_exi_log;
+static char pointer_line[160];
+static unsigned pointer_lines;
 void* __wrap_calloc(size_t count, size_t size) {
     if (++allocation == fail_allocation)
         return NULL;
@@ -28,6 +30,13 @@ int __wrap_fprintf(FILE* stream, const char* format, ...) {
     }
     va_list arguments;
     va_start(arguments, format);
+    if (stream == stderr && strncmp(format, "[host-ptr]", 10u) == 0) {
+        va_list copy;
+        va_copy(copy, arguments);
+        vsnprintf(pointer_line, sizeof(pointer_line), format, copy);
+        va_end(copy);
+        ++pointer_lines;
+    }
     const int result = vfprintf(stream, format, arguments);
     va_end(arguments);
     return result;
@@ -1206,6 +1215,27 @@ int main(int argc, char** argv) {
         assert(!ww_host_idle_poll_stable(&host->cpu));
         ppc_guest_alias_clear();
         assert(ww_host_idle_poll_stable(&host->cpu));
+    } else if (strcmp(argv[1], "host-ptr-reload") == 0) {
+        // A dispatch that loses the loop's pointer is repaired from the startup
+        // pointer without dereferencing the stale one; the report is one-shot.
+        host->cpu.pc = 0x80307EF4u;
+        host->cpu.gpr[1] = 0x81234560u;
+        WwHost* stale = NULL;
+        assert(ww_host_pointer_reload(&stale, host));
+        assert(stale == host);
+        assert(pointer_lines == 1u);
+        assert(strstr(pointer_line, "[host-ptr] restored=") != NULL);
+        assert(strstr(pointer_line, "before=") != NULL);
+        assert(strstr(pointer_line, "pc=80307EF4") != NULL);
+        assert(strstr(pointer_line, "sp=81234560") != NULL);
+        stale = NULL;
+        assert(ww_host_pointer_reload(&stale, host));
+        assert(stale == host);
+        assert(pointer_lines == 1u);
+        assert(!ww_host_pointer_reload(&stale, host));
+        assert(pointer_lines == 1u);
+        free(host);
+        return 0;
     } else if (strcmp(argv[1], "host-null") == 0) {
         // The observed crash class: a null host reaches the loop path. The
         // guard must print the durable record once and abort, never continue.

@@ -970,6 +970,25 @@ void ww_host_note_idle_taken(WwHost* host, u64 elapsed) {
     ++g_idle_lever.taken_prints;
 }
 
+// Trial 13 lost the loop's host pointer across ww_host_dispatch: the post-call
+// block passed zero to end_dispatch. The startup pointer is authoritative.
+// Restore it without dereferencing the stale local; report the first recovery
+// once and keep the run going, so the null guard stays the last resort.
+bool ww_host_pointer_reload(WwHost** local, WwHost* authoritative) {
+    if (*local == authoritative)
+        return false;
+    static bool reported;
+    if (!reported) {
+        reported = true;
+        (void)fprintf(stderr,
+                      "[host-ptr] restored=%p before=%p pc=%08X sp=%08X\n",
+                      (void*)authoritative, (void*)*local,
+                      authoritative->cpu.pc, authoritative->cpu.gpr[1]);
+    }
+    *local = authoritative;
+    return true;
+}
+
 // A null host must never reach an epilogue that dereferences it. Print the
 // engagement record (it survives in the file static) and stop immediately.
 void ww_host_null_guard(const char* where, u32 pc) {

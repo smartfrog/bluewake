@@ -214,6 +214,9 @@ bool ww_host_idle_poll_stable(CPUState* cpu);
 // with end_turn's return value). Both are inert when the lever is not armed.
 void ww_host_note_idle_grant(WwHost* host);
 void ww_host_note_idle_taken(WwHost* host, u64 elapsed);
+// Restore *local from the authoritative startup pointer when a dispatch lost
+// it, reporting the first recovery once. Returns true when it restored.
+bool ww_host_pointer_reload(WwHost** local, WwHost* authoritative);
 // One-shot [host-null] report and immediate stop. Never returns.
 void ww_host_null_guard(const char* where, u32 pc);
 const char* ww_host_observe_dsp_task_boot(WwHost* host);

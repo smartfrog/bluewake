@@ -18,6 +18,10 @@ WwRendererBackend* ww05_io_renderer_backend(void);
 #error "Real game execution is Vita-only and requires separate authorization"
 #endif
 
+// The one fixture host, kept where the loop can recover it if a call loses the
+// pointer (trial 13: r8 was zero after ww_host_dispatch returned).
+static WwHost* volatile g_host;
+
 static bool log_handler_boundary(const WwHost* host, const char* stage) {
     if (host->cpu.pc < 0x803077D0u || host->cpu.pc >= 0x803077ECu ||
         !ww_host_trace_syscall(host->syscall_resumes))
@@ -122,6 +126,7 @@ int fixture_run(int argc, char** argv) {
         const int published = fixture_publish_report(report, partial, complete);
         return published != 0 ? published : 1;
     }
+    g_host = host;
     const StaticRecompModuleDesc* module = staticrecomp_get_module();
     u32 count;
     const BlueWakeRelData* data = staticrecomp_get_rel_data(&count);
@@ -294,6 +299,7 @@ int fixture_run(int argc, char** argv) {
             host->dispatch_trace_remaining = 16u;
         }
         const int dispatched = ww_host_dispatch(host, host->cpu.pc);
+        (void)ww_host_pointer_reload(&host, g_host);
         error |= dispatched < 0;
         if (probe_dispatch) {
             host->dispatch_trace_remaining = 0u;
