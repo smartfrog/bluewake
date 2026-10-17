@@ -7834,9 +7834,10 @@ static cPhs_State dMeter_Create(msg_class* i_this) {
 #endif
 
 #if TARGET_PC
-    // Bug B8 (decision H5): the HUD's screens hold 64-bit pointers on the host; with the GameCube's
-    // 0x2a819 only about 25 KiB of its 170 KiB were left free at Windfall. Doubled.
-    i_Meter->heap = fopMsgM_createExpHeap(0x2a819 * 2);
+    // Bug B8 (decision H5): the HUD's screens hold 64-bit pointers on the LP64 host; with the
+    // GameCube's 0x2a819 only about 25 KiB of its 170 KiB were left free at Windfall. Doubled on
+    // LP64; the GameCube value applies on ILP32 (cos_heap_sizes.h).
+    i_Meter->heap = fopMsgM_createExpHeap(COS_HEAP_METER_SIZE);
 #else
     i_Meter->heap = fopMsgM_createExpHeap(0x2a819);
 #endif

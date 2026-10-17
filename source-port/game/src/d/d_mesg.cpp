@@ -2414,10 +2414,11 @@ void dMesg_waitProc(sub_mesg_class* i_Msg) {
             }
         }
 #if TARGET_PC
-        // Decision H5: doubled for 8-byte pointers and the larger JKR block headers. On the host
-        // each of the 18 dMesg_outFont_c (two J2DPicture with a JUTTexture) takes 1,872 bytes, so
-        // the GameCube's 0xa32d ran out at the 18th and new JUTTexture returned NULL.
-        i_Msg->field_0x100 = JKRCreateExpHeap(0xa32d * 2, i_Msg->heap, false);
+        // Decision H5: doubled on LP64 for 8-byte pointers and the larger JKR block headers; the
+        // GameCube value applies on ILP32 (cos_heap_sizes.h). On the LP64 host each of the 18
+        // dMesg_outFont_c (two J2DPicture with a JUTTexture) takes 1,872 bytes, so the GameCube's
+        // 0xa32d ran out at the 18th and new JUTTexture returned NULL.
+        i_Msg->field_0x100 = JKRCreateExpHeap(COS_HEAP_MESG_FONT_SIZE, i_Msg->heap, false);
 #else
         i_Msg->field_0x100 = JKRCreateExpHeap(0xa32d, i_Msg->heap, false);
 #endif
@@ -2748,8 +2749,10 @@ static BOOL dMsg_Delete(sub_mesg_class* i_Msg) {
 static cPhs_State dMsg_Create(msg_class* i_this) {
     sub_mesg_class* i_Msg = (sub_mesg_class*)i_this;
 #if TARGET_PC
-    // Decision H5: doubled, as the 0xa32d * 2 heap dMesg_waitProc makes inside it.
-    i_Msg->heap = fopMsgM_createExpHeap(VERSION_SELECT(0xb20c, 0xb2b5, 0xb6b5, 0xb6b5) * 2);
+    // Decision H5: doubled on LP64, as the COS_HEAP_MESG_FONT_SIZE heap dMesg_waitProc makes
+    // inside it; the GameCube value applies on ILP32 (cos_heap_sizes.h).
+    i_Msg->heap =
+        fopMsgM_createExpHeap(COS_HEAP_X2(VERSION_SELECT(0xb20c, 0xb2b5, 0xb6b5, 0xb6b5)));
 #else
     i_Msg->heap = fopMsgM_createExpHeap(VERSION_SELECT(0xb20c, 0xb2b5, 0xb6b5, 0xb6b5));
 #endif

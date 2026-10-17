@@ -154,6 +154,13 @@ struct __tag_va_List {
 };
 } // namespace std
 
+/* ---- Host pointer width and heap sizes (census §5) ----------------------------------------- */
+/*
+ * The port's heap-size policy per target (LP64 scales the GameCube sizes; ILP32/Vita uses them as
+ * they are), included here so every game unit sees the macros without a per-file include.
+ */
+#include "pc/cos_heap_sizes.h"
+
 /* ---- runtime assets (docs/RUNTIME_ASSETS.md) ------------------------------------------------ */
 /*
  * The stub assets/ headers of a COS_RUNTIME_ASSETS build call this (COS_ASSET_FILL). Declared here,

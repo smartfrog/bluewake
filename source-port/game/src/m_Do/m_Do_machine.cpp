@@ -552,16 +552,19 @@ bool mDoMch_Create() {
     arenaSize -= archiveHeapSize + gameHeapSize + commandHeapSize;
 
 #if TARGET_PC
-    // Decision H5: Dusklight's sizes (ref/dusklight/src/m_Do/m_Do_machine.cpp, mDoMch_Create, CC0)
-    // for 8-byte pointers, 0x20-byte heap block headers and 16-byte aligned operator new. The
-    // system heap (and the zelda heap inside it) gets a fixed 32 MiB instead of what is left of
-    // the arena; the command and archive heaps are doubled; the game heap, which takes every
-    // actor's solid heap (doubled in fopAcM_entrySolidHeap), is 20 times larger, as in Dusklight.
-    // In all about 109 MiB of the 232 MiB arena; the rest stays free in the root heap.
+    // Decision H5: on LP64 the sizes are scaled for 8-byte pointers, 0x20-byte heap block headers
+    // and 16-byte aligned operator new (Dusklight, ref/dusklight/src/m_Do/m_Do_machine.cpp,
+    // mDoMch_Create, CC0): the system heap (and the zelda heap inside it) gets a fixed 32 MiB
+    // instead of what is left of the arena; the command and archive heaps are doubled; the game
+    // heap, which takes every actor's solid heap (doubled in fopAcM_entrySolidHeap), is 20 times
+    // larger. In all about 109 MiB of the 232 MiB arena. On ILP32 (Vita/ARMv7) the GameCube values
+    // apply as they are and the arena keeps what is left (cos_heap_sizes.h).
+    #if COS_HOST_LP64
     arenaSize = 32 * 1024 * 1024;
-    commandHeapSize *= 2;
-    archiveHeapSize *= 2;
-    gameHeapSize *= 20;
+    #endif
+    commandHeapSize = COS_HEAP_X2(commandHeapSize);
+    archiveHeapSize = COS_HEAP_X2(archiveHeapSize);
+    gameHeapSize = COS_HEAP_X20(gameHeapSize);
 #endif
     JFWSystem::setSysHeapSize(arenaSize);
 #if VERSION <= VERSION_JPN

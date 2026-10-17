@@ -35,11 +35,13 @@ cPhs_State dMinigame_Starter_c::_create() {
 
 #if TARGET_PC
         // Bug B12 (decision H5, as bug B8): the minigame starter's ("Start!", ship_race1.blo) J2D
-        // screen (its panes, pictures and textures hold 64-bit pointers on the host) needs 0x1C20
-        // bytes on the host, more than the GameCube's 0x14C0: a pane allocation failed and the
-        // screen faulted on its NULL pane. Three times the size, from the game heap;
-        // mDoExt_adjustSolidHeap gives back what the screen did not use.
-        mHeap = mDoExt_createSolidHeapFromGameToCurrent(VERSION_SELECT(0x1300, 0x13E0, 0x14C0, 0x1AC0) * 3, 0x20);
+        // screen (its panes, pictures and textures hold 64-bit pointers on the LP64 host) needs
+        // 0x1C20 bytes there, more than the GameCube's 0x14C0: a pane allocation failed and the
+        // screen faulted on its NULL pane. Tripled on LP64, from the game heap; the GameCube value
+        // applies on ILP32 (cos_heap_sizes.h). mDoExt_adjustSolidHeap gives back what the screen
+        // did not use.
+        mHeap = mDoExt_createSolidHeapFromGameToCurrent(
+            COS_HEAP_X3(VERSION_SELECT(0x1300, 0x13E0, 0x14C0, 0x1AC0)), 0x20);
 #else
         mHeap = mDoExt_createSolidHeapFromGameToCurrent(VERSION_SELECT(0x1300, 0x13E0, 0x14C0, 0x1AC0), 0x20);
 #endif

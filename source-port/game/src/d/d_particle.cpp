@@ -698,10 +698,11 @@ u8 dPa_control_c::mStatus;
 /* 8007C8E8-8007C9A4       .text __ct__13dPa_control_cFv */
 dPa_control_c::dPa_control_c() {
 #if TARGET_PC
-    // Decision H5: doubled for 8-byte pointers and the 0x20-byte JKR block headers. The common
-    // JPA resources, the emitter manager and dPa_modelControl_c need 0x18e020 bytes on the host
-    // (0x16e800 on the GameCube); createCommon trims the heap to that with mDoExt_adjustSolidHeap.
-    mHeap = mDoExt_createSolidHeapFromSystem(0x16e800 * 2, 0);
+    // Decision H5: doubled on LP64 for 8-byte pointers and the 0x20-byte JKR block headers; the
+    // GameCube value applies on ILP32 (cos_heap_sizes.h). The common JPA resources, the emitter
+    // manager and dPa_modelControl_c need 0x18e020 bytes on the LP64 host (0x16e800 on the
+    // GameCube); createCommon trims the heap to that with mDoExt_adjustSolidHeap.
+    mHeap = mDoExt_createSolidHeapFromSystem(COS_HEAP_PARTICLE_SIZE, 0);
 #else
     mHeap = mDoExt_createSolidHeapFromSystem(0x16e800, 0);
 #endif

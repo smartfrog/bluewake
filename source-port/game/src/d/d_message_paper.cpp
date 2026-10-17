@@ -1273,8 +1273,9 @@ cPhs_State dMessage_Paper_c::_create() {
     mMsgFlag = 0;
 
 #if TARGET_PC
-    // Bug B8: the 2D heap, tripled as in phase_4 of d_s_play.cpp.
-    JKRExpHeap* heap = fopMsgM_createExpHeap(0x73EA1 * 3);
+    // Bug B8: the 2D heap, tripled on LP64 as in phase_4 of d_s_play.cpp; the GameCube value
+    // applies on ILP32 (cos_heap_sizes.h).
+    JKRExpHeap* heap = fopMsgM_createExpHeap(COS_HEAP_PAPER_SIZE);
 #else
     JKRExpHeap* heap = fopMsgM_createExpHeap(0x73EA1);
 #endif
