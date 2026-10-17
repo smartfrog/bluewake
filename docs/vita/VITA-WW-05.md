@@ -3117,19 +3117,38 @@ at this boundary. The Vita guard refused it because `vita/host/boot_host.c` test
 shared table and the address was not in its compiled-boundary list.
 
 With `-DWW_EDGE_OBSERVATION_ADMIT=ON` (off by default) the host admits exactly this key:
-the address must be `0x80120188`, module-owned, `address == pc == lr` (a caller return, not
-an arbitrary entry) and free of a linked alias. The host does not change PC, LR, registers
-or MSR; the guest executes its own compiled block from `0x80120188`.
+the address must be `0x80120188`, module-owned, return-shaped and free of a linked alias.
+The host does not change PC, LR, registers or MSR; the guest executes its own compiled block
+from `0x80120188`.
+
+The check is a **shape check**. The production call site passes `cpu->pc` as the address, so
+the discriminating term is `lr == key`; the address must also match that `pc`. It does not
+prove the caller, does not verify `r29` or `f1`, does not exclude a corrupted `pc`/`lr` pair
+that both land on the key, and does not exclude a corrupted code page.
 
 The option is a diagnostic waiver, not an emulation of the desktop observation: the Vita
 host does **not** perform the desktop GroundCross `f1`/lava-constant check at this boundary.
-The refusal capsule retains `r3/r13/r31` but not `r29`/`f1`, so a faithful re-check would
-need more retained state. Unowned keys, non-caller-return shapes, other observation-only
-keys and every key that requires a host service are still refused.
+The refusal capsule retains `r3/r13/r31` (plus `sp`/`msr`/`srr0`/`srr1`) but not `r29`/`f1`/
+`r2`, so a faithful re-check would need more retained state. The explicit consequence is
+that an incoherent `r29`/`f1` reaches the guest `stfs` unvalidated, so a later lava or
+collision anomaly could be a downstream symptom rather than a new fault. Unowned keys,
+non-caller-return shapes, other observation-only keys, alias-shadowed keys and every key
+that requires a host service are still refused. The admission is reported once per run as
+`[edge-admit] address=80120188 module_owned=1 reason=observation-only` so the next trial can
+tell that it fired.
 
-The `archive-unrelated` refusal fixture in `vita/host/dvd_open_probe.c` asserts admission
-only when its build has the option on and the original refusal otherwise. With the option
-off, `boot_host.c` compiles to the same object as `7173841d`
-(sha256 `60ed6c15a88d38be67aeeb11afbd80e91227c78eeac258f53aa20aaa946727bd`), so the refusal,
-its message and its STOP are unchanged. At this tree both host builds pass **78/78** CTest
-and **1164** Python host tests (one skip for the missing Vita SDK).
+A private ON build is requested with `scripts/vita/ww05/game_build.py --edge-observation-admit`,
+which passes `-DWW_EDGE_OBSERVATION_ADMIT=ON` and records `config.edge_observation_admit` in
+the build receipt; without the flag the option stays off and nothing is passed.
+
+The `archive-unrelated` fixture in `vita/host/dvd_open_probe.c` selects its expectation at
+compile time from the PUBLIC `WW_EDGE_OBSERVATION_ADMIT` define: admission in an option-on
+build, the original refusal otherwise. Behaviour with the option off is unchanged - the
+added term is a constant false and the same refusal, message and STOP result. (A local
+comparison of the option-off object against `7173841d`'s `boot_host.c`, using the same
+command, matched; that evidence is not committed.) At this tree both host builds pass
+**78/78** CTest, and both pass the Python host suite: `python3 -B -m unittest discover -s
+vita/host` against the option-off `build-f5/services-tests`, and a temporary runner (not
+committed) that points `test_host.OUT` at `build-f5/services-tests-observation-admit`
+before discovery for the option-on build. Both runs report **1164** tests with one skip for
+the missing Vita SDK.

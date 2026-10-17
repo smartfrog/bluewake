@@ -949,11 +949,18 @@ bool ww_host_edge(void* user, CPUState* cpu, u32 address) {
     // body at 0x80120188 (stfs f1, 13780(r29)), and the shared classification
     // lists this exact key only in the observation switch, never in the
     // host-service switch (edge_intercepts.c), so no queue or IO service runs
-    // at this boundary. The desktop observation it names - f1 against the check
-    // object's ground constant - is waived here, not emulated: the refusal
-    // capsule keeps r3/r13/r31 but not r29/f1, so re-checking it would need
-    // more retained state. The guest executes its own compiled block with no
-    // host change to PC, LR, registers or MSR. See docs/vita/VITA-WW-05.md.
+    // here. This is a shape check, not proof of the caller: the caller passes
+    // cpu->pc, so the discriminating term is lr == key; the address must also
+    // be module-owned and free of a shadowing alias. It does not verify r29 or
+    // f1, does not exclude a corrupted pc/lr pair that both land on the key,
+    // and does not exclude a corrupted code page. The desktop observation the
+    // key names - f1 against the check object's ground constant - is therefore
+    // waived, not emulated: the refusal capsule keeps r3/r13/r31 (plus
+    // sp/msr/srr0/srr1) but not r29/f1/r2, so re-checking it would need more
+    // retained state. An incoherent r29/f1 reaches the guest stfs unvalidated,
+    // so a later lava or collision anomaly can be a downstream symptom. The
+    // guest executes its own compiled block with no host change to PC, LR,
+    // registers or MSR. See docs/vita/VITA-WW-05.md.
     bool admitted_observation = false;
 #if WW_EDGE_OBSERVATION_ADMIT
     admitted_observation = address == 0x80120188u && cpu->pc == address && cpu->lr == address &&
@@ -963,6 +970,18 @@ bool ww_host_edge(void* user, CPUState* cpu, u32 address) {
                                        observed_retrace_sleep || observed_draw_done_sleep || observed_async_draw_done || observed_receive_sleep ||
                                        admitted_observation) &&
                                          ww_host_module_contains_address(host->module, address);
+    if (admitted_observation && compiled_cpu_boundary) {
+        static bool reported;
+        if (!reported) {
+            reported = true;
+            if (fprintf(stderr, "[edge-admit] address=%08X module_owned=%u reason=observation-only\n",
+                        address, ww_host_module_contains_address(host->module, address) ? 1u : 0u) < 0) {
+                ww_host_fail(host, "edge admission log write failed", address, cpu->pc);
+                host->edge_stopped = true;
+                return true;
+            }
+        }
+    }
     const bool desktop_edge = bluewake_edge_maybe_intercept(address);
     if (address == 0x80307EF4u && ww_host_rel_linked(host, 1u) &&
         (!host->scheduler_idle_observed ||

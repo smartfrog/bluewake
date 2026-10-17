@@ -5,8 +5,11 @@
 #include <stdlib.h>
 
 static bool fail_trace;
+static unsigned admission_lines;
 
 int __wrap_fprintf(FILE* stream, const char* format, ...) {
+    if (stream == stderr && strncmp(format, "[edge-admit]", 12u) == 0)
+        admission_lines++;
     if (fail_trace && stream == stderr && (strncmp(format, "[dvd-open]", 10u) == 0 ||
                                           strncmp(format, "[rel-frontier]", 14u) == 0)) {
         errno = ENOSPC;
@@ -20,20 +23,21 @@ int __wrap_fprintf(FILE* stream, const char* format, ...) {
 }
 
 int main(int argc, char** argv) {
-    assert(argc == 2 || argc == 3);
+    assert(argc == 2);
     WwHost* host = calloc(1u, sizeof(*host));
     assert(host != NULL && ww_host_init(host));
     const StaticRecompRange ranges[] = {{0x8030F2B0u, 0x8030FC00u}, {0x80240744u, 0x80240748u},
                                         {0x80017FD8u, 0x80017FDCu}, {0x80120188u, 0x8012018Cu},
-                                        {0x800A0B60u, 0x800A0B64u}};
-    const StaticRecompModuleDesc module = {.code_ranges = ranges, .num_code_ranges = 5u};
+                                        {0x800A0B60u, 0x800A0B64u}, {0x80322B20u, 0x80322B24u}};
+    const StaticRecompModuleDesc module = {.code_ranges = ranges, .num_code_ranges = 6u};
     host->module = &module;
     CPUState* cpu = &host->cpu;
     const char* scenario = argv[1];
-    // GroundCross caller-return scenarios take the expected verdict from the
-    // build that compiled this probe: "admit" with the admission option on,
-    // "refuse" (the default) without it.
-    const bool expect_admission = argc == 3 && strcmp(argv[2], "admit") == 0;
+#if WW_EDGE_OBSERVATION_ADMIT
+    const bool expect_admission = true;
+#else
+    const bool expect_admission = false;
+#endif
     const bool rel = strncmp(scenario, "rel-", 4u) == 0;
     const bool archive = strncmp(scenario, "archive", 7u) == 0;
     cpu->pc = strcmp(scenario, "fast") == 0 ? 0x8030F5A4u :
@@ -88,10 +92,15 @@ int main(int argc, char** argv) {
         cpu->pc = 0x800A0B60u;
     else if (strcmp(scenario, "archive-unrelated-service") == 0)
         cpu->pc = 0x80322B20u;
+    else if (strcmp(scenario, "archive-unrelated-alias") == 0) {
+        assert(ppc_guest_alias_add(0x80120188u, 4u, NULL));
+        cpu->pc = 0x80120188u;
+    }
     const bool caller_return = strcmp(scenario, "archive-unrelated") == 0 ||
                                strcmp(scenario, "archive-unrelated-unowned") == 0 ||
                                strcmp(scenario, "archive-unrelated-observation") == 0 ||
-                               strcmp(scenario, "archive-unrelated-service") == 0;
+                               strcmp(scenario, "archive-unrelated-service") == 0 ||
+                               strcmp(scenario, "archive-unrelated-alias") == 0;
     const bool observation_edge = caller_return || strcmp(scenario, "archive-unrelated-mismatch") == 0;
     if (caller_return)
         cpu->lr = cpu->pc;
@@ -112,14 +121,17 @@ int main(int argc, char** argv) {
                        strcmp(scenario, "archive-unrelated-mismatch") == 0 ||
                        strcmp(scenario, "archive-unrelated-observation") == 0 ||
                        strcmp(scenario, "archive-unrelated-service") == 0 ||
+                       strcmp(scenario, "archive-unrelated-alias") == 0 ||
                        strcmp(scenario, "trace") == 0 || strcmp(scenario, "archive-trace") == 0 ||
                        strcmp(scenario, "bad-return") == 0 || strcmp(scenario, "archive-bad-return") == 0 ||
                        borrowed || rel;
-    const bool admitted = observation_edge && expect_admission;
+    const bool admitted = strcmp(scenario, "archive-unrelated") == 0 && expect_admission;
     assert(ww_host_edge(host, cpu, cpu->pc) == !admitted);
     if (fails) {
         assert(host->error != NULL && host->error_pc == address && host->edge_stopped);
         assert(cpu->pc == address);
+        if (observation_edge)
+            assert(admission_lines == 0u);
         if (archive) {
             const char* expected = NULL;
             if (strcmp(scenario, "archive-unowned") == 0 ||
@@ -153,6 +165,9 @@ int main(int argc, char** argv) {
             assert(cpu->ram[0x1FF0u + index] == 0xA5u);
     } else if (observation_edge) {
         assert(host->error == NULL && !host->edge_stopped && cpu->pc == address && cpu->lr == address);
+        assert(admission_lines == 1u);
+        assert(!ww_host_edge(host, cpu, cpu->pc));
+        assert(admission_lines == 1u);
         assert(cpu->pc == cpu_before.pc && cpu->lr == cpu_before.lr && cpu->msr == cpu_before.msr);
         assert(cpu->srr0 == cpu_before.srr0 && cpu->srr1 == cpu_before.srr1);
         assert(memcmp(cpu->gpr, cpu_before.gpr, sizeof(cpu_before.gpr)) == 0);
