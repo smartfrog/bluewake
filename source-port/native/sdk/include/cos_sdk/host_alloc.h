@@ -40,7 +40,15 @@ inline void* HostAllocate(std::size_t size, std::size_t align) {
         p = std::malloc(size);
     } else {
         // aligned_alloc needs a size that is a multiple of the (power-of-two) alignment.
+#if defined(__NEWLIB__)
+        // Newlib (the Vita's libc) has no std::aligned_alloc (C11); posix_memalign is the
+        // standard fallback. E1 correction, build-f5/runtime-next/e1-skeleton-*.
+        if (posix_memalign(&p, align, (size + align - 1) & ~(align - 1)) != 0) {
+            p = nullptr;
+        }
+#else
         p = std::aligned_alloc(align, (size + align - 1) & ~(align - 1));
+#endif
     }
     if (p == nullptr) {
         std::abort();
