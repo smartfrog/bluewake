@@ -24,6 +24,14 @@
 #include "d/d_s_play.h"
 #endif
 
+#if TARGET_PC
+// VitaSDK's <ctype.h> defines _C as an octal constant; this file writes the struct field _C
+// (f_op_msg_mng.h hides the macro only for its declaration). Hide it for the whole unit and
+// restore it at the end.
+#pragma push_macro("_C")
+#undef _C
+#endif
+
 STControl stick;
 
 fpc_ProcID i_msgID = fpcM_ERROR_PROCESS_ID_e;
@@ -10157,3 +10165,7 @@ static void dummy2() {
     DEAD_STRING("\x1B""CU[%d]");
     DEAD_STRING("\x1B""CD[%d]");
 }
+
+#if TARGET_PC
+#pragma pop_macro("_C")
+#endif
