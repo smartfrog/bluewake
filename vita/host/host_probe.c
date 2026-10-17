@@ -1191,6 +1191,18 @@ int main(int argc, char** argv) {
             assert(!ppc_guest_alias_get_storage(0xC0401000u, 256u, &storage));
             assert(host->cpu.pc == module.entry_point);
         }
+    } else if (strcmp(argv[1], "idle-lever-alias") == 0) {
+        // The first runtime REL scratch alias sits past the real 24 MiB MEM1
+        // end but below the coarse 0x90000000 end, so it raises the coarse
+        // "aliases overlap MEM1" flag the emitted poll predicate refuses on.
+        // The idle lever must still fire: the poll word itself is unshadowed.
+        assert(ppc_guest_alias_add(0x81822E80u, 16500u, NULL));
+        assert(ww_host_idle_poll_stable(&host->cpu));
+        // The guard must still bite when the word really is shadowed.
+        assert(ppc_guest_alias_add(0x803F7A30u, 4u, NULL));
+        assert(!ww_host_idle_poll_stable(&host->cpu));
+        ppc_guest_alias_clear();
+        assert(ww_host_idle_poll_stable(&host->cpu));
     } else {
         return 2;
     }

@@ -811,31 +811,83 @@ static void mmio_write(CPUState* cpu, u32 address, u64 value, u8 size) {
     refresh(host);
 }
 
-bool ww_host_idle_poll_ready(const WwHost* host) {
-    const CPUState* cpu = &host->cpu;
+// The poll word in real, unaliased MEM1. get_ram_ptr resolves aliases when the
+// coarse overlap flag is set, so a covering alias makes the identity fail while
+// an alias elsewhere in the address space does not. Same shape as real_mem1 in
+// scheduler_observation.c and ww_host_linked_alias_overlaps above.
+static bool idle_poll_word_real(CPUState* cpu, u32* reason) {
+    const u32 at = 0x803F7A30u;
+    if ((at & 3u) != 0u || cpu->ram == NULL || 4u > cpu->ram_size) {
+        *reason |= 1u;
+        return false;
+    }
+    const u32 offset = at - GC_RAM_BASE;
+    if (offset > cpu->ram_size - 4u) {
+        *reason |= 4u;
+        return false;
+    }
+    if (get_ram_ptr(cpu, at, 4u, NULL) != cpu->ram + offset) {
+        *reason |= 2u;
+        return false;
+    }
+    return true;
+}
+
+bool ww_host_idle_poll_stable(CPUState* cpu) {
+    u32 reason = 0u;
+    return idle_poll_word_real(cpu, &reason) &&
+           mem_read32(cpu, 0x803F7A30u) == 0u;
+}
+
+static void idle_lever_report(WwHost* host) {
+    const u32 word =
+        host->cpu.ram != NULL &&
+                (u32)(0x803F7A30u - GC_RAM_BASE) + 4u <= host->cpu.ram_size
+            ? mem_read32(&host->cpu, 0x803F7A30u)
+            : 0u;
+    if (fprintf(stderr,
+                "[idle-lever] armed=%llu first_false=%08X turns=%llu edges=%llu cycles=%llu word=%08X\n",
+                (unsigned long long)host->idle_lever_armed,
+                host->idle_lever_first_false, (unsigned long long)host->turns,
+                (unsigned long long)host->edges,
+                (unsigned long long)host->cycles.absolute_cycles, word) < 0)
+        ww_host_fail(host, "idle-lever report write failed", 0x80307EF4u,
+                     host->cpu.pc);
+}
+
+static void idle_lever_fail(WwHost* host, u32 reason) {
+    if (host->idle_lever_first_false != 0u)
+        return;
+    host->idle_lever_first_false = reason != 0u ? reason : 8u;
+    if (!host->idle_lever_reported) {
+        host->idle_lever_reported = true;
+        idle_lever_report(host);
+    }
+}
+
+bool ww_host_idle_poll_ready(WwHost* host) {
+    CPUState* cpu = &host->cpu;
     // Only the retail scheduler's idle poll, only after the port has observed
     // that scheduler, and only with interrupts deliverable.
-    if (cpu->pc != 0x80307EF4u || cpu->exception != 0u ||
-        !host->scheduler_idle_observed)
+    if (cpu->pc != 0x80307EF4u)
         return false;
-    if ((cpu->msr & PPC_MSR_EE) == 0u ||
-        !bluewake_scheduler_interrupt_safe(cpu->pc))
+    if (cpu->exception != 0u || !host->scheduler_idle_observed ||
+        (cpu->msr & PPC_MSR_EE) == 0u ||
+        !bluewake_scheduler_interrupt_safe(cpu->pc) ||
+        host->dvd_completions.count != 0u || host->dvd_callback_active ||
+        cpu->gpr[13] - 26288u != 0x803F7A30u) {
+        idle_lever_fail(host, 8u);
         return false;
-    // A queued DVD completion becomes ready on a cycle deadline that is not
-    // part of the cycle domain's deadline set; never jump across it.
-    if (host->dvd_completions.count != 0u || host->dvd_callback_active)
-        return false;
-    // The loop polls the word the scheduler observation already names; require
-    // that this is the address this turn would actually poll.
-    const u32 poll = cpu->gpr[13] - 26288u;
-    if (poll != 0x803F7A30u)
-        return false;
-    // Same fast-forward predicate the emitted poll path uses: unaliased MEM1,
-    // so no device or guest-thread work can change the word inside the span.
-    if (!ppc_dispatch_poll_read_stable((CPUState*)cpu, poll, 4u))
-        return false;
+    }
     // A runnable thread would leave the loop on the first iteration.
-    return mem_read32((CPUState*)cpu, poll) == 0u;
+    if (!ww_host_idle_poll_stable(cpu)) {
+        u32 reason = 0u;
+        (void)idle_poll_word_real(cpu, &reason);
+        idle_lever_fail(host, reason);
+        return false;
+    }
+    ++host->idle_lever_armed;
+    return true;
 }
 
 bool ww_host_edge(void* user, CPUState* cpu, u32 address) {
@@ -1266,6 +1318,8 @@ bool ww_host_init(WwHost* host) {
 }
 
 void ww_host_shutdown(WwHost* host) {
+    if (host->idle_lever_armed != 0u || host->idle_lever_first_false != 0u)
+        idle_lever_report(host);
 #if WW05_OBSERVE_NATIVE_CTX
     ww_native_close();
 #endif

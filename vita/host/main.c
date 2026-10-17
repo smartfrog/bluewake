@@ -303,6 +303,7 @@ int fixture_run(int argc, char** argv) {
         if (dispatched == 1 && !error && host->error == NULL)
             ww_host_dvd_complete(host);
         ++turns;
+        host->turns = turns;
         if (trace_dispatch && (!WW05_QUIET_LOGGING || dispatched <= 0 || error ||
                                host->error != NULL || host->cpu.exception != 0u))
             error |= fprintf(stderr, "[dispatch] stage=return turn=%llu pc=%08X cycles=%llu exception=%08X\n",

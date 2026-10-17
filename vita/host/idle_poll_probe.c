@@ -53,9 +53,16 @@ int main(void) {
     assert(!ww_host_idle_poll_ready(host));
     cpu->gpr[13] = IDLE_R13;
 
+    // The coarse "aliases overlap MEM1" flag alone must not refuse: the first
+    // runtime REL scratch alias raises it while the poll word stays real. A
+    // covering alias still refuses.
     g_ppc_guest_aliases_overlap_mem1 = true;
+    assert(ww_host_idle_poll_ready(host));
+    assert(ppc_guest_alias_add(0x803F7A30u, 4u, NULL));
     assert(!ww_host_idle_poll_ready(host));
+    ppc_guest_alias_clear();
     g_ppc_guest_aliases_overlap_mem1 = false;
+    assert(ww_host_idle_poll_ready(host));
 
     host->scheduler_idle_observed = false;
     assert(!ww_host_idle_poll_ready(host));

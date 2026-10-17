@@ -128,6 +128,10 @@ typedef struct WwHost {
     u64 backing_bytes;
     u32 alias_count;
     u64 edges;
+    u64 turns;
+    u64 idle_lever_armed;
+    u32 idle_lever_first_false;
+    bool idle_lever_reported;
     u64 exi_transfers;
     u64 disc_reads;
     u64 next_edge_progress;
@@ -204,7 +208,10 @@ bool ww_host_rel_sections_match_post_link(const WwRelImage* slot);
 const char* ww_host_observe_scheduler_idle(WwHost* host);
 // True when the guest is spinning in the scheduler idle poll and only a
 // host-delivered event can leave it. See the contract in boot_host.c.
-bool ww_host_idle_poll_ready(const WwHost* host);
+bool ww_host_idle_poll_ready(WwHost* host);
+// The poll word in real, unaliased MEM1 and still zero: the word check the
+// idle predicate uses (exposed for the idle-lever alias test).
+bool ww_host_idle_poll_stable(CPUState* cpu);
 const char* ww_host_observe_dsp_task_boot(WwHost* host);
 const char* ww_host_observe_card_probe(WwHost* host);
 const char* ww_host_observe_game_stop(WwHost* host, u32 address);
