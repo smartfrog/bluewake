@@ -57,9 +57,10 @@ typedef int (*WwNativeWriteAt)(void* user, uint32_t offset, const void* bytes, u
 enum WwAbiFailure {
     WW_ABI_CONTEXT = 1u, WW_ABI_TARGET = 2u, WW_ABI_SP = 4u,
     WW_ABI_REGISTER = 8u, WW_ABI_VFP = 16u, WW_ABI_OVERFLOW = 32u,
-    WW_ABI_REENTRY = 64u
+    WW_ABI_REENTRY = 64u, WW_ABI_INTERNAL = 128u
 };
 #define WW_ABI_COMPLETE 0x43504c54u
+#define WW_ABI_FINISH_SPAN 256u
 
 /* Fixed offsets shared with the narrow dispatch gate in native_ctx_shims.S. */
 typedef struct {
@@ -89,6 +90,8 @@ void ww_abi_init(uint32_t expected_ctx, WwNativeWriteAt write_at, void* user);
 void ww_abi_arm(uint32_t module_id, uint32_t target);
 bool ww_abi_begin(void);
 bool ww_abi_finish(void);
+bool ww_abi_internal_capture(const WwAbiSnapshot* before, const WwAbiSnapshot* after);
+const char* ww_abi_stop_reason(uint32_t failure, uint32_t io_error);
 int ww_abi_gate(void* incoming_ctx, uint32_t address, void* target);
 #if WW05_DISPATCH_ABI_SENTINEL
 void ww_abi_install(void* cpu);

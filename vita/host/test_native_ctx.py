@@ -41,9 +41,27 @@ class DispatchAbiTest(unittest.TestCase):
     def test_dispatch_boundaries(self):
         for scenario in ('ctx-one', 'result-one', 'target', 'thumb', 'sp', 'entry-sp', 'register',
                          'vfp', 'ring', 'short-write', 'failed-write', 'unarmed', 'overflow',
-                         'short-active', 'short-complete', 'history-first', 'history-wrap', 'reentry'):
+                         'short-active', 'short-complete', 'history-first', 'history-wrap', 'reentry',
+                         'internal-classifier', 'internal-capsule', 'internal-lr', 'real-mismatch',
+                         'internal-absent'):
             with self.subTest(scenario=scenario):
                 subprocess.run([str(OUT / 'sentinel-probe'), scenario], check=True)
+
+    def test_dispatch_stop_uses_the_classified_reason(self):
+        source = (ROOT / 'vita/host/boot_host.c').read_text()
+        self.assertIn('ww_abi_stop_reason(ww_abi_dump.failure, ww_abi_dump.io_error)', source)
+
+    def test_capture_is_recognized_at_a_high_host_address(self):
+        executable = OUT / 'sentinel-probe-pie'
+        subprocess.run([os.environ.get('CC', 'cc'), '-std=c11', '-O2', '-Wall', '-Wextra',
+                        '-Werror', '-fPIE', '-pie', '-I' + str(ROOT / 'vita/host'),
+                        str(ROOT / 'vita/host/native_ctx_sentinel.c'),
+                        str(ROOT / 'vita/host/native_ctx_sentinel_probe.c'),
+                        '-o', str(executable)], check=True)
+        subprocess.run([str(executable), 'require-high-address'], check=True)
+        for scenario in ('internal-classifier', 'internal-capsule', 'internal-lr', 'real-mismatch'):
+            with self.subTest(scenario=scenario):
+                subprocess.run([str(executable), scenario], check=True)
 
     @unittest.skipUnless(shutil.which('arm-vita-eabi-gcc'), 'Vita SDK is required')
     def test_history_copy_has_no_arm_libcall(self):
