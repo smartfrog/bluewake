@@ -3161,4 +3161,4 @@ CC=/usr/bin/gcc python3 -B -m unittest discover -s vita/host -p 'test_*.py'
 CC=/usr/bin/gcc python3 -B -c 'import sys, unittest; from pathlib import Path; sys.path.insert(0, "vita/host"); import test_host; test_host.OUT = Path("build-f5/services-tests-observation-admit").resolve(); r = unittest.TextTestRunner().run(unittest.defaultTestLoader.discover("vita/host", "test_*.py", top_level_dir="vita/host")); sys.exit(0 if r.wasSuccessful() else 1)'
 ```
 
-Both runs report **1166** tests with one skip for the missing Vita SDK.
+Both runs report **1167** tests with one skip for the missing Vita SDK.
