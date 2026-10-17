@@ -698,6 +698,19 @@ period, first 16 retraces and live idle-snapshot count. No pin/composite edits o
 network operations are made. Windows verification of the unchanged shared timing
 constants is tracked; desktop, Windows and physical Vita gameplay remain untested.
 
+**Idle-deadline advance (off by default, paired with the clock).**
+`WW_IDLE_DEADLINE_ADVANCE=ON` lets a turn that the host recognises as the retail
+scheduler idle poll (retail PC `0x80307EF4`, empty run queue, interrupts
+deliverable, no queued DVD completion, unaliased MEM1 poll word) run to the
+nearest device deadline instead of the fixed 256-cycle cap. The deadline set is
+the one `deadline()` already builds from the decrementer, DSP/ARAM and the VI
+clock; without `WW05_ENABLE_VI_CLOCK=ON` the set has no periodic retrace entry,
+so the advance is inert. Enable both: `-DWW05_ENABLE_VI_CLOCK=ON
+-DWW_IDLE_DEADLINE_ADVANCE=ON`. The jump is capped at one VI period, stops on the
+nearest event, and never runs without a known deadline. Default OFF is
+behaviourally the parent. See `runtime/host/src/cycle_domain.c`,
+`vita/host/boot_host.c` (`ww_host_idle_poll_ready`) and `vita/host/main.c`.
+
 Linux AArch64: **530 host tests and 81 FP tests pass**
 (`logs/ww16-vi-clock-green.log`, `logs/ww16-vi-clock-fp-regressions.log`). The actual
 cycle-threshold test fails before implementation (`logs/ww16-vi-clock-red.log`).

@@ -17,7 +17,11 @@ if(WW05_ENABLE_IKADA_CONTRACT AND (NOT WW05_ENABLE_SHIP_PROLOG OR NOT WW05_ENABL
     message(FATAL_ERROR "Ikada admission requires explicit ship and title options")
 endif()
 option(WW05_QUIET_LOGGING "Suppress high-volume success diagnostics for private logging A/B trials" OFF)
-option(WW_IDLE_DEADLINE_ADVANCE "Let a guest scheduler-idle turn run to the next device deadline" OFF)
+# The idle advance needs the guest-cycle VI clock: the retrace is the periodic
+# deadline that ends every wait. Enabling it without the clock is inert (the
+# deadline set has no VI entry), so the private builder enables both together.
+option(WW_IDLE_DEADLINE_ADVANCE
+    "Let a guest scheduler-idle turn run to the next device deadline (needs WW05_ENABLE_VI_CLOCK=ON)" OFF)
 option(WW05_OBSERVE_NATIVE_CTX "Diagnostic log-only ARM native-context boundary observation" OFF)
 option(WW05_DISPATCH_ABI_SENTINEL "Experimental fail-stop ARM dispatch ABI capsule" OFF)
 if(WW05_DISPATCH_ABI_SENTINEL AND WW05_OBSERVE_NATIVE_CTX)

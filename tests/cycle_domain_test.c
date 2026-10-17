@@ -93,9 +93,8 @@ static void test_idle_advance_clamps_at_the_event(void) {
     assert(fixture.advanced == 900u && fixture.advances == 1u);
 }
 
-// OFF is the parent: no idle turn, or an idle turn with no configured advance,
-// keeps the 256-cycle budget and never looks further than the deadline.
-static void test_idle_advance_off_keeps_the_standard_budget(void) {
+// Without an idle mark the parent budget stands.
+static void test_idle_advance_without_a_mark_keeps_the_standard_budget(void) {
     CPUState cpu;
     memset(&cpu, 0, sizeof(cpu));
     Fixture fixture = {.deadline = 8192u};
@@ -108,8 +107,16 @@ static void test_idle_advance_off_keeps_the_standard_budget(void) {
     assert(cpu.cycle_budget == 256);
     assert(cpu.cycle_deadline_active == 0u);
     assert(cpu.cycle_deadline_budget == 8192);
+}
 
-    bluewake_cycle_domain_set_idle_advance(&domain, 0);
+// An idle mark without a configured advance is still the parent budget.
+static void test_idle_advance_without_a_configured_cap_keeps_the_standard_budget(void) {
+    CPUState cpu;
+    memset(&cpu, 0, sizeof(cpu));
+    Fixture fixture = {.deadline = 8192u};
+    BluewakeCycleDomain domain;
+    bluewake_cycle_domain_init(&domain, 256, advance, deadline, &fixture);
+
     bluewake_cycle_domain_begin_turn(&domain, &cpu);
     bluewake_cycle_domain_set_idle_turn(&domain, true);
     bluewake_cycle_domain_prepare_dispatch(&domain, &cpu);
@@ -184,7 +191,8 @@ static void test_idle_turn_does_not_leak_into_the_next_turn(void) {
 int main(void) {
     test_idle_advance_reaches_the_deadline_in_one_turn();
     test_idle_advance_clamps_at_the_event();
-    test_idle_advance_off_keeps_the_standard_budget();
+    test_idle_advance_without_a_mark_keeps_the_standard_budget();
+    test_idle_advance_without_a_configured_cap_keeps_the_standard_budget();
     test_idle_advance_requires_a_known_deadline();
     test_idle_advance_is_bounded_and_repeatable();
     test_idle_turn_does_not_leak_into_the_next_turn();
