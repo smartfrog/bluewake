@@ -66,6 +66,20 @@ class EdgeObservationAdmitOptionTest(unittest.TestCase):
                          ['-DWW_EDGE_OBSERVATION_ADMIT=ON'])
         self.assertEqual(module.edge_observation_admit_configure_option(False), [])
 
+    def test_vita_configure_arguments_carry_the_admission_only_when_requested(self):
+        spec = importlib.util.spec_from_file_location('ww05_game_build',
+                                                      ROOT / 'scripts/vita/ww05/game_build.py')
+        module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(module)
+
+        def arguments(enabled):
+            return [str(value) for value in module.vita_configure_arguments(
+                'cmake', 'ninja', 'source', 'output', 'toolchain', 'recompcore', 'composite',
+                'identity', 'dol', 'vitagl', 'sdk', '1', False, False, False, enabled)]
+
+        self.assertIn('-DWW_EDGE_OBSERVATION_ADMIT=ON', arguments(True))
+        self.assertFalse(any(value.startswith('-DWW_EDGE_OBSERVATION_ADMIT') for value in arguments(False)))
+
 
 if __name__ == '__main__':
     unittest.main()

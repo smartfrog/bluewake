@@ -106,6 +106,24 @@ def edge_observation_admit_configure_option(enabled):
     return ['-DWW_EDGE_OBSERVATION_ADMIT=ON'] if enabled else []
 
 
+def vita_configure_arguments(cmake, ninja, source, output, toolchain, recompcore, composite, identity, dol,
+                             vitagl, renderer_sdk, opt_level, vi_clock, pad_input, dst_alpha_admit,
+                             edge_observation_admit):
+    return [
+        cmake, '-S', source, '-B', output, '-G', 'Ninja',
+        f'-DCMAKE_TOOLCHAIN_FILE={toolchain}',
+        f'-DCMAKE_MAKE_PROGRAM={ninja}', '-DCMAKE_BUILD_TYPE=Release',
+        f'-DRECOMPCORE_DIR={recompcore}', f'-DCOMPOSITE_DIR={composite}',
+        f'-DWW05_IDENTITY_DIR={identity}', f'-DWW05_DOL={dol}',
+        f'-DWW05_VITAGL_LIBRARY={vitagl}', f'-DWW05_RENDERER_SDK={renderer_sdk}',
+        f'-DWW05_MODULE_OPT_LEVEL={opt_level}',
+        f'-DWW05_ENABLE_VI_CLOCK={"ON" if vi_clock else "OFF"}',
+        f'-DWW05_ENABLE_PAD_INPUT={"ON" if pad_input else "OFF"}',
+        *dst_alpha_configure_option(dst_alpha_admit),
+        *edge_observation_admit_configure_option(edge_observation_admit),
+    ]
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--disc', type=Path, required=True)
@@ -208,17 +226,10 @@ def main():
     vitagl = Path('/home/fred/cloudpunk-vita/tools/vita3k/vitagl-source/libvitaGL.a')
     renderer_sdk = Path('/home/fred/cloudpunk-vita/tools/vitasdk/arm-vita-eabi')
     vitagl_sha256 = sha256(vitagl)
-    build.run('vita-configure', [cmake, '-S', ROOT / 'vita/host', '-B', vita, '-G', 'Ninja',
-                                 f'-DCMAKE_TOOLCHAIN_FILE={STACK}/vitasdk/share/vita.toolchain.cmake',
-                                 f'-DCMAKE_MAKE_PROGRAM={ninja}', '-DCMAKE_BUILD_TYPE=Release',
-                                 f'-DRECOMPCORE_DIR={sources["RecompCore"]}', f'-DCOMPOSITE_DIR={composite}',
-                                  f'-DWW05_IDENTITY_DIR={identity}', f'-DWW05_DOL={private}/main.dol',
-                                   f'-DWW05_VITAGL_LIBRARY={vitagl}', f'-DWW05_RENDERER_SDK={renderer_sdk}',
-                                   f'-DWW05_MODULE_OPT_LEVEL={args.opt_level}',
-                                    f'-DWW05_ENABLE_VI_CLOCK={"ON" if args.vi_clock else "OFF"}',
-                                    f'-DWW05_ENABLE_PAD_INPUT={"ON" if args.pad_input else "OFF"}',
-                                    *dst_alpha_configure_option(args.dst_alpha_admit),
-                                    *edge_observation_admit_configure_option(args.edge_observation_admit)])
+    build.run('vita-configure', vita_configure_arguments(
+        cmake, ninja, ROOT / 'vita/host', vita, f'{STACK}/vitasdk/share/vita.toolchain.cmake',
+        sources['RecompCore'], composite, identity, f'{private}/main.dol', vitagl, renderer_sdk,
+        args.opt_level, args.vi_clock, args.pad_input, args.dst_alpha_admit, args.edge_observation_admit))
     build.run('vita-build', [cmake, '--build', vita, '-j', args.jobs])
     from inspect_build import inspect
     inspect(vita)

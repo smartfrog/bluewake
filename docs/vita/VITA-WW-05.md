@@ -3147,8 +3147,13 @@ build, the original refusal otherwise. Behaviour with the option off is unchange
 added term is a constant false and the same refusal, message and STOP result. (A local
 comparison of the option-off object against `7173841d`'s `boot_host.c`, using the same
 command, matched; that evidence is not committed.) At this tree both host builds pass
-**78/78** CTest, and both pass the Python host suite: `python3 -B -m unittest discover -s
-vita/host` against the option-off `build-f5/services-tests`, and a temporary runner (not
-committed) that points `test_host.OUT` at `build-f5/services-tests-observation-admit`
-before discovery for the option-on build. Both runs report **1164** tests with one skip for
-the missing Vita SDK.
+**78/78** CTest. The Python host suite runs against each build with:
+
+```sh
+# option off
+CC=/usr/bin/gcc python3 -B -m unittest discover -s vita/host -p 'test_*.py'
+# option on, overriding the hard-coded option-off directory in test_host.py
+CC=/usr/bin/gcc python3 -B -c 'import sys, unittest; from pathlib import Path; sys.path.insert(0, "vita/host"); import test_host; test_host.OUT = Path("build-f5/services-tests-observation-admit").resolve(); r = unittest.TextTestRunner().run(unittest.defaultTestLoader.discover("vita/host", "test_*.py", top_level_dir="vita/host")); sys.exit(0 if r.wasSuccessful() else 1)'
+```
+
+Both runs report **1166** tests with one skip for the missing Vita SDK.
