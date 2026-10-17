@@ -210,6 +210,26 @@ FetchContent_Declare(aurora
 FetchContent_MakeAvailable(aurora)
 unset(_cos_aurora_head)
 
+# Vita/newlib (E1): -q links must carry no PLT relocations, which vita-elf-create rejects
+# ("Invalid relocation type 25!"): the 32-bit build is not PIC. The top-level
+# CMAKE_POSITION_INDEPENDENT_CODE=OFF reaches this project's targets, but some subprojects
+# (abseil) keep -fPIC regardless, so clear the property on every target of the build here.
+# Host builds are untouched.
+if (CMAKE_SIZEOF_VOID_P EQUAL 4)
+    function(_cos_clear_pic dir)
+        get_property(_targets DIRECTORY "${dir}" PROPERTY BUILDSYSTEM_TARGETS)
+        foreach (_t IN LISTS _targets)
+            set_target_properties(${_t} PROPERTIES POSITION_INDEPENDENT_CODE OFF)
+        endforeach ()
+        get_property(_subdirs DIRECTORY "${dir}" PROPERTY SUBDIRECTORIES)
+        foreach (_d IN LISTS _subdirs)
+            _cos_clear_pic("${_d}")
+        endforeach ()
+    endfunction()
+    _cos_clear_pic("${CMAKE_BINARY_DIR}")
+    message(STATUS "cos_native: POSITION_INDEPENDENT_CODE cleared on every target (not PIE)")
+endif ()
+
 # As in Dusklight. Off GEKKO, Aurora's <dolphin/mtx.h> maps the PSMTX* names to the C_MTX*
 # functions by macro (PSMTXConcat -> MTXConcat -> C_MTXConcat), so the library exports C_MTX*.
 target_compile_definitions(aurora_mtx PRIVATE MTX_USE_PS=1)
