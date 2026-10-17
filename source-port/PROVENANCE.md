@@ -7,8 +7,8 @@
 - Import date: 2026-10-17
 - Imported by: `scripts/source_port/import_switchwaker.sh` (this repository)
 - Manifest: `source-port/IMPORT_MANIFEST.sha256` (LC_ALL=C sorted, `sha256sum -c` format,
-  2 584 files, 30 878 547 bytes as committed; manifest sha256
-  `587cc1951f3a2dfb3bff80c3b5cb4b45b9643f0f39c38dd41389fbae25f2b779`)
+  2 584 files, 30 878 956 bytes as committed; manifest sha256
+  `535d8f56101a271cc8f37e9f5420aea4b7213bc33f60922bdd01e3d2127d64d9`)
 - Rule: refresh this header (file count, bytes, manifest sha256) whenever the manifest is
   regenerated; the manifest records the current hashes, so it must be regenerated after any
   change to an imported file.
@@ -83,14 +83,15 @@ sources must compile on LP64 and ILP32, so every change keeps the LP64 behaviour
 - `game/include/JSystem/JKernel/JKRExpHeap.h`: the block header's padding (`mPad`) is LP64 only, so
   `sizeof(CMemBlock)` is 0x20 on LP64 and the GameCube's 0x10 on ILP32; the `static_assert`
   follows the width.
-- the ten heap-size sites (`m_Do_machine.cpp`, `f_op_actor_mng.cpp`, `m_Do_main.cpp`,
+- the eleven heap-size sites (`m_Do_machine.cpp`, `f_op_actor_mng.cpp`, `m_Do_main.cpp`,
   `d_particle.cpp`, `d_mesg.cpp`, `d_meter.cpp`, `d_message_paper.cpp`, `d_auction_screen.cpp`,
-  `d_minigame_starter.cpp`, `d_ky_thunder.cpp`) use the per-target macros of
+  `d_minigame_starter.cpp`, `d_ky_thunder.cpp`, `d_s_play.cpp`) use the per-target macros of
   `native/include/pc/cos_heap_sizes.h`: the LP64 factors are unchanged, ILP32 keeps the GameCube
   values (the system heap's fixed 32 MiB is LP64 only).
-- `game/include/f_op/f_op_msg_mng.h`: `#pragma push_macro("_C")` around `fopMsgM_unk_struct`,
-  because VitaSDK's `<ctype.h>` defines `_C` as an octal constant and the struct has a field named
-  `_C`; libstdc++'s own ctype headers still see the macro.
+- `game/include/f_op/f_op_msg_mng.h` and `game/src/f_op/f_op_msg_mng.cpp`:
+  `#pragma push_macro("_C")` around `fopMsgM_unk_struct` and around the unit's body, because
+  VitaSDK's `<ctype.h>` defines `_C` as an octal constant and the struct has a field named `_C`;
+  libstdc++'s own ctype headers still see the macro.
 - `native/CMakeLists.txt`: the `cos_ilp32_check` target (the assertion profile), built only when
   `CMAKE_SIZEOF_VOID_P` is 4.
 - `native/cmake/layout_check.cmake`: `-ferror-limit=0` is gated on Clang (GCC rejects it), so the
