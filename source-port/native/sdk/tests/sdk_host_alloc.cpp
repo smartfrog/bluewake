@@ -6,6 +6,15 @@
 // cancelled, cancelled by tag), creates, runs and joins an OS thread and lets a plain host thread
 // adopt an OSThread, they must be called zero times.
 //
+// One allocation is not cos_sdk's: libstdc++'s __cxa_thread_atexit builds the per-thread TLS
+// teardown node with the nothrow form of operator new, and the pthread key destructor frees it
+// with the sized delete. GCC's emulated TLS initialises the OSThread.cpp block (tHostRef and
+// tForeign) as a whole, so every created or adopted thread registers both destructors. The
+// nothrow form is therefore allocated outside the count and its pointers are recognised on free
+// (CountedFree); the SDK's own new/delete still count, and the failure report names the caller of
+// each counted call. Evidence: the Vita ELF's __cxa_thread_atexit calls _ZnwjRKSt9nothrow_t, and
+// the key destructor's run() calls _ZdlPvj.
+//
 // Not built into cos_sdk_smoke_tsan: ThreadSanitizer intercepts operator new/delete itself.
 #include "smoke.h"
 
@@ -31,43 +40,97 @@
 
 #ifndef COS_SMOKE_TSAN
 
+#if defined(__GNUC__) || defined(__clang__)
+#define COS_SMOKE_CALLER() __builtin_extract_return_addr(__builtin_return_address(0))
+#elif defined(_MSC_VER)
+#include <intrin.h>
+#define COS_SMOKE_CALLER() _ReturnAddress()
+#else
+#define COS_SMOKE_CALLER() nullptr
+#endif
+
 namespace {
 
 std::atomic<bool> sCounting{false};
 std::atomic<long> sGlobalCalls{0};
 
-void Count() {
+// The caller of each counted call, for the failure report (at most kMaxSites lines).
+constexpr int kMaxSites = 16;
+std::atomic<void*> sSites[kMaxSites];
+std::atomic<int> sSiteCount{0};
+
+// Pointers allocated with the nothrow form: libstdc++'s TLS teardown node, not cos_sdk's.
+constexpr int kMaxQuiet = 64;
+std::atomic<void*> sQuiet[kMaxQuiet];
+
+void Count(void* caller) {
     if (sCounting.load(std::memory_order_relaxed)) {
         sGlobalCalls.fetch_add(1, std::memory_order_relaxed);
+        const int index = sSiteCount.fetch_add(1, std::memory_order_relaxed);
+        if (index < kMaxSites) {
+            sSites[index].store(caller, std::memory_order_relaxed);
+        }
     }
 }
 
-void* CountedAlloc(std::size_t size, std::size_t align) {
-    Count();
+bool RememberQuiet(void* p) {
+    for (auto& slot : sQuiet) {
+        void* expected = nullptr;
+        if (slot.compare_exchange_strong(expected, p, std::memory_order_acq_rel)) {
+            return true;
+        }
+    }
+    return false;
+}
+
+bool TakeQuiet(void* p) {
+    for (auto& slot : sQuiet) {
+        if (slot.load(std::memory_order_acquire) == p) {
+            slot.store(nullptr, std::memory_order_release);
+            return true;
+        }
+    }
+    return false;
+}
+
+void* RawAlloc(std::size_t size, std::size_t align) noexcept {
     if (size == 0) {
         size = 1;
     }
-    void* p;
     if (align <= alignof(std::max_align_t)) {
-        p = std::malloc(size);
-    } else {
-#if defined(__NEWLIB__)
-        // Newlib has no std::aligned_alloc (C11); memalign is the one that links, as host_alloc.h
-        // does on this target.
-        p = memalign(align, (size + align - 1) & ~(align - 1));
-#else
-        p = std::aligned_alloc(align, (size + align - 1) & ~(align - 1));
-#endif
+        return std::malloc(size);
     }
+#if defined(__NEWLIB__)
+    // Newlib has no std::aligned_alloc (C11); memalign is the one that links, as host_alloc.h
+    // does on this target.
+    return memalign(align, (size + align - 1) & ~(align - 1));
+#else
+    return std::aligned_alloc(align, (size + align - 1) & ~(align - 1));
+#endif
+}
+
+void* CountedAlloc(std::size_t size, std::size_t align, void* caller) {
+    Count(caller);
+    void* p = RawAlloc(size, align);
     if (p == nullptr) {
         std::abort();
     }
     return p;
 }
 
-void CountedFree(void* p) noexcept {
+void* QuietAlloc(std::size_t size, std::size_t align) noexcept {
+    void* p = RawAlloc(size, align);
+    if (p != nullptr && !RememberQuiet(p)) {
+        Count(nullptr); // the table is full: fail loudly instead of hiding an allocation
+    }
+    return p;
+}
+
+void CountedFree(void* p, void* caller) noexcept {
     if (p != nullptr) {
-        Count();
+        if (!TakeQuiet(p)) {
+            Count(caller);
+        }
         std::free(p);
     }
 }
@@ -75,40 +138,46 @@ void CountedFree(void* p) noexcept {
 } // namespace
 
 void* operator new(std::size_t size) {
-    return CountedAlloc(size, alignof(std::max_align_t));
+    return CountedAlloc(size, alignof(std::max_align_t), COS_SMOKE_CALLER());
 }
 void* operator new[](std::size_t size) {
-    return CountedAlloc(size, alignof(std::max_align_t));
+    return CountedAlloc(size, alignof(std::max_align_t), COS_SMOKE_CALLER());
 }
 void* operator new(std::size_t size, std::align_val_t align) {
-    return CountedAlloc(size, static_cast<std::size_t>(align));
+    return CountedAlloc(size, static_cast<std::size_t>(align), COS_SMOKE_CALLER());
 }
 void* operator new[](std::size_t size, std::align_val_t align) {
-    return CountedAlloc(size, static_cast<std::size_t>(align));
+    return CountedAlloc(size, static_cast<std::size_t>(align), COS_SMOKE_CALLER());
+}
+void* operator new(std::size_t size, const std::nothrow_t&) noexcept {
+    return QuietAlloc(size, alignof(std::max_align_t));
+}
+void* operator new[](std::size_t size, const std::nothrow_t&) noexcept {
+    return QuietAlloc(size, alignof(std::max_align_t));
 }
 void operator delete(void* p) noexcept {
-    CountedFree(p);
+    CountedFree(p, COS_SMOKE_CALLER());
 }
 void operator delete[](void* p) noexcept {
-    CountedFree(p);
+    CountedFree(p, COS_SMOKE_CALLER());
 }
 void operator delete(void* p, std::size_t) noexcept {
-    CountedFree(p);
+    CountedFree(p, COS_SMOKE_CALLER());
 }
 void operator delete[](void* p, std::size_t) noexcept {
-    CountedFree(p);
+    CountedFree(p, COS_SMOKE_CALLER());
 }
 void operator delete(void* p, std::align_val_t) noexcept {
-    CountedFree(p);
+    CountedFree(p, COS_SMOKE_CALLER());
 }
 void operator delete[](void* p, std::align_val_t) noexcept {
-    CountedFree(p);
+    CountedFree(p, COS_SMOKE_CALLER());
 }
 void operator delete(void* p, std::size_t, std::align_val_t) noexcept {
-    CountedFree(p);
+    CountedFree(p, COS_SMOKE_CALLER());
 }
 void operator delete[](void* p, std::size_t, std::align_val_t) noexcept {
-    CountedFree(p);
+    CountedFree(p, COS_SMOKE_CALLER());
 }
 
 namespace {
@@ -147,6 +216,7 @@ COS_SMOKE_TEST(host_alloc) {
     OSAlarm once, periodic, cancelled, tagged;
 
     sGlobalCalls.store(0);
+    sSiteCount.store(0);
     sCounting.store(true);
 
     OSCreateAlarm(&once);
@@ -190,6 +260,13 @@ COS_SMOKE_TEST(host_alloc) {
     if (calls != 0) {
         std::fprintf(stderr, "host_alloc: cos_sdk called the global operator new/delete %ld times\n",
                      calls);
+        const int sites = sSiteCount.load(std::memory_order_relaxed);
+        for (int i = 0; i < sites && i < kMaxSites; i++) {
+            std::fprintf(stderr, "host_alloc: call site %d: %p\n", i,
+                         sSites[i].load(std::memory_order_relaxed));
+        }
+        std::fprintf(stderr,
+                     "host_alloc: symbolize with addr2line -e <binary> <address - load base>\n");
     }
     COS_SMOKE_CHECK(calls == 0);
     return true;
