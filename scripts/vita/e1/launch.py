@@ -238,10 +238,12 @@ def unit_gate(root):
         "EffectiveMemoryMax": properties["EffectiveMemoryMax"] == str(UNIT_MEMORY_MAX),
         "MemorySwapMax": properties["MemorySwapMax"] == "0",
         "OOMPolicy": properties["OOMPolicy"] == "stop",
-        "CPUAccounting": properties["CPUAccounting"] == "yes",
+        "cpu accounting live": properties["CPUUsageNSec"].isdigit(),
         "kernel memory.max": memory_max == str(UNIT_MEMORY_MAX),
         "kernel memory.swap.max": swap_max == "0",
     }
+    record["note_cpu_accounting"] = ("systemd 259 marks CPUAccounting deprecated and reports it empty; "
+                                     "live accounting is proven by the CPUUsageNSec reading above")
     record["checks"] = checks
     (root / "evidence" / "unit-properties.json").write_text(json.dumps(record, indent=2) + "\n")
     if not all(checks.values()):
@@ -375,7 +377,7 @@ def main():
               "unit": {"name": unit["unit"], "memory_max": unit["systemd"]["MemoryMax"],
                        "memory_swap_max": unit["systemd"]["MemorySwapMax"],
                        "oom_policy": unit["systemd"]["OOMPolicy"],
-                       "cpu_accounting": unit["systemd"]["CPUAccounting"]},
+                       "cpu_accounting_ns": unit["systemd"]["CPUUsageNSec"]},
               "admission": admitted, "phases": phases,
               "install": {"installed": installed, "log": str(install_log)},
               "verdict": verdict, "guest_journal": journal[:20], "guest_skips": skips[:20],
