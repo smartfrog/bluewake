@@ -218,8 +218,9 @@ def run_phase(root, stack, name, arguments, timeout, wayland_socket, verdict_on_
 def unit_gate(root):
     """Verify the transient unit's envelope from inside, before any emulator."""
     cgroup = Path("/proc/self/cgroup").read_text().strip()
-    unit = cgroup.rsplit("/", 1)[-1]
-    record = {"cgroup": cgroup, "unit": unit}
+    cgroup_path = cgroup.split(":", 2)[2] if ":" in cgroup else cgroup
+    unit = cgroup_path.rsplit("/", 1)[-1]
+    record = {"cgroup": cgroup, "cgroup_path": cgroup_path, "unit": unit}
     if not unit.endswith(".service"):
         raise SystemExit(f"blocked: not inside a transient .service unit (cgroup {cgroup})")
     properties = {}
@@ -229,8 +230,8 @@ def unit_gate(root):
                                 capture_output=True, text=True, check=True)
         properties[name] = result.stdout.strip()
     record["systemd"] = properties
-    memory_max = Path("/sys/fs/cgroup" + cgroup + "/memory.max").read_text().strip()
-    swap_max = Path("/sys/fs/cgroup" + cgroup + "/memory.swap.max").read_text().strip()
+    memory_max = Path("/sys/fs/cgroup" + cgroup_path + "/memory.max").read_text().strip()
+    swap_max = Path("/sys/fs/cgroup" + cgroup_path + "/memory.swap.max").read_text().strip()
     record["kernel"] = {"memory.max": memory_max, "memory.swap.max": swap_max}
     checks = {
         "MemoryMax": properties["MemoryMax"] == str(UNIT_MEMORY_MAX),
