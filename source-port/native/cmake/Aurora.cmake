@@ -189,6 +189,15 @@ if (CMAKE_SIZEOF_VOID_P EQUAL 4 AND NOT TARGET Tracy::TracyClient AND FETCHCONTE
     message(STATUS "cos_native: Tracy::TracyClient is the empty E1 stub (no Tracy code on this target)")
 endif ()
 
+# Vita (E1): with GX off, Aurora skips its sqlite3 handling (the GX pipeline cache's), but
+# aurora_core still names sqlite3 on its link line. An empty interface target satisfies it: no
+# source in this build's closure uses sqlite without GX (checked). Host builds are untouched.
+if (CMAKE_SIZEOF_VOID_P EQUAL 4 AND NOT TARGET sqlite3)
+    add_library(cos_vita_sqlite3 INTERFACE)
+    add_library(sqlite3 ALIAS cos_vita_sqlite3)
+    message(STATUS "cos_native: sqlite3 is an empty interface target on this build (no GX cache)")
+endif ()
+
 include(FetchContent)
 FetchContent_Declare(aurora
         GIT_REPOSITORY "${COS_AURORA_REPOSITORY}"
