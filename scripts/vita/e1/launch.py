@@ -4,12 +4,20 @@
 Fresh private profile per run (never shared, never reused), no network, bwrap
 containment, firmware vs0/sa0 staged from the local stack, and libshacccg.suprx
 staged privately from the Cloudpunk stack (a system file owned locally, never
-committed or published). Both phases run in console mode: Vita3K relays a guest
-tty0 write to its own stdout there (io.redirect_stdio = cfg.console, upstream
-bbd5c36) and the smoke's stdio is tty0-backed (newlib _init_vita_io), so the
-guest's verdict lines land in the phase log. The run phase stops at the smoke's
-verdict (an exact "ok" line, or its FAIL lines), at a fault marker, at silence
-with near-zero CPU for 30 s, or at the phase ceiling.
+committed or published). The install phase runs in console mode (as the WW-02
+harness proved); the run phase runs windowed, where the emulator's own log goes
+to stdout live (trace level: |D|/|T|) and a guest tty0 write is surfaced as a
+"*** TTY: <text>" trace line (io.redirect_stdio = cfg.console, upstream
+bbd5c36), so the watcher sees the boot, "Game started" and the guest's output as
+they happen. The child's stdout sits on a PTY (line-buffered), so the tail is
+not lost at SIGTERM. The run phase stops on markers: the smoke's verdict (an
+"ok" or FAIL line), a "[cos_sdk] FATAL" line, "Game closed", or one of the
+emulator's own fault lines; the silence-with-low-CPU rule stays as a fallback
+and the phase ceiling as a bound.
+
+The diagnostic criterion is to capture the first fault, not to require "ok": the
+launcher exits 0 when a terminal event (verdict, guest fatal, game close or
+emulator fault) was observed, and 1 when nothing was (hang, ceiling, no verdict).
 
 The run must live inside a fresh transient systemd unit (the run ritual). This
 launcher verifies MemoryMax, MemorySwapMax, OOMPolicy and CPU accounting from
@@ -23,10 +31,13 @@ import json
 import math
 import os
 from pathlib import Path
+import pty
 import shutil
 import signal
 import subprocess
+import threading
 import time
+import tty
 import uuid
 import zipfile
 
@@ -129,22 +140,44 @@ def stop_owned(process):
         return process.wait(timeout=5)
 
 
-def verdict_lines(log):
-    """The smoke's own lines in the phase log: the raw tty0 relay writes them
-    without the emulator's timestamp prefix, so a whole line is the guest's."""
+def guest_lines(log):
+    """The smoke's own lines in the phase log. In console mode the tty0 relay writes
+    them raw (a whole line is the guest's); in windowed mode the relay wraps each
+    write as a '*** TTY: <text>' trace line, whose text may carry several guest
+    lines. Both forms are read here."""
     ok, failures, journal, skips = None, [], [], []
     text = log.read_text(errors="replace")
     for line in text.splitlines():
-        stripped = line.strip()
-        if stripped == "ok":
-            ok = line
-        elif stripped.startswith("cos_sdk_smoke:") or "check failed:" in stripped:
-            failures.append(stripped)
-        elif stripped.startswith("[cos_sdk]"):
-            journal.append(stripped)
-        elif "skipped" in stripped:
-            skips.append(stripped)
+        content = line.split("*** TTY: ", 1)[1] if "*** TTY: " in line else line
+        for piece in content.split("\n"):
+            stripped = piece.strip()
+            if stripped == "ok":
+                ok = stripped
+            elif stripped.startswith("cos_sdk_smoke:") or "check failed:" in stripped:
+                failures.append(stripped)
+            elif stripped.startswith("[cos_sdk]"):
+                journal.append(stripped)
+            elif "skipped" in stripped:
+                skips.append(stripped)
     return ok, failures, journal, skips
+
+
+def guest_fatal(journal):
+    return [line for line in journal if line.startswith("[cos_sdk] FATAL")]
+
+
+def pty_reader(master, log):
+    """Relay the PTY master to the phase log until the child side closes (EOF)."""
+    with log.open("ab") as output:
+        while True:
+            try:
+                data = os.read(master, 65536)
+            except OSError:
+                break
+            if not data:
+                break
+            output.write(data)
+            output.flush()
 
 
 def run_phase(root, stack, name, arguments, timeout, wayland_socket, verdict_on_ok):
@@ -153,10 +186,16 @@ def run_phase(root, stack, name, arguments, timeout, wayland_socket, verdict_on_
     started = time.monotonic()
     previous, previous_size, idle_since = {}, 0, None
     reason = "exited"
-    with log.open("wb") as output, (root / "evidence" / f"{name}-watch.jsonl").open("w") as watch:
+    log.write_bytes(b"")  # truncate; the PTY reader appends
+    master, slave = pty.openpty()
+    tty.setraw(slave)  # keep the child's output byte-for-byte (no CR translation)
+    reader = threading.Thread(target=pty_reader, args=(master, log), daemon=True)
+    reader.start()
+    with (root / "evidence" / f"{name}-watch.jsonl").open("w") as watch:
         process = subprocess.Popen(sandbox_command(root, stack, arguments, wayland_socket),
                                    cwd=root / "work", stdin=subprocess.DEVNULL,
-                                   stdout=output, stderr=subprocess.STDOUT, start_new_session=True)
+                                   stdout=slave, stderr=slave, start_new_session=True)
+        os.close(slave)
         while process.poll() is None:
             now = time.monotonic()
             emulators = {pid: entry[1] for pid, entry in descendants(process.pid).items()
@@ -176,14 +215,19 @@ def run_phase(root, stack, name, arguments, timeout, wayland_socket, verdict_on_
                 status = stop_owned(process)
                 break
             if verdict_on_ok:
-                ok, failures, _, _ = verdict_lines(log)
+                ok, failures, journal, _ = guest_lines(log)
+                if guest_fatal(journal):
+                    reason = "guest-fatal"
+                    time.sleep(1.0)
+                    status = stop_owned(process)
+                    break
                 if ok is not None or failures:
                     reason = "verdict-ok" if ok is not None else "verdict-fail"
                     time.sleep(1.0)
                     status = stop_owned(process)
                     break
-                if "Game closed:" in recent:
-                    reason = "game-closed-without-verdict"
+                if "Game closed:" in recent or "[on_game_closed]" in recent:
+                    reason = "game-closed"
                     status = stop_owned(process)
                     break
             elif name == "install":
@@ -211,6 +255,8 @@ def run_phase(root, stack, name, arguments, timeout, wayland_socket, verdict_on_
             time.sleep(0.5)
         else:
             status = process.returncode
+    reader.join(timeout=3)
+    os.close(master)
     return dict(phase=name, seconds=round(time.monotonic() - started, 3), status=status,
                 reason=reason, log=str(log))
 
@@ -352,26 +398,34 @@ def main():
         text += "warn-missing-firmware: false\n"
     config_path.write_text(text)
     verify_staging(root, vpk)
+    # Windowed run: the emulator's log reaches stdout live (trace level) and the
+    # guest's tty0 output is surfaced as "*** TTY:" trace lines.
     phases.append(run_phase(root, stack, "run",
-                            ["--console", "--backend-renderer", "OpenGL",
-                             "--installed-path", TITLE_ID],
+                            ["--backend-renderer", "OpenGL", "--installed-path", TITLE_ID],
                             args.timeout, wayland_socket, verdict_on_ok=True))
 
     install_log = Path(phases[0]["log"])
     installed = (root / UX0_APP / "eboot.bin").is_file()
     run_log = Path(phases[1]["log"])
-    ok_line, failures, journal, skips = verdict_lines(run_log)
+    ok_line, failures, journal, skips = guest_lines(run_log)
+    fatal = guest_fatal(journal)
+    reason = phases[1]["reason"]
     if ok_line is not None:
-        verdict = {"status": "ok", "line": ok_line.strip()}
+        outcome = {"status": "ok", "line": ok_line}
+    elif fatal:
+        outcome = {"status": "guest-fatal", "lines": fatal[:5]}
     elif failures:
-        verdict = {"status": "fail", "lines": failures[:20]}
-    elif phases[1]["reason"] == "hung-low-cpu-silent":
-        verdict = {"status": "hang"}
-    elif phases[1]["reason"] == "emulator-fault":
-        verdict = {"status": "fault", "lines": [m for m in FAULT_MARKERS
+        outcome = {"status": "fail", "lines": failures[:20]}
+    elif reason == "game-closed":
+        outcome = {"status": "game-closed"}
+    elif reason == "emulator-fault":
+        outcome = {"status": "fault", "lines": [m for m in FAULT_MARKERS
                                                 if m in run_log.read_text(errors="replace")]}
+    elif reason == "hung-low-cpu-silent":
+        outcome = {"status": "hang"}
     else:
-        verdict = {"status": "no-verdict"}
+        outcome = {"status": "no-verdict"}
+    captured = outcome["status"] in ("ok", "fail", "guest-fatal", "game-closed", "fault")
     result = {"ticket": "E1-E2", "run": root.name.removeprefix("vita3k-run-"),
               "title": TITLE_ID, "vpk": {"path": str(vpk), "sha256": args.vpk_sha256},
               "unit": {"name": unit["unit"], "memory_max": unit["systemd"]["MemoryMax"],
@@ -380,12 +434,14 @@ def main():
                        "cpu_accounting_ns": unit["systemd"]["CPUUsageNSec"]},
               "admission": admitted, "phases": phases,
               "install": {"installed": installed, "log": str(install_log)},
-              "verdict": verdict, "guest_journal": journal[:20], "guest_skips": skips[:20],
+              "outcome": outcome, "first_fault_captured": captured,
+              "guest_journal": journal[:20], "guest_skips": skips[:20],
               "wayland_socket": str(wayland_socket) if wayland_socket else None}
     (root / "evidence" / "result.json").write_text(json.dumps(result, indent=2) + "\n")
-    print(json.dumps({"run": result["run"], "verdict": verdict, "phases": phases,
+    print(json.dumps({"run": result["run"], "outcome": outcome,
+                      "first_fault_captured": captured, "phases": phases,
                       "admission_bytes": admitted["mem_available_bytes"]}, indent=2))
-    return 0 if verdict["status"] == "ok" else 1
+    return 0 if captured else 1
 
 
 if __name__ == "__main__":
