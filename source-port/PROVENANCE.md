@@ -2,13 +2,13 @@
 
 - Repository: https://github.com/centollOS/SwitchWaker
 - Commit: `04372277d03f934e1e563ae302bba9f565c5cb5d` (`main`, 2026-10-13)
-- Method: file copy (no Git history imported), exact pin, no modifications except the three
-  documented GCC flag gates in `native/cmake/GameConfig.cmake` (see "Local changes vs upstream")
+- Method: file copy (no Git history imported), exact pin; the local changes are documented in
+  "Local changes vs upstream" below (the three GCC flag gates, then the ILP32 corrections)
 - Import date: 2026-10-17
 - Imported by: `scripts/source_port/import_switchwaker.sh` (this repository)
 - Manifest: `source-port/IMPORT_MANIFEST.sha256` (LC_ALL=C sorted, `sha256sum -c` format,
-  2 584 files, 30 874 913 bytes as committed; manifest sha256
-  `33b22f660f833fd007f4c419e2182033d47ed580a15247c34faa1872f266b3b4`)
+  2 584 files, 30 878 547 bytes as committed; manifest sha256
+  `587cc1951f3a2dfb3bff80c3b5cb4b45b9643f0f39c38dd41389fbae25f2b779`)
 - Rule: refresh this header (file count, bytes, manifest sha256) whenever the manifest is
   regenerated; the manifest records the current hashes, so it must be regenerated after any
   change to an imported file.
@@ -70,6 +70,36 @@ Upstream hash as imported:
 `d43c94d1b9acf40edcf2a15280123b1cfed1c62b7459eda2bbbd211eea3975f6`; current:
 `12888b67f766fa649dfe2c38b172335f7bfe7cded0bff0eba3a2d5a49be4371a`. The manifest entry records
 the current hash.
+
+### ILP32 corrections (branch `source-port/ilp32`, 2026-10-17)
+
+The pre-Vita unit from the sealed census (`build-f5/runtime-next/ilp32-census-c415b56e`): the same
+sources must compile on LP64 and ILP32, so every change keeps the LP64 behaviour and adds the
+32-bit path. Changed imported files:
+
+- `native/include/helpers/endian.h`: little-endian detection through `__BYTE_ORDER__` (the compiler
+  list had no ARM), `BSWAP64` defined on big-endian hosts, and a global little-endian
+  `static_assert`.
+- `game/include/JSystem/JKernel/JKRExpHeap.h`: the block header's padding (`mPad`) is LP64 only, so
+  `sizeof(CMemBlock)` is 0x20 on LP64 and the GameCube's 0x10 on ILP32; the `static_assert`
+  follows the width.
+- the ten heap-size sites (`m_Do_machine.cpp`, `f_op_actor_mng.cpp`, `m_Do_main.cpp`,
+  `d_particle.cpp`, `d_mesg.cpp`, `d_meter.cpp`, `d_message_paper.cpp`, `d_auction_screen.cpp`,
+  `d_minigame_starter.cpp`, `d_ky_thunder.cpp`) use the per-target macros of
+  `native/include/pc/cos_heap_sizes.h`: the LP64 factors are unchanged, ILP32 keeps the GameCube
+  values (the system heap's fixed 32 MiB is LP64 only).
+- `game/include/f_op/f_op_msg_mng.h`: `#pragma push_macro("_C")` around `fopMsgM_unk_struct`,
+  because VitaSDK's `<ctype.h>` defines `_C` as an octal constant and the struct has a field named
+  `_C`; libstdc++'s own ctype headers still see the macro.
+- `native/CMakeLists.txt`: the `cos_ilp32_check` target (the assertion profile), built only when
+  `CMAKE_SIZEOF_VOID_P` is 4.
+- `native/cmake/layout_check.cmake`: `-ferror-limit=0` is gated on Clang (GCC rejects it), so the
+  host layout check builds under GCC too.
+
+New local files, not from upstream and therefore not in the manifest:
+`native/include/pc/cos_pointer_width.h` (host pointer width), `native/include/pc/cos_heap_sizes.h`
+(the heap-size policy and its per-site table) and `native/check/ilp32_check.cpp` (the ILP32
+assertion profile). Journal: `docs/status/VITA_ILP32_CORRECTIONS_2026-10-17.md`.
 
 ## Attribution
 
