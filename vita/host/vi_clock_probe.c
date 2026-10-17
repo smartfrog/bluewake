@@ -30,8 +30,14 @@ int main(int argc, char** argv) {
     const StaticRecompRange range = {cpu->pc, cpu->pc + 4u};
     const StaticRecompModuleDesc module = {.code_ranges = &range, .num_code_ranges = 1u};
     host->module = &module;
+#if WW05_ENABLE_VI_CLOCK
+    assert(host->vi_clock_enabled);
+#else
     assert(!host->vi_clock_enabled);
-    if (strcmp(scenario, "off") != 0)
+#endif
+    if (strcmp(scenario, "off") == 0)
+        host->vi_clock_enabled = false;
+    else
         host->vi_clock_enabled = true;
     cpu->external_write(cpu, VI_DI0, 0x1000u, 2u);
     cpu->external_write(cpu, DOL_PI_INTERRUPT_MASK, DOL_PI_CAUSE_VI, 4u);
