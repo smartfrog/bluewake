@@ -6,6 +6,12 @@
 #include <cstdio>
 #include <cstring>
 #include <string>
+#if defined(WW_PROGRAM_CACHE)
+#include <unistd.h>
+
+#include <cstdlib>
+#include <filesystem>
+#endif
 
 #define CHECK(condition) do { if (!(condition)) { \
   std::fprintf(stderr, "FAIL %s:%d: %s\n", __FILE__, __LINE__, #condition); \
@@ -121,6 +127,96 @@ int releases_owned_resources() {
   }
   return 0;
 }
+
+#if defined(WW_PROGRAM_CACHE)
+std::filesystem::path cache_directory(const char* name) {
+  const auto path = std::filesystem::temp_directory_path() /
+                    (std::string("bw-backend-cache-") + name + "-" +
+                     std::to_string(::getpid()));
+  std::filesystem::remove_all(path);
+  std::filesystem::create_directories(path);
+  setenv("WW_PROGRAM_CACHE_DIR", path.string().c_str(), 1);
+  return path;
+}
+
+int draw_cached_program() {
+  auto* backend = ww_renderer_vita_backend();
+  CHECK(backend->init() == nullptr);
+  gx_vita::TranslatedDraw draw;
+  gx_vita::CgProgram program;
+  program.ok = true;
+  program.vertex = "vertex-source-for-cache";
+  program.fragment = "fragment-source-for-cache";
+  draw.pipeline.program_key = 0x1234;
+  CHECK(backend->submit_draw(draw, program) == nullptr);
+  backend->shutdown();
+  return 0;
+}
+
+void reset_gl_counters() {
+  test_gl::compiled_shaders = 0;
+  test_gl::linked_programs = 0;
+  test_gl::binary_saves = 0;
+  test_gl::binary_loads = 0;
+  test_gl::last_binary_size = 0;
+  test_gl::fail_next_binary_link = false;
+  test_gl::link_status = 1;
+}
+
+std::filesystem::path single_cache_entry(const std::filesystem::path& dir) {
+  for (const auto& entry : std::filesystem::directory_iterator(dir))
+    if (entry.path().extension() == ".bwsc")
+      return entry.path();
+  return {};
+}
+
+int cache_round_trip() {
+  const auto dir = cache_directory("roundtrip");
+
+  reset_gl_counters();
+  CHECK(draw_cached_program() == 0);
+  CHECK(test_gl::compiled_shaders == 2);
+  CHECK(test_gl::linked_programs == 1);
+  CHECK(test_gl::binary_saves == 1);
+  CHECK(!single_cache_entry(dir).empty());
+
+  reset_gl_counters();
+  CHECK(draw_cached_program() == 0);
+  CHECK(test_gl::compiled_shaders == 0);
+  CHECK(test_gl::linked_programs == 0);
+  CHECK(test_gl::binary_loads == 1);
+  CHECK(test_gl::last_binary_size == 16);
+
+  const auto entry = single_cache_entry(dir);
+  CHECK(!entry.empty());
+  std::FILE* file = std::fopen(entry.string().c_str(), "r+b");
+  CHECK(file != nullptr);
+  CHECK(std::fseek(file, -1, SEEK_END) == 0);
+  const int last = std::fgetc(file);
+  CHECK(last != EOF);
+  CHECK(std::fseek(file, -1, SEEK_END) == 0);
+  CHECK(std::fputc(last ^ 0xff, file) != EOF);
+  CHECK(std::fclose(file) == 0);
+
+  reset_gl_counters();
+  CHECK(draw_cached_program() == 0);
+  CHECK(test_gl::compiled_shaders == 2);
+  CHECK(test_gl::binary_loads == 0);
+  CHECK(test_gl::binary_saves == 1);
+
+  reset_gl_counters();
+  test_gl::fail_next_binary_link = true;
+  CHECK(draw_cached_program() == 0);
+  CHECK(test_gl::binary_loads == 1);
+  CHECK(test_gl::compiled_shaders == 2);
+  CHECK(test_gl::link_status == 1);
+
+  std::filesystem::remove_all(dir);
+  std::printf("cache: miss/compile/store, hit/reuse, corrupt fallback, "
+              "link-failure fallback\n");
+  return 0;
+}
+#endif
 } // namespace
 
 int main(int argc, char** argv) {
@@ -132,5 +228,8 @@ int main(int argc, char** argv) {
   if (scenario == "readback") return copy_preserves_readback();
   if (scenario == "error") return copy_reports_error();
   if (scenario == "shutdown") return releases_owned_resources();
+#if defined(WW_PROGRAM_CACHE)
+  if (scenario == "cache") return cache_round_trip();
+#endif
   return 2;
 }

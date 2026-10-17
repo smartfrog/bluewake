@@ -19,6 +19,9 @@
 #include "ww_renderer.h"
 #include "ww_renderer_backend.h"
 #include "gx_texgen.h"
+#if defined(WW_PROGRAM_CACHE)
+#include "program_cache.h"
+#endif
 
 #include <vitaGL.h>
 
@@ -26,6 +29,11 @@
 #include <cstdio>
 #include <string>
 #include <unordered_map>
+#if defined(WW_PROGRAM_CACHE)
+#include <cstdlib>
+#include <memory>
+#include <vector>
+#endif
 
 namespace gxc = gxruntime::gxcore;
 
@@ -33,6 +41,10 @@ namespace {
 
 constexpr int kScreenWidth = 960;
 constexpr int kScreenHeight = 544;
+#if defined(WW_PROGRAM_CACHE)
+constexpr const char* kDefaultProgramCacheDirectory =
+    "ux0:data/bluewake/program-cache";
+#endif
 constexpr GLuint kAttributePosition = 0;
 constexpr GLuint kAttributeColor0 = 1;
 constexpr GLuint kAttributeColor1 = 2;
@@ -55,6 +67,14 @@ public:
     glGenBuffers(1, &index_buffer_);
     glGenBuffers(1, &texcoord_buffer_);
     glGenTextures(8, texture_slots_);
+#if defined(WW_PROGRAM_CACHE)
+    const char* directory = std::getenv("WW_PROGRAM_CACHE_DIR");
+    program_cache_.reset(new gx_vita::ProgramCache(
+        directory != nullptr && directory[0] != '\0'
+            ? directory
+            : kDefaultProgramCacheDirectory,
+        gx_vita::kProgramCacheDefaultMaxBytes));
+#endif
     return nullptr;
   }
 
@@ -190,6 +210,20 @@ public:
   }
 
   void shutdown() override {
+#if defined(WW_PROGRAM_CACHE)
+    if (program_cache_ != nullptr) {
+      const gx_vita::ProgramCacheStats& stats = program_cache_->stats();
+      std::fprintf(stderr,
+                   "program-cache: hits=%llu misses=%llu rejected=%llu "
+                   "stores=%llu store_failures=%llu evictions=%llu\n",
+                   static_cast<unsigned long long>(stats.hits),
+                   static_cast<unsigned long long>(stats.misses),
+                   static_cast<unsigned long long>(stats.rejected),
+                   static_cast<unsigned long long>(stats.stores),
+                   static_cast<unsigned long long>(stats.store_failures),
+                   static_cast<unsigned long long>(stats.evictions));
+    }
+#endif
     for (const auto& [key, program] : programs_)
       glDeleteProgram(program);
     programs_.clear();
@@ -240,6 +274,28 @@ private:
     const auto found = programs_.find(draw.pipeline.program_key);
     if (found != programs_.end())
       return found->second;
+#if defined(WW_PROGRAM_CACHE)
+    const gx_vita::ProgramCacheKey cache_key =
+        gx_vita::make_program_cache_key(draw.pipeline.program_key,
+                                        program.vertex, program.fragment);
+    std::vector<std::uint8_t> binary;
+    if (program_cache_ != nullptr && program_cache_->load(cache_key, &binary)) {
+      const GLuint restored = glCreateProgram();
+      glProgramBinary(restored, 0u, binary.data(),
+                      static_cast<GLsizei>(binary.size()));
+      GLint restored_status = 0;
+      glGetProgramiv(restored, GL_LINK_STATUS, &restored_status);
+      if (restored_status != 0) {
+        programs_.emplace(draw.pipeline.program_key, restored);
+        return restored;
+      }
+      glDeleteProgram(restored);
+      std::fprintf(stderr,
+                   "program-cache: cached binary for key %016llx did not link, "
+                   "compiling\n",
+                   static_cast<unsigned long long>(draw.pipeline.program_key));
+    }
+#endif
     const GLuint vertex =
         compile_shader(GL_CG_VERTEX_SHADER_EXT, program.vertex, "vertex");
     if (vertex == 0u)
@@ -274,6 +330,29 @@ private:
       glDeleteProgram(linked);
       return 0u;
     }
+#if defined(WW_PROGRAM_CACHE)
+    if (program_cache_ != nullptr) {
+      GLint binary_size = 0;
+      glGetProgramiv(linked, GL_PROGRAM_BINARY_LENGTH, &binary_size);
+      if (binary_size > 0 &&
+          static_cast<std::size_t>(binary_size) <=
+              gx_vita::kProgramCacheDefaultMaxEntryBytes) {
+        std::vector<std::uint8_t> saved(static_cast<std::size_t>(binary_size));
+        GLsizei written = 0;
+        GLenum format = 0;
+        glGetProgramBinary(linked, binary_size, &written, &format,
+                           saved.data());
+        if (written > 0 &&
+            static_cast<std::size_t>(written) <= saved.size() &&
+            !program_cache_->store(cache_key, saved.data(),
+                                   static_cast<std::size_t>(written))) {
+          std::fprintf(stderr, "program-cache: could not store key %016llx\n",
+                       static_cast<unsigned long long>(
+                           draw.pipeline.program_key));
+        }
+      }
+    }
+#endif
     programs_.emplace(draw.pipeline.program_key, linked);
     return linked;
   }
@@ -299,6 +378,9 @@ private:
 
   char error_[512] = {0};
   std::unordered_map<std::uint64_t, GLuint> programs_;
+#if defined(WW_PROGRAM_CACHE)
+  std::unique_ptr<gx_vita::ProgramCache> program_cache_;
+#endif
   GLuint vertex_buffer_ = 0;
   GLuint index_buffer_ = 0;
   GLuint texcoord_buffer_ = 0;
