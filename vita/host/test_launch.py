@@ -268,6 +268,21 @@ class PrivateLaunchTest(unittest.TestCase):
         self.assertTrue(result['frontier_verified'])
         self.assertFalse(result['rendered'])
 
+    def test_both_execute_run_phases_use_the_first_fault_gate(self):
+        import launch
+        calls = []
+        original = launch.first_fault_observer
+
+        def recording(root, phase, delegate, **kwargs):
+            calls.append(Path(phase).name)
+            return original(root, phase, delegate, **kwargs)
+
+        self.successful_fake()
+        with patch.object(launch, 'first_fault_observer', side_effect=recording):
+            status, result = self.run_fake()
+        self.assertEqual(status, 0)
+        self.assertEqual(calls, ['install', 'guest'])
+
     def test_progress_log_larger_than_the_fp_limit_can_certify_a_closed_guest_report(self):
         self.successful_fake("print('x' * (1024 * 1024 + 1))")
         status, result = self.run_fake()

@@ -9,6 +9,7 @@ from pathlib import Path
 import signal
 import stat
 import subprocess
+import time
 import traceback
 import uuid
 import zipfile
@@ -189,8 +190,30 @@ def activity_observer(root, plan, phase, extra_outputs=()):
                               plan.get('minimum_available_memory_bytes', 0))
 
 
-def first_fault_observer(root, phase, delegate,
-                          stop=lambda pid: os.killpg(pid, signal.SIGTERM)):
+def stop_owned_group(pid, *, grace_seconds=1.0, poll_seconds=0.05,
+                     clock=time.monotonic, sleep=time.sleep):
+    """SIGTERM the owned group, wait at most the grace, then SIGKILL it."""
+    if not 0 < grace_seconds <= 5 or not 0 < poll_seconds <= 1:
+        raise ValueError('stop grace and poll must be short and positive')
+    try:
+        os.killpg(pid, signal.SIGTERM)
+    except ProcessLookupError:
+        return 'absent'
+    deadline = clock() + grace_seconds
+    while clock() < deadline:
+        try:
+            os.killpg(pid, 0)
+        except ProcessLookupError:
+            return 'terminated'
+        sleep(poll_seconds)
+    try:
+        os.killpg(pid, signal.SIGKILL)
+    except ProcessLookupError:
+        pass
+    return 'killed'
+
+
+def first_fault_observer(root, phase, delegate, stop=None):
     watch = FirstFaultWatch(
         guest_log=root / REPORT_DIRECTORY / 'ww05.log',
         host_logs=(phase / 'evidence/process.log', root / 'cache/Vita3K/vita3k.log'),
@@ -203,9 +226,14 @@ def first_fault_observer(root, phase, delegate,
         if fault is None:
             return delegate(pid)
         try:
-            stop(pid)
+            (stop or stop_owned_group)(pid)
         except ProcessLookupError:
             pass
+        except Exception:
+            try:
+                watch.write_samples()
+            finally:
+                raise
         watch.write_samples()
         return {'stop_reason': 'first-fault',
                 'first_fault': {'reason': fault.reason, 'detail': fault.detail},

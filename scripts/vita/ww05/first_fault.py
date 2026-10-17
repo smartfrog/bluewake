@@ -1,7 +1,7 @@
 """First-fault fail-closed watch contract and bounded evidence sampling.
 
-The behaviour is specified by test_watch_first_fault.py. `decide` is pure and
-`bounded_sample` is pure; `FirstFaultWatch` adds incremental file observation
+The behaviour is specified by test_watch_first_fault.py. `decide` and
+`bounded_sample` are pure; `FirstFaultWatch` adds incremental file observation
 without launching an emulator, VPK or run.
 """
 
@@ -15,11 +15,15 @@ import stat
 from typing import Iterable, Mapping, Optional
 
 GUEST_EXCEPTION_MARKER = "[exception]"
-HOST_FAULT_MARKERS = ("Invalid write", "Invalid read")
+HOST_FAULT_MARKERS = ("|E| [MemoryWrite]: Invalid write",
+                      "|E| [MemoryRead]: Invalid read")
 DEFAULT_CEILING_BYTES = 64 * 1024 * 1024
 HEAD_LINES = 5000
 WINDOW_LINES = 300
 TAIL_LINES = 300
+TAIL_ANCHOR_BYTES = 4096
+READ_CHUNK_BYTES = 1 << 20
+MAX_PENDING_BYTES = 4 << 20
 
 
 @dataclass(frozen=True)
@@ -83,10 +87,7 @@ def bounded_sample(lines: Iterable[str], fault_index: int,
 
 
 class LogTail:
-    """Incremental whole-line reader; restarts when a log is replaced or truncated."""
-
-    CHUNK_BYTES = 1 << 20
-    MAX_PENDING_BYTES = 4 << 20
+    """Incremental whole-line reader; restarts when a log is replaced or rewritten."""
 
     def __init__(self, path):
         self.path = Path(path)
@@ -94,9 +95,17 @@ class LogTail:
         self.pending = b""
         self.identity = None
         self.lines = 0
-        self.resets = 0
+        self.generation = 0
+        self.tail_bytes = b""
 
-    def read_new_lines(self):
+    def _reset(self):
+        self.offset = 0
+        self.pending = b""
+        self.lines = 0
+        self.generation += 1
+        self.tail_bytes = b""
+
+    def read_new_lines(self, ceiling_bytes=None):
         try:
             stream = self.path.open("rb")
         except FileNotFoundError:
@@ -108,26 +117,31 @@ class LogTail:
             if not stat.S_ISREG(info.st_mode):
                 raise ValueError("watched log must be a regular file: " + str(self.path))
             identity = (info.st_dev, info.st_ino)
-            if self.identity is not None and (identity != self.identity or info.st_size < self.offset):
-                self.offset = 0
-                self.pending = b""
-                self.lines = 0
-                self.resets += 1
+            if self.identity is not None:
+                if identity != self.identity or info.st_size < self.offset:
+                    self._reset()
+                elif self.tail_bytes:
+                    stream.seek(self.offset - len(self.tail_bytes))
+                    if stream.read(len(self.tail_bytes)) != self.tail_bytes:
+                        self._reset()
             self.identity = identity
             stream.seek(self.offset)
             while True:
-                chunk = stream.read(self.CHUNK_BYTES)
+                chunk = stream.read(READ_CHUNK_BYTES)
                 if not chunk:
                     break
                 self.offset += len(chunk)
+                self.tail_bytes = (self.tail_bytes + chunk)[-TAIL_ANCHOR_BYTES:]
                 parts = (self.pending + chunk).split(b"\n")
                 self.pending = parts.pop()
                 for part in parts:
                     index = self.lines
                     self.lines += 1
                     yield index, part.decode("utf-8", errors="replace")
-                if len(self.pending) > self.MAX_PENDING_BYTES:
+                if len(self.pending) > MAX_PENDING_BYTES:
                     raise ValueError("watched log line exceeds its bound: " + str(self.path))
+                if ceiling_bytes is not None and os.fstat(stream.fileno()).st_size >= ceiling_bytes:
+                    return
 
     def size(self):
         try:
@@ -137,6 +151,31 @@ class LogTail:
         if not stat.S_ISREG(info.st_mode) or info.st_uid != os.getuid():
             raise ValueError("watched log must be an owned regular file: " + str(self.path))
         return info.st_size
+
+    def anchor(self):
+        return {"identity": self.identity, "generation": self.generation,
+                "offset": self.offset, "tail_bytes": self.tail_bytes}
+
+    def anchor_verified(self, anchor):
+        if anchor is None or anchor.get("generation") != self.generation:
+            return False
+        try:
+            info = self.path.stat(follow_symlinks=False)
+        except FileNotFoundError:
+            return False
+        if not stat.S_ISREG(info.st_mode) or info.st_uid != os.getuid():
+            return False
+        if anchor.get("identity") is not None and (info.st_dev, info.st_ino) != anchor["identity"]:
+            return False
+        if info.st_size < anchor.get("offset", 0):
+            return False
+        tail = anchor.get("tail_bytes", b"")
+        if tail:
+            with self.path.open("rb") as stream:
+                stream.seek(anchor["offset"] - len(tail))
+                if stream.read(len(tail)) != tail:
+                    return False
+        return True
 
 
 class FirstFaultWatch:
@@ -151,7 +190,8 @@ class FirstFaultWatch:
         self.ceiling_bytes = ceiling_bytes
         self.stop = None
         self.fault_index = {}
-        self._by_path = {str(log.path): log for log in self.logs}
+        self.stop_sizes = {}
+        self.stop_anchors = {}
         self._names = {self.guest.path: "guest-" + self.guest.path.name}
         for position, log in enumerate(self.hosts):
             self._names[log.path] = f"host{position}-{log.path.name}"
@@ -166,14 +206,15 @@ class FirstFaultWatch:
                 host_line = self._first_match(log, HOST_FAULT_MARKERS)
                 if host_line is not None:
                     break
+        sizes = self._sizes()
         stop = decide(Observation(guest_exception_line=guest_line,
                                   host_fault_line=host_line,
-                                  log_sizes=self._sizes(),
+                                  log_sizes=sizes,
                                   ceiling_bytes=self.ceiling_bytes))
         if stop is not None:
             self.stop = stop
-            if stop.reason == "log-size-ceiling":
-                self.fault_index.setdefault(stop.detail, max(0, self._by_path[stop.detail].lines - 1))
+            self.stop_sizes = sizes
+            self.stop_anchors = {str(log.path): log.anchor() for log in self.logs}
         return stop
 
     def write_samples(self):
@@ -184,15 +225,16 @@ class FirstFaultWatch:
         sources = [("guest", self.guest)]
         sources.extend(("host", log) for log in self.hosts)
         for role, log in sources:
-            size = log.size()
-            if size is None:
-                entries.append({"role": role, "path": str(log.path), "present": False})
+            stop_bytes = self.stop_sizes.get(str(log.path))
+            if stop_bytes is None:
+                entries.append({"role": role, "path": str(log.path), "present": False,
+                                "stop_bytes": 0})
                 continue
+            fault_index = self.fault_index.get(str(log.path))
             if self.stop.reason == "log-size-ceiling" and str(log.path) == self.stop.detail:
                 fault_index = None
-            else:
-                fault_index = self.fault_index.get(str(log.path), max(0, log.lines - 1))
-            entries.append(self._write_log_sample(role, log, fault_index))
+            entries.append(self._write_log_sample(
+                role, log, fault_index, stop_bytes, self.stop_anchors.get(str(log.path))))
         stats = {"stop": {"reason": self.stop.reason, "detail": self.stop.detail},
                  "deletion": "none",
                  "bounds": {"head": HEAD_LINES, "window": WINDOW_LINES, "tail": TAIL_LINES},
@@ -203,21 +245,58 @@ class FirstFaultWatch:
         sums = "".join(f"{_sha256(path)}  {path.relative_to(self.sample_directory)}\n"
                        for path in sample_files)
         _write_text(self.sample_directory / "SHA256SUMS", sums)
-        checks = {
-            "head_within_bound": all(entry.get("head_lines", 0) <= HEAD_LINES for entry in entries),
-            "fault_within_bound": all(entry.get("fault_lines", 0) <= WINDOW_LINES for entry in entries),
-            "tail_within_bound": all(entry.get("tail_lines", 0) <= TAIL_LINES for entry in entries),
-            "source_logs_preserved": all(Path(entry["path"]).is_file()
-                                         for entry in entries if entry.get("present")),
-            "deletion": "none",
-        }
-        verification = {"stop": stats["stop"], "checks": checks, "logs": entries}
-        _write_text(self.sample_directory / "verification.json",
-                    json.dumps(verification, indent=2) + "\n")
+        self._verify_sample_files(entries, stats_path)
         return stats
 
+    def _verify_sample_files(self, entries, stats_path):
+        sums = {}
+        for row in (self.sample_directory / "SHA256SUMS").read_text().splitlines():
+            digest, name = row.split("  ", 1)
+            sums[name] = digest
+        files = []
+        for entry in entries:
+            if not entry.get("present") or not entry.get("sample"):
+                continue
+            for kind in ("head", "fault", "tail"):
+                relative = f"{entry['sample']}/{kind}.txt"
+                path = self.sample_directory / relative
+                content = path.read_bytes() if path.is_file() else None
+                files.append({
+                    "name": relative,
+                    "lines": content.count(b"\n") if content is not None else None,
+                    "sha256": hashlib.sha256(content).hexdigest() if content is not None else None,
+                    "expected_lines": entry[f"{kind}_lines"],
+                    "expected_sha256": sums.get(relative),
+                })
+        stats_relative = "flood-stats.json"
+        stats_content = stats_path.read_bytes()
+        files.append({
+            "name": stats_relative,
+            "lines": None,
+            "sha256": hashlib.sha256(stats_content).hexdigest(),
+            "expected_lines": None,
+            "expected_sha256": sums.get(stats_relative),
+        })
+        checks = {
+            "files_present": all(entry["sha256"] is not None for entry in files),
+            "line_counts_match": all(entry["expected_lines"] is None or
+                                     entry["lines"] == entry["expected_lines"] for entry in files),
+            "hashes_match": all(entry["sha256"] == entry["expected_sha256"] for entry in files),
+            "bounds": all(entry.get("head_lines", 0) <= HEAD_LINES and
+                          entry.get("fault_lines", 0) <= WINDOW_LINES and
+                          entry.get("tail_lines", 0) <= TAIL_LINES for entry in entries),
+        }
+        verification = {"stop": {"reason": self.stop.reason, "detail": self.stop.detail},
+                        "files": files, "checks": checks, "deletion": "none",
+                        "scope": "sample artifacts and flood-stats.json; this receipt is not self-hashed"}
+        _write_text(self.sample_directory / "verification.json",
+                    json.dumps(verification, indent=2) + "\n")
+        if not all(checks.values()):
+            failed = [name for name, value in checks.items() if not value]
+            raise ValueError("sample verification failed: " + ", ".join(failed))
+
     def _first_match(self, log, markers):
-        for index, line in log.read_new_lines():
+        for index, line in log.read_new_lines(self.ceiling_bytes):
             if any(marker in line for marker in markers):
                 self.fault_index[str(log.path)] = index
                 return line
@@ -231,10 +310,15 @@ class FirstFaultWatch:
                 sizes[str(log.path)] = size
         return sizes
 
-    def _write_log_sample(self, role, log, fault_index):
+    def _write_log_sample(self, role, log, fault_index, stop_bytes, anchor):
         name = self._names[log.path]
         directory = self.sample_directory / name
         directory.mkdir(mode=0o700)
+        anchor_ok = log.anchor_verified(anchor)
+        requested_fault_index = fault_index
+        if fault_index is not None and not anchor_ok:
+            fault_index = None
+        tail_sample = fault_index is None
         head = []
         before = deque(maxlen=WINDOW_LINES)
         after = []
@@ -242,42 +326,70 @@ class FirstFaultWatch:
         digest = hashlib.sha256()
         total = 0
         observed_bytes = 0
-        with log.path.open("rb") as stream:
-            for raw in stream:
-                digest.update(raw)
-                observed_bytes += len(raw)
-                text = raw.rstrip(b"\r\n").decode("utf-8", errors="replace")
-                if total < HEAD_LINES:
-                    head.append(text)
-                if fault_index is None or total < fault_index:
-                    before.append(text)
-                elif len(after) < WINDOW_LINES:
-                    after.append(text)
-                tail.append(text)
-                total += 1
+        pending = b""
+        missing = False
+        try:
+            stream = log.path.open("rb")
+        except FileNotFoundError:
+            missing = True
+        else:
+            with stream:
+                remaining = stop_bytes
+                while remaining > 0:
+                    chunk = stream.read(min(READ_CHUNK_BYTES, remaining))
+                    if not chunk:
+                        break
+                    remaining -= len(chunk)
+                    observed_bytes += len(chunk)
+                    digest.update(chunk)
+                    parts = (pending + chunk).split(b"\n")
+                    pending = parts.pop()
+                    for part in parts:
+                        total = self._collect_sample_line(
+                            part, total, fault_index, head, before, after, tail)
+                    if len(pending) > MAX_PENDING_BYTES:
+                        raise ValueError("watched log line exceeds its bound: " + str(log.path))
+                if pending:
+                    total = self._collect_sample_line(
+                        pending, total, fault_index, head, before, after, tail)
         if total == 0:
-            raise ValueError("cannot sample an empty watched log: " + str(log.path))
-        at_end = fault_index is None
-        if fault_index is None or fault_index >= total:
+            fault_index = 0
+        elif tail_sample or fault_index is None or fault_index >= total:
+            tail_sample = True
             fault_index = total - 1
-        start, end = _fault_bounds(total, fault_index, WINDOW_LINES)
-        before_start = total - len(before) if at_end else fault_index - len(before)
         window = []
-        for index in range(start, end):
-            if at_end:
-                window.append(before[index - before_start])
-            elif index < fault_index:
-                window.append(before[index - before_start])
-            else:
-                window.append(after[index - fault_index])
+        if total:
+            start, end = _fault_bounds(total, fault_index, WINDOW_LINES)
+            before_start = total - len(before) if tail_sample else fault_index - len(before)
+            for index in range(start, end):
+                if tail_sample or index < fault_index:
+                    window.append(before[index - before_start])
+                else:
+                    window.append(after[index - fault_index])
         _write_lines(directory / "head.txt", head)
         _write_lines(directory / "fault.txt", window)
         _write_lines(directory / "tail.txt", tail)
         return {"role": role, "path": str(log.path), "present": True,
-                "sample": name, "bytes": observed_bytes, "lines": total,
-                "sha256": digest.hexdigest(), "fault_index": fault_index,
+                "sample": name, "stop_bytes": stop_bytes, "bytes": observed_bytes,
+                "lines": total, "sha256": digest.hexdigest(), "fault_index": fault_index,
+                "fault_anchor": "line" if requested_fault_index is not None and anchor_ok else "tail",
+                "anchor_verified": anchor_ok,
+                "generation": anchor.get("generation") if anchor else None,
+                "missing_at_sample": missing,
                 "head_lines": len(head), "fault_lines": len(window),
                 "tail_lines": len(tail)}
+
+    @staticmethod
+    def _collect_sample_line(part, total, fault_index, head, before, after, tail):
+        text = part.rstrip(b"\r").decode("utf-8", errors="replace")
+        if total < HEAD_LINES:
+            head.append(text)
+        if fault_index is None or total < fault_index:
+            before.append(text)
+        elif len(after) < WINDOW_LINES:
+            after.append(text)
+        tail.append(text)
+        return total + 1
 
 
 def _write_text(path, text):
