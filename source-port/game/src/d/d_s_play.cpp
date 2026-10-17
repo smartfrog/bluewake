@@ -1361,9 +1361,11 @@ cPhs_State phase_4(dScnPly_ply_c* i_this) {
 #if TARGET_PC
     // Bug B8 (decision H5): the 2D heap holds the menu window's child heap (tripled in
     // d_menu_window.cpp), its cloth and capture objects, the place name, the message window and
-    // the picture box, all with 64-bit pointers on the host: three times the GameCube's size, from
-    // the game heap (about 1.4 MiB more of its 54 MiB free).
-    JKRExpHeap* heap = fopMsgM_createExpHeap(VERSION_SELECT(0x736A1, 0x736A1, 0x73EA1, 0x73EA1) * 3);
+    // the picture box, all with 64-bit pointers on the LP64 host: three times the GameCube's size,
+    // from the game heap (about 1.4 MiB more of its 54 MiB free). On ILP32 the GameCube value
+    // applies as it is (cos_heap_sizes.h).
+    JKRExpHeap* heap =
+        fopMsgM_createExpHeap(COS_HEAP_X3(VERSION_SELECT(0x736A1, 0x736A1, 0x73EA1, 0x73EA1)));
 #else
     JKRExpHeap* heap = fopMsgM_createExpHeap(VERSION_SELECT(0x736A1, 0x736A1, 0x73EA1, 0x73EA1));
 #endif
