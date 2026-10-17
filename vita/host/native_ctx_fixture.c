@@ -205,7 +205,8 @@ static void init(void) {
 
 int main(void) {
     const char* scenarios[] = {"preserve", "clobber", "ctx-one", "nesting", "overflow", "ring",
-        "pinning", "short-write", "full-disk", "recursion", "concurrency", "interrupted", "unarmed", "markers"};
+        "pinning", "short-write", "full-disk", "recursion", "concurrency", "interrupted", "unarmed",
+        "markers", "guard-same", "guard-hit", "guard-stop"};
     for (unsigned i = 0; i < sizeof(scenarios) / sizeof(scenarios[0]); ++i) {
         char* argv[] = {"probe", (char*)scenarios[i]};
         assert(ww_native_probe_main(2, argv) == 0);
@@ -218,13 +219,16 @@ int main(void) {
 #else
         ww_native_fixture_invoke(ww_native_read);
 #endif
-        assert(fixture_result[4] == (clobber ? 1u : 0x1234u));
+        assert(fixture_result[4] == 0x1234u);
         assert(fixture_result[0] == 0x89abcdefu && fixture_result[1] == 0x01234567u);
         WwNativeRecord record;
         memcpy(&record, trace_file + (clobber ? 384u : 4352u), sizeof(record));
         assert(ww_native_record_valid(&record));
-        assert(record.r[4] == fixture_result[4]);
-        puts(clobber ? "assembly-clobber-capture-forward PASS" : "assembly-preserve-u64 PASS");
+        assert(record.r[4] == (clobber ? 1u : 0x1234u));
+        if (clobber)
+            assert((record.flags & (WW_NATIVE_CTX_MISMATCH | WW_NATIVE_R4_CHANGED)) ==
+                   (WW_NATIVE_CTX_MISMATCH | WW_NATIVE_R4_CHANGED));
+        puts(clobber ? "assembly-clobber-guard-restore PASS" : "assembly-preserve-u64 PASS");
     }
     init();
     ww_native_fixture_invoke(ww_native_write);
@@ -264,7 +268,7 @@ int main(void) {
         sink_mode = mode;
         fixture_clobber = 1u;
         ww_native_fixture_invoke(ww_native_write);
-        assert(fixture_result[4] == 1u && fixture_result[0] == 0x89abcdefu);
+        assert(fixture_result[4] == 0x1234u && fixture_result[0] == 0x89abcdefu);
         assert(fixture_args[2] == 0x22u && fixture_args[3] == 0x33u && fixture_args[4] == 0x11u);
         assert(ww_native_trace_failures() & (mode == 3u ? WW_NATIVE_REENTRANCY : WW_NATIVE_IO_FAILURE));
     }
@@ -276,7 +280,7 @@ int main(void) {
         ww_native_targets[0] = fixture_nested_target;
         ww_native_targets[2] = fixture_nested_target;
         ww_native_fixture_invoke(ww_native_read);
-        assert(fixture_result[4] == 1u && fixture_result[0] == 0x89abcdefu);
+        assert(fixture_result[4] == 0x1234u && fixture_result[0] == 0x89abcdefu);
         assert(!(ww_native_trace_failures() & WW_NATIVE_PAIR_FAILURE));
         assert(!!(ww_native_trace_failures() & WW_NATIVE_DEPTH_FAILURE) == (depth == 18u));
     }
@@ -305,7 +309,7 @@ int main(void) {
     ww_native_probe_set_thread(2u);
     fixture_clobber = 1u;
     ww_native_fixture_invoke(ww_native_write);
-    assert(fixture_result[4] == 1u && fixture_args[4] == 0x11u);
+    assert(fixture_result[4] == 0x1234u && fixture_args[4] == 0x11u);
     assert(ww_native_trace_failures() & WW_NATIVE_CONCURRENCY);
     ww_native_probe_set_thread(1u);
     ww_native_trace_boundary((void*)0x1234u, WW_NATIVE_DISPATCH_ENTER);

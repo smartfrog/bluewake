@@ -193,6 +193,14 @@ ww_abi_gate:
     add.w r0, sp, #ENTRY
     add.w r1, sp, #RETURNED
     bl ww_native_trace_return
+    ldr r0, [sp, #(ENTRY + 16)]
+    ldr r1, [sp, #(RETURNED + 16)]
+    cmp r0, r1
+    beq 1f
+    str r0, [sp, #(RETURNED + 16)]
+    ldr r2, [sp, #(ENTRY + 56)]
+    bl ww_native_ctx_guard
+1:
     restore RETURNED
     ldr lr, [sp, #(ENTRY + 56)]
     add.w sp, sp, #FRAME

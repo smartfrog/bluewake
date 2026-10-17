@@ -15,13 +15,27 @@ static struct {
     const uint32_t* pc;
     WwNativeWriteAt write_at;
     void* user;
-    uint32_t thread, sequence, calls, pre, post, depth, pinned_call;
+    uint32_t thread, sequence, calls, pre, post, depth, pinned_call, last_sp;
     bool armed, pinned, failure_attempted;
     WwNativeRecord chunk, entries[WW_NATIVE_MAX_DEPTH];
 } trace;
 static atomic_flag busy = ATOMIC_FLAG_INIT;
 static atomic_uint failures;
 atomic_uint ww_native_active;
+
+typedef struct {
+    uint32_t live, seen, lr, sp;
+} WwCtxGuardHit;
+
+static WwCtxGuardHit guard_ring[WW_NATIVE_CTX_GUARD_RING];
+static uint32_t guard_hits, guard_next;
+static bool guard_stopped;
+
+__attribute__((weak)) int ww_native_guard_marker(uint32_t hit, uint32_t pc, uint32_t live,
+                                                  uint32_t seen, uint32_t lr, uint32_t sp) {
+    (void)hit; (void)pc; (void)live; (void)seen; (void)lr; (void)sp;
+    return 0;
+}
 
 static uint32_t address(const void* pointer) {
     return (uint32_t)(uintptr_t)pointer;
@@ -142,6 +156,9 @@ void ww_native_trace_init(void* host, void* cpu, const uint32_t* pc,
     trace.write_at = write_at;
     trace.user = user;
     trace.thread = thread;
+    guard_hits = guard_next = 0u;
+    guard_stopped = false;
+    memset(guard_ring, 0, sizeof(guard_ring));
     WwNativeRecord header = make_record(0u, 0u);
     header.r[0] = WW_NATIVE_FILE_BYTES;
     header.r[1] = WW_NATIVE_PRE_RECORDS;
@@ -238,6 +255,7 @@ void ww_native_trace_return(const WwNativeSnapshot* entry, const WwNativeSnapsho
         return;
     }
     WwNativeRecord* before = &trace.entries[--trace.depth];
+    trace.last_sp = entry->sp;
     WwNativeRecord record = make_record(WW_NATIVE_RETURN, entry->surface);
     record.call_id = entry->token;
     record.target = entry->target;
@@ -253,6 +271,38 @@ void ww_native_trace_return(const WwNativeSnapshot* entry, const WwNativeSnapsho
     if (record.flags & WW_NATIVE_R4_CHANGED)
         pin(&record, before);
     append(&record);
+    unlock_trace();
+}
+
+void ww_native_ctx_guard(uint32_t live, uint32_t seen, uint32_t lr) {
+    if (live == seen || guard_stopped || !atomic_load(&ww_native_active) || !lock_trace())
+        return;
+    const uint32_t hit = ++guard_hits;
+    guard_ring[guard_next] = (WwCtxGuardHit){live, seen, lr, trace.last_sp};
+    guard_next = (guard_next + 1u) % WW_NATIVE_CTX_GUARD_RING;
+    if (hit == 1u) {
+        WwNativeRecord record = make_record(WW_NATIVE_RETURN, 0u);
+        record.r[0] = live;
+        record.r[4] = seen;
+        record.sp = trace.last_sp;
+        record.continuation = lr;
+        if (trace.pc != NULL) {
+            record.pc = *trace.pc;
+            record.flags |= WW_NATIVE_PC_VALID;
+        }
+        record.flags |= WW_NATIVE_CTX_MISMATCH | WW_NATIVE_R4_CHANGED;
+        (void)write_record(384u, &record);
+    }
+    if (hit <= WW_NATIVE_CTX_GUARD_HITS) {
+        const uint32_t pc = trace.pc != NULL ? *trace.pc : 0u;
+        if (ww_native_guard_marker(hit, pc, live, seen, lr, trace.last_sp) < 0)
+            atomic_fetch_or(&failures, WW_NATIVE_IO_FAILURE);
+    } else {
+        guard_stopped = true;
+        atomic_fetch_or(&failures, WW_NATIVE_CTX_GUARD);
+        if (trace.failure_attempted && ww_native_failure_notify(WW_NATIVE_CTX_GUARD) < 0)
+            atomic_fetch_or(&failures, WW_NATIVE_IO_FAILURE);
+    }
     unlock_trace();
 }
 

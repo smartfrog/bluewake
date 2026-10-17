@@ -1,5 +1,7 @@
 #include "native_ctx.h"
 
+#include "boot_host.h"
+
 #include <psp2/io/fcntl.h>
 #include <psp2/kernel/threadmgr/thread.h>
 #include <stdio.h>
@@ -14,6 +16,7 @@ _Static_assert(offsetof(CPUState, cache_control) == 3472u, "inventory cache ABI"
 void* ww_native_targets[8];
 static SceUID trace_fd = -1;
 static bool armed;
+static WwHost* native_host;
 static int32_t logo_entry = -1;
 static uint32_t logo_file;
 extern void ww_native_journal(u32, u32, void*);
@@ -44,9 +47,22 @@ int ww_native_failure_notify(uint32_t flags) {
     struct timeval now = {0};
     if (gettimeofday(&now, NULL) != 0)
         flags |= WW_NATIVE_IO_FAILURE;
-    return fprintf(stderr, "[native-ctx] event=failure us=%llu fd=%d flags=%u\n",
-                   (unsigned long long)now.tv_sec * 1000000u + (unsigned long long)now.tv_usec,
-                   trace_fd, flags);
+    const int written = fprintf(stderr, "[native-ctx] event=failure us=%llu fd=%d flags=%u\n",
+                                (unsigned long long)now.tv_sec * 1000000u + (unsigned long long)now.tv_usec,
+                                trace_fd, flags);
+    if ((flags & WW_NATIVE_CTX_GUARD) != 0u) {
+        if (fprintf(stderr, "[ctx-guard] event=stop hits=%u\n", WW_NATIVE_CTX_GUARD_HITS + 1u) < 0)
+            return -1;
+        if (native_host != NULL)
+            ww_host_fail(native_host, "native-context guard limit", 0u, native_host->cpu.pc);
+    }
+    return written;
+}
+
+int ww_native_guard_marker(uint32_t hit, uint32_t pc, uint32_t live, uint32_t seen,
+                           uint32_t lr, uint32_t sp) {
+    return fprintf(stderr, "[ctx-guard] hit=%u pc=%08X seen=%08X live=%08X lr=%08X sp=%08X\n",
+                   hit, pc, seen, live, lr, sp);
 }
 
 void __wrap_ppc_set_mem_write_journal(PPCMemWriteJournal callback, void* user) {
@@ -56,6 +72,7 @@ void __wrap_ppc_set_mem_write_journal(PPCMemWriteJournal callback, void* user) {
 
 void ww_native_install(void* host, CPUState* cpu) {
     armed = false;
+    native_host = host;
     logo_entry = -1;
     logo_file = 0u;
     trace_fd = sceIoOpen("ux0:data/bluewake-ww-fixture/ww117-native-ctx.bin",

@@ -7,10 +7,18 @@
 static unsigned char file[WW_NATIVE_FILE_BYTES];
 static uint32_t thread = 1u, pc = 0x802b0470u, calls, mode;
 static bool inside;
+static uint32_t guard_markers, notified;
 
 uint32_t ww_native_thread_id(void) { return thread; }
 void ww_native_probe_set_thread(uint32_t value) { thread = value; }
-int ww_native_failure_notify(uint32_t flags) { (void)flags; return 0; }
+int ww_native_failure_notify(uint32_t flags) { notified |= flags; return 0; }
+
+int ww_native_guard_marker(uint32_t hit, uint32_t pc_value, uint32_t live, uint32_t seen,
+                           uint32_t lr, uint32_t sp) {
+    (void)hit; (void)pc_value; (void)live; (void)seen; (void)lr; (void)sp;
+    ++guard_markers;
+    return 0;
+}
 
 static int write_at(void* user, uint32_t offset, const void* bytes, uint32_t size) {
     (void)user;
@@ -47,6 +55,7 @@ int main(int argc, char** argv) {
     memset(file, 0, sizeof(file));
     thread = 1u;
     calls = mode = 0u;
+    guard_markers = notified = 0u;
     inside = false;
     const char* scenario = argv[1];
     ww_native_trace_init((void*)0x5678u, (void*)0x1234u, &pc, write_at, NULL, thread);
@@ -146,6 +155,27 @@ int main(int argc, char** argv) {
         ww_native_trace_marker(WW_NATIVE_BODY_READ, 2u, 382080u, 0u);
         WwNativeRecord record = get(1152u);
         assert(ww_native_record_valid(&record) && record.stage == WW_NATIVE_BODY_READ);
+    } else if (strcmp(scenario, "guard-same") == 0) {
+        ww_native_ctx_guard(0x1234u, 0x1234u, 0x81002003u);
+        assert(guard_markers == 0u && ww_native_trace_failures() == 0u);
+        WwNativeRecord record = get(384u);
+        assert(record.magic == 0u);
+    } else if (strcmp(scenario, "guard-hit") == 0) {
+        ww_native_ctx_guard(0x1234u, 0u, 0x802bf744u);
+        assert(guard_markers == 1u && ww_native_trace_failures() == 0u);
+        WwNativeRecord record = get(384u);
+        assert(ww_native_record_valid(&record));
+        assert((record.flags & (WW_NATIVE_CTX_MISMATCH | WW_NATIVE_R4_CHANGED)) ==
+               (WW_NATIVE_CTX_MISMATCH | WW_NATIVE_R4_CHANGED));
+        assert(record.continuation == 0x802bf744u);
+        assert(record.pc == pc && (record.flags & WW_NATIVE_PC_VALID));
+        assert(record.r[0] == 0x1234u && record.r[4] == 0u);
+    } else if (strcmp(scenario, "guard-stop") == 0) {
+        for (uint32_t i = 1u; i <= WW_NATIVE_CTX_GUARD_HITS + 1u; ++i)
+            ww_native_ctx_guard(0x1234u, i, 0x802bf744u);
+        assert(guard_markers == WW_NATIVE_CTX_GUARD_HITS);
+        assert(ww_native_trace_failures() == WW_NATIVE_CTX_GUARD);
+        assert(notified == WW_NATIVE_CTX_GUARD);
     } else {
         assert(!"unknown scenario");
     }

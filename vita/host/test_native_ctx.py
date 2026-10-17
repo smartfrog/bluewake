@@ -23,7 +23,8 @@ class NativeContextTraceTest(unittest.TestCase):
     def test_trace_scenarios(self):
         for scenario in ('preserve', 'clobber', 'ctx-one', 'nesting', 'overflow', 'ring',
                          'pinning', 'short-write', 'full-disk', 'recursion', 'concurrency',
-                         'interrupted', 'unarmed', 'markers'):
+                         'interrupted', 'unarmed', 'markers', 'guard-same', 'guard-hit',
+                         'guard-stop'):
             with self.subTest(scenario=scenario):
                 subprocess.run([str(OUT / 'probe'), scenario], check=True)
 

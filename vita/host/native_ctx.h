@@ -11,6 +11,8 @@
 #define WW_NATIVE_POST_RECORDS 512u
 #define WW_NATIVE_FILE_BYTES 593920u
 #define WW_NATIVE_MAX_DEPTH 16u
+#define WW_NATIVE_CTX_GUARD_HITS 8u
+#define WW_NATIVE_CTX_GUARD_RING 32u
 #define WW_NATIVE_MAGIC 0x37315757u
 
 enum WwNativeStage {
@@ -36,7 +38,8 @@ enum WwNativeFlags {
     WW_NATIVE_CTX_MISMATCH = 4u, WW_NATIVE_R4_CHANGED = 8u,
     WW_NATIVE_IO_FAILURE = 16u, WW_NATIVE_REENTRANCY = 32u,
     WW_NATIVE_DEPTH_FAILURE = 64u, WW_NATIVE_CONCURRENCY = 128u,
-    WW_NATIVE_PAIR_FAILURE = 256u, WW_NATIVE_JOURNAL_CHANGED = 512u
+    WW_NATIVE_PAIR_FAILURE = 256u, WW_NATIVE_JOURNAL_CHANGED = 512u,
+    WW_NATIVE_CTX_GUARD = 1024u
 };
 
 /* Offsets are consumed by native_ctx_shims.S; the fixture checks this contract. */
@@ -103,6 +106,9 @@ void ww_native_trace_arm(uint32_t module_id);
 void ww_native_trace_marker(uint32_t stage, uint32_t first, uint32_t second, uint32_t third);
 void ww_native_trace_enter(WwNativeSnapshot* snapshot);
 void ww_native_trace_return(const WwNativeSnapshot* entry, const WwNativeSnapshot* returned);
+void ww_native_ctx_guard(uint32_t live, uint32_t seen, uint32_t lr);
+int ww_native_guard_marker(uint32_t hit, uint32_t pc, uint32_t live, uint32_t seen,
+                           uint32_t lr, uint32_t sp);
 void ww_native_trace_boundary(const void* pointer, uint32_t surface);
 void ww_native_trace_failure(uint32_t flags);
 void ww_native_trace_end(void);
