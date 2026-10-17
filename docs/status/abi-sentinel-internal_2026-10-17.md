@@ -40,7 +40,12 @@ rather than `0x0C`. The `before`/`after` bytes and the ring are unchanged.
 
 `WW_ABI_FINISH_SPAN` is 256 B: it covers the prologue and the first `memcmp` call site in both the sealed
 build (first call at `ww_abi_finish + 0x46`, function 0xC4 B) and the ARM `-O3` object built here
-(function 0xFC B), while staying below the next function (`ww_abi_gate` at `+0x194` in the sealed build).
+(function 0xEC B). In the sealed build the span ends below `ww_abi_install`/`ww_abi_gate`. In the ARM `-O3`
+object it reaches about 20 B into `ww_abi_init` (which starts at `+0xEC`), but a real post-dispatch `lr`
+lands in `ww_abi_gate`, so the practical false-positive risk is negligible.
+
+The classifier compares the stored 32-bit `lr` with a 32-bit-truncated function address. The capsule field
+is `uint32_t`; truncating both sides keeps the test correct on hosts whose `__TEXT`/PIE base is above 4 GiB.
 
 ## Tests
 
@@ -48,7 +53,7 @@ Host predicate and capsule tests, no Vita3K:
 
 ```
 python3 -B -m unittest -v test_native_ctx          # cwd vita/host
-Ran 4 tests in 0.422s — OK (skipped=1: ARM compile test, SDK not on PATH)
+Ran 5 tests in 0.598s — OK (skipped=1: ARM compile test, SDK not on PATH)
 ```
 
 With the SDK on `PATH`, the ARM compile/disassembly check also runs:
@@ -56,7 +61,7 @@ With the SDK on `PATH`, the ARM compile/disassembly check also runs:
 ```
 PATH=/home/fred/projects/zeldaWWHDRecomp/build-vita-tools/local-stack/bin:$PATH \
   python3 -B -m unittest -v test_native_ctx.DispatchAbiTest
-Ran 3 tests in 0.466s — OK
+Ran 4 tests in 0.481s — OK
 ```
 
 `DispatchAbiTest.test_dispatch_boundaries` runs 23 probe scenarios, including the five new ones:
@@ -65,6 +70,19 @@ Ran 3 tests in 0.466s — OK
 (sp+72 with an outside lr keeps exactly `WW_ABI_SP | WW_ABI_REGISTER`, no internal bit) and
 `internal-absent` (clean dispatch has no marker). `test_dispatch_stop_uses_the_classified_reason` checks
 `boot_host.c` uses the shared selector.
+
+`test_capture_is_recognized_at_a_high_host_address` rebuilds the same probe with `-fPIE -pie`, asserts its
+`ww_abi_finish` address does not fit in 32 bits (`require-high-address`), and reruns
+`internal-classifier`, `internal-capsule`, `internal-lr` and `real-mismatch`. Before the 32-bit truncation
+fix this test aborted on `internal-lr`; it passes now.
+
+The ARM object check is also run directly (warning-free):
+
+```
+$ arm-vita-eabi-gcc -std=gnu11 -O3 -mcpu=cortex-a9 -mfpu=neon -mfloat-abi=hard -mthumb \
+    -ffp-contract=off -fno-fast-math -Wall -Wextra -Werror -DWW05_DISPATCH_ABI_SENTINEL=1 \
+    -I vita/host -c vita/host/native_ctx_sentinel.c -o /tmp/.../sentinel-vita.o
+```
 
 Not run here: `vita/host/test_native_ctx_off.py` needs `build-f5/services-tests` and an initialized
 `ref/` tree, neither of which exists in this fresh worktree; the boot_host change is inside the

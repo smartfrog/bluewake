@@ -43,6 +43,10 @@ static bool invoke(void) {
 
 int main(int argc, char** argv) {
     assert(argc == 2);
+    if (strcmp(argv[1], "require-high-address") == 0) {
+        const uintptr_t address = (uintptr_t)&ww_abi_finish;
+        return address == (uint32_t)address ? 1 : 0;
+    }
     assert(strcmp(ww_abi_stop_reason(0u, 0u), "dispatch ABI mismatch: diagnostic stop") == 0);
     assert(strcmp(ww_abi_stop_reason(WW_ABI_INTERNAL, 0u),
                   "dispatch ABI mismatch: internal finish-frame capture") == 0);
@@ -87,16 +91,17 @@ int main(int argc, char** argv) {
     } else if (strcmp(argv[1], "internal-classifier") == 0) {
         WwAbiSnapshot before = ww_abi_active.before;
         WwAbiSnapshot after = before;
+        const uint32_t finish = (uint32_t)(uintptr_t)&ww_abi_finish;
         after.r0 = 1u;
         assert(!ww_abi_internal_capture(&before, &after));
         after.sp = before.sp - 24u;
         assert(ww_abi_internal_capture(&before, &after));
         after = before;
-        after.lr = (uint32_t)(uintptr_t)&ww_abi_finish;
+        after.lr = finish;
         assert(ww_abi_internal_capture(&before, &after));
-        after.lr = (uint32_t)(uintptr_t)&ww_abi_finish + WW_ABI_FINISH_SPAN - 1u;
+        after.lr = finish + WW_ABI_FINISH_SPAN - 1u;
         assert(ww_abi_internal_capture(&before, &after));
-        after.lr = (uint32_t)(uintptr_t)&ww_abi_finish + WW_ABI_FINISH_SPAN;
+        after.lr = finish + WW_ABI_FINISH_SPAN;
         assert(!ww_abi_internal_capture(&before, &after));
         after.sp = before.sp - 20u;
         assert(!ww_abi_internal_capture(&before, &after));

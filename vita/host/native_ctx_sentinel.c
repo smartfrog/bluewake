@@ -59,9 +59,8 @@ static bool stop(uint32_t failure) {
 }
 
 bool ww_abi_internal_capture(const WwAbiSnapshot* before, const WwAbiSnapshot* after) {
-    const uintptr_t finish = (uintptr_t)&ww_abi_finish;
-    return ((uintptr_t)after->lr >= finish && (uintptr_t)after->lr < finish + WW_ABI_FINISH_SPAN) ||
-           after->sp == before->sp - 24u;
+    const uint32_t finish = (uint32_t)(uintptr_t)&ww_abi_finish;
+    return after->lr - finish < WW_ABI_FINISH_SPAN || after->sp == before->sp - 24u;
 }
 
 const char* ww_abi_stop_reason(uint32_t failure, uint32_t io_error) {
