@@ -117,7 +117,9 @@ ninja -C <build> cos_sdk_smoke cos_pc_tests cos_layout_check_host
 | `ccae9d9` | list the fix in the branch table |
 | `da5a2c6` | hide `_C` for the whole `f_op_msg_mng.cpp` unit (review B1) |
 | `930b445` | `d_s_play` 2D heap through `COS_HEAP_X3` (review O1) |
-| (this commit) | the review corrections in this journal (B1, O1, O2) |
+| `22c0048` | the review corrections in this journal (B1, O1, O2) |
+| `43af1ca` | manifest and PROVENANCE refreshed after the review corrections |
+| (this commit) | list the manifest refresh in the branch table |
 
 ## Review corrections (independent review, 2026-10-17)
 
