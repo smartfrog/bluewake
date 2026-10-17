@@ -7,13 +7,17 @@
 // adopt an OSThread, they must be called zero times.
 //
 // One allocation is not cos_sdk's: libstdc++'s __cxa_thread_atexit builds the per-thread TLS
-// teardown node with the nothrow form of operator new, and the pthread key destructor frees it
-// with the sized delete. GCC's emulated TLS initialises the OSThread.cpp block (tHostRef and
-// tForeign) as a whole, so every created or adopted thread registers both destructors. The
-// nothrow form is therefore allocated outside the count and its pointers are recognised on free
-// (CountedFree); the SDK's own new/delete still count, and the failure report names the caller of
-// each counted call. Evidence: the Vita ELF's __cxa_thread_atexit calls _ZnwjRKSt9nothrow_t, and
-// the key destructor's run() calls _ZdlPvj.
+// teardown node (three pointers: destructor, object, next) with the nothrow form of operator new,
+// and the pthread key destructor frees it with the sized delete. GCC's emulated TLS initialises
+// the OSThread.cpp block (tHostRef and tForeign) as a whole, so every created or adopted thread
+// registers both destructors. Only a nothrow allocation of exactly 3 * sizeof(void*) is left out
+// of the count, and only those pointers are recognised on free (CountedFree); a nothrow
+// allocation of any other size is counted, and its delete is counted too, so a cos_sdk
+// new (std::nothrow) still fails the test. The residual gap is a cos_sdk nothrow allocation of
+// exactly three pointers: it would be taken for the runtime's node. The failure report names the
+// caller of each counted call. Evidence: the Vita ELF's __cxa_thread_atexit calls
+// _ZnwjRKSt9nothrow_t with 12 bytes (three 4-byte pointers, the 32-bit Vita), and the key
+// destructor's run() calls _ZdlPvj.
 //
 // Not built into cos_sdk_smoke_tsan: ThreadSanitizer intercepts operator new/delete itself.
 #include "smoke.h"
@@ -59,7 +63,8 @@ constexpr int kMaxSites = 16;
 std::atomic<void*> sSites[kMaxSites];
 std::atomic<int> sSiteCount{0};
 
-// Pointers allocated with the nothrow form: libstdc++'s TLS teardown node, not cos_sdk's.
+// The runtime's 3-pointer TLS teardown node: the only nothrow allocation left out of the count,
+// and only its pointers are recognised on free.
 constexpr int kMaxQuiet = 64;
 std::atomic<void*> sQuiet[kMaxQuiet];
 
@@ -118,10 +123,20 @@ void* CountedAlloc(std::size_t size, std::size_t align, void* caller) {
     return p;
 }
 
-void* QuietAlloc(std::size_t size, std::size_t align) noexcept {
+// The nothrow form: only libstdc++'s __cxa_thread_atexit node (three pointers) is left out of the
+// count. Another size counts, and is not remembered, so its delete counts too: a cos_sdk
+// new (std::nothrow) cannot hide. The caller is recorded for the failure report.
+void* QuietAlloc(std::size_t size, std::size_t align, void* caller) noexcept {
+    if (size != 3 * sizeof(void*)) {
+        void* p = RawAlloc(size, align);
+        if (p != nullptr) {
+            Count(caller);
+        }
+        return p;
+    }
     void* p = RawAlloc(size, align);
     if (p != nullptr && !RememberQuiet(p)) {
-        Count(nullptr); // the table is full: fail loudly instead of hiding an allocation
+        Count(caller); // the table is full: fail loudly, with the caller, instead of hiding it
     }
     return p;
 }
@@ -150,10 +165,18 @@ void* operator new[](std::size_t size, std::align_val_t align) {
     return CountedAlloc(size, static_cast<std::size_t>(align), COS_SMOKE_CALLER());
 }
 void* operator new(std::size_t size, const std::nothrow_t&) noexcept {
-    return QuietAlloc(size, alignof(std::max_align_t));
+    return QuietAlloc(size, alignof(std::max_align_t), COS_SMOKE_CALLER());
 }
 void* operator new[](std::size_t size, const std::nothrow_t&) noexcept {
-    return QuietAlloc(size, alignof(std::max_align_t));
+    return QuietAlloc(size, alignof(std::max_align_t), COS_SMOKE_CALLER());
+}
+// The matching deletes of a nothrow new-expression whose constructor throws: the test never
+// constructs through the nothrow form, but naming them leaves no nothrow path uncounted.
+void operator delete(void* p, const std::nothrow_t&) noexcept {
+    CountedFree(p, COS_SMOKE_CALLER());
+}
+void operator delete[](void* p, const std::nothrow_t&) noexcept {
+    CountedFree(p, COS_SMOKE_CALLER());
 }
 void operator delete(void* p) noexcept {
     CountedFree(p, COS_SMOKE_CALLER());
@@ -266,7 +289,8 @@ COS_SMOKE_TEST(host_alloc) {
                          sSites[i].load(std::memory_order_relaxed));
         }
         std::fprintf(stderr,
-                     "host_alloc: symbolize with addr2line -e <binary> <address - load base>\n");
+                     "host_alloc: addr2line -e <binary> <address> (non-PIE, e.g. the Vita: the "
+                     "address is already link-time; a PIE host: subtract the load base)\n");
     }
     COS_SMOKE_CHECK(calls == 0);
     return true;
