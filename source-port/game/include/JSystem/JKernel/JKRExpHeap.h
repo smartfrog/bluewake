@@ -2,6 +2,9 @@
 #define JKREXPHEAP_H
 
 #include "JSystem/JKernel/JKRHeap.h"
+#if TARGET_PC
+#include "pc/cos_pointer_width.h"
+#endif
 
 class JKRExpHeap : public JKRHeap {
 public:
@@ -50,12 +53,17 @@ public:
         // a multiple of 16, like the GameCube's 0x10: a block's content then has the block's own
         // alignment modulo 16, which the alignment arithmetic of the heap relies on
         // (JKRHeap::getMaxAllocatableSize masks the block address with 0xf).
+        // On ILP32 (Vita/ARMv7) the fields already end at 0x10, the GameCube's header size, so no
+        // padding is needed (census §5, decision (a)).
+        #if COS_HOST_LP64
         /* 0x18 */ void* mPad;
+        #endif
 #endif
     };  // Size: 0x10
     friend class CMemBlock;
 #if TARGET_PC
-    static_assert(sizeof(CMemBlock) == 0x20, "JKRExpHeap::CMemBlock must be 0x20 bytes on PC");
+    static_assert(sizeof(CMemBlock) == (COS_HOST_LP64 ? 0x20 : 0x10),
+                  "JKRExpHeap::CMemBlock must be 0x20 bytes on LP64 and 0x10 on ILP32");
 #endif
 
 protected:
