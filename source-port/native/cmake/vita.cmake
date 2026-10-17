@@ -33,6 +33,23 @@ if (TARGET cos_sdk_smoke)
             COS_SDK_SMOKE_NO_CHILD=1  # no child processes on the Vita
             COS_SDK_SMOKE_NO_DSP=1)   # no DSP HLE on this target (the stub makes DSPInit abort)
     target_sources(cos_sdk_smoke PRIVATE "${COS_NATIVE_ROOT}/vita/stubs_libc.cpp")
+    # libstdc++ references the pthread functions weakly (its __gthrw declarations): a weak
+    # reference does not pull an archive member, the symbol stays undefined and GNU ld patches
+    # the call to a nop. libstdc++ then reads the leftover register as an error code and throws
+    # std::system_error("Unknown error") -- the E2-bis fault, where the first std::call_once
+    # (Aurora's OSGetTime) threw on pthread_once. Force the PTE members the smoke needs so every
+    # call resolves; the host build links a full pthread and is untouched.
+    target_link_options(cos_sdk_smoke PRIVATE
+            "-Wl,-u,pthread_once"
+            "-Wl,-u,pthread_cond_wait"
+            "-Wl,-u,pthread_cond_timedwait"
+            "-Wl,-u,pthread_cond_signal"
+            "-Wl,-u,pthread_cond_broadcast"
+            "-Wl,-u,pthread_cond_destroy"
+            "-Wl,-u,pthread_cancel"
+            "-Wl,-u,pthread_rwlock_rdlock"
+            "-Wl,-u,pthread_rwlock_unlock"
+            "-Wl,-u,pthread_rwlock_wrlock")
     # Aurora's libraries reference each other in a cycle (core <-> vi): group them, as a static
     # link of the pair requires.
     target_link_libraries(cos_sdk_smoke PRIVATE "-Wl,--start-group" ${COS_AURORA_LIBS} "-Wl,--end-group")
