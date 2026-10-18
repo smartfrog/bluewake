@@ -19,9 +19,15 @@ into a silent stub. This is profile metadata, not the linked actor: the code arr
 rest of the REL sweep.
 
 With --symbols, the same reduction applies to a given data symbol per object instead of finding
-one g_profile_*: the boot path uses it for the base method tables (g_fpcLf_Method,
-g_fopAc_Method, g_fopMsg_Method, g_fopOvlp_Method), whose function pointers are zeroed the same
-way while their identities and sizes stay real.
+one g_profile_*: the boot path uses it for the data-only base method tables (g_fopAc_Method,
+g_fopMsg_Method, g_fopOvlp_Method), whose function pointers are zeroed the same way while their
+identities and sizes stay real.
+
+With --callable, one symbol keeps its relocations and the code they reach: the group is merged,
+every other global is localized and ld -r --gc-sections -u <symbol> keeps exactly the function
+chain the table calls. The boot path uses it for g_fpcLf_Method (fpcLf_* -> fpcMtd_* /
+fpcDwPi_* / fpcBs_MakeOfType). The result must have the symbol as its only global and no
+relocation to an undefined symbol.
 """
 import argparse
 import os
@@ -103,6 +109,39 @@ def reduce_unit(args, obj, index, out, symbol=None):
     return reduced, symbol
 
 
+def reduce_callable(args, objects, out):
+    combined = out.with_name(f"{out.stem}.combined.o")
+    stripped = out.with_name(f"{out.stem}.stripped.o")
+    localized = out.with_name(f"{out.stem}.localized.o")
+    localize_list = out.with_name(f"{out.stem}.locals")
+    run([args.ld, "-r", "-o", str(combined)] + [str(obj) for obj in objects])
+    run([args.objcopy, "--remove-section=.init_array", "--remove-section=.fini_array",
+         str(combined), str(stripped)])
+    names = globals_defined(args.nm, stripped)
+    if args.callable not in names:
+        raise SystemExit(f"profile-slice: FAIL {out}: {args.callable} is not a global definition")
+    localize_list.write_text("\n".join(name for name in names if name != args.callable) + "\n")
+    run([args.objcopy, f"--localize-symbols={localize_list}", str(stripped), str(localized)])
+    run([args.ld, "-r", "--gc-sections", "-u", args.callable, "-o", str(out), str(localized)])
+    defined = globals_defined(args.nm, out)
+    if defined != [args.callable]:
+        raise SystemExit(f"profile-slice: FAIL {out}: globals {defined}, expected [{args.callable}]")
+    undefined = set(run([args.nm, "-u", str(out)]).split())
+    referenced = set()
+    for line in run([args.objdump, "-r", str(out)]).splitlines():
+        parts = line.split()
+        if not parts or parts[0][0] not in "0123456789abcdef":
+            continue
+        for index, part in enumerate(parts):
+            if part.startswith("R_") and index + 1 < len(parts):
+                referenced.add(parts[index + 1])
+                break
+    missing = sorted(name for name in referenced & undefined if not name.startswith("."))
+    if missing:
+        raise SystemExit(f"profile-slice: FAIL {out}: callable chain still needs {missing}")
+    return f"{out.stat().st_size} bytes, callable, {len(referenced)} local relocations"
+
+
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--nm", required=True)
@@ -113,10 +152,17 @@ def main():
     parser.add_argument("--output", required=True)
     parser.add_argument("--symbols", help="comma list, one symbol per object (method tables); "
                         "without it each object must define exactly one g_profile_*")
+    parser.add_argument("--callable", help="keep one symbol callable: its own relocations and the "
+                        "code they reach stay real, everything else is localized and dropped")
     parser.add_argument("objects", nargs="+")
     args = parser.parse_args()
 
     out = pathlib.Path(args.output)
+    if args.callable:
+        summary = reduce_callable(args, [pathlib.Path(path) for path in args.objects], out)
+        print(f"profile-slice: {len(args.objects)} units, {args.callable} {summary}")
+        return 0
+
     symbols = args.symbols.split(",") if args.symbols else [None] * len(args.objects)
     if len(symbols) != len(args.objects):
         raise SystemExit(f"profile-slice: FAIL {len(symbols)} symbols for {len(args.objects)} objects")

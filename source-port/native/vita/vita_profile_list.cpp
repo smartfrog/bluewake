@@ -11,9 +11,10 @@
 // mProcName against its slot (and the list pointer and terminator). Keep this list in step with
 // vita_profile_slice.cmake; a missing profile fails the link, a wrong slot fails the check.
 //
-// The base tables (g_fpcLf_Method, g_fopAc_Method, ...) are the reduced data of the real
-// f_pc/f_op units: their method functions are still the actor/API code the slice does not link,
-// so only their addresses are real. The actor method table at offset 0x24 stays NULL.
+// g_fpcLf_Method is the real f_pc chain (fpcLf_* -> fpcMtd_* / fpcDwPi_* / fpcBs_MakeOfType), so
+// its function pointers are callable. g_fopAc_Method/g_fopMsg_Method/g_fopOvlp_Method are the
+// reduced data of their units: their addresses are real, their method pointers are zero, because
+// the actor/msg/overlap code is still the sweep's work. The actor method table at 0x24 stays NULL.
 #include "f_pc/f_pc_name.h"
 #include "f_pc/f_pc_profile_lst.h"
 #include "f_pc/f_pc_leaf.h"

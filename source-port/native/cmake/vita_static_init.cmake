@@ -72,22 +72,41 @@ elseif (NOT CMAKE_CROSSCOMPILING)
     # pc_harness and no disc. Runtime evidence for native/vita/vita_boot.cpp; a Vita run is E2's.
     #   ninja cos_vita_boot_host && build/native-mac/cos_vita_boot_host
     # GNU binutils only, as the slice reduction needs readelf/objcopy/ld --gc-sections.
-    if (COS_VITA_PROFILE_SLICE_OBJECT AND COS_VITA_BASE_TABLES_OBJECT)
+    if (COS_VITA_PROFILE_SLICE_OBJECT AND COS_VITA_BASE_TABLES_OBJECT AND COS_VITA_FPC_CHAIN_OBJECT)
         add_executable(cos_vita_boot_host EXCLUDE_FROM_ALL
                 "${COS_NATIVE_ROOT}/vita/vita_boot.cpp"
                 "${COS_NATIVE_ROOT}/vita/vita_profile_list.cpp"
                 "${COS_NATIVE_ROOT}/src/pc/harness/pc_static_init.cpp"
                 "${COS_ROOT}/src/f_pc/f_pc_profile.cpp"
                 "${COS_VITA_PROFILE_SLICE_OBJECT}"
-                "${COS_VITA_BASE_TABLES_OBJECT}")
+                "${COS_VITA_BASE_TABLES_OBJECT}"
+                "${COS_VITA_FPC_CHAIN_OBJECT}")
         set_source_files_properties("${COS_VITA_PROFILE_SLICE_OBJECT}"
-                "${COS_VITA_BASE_TABLES_OBJECT}" PROPERTIES
+                "${COS_VITA_BASE_TABLES_OBJECT}" "${COS_VITA_FPC_CHAIN_OBJECT}" PROPERTIES
                 EXTERNAL_OBJECT TRUE GENERATED TRUE)
         # Aurora's libraries reference each other in a cycle (core <-> gx/vi), as cos_sdk_smoke notes.
         target_link_libraries(cos_vita_boot_host PRIVATE cos_game_headers cos_sdk
                 "-Wl,--start-group" ${COS_AURORA_LIBS} "-Wl,--end-group")
-        add_dependencies(cos_vita_boot_host cos_vita_profile_slice cos_vita_base_tables)
+        add_dependencies(cos_vita_boot_host cos_vita_profile_slice cos_vita_base_tables
+                cos_vita_fpc_chain)
         set_target_properties(cos_vita_boot_host PROPERTIES
+                RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}")
+    endif ()
+
+    # The callable g_fpcLf_Method chain on its own: the five pointers are real and the
+    # fpcLf_* -> fpcMtd_* path runs on a zeroed leaf (check/fpc_chain_test.cpp).
+    #   ninja cos_vita_fpc_chain_test && build/native-mac/cos_vita_fpc_chain_test
+    if (COS_VITA_FPC_CHAIN_OBJECT AND COS_VITA_BASE_TABLES_OBJECT)
+        add_executable(cos_vita_fpc_chain_test EXCLUDE_FROM_ALL
+                "${COS_NATIVE_ROOT}/check/fpc_chain_test.cpp"
+                "${COS_VITA_FPC_CHAIN_OBJECT}"
+                "${COS_VITA_BASE_TABLES_OBJECT}")
+        set_source_files_properties("${COS_VITA_FPC_CHAIN_OBJECT}"
+                "${COS_VITA_BASE_TABLES_OBJECT}" PROPERTIES
+                EXTERNAL_OBJECT TRUE GENERATED TRUE)
+        target_link_libraries(cos_vita_fpc_chain_test PRIVATE cos_game_headers)
+        add_dependencies(cos_vita_fpc_chain_test cos_vita_fpc_chain cos_vita_base_tables)
+        set_target_properties(cos_vita_fpc_chain_test PROPERTIES
                 RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}")
     endif ()
 endif ()
