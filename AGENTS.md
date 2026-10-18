@@ -4,6 +4,15 @@ Chris runs this repository. Elliott is co-maintainer. These rules apply to every
 working here, including bots either of them runs. If another file in the repository disagrees with this
 one, this one wins.
 
+## The machines we work on
+
+The development machines are **ARM64 (aarch64) Linux**. This is not x86-64 and must never be read as x86-64:
+the `Vita3K` binary inside a run directory is a native aarch64 executable (an ARM64 PIE), host builds and
+their toolchains are aarch64, and gdb backtraces are aarch64. There is no x86-64 emulator to go looking for.
+When a host address has to be resolved to a function, read the mapping base of the live process from
+`/proc/<pid>/maps` first, then symbolize the offset: an unsymbolized PIE address is a runtime address, not a
+file offset.
+
 ## Where things are
 
 - `README.md`: for players.
