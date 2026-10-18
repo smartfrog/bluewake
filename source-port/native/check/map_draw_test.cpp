@@ -11,6 +11,11 @@
 static stage_map_info_class g_mapInfo = {};
 static stage_stag_info_class g_stagInfo = {};
 
+#ifdef MAP_FRAME_ORDER
+static void frame_begin() {}
+static void frame_end() {}
+#endif
+
 int main() {
     reset_gx_counters();
 
@@ -56,8 +61,18 @@ int main() {
     }
 
 
+#ifdef MAP_FRAME_ORDER
+    frame_begin();
+#endif
     dMap_c::mapDrawAll(0.0f, 0.0f, 0, 0.0f);
+#ifdef MAP_FRAME_ORDER
+    const int enqueued = static_cast<int>(list.mp2DOpa - list.mp2DOpaArr);
+    const bool no_draw_before_drain = g_gx.begin == 0;
+#endif
     list.draw2DOpa();
+#ifdef MAP_FRAME_ORDER
+    const int map_draw_begin = g_gx.begin;
+#endif
 
 
     alignas(dMap_2DT2_c) unsigned char storage[sizeof(dMap_2DT2_c)] = {};
@@ -72,6 +87,17 @@ int main() {
     map->setColorB(GXColor{0, 0, 0, 0});
     map->dMap_2DT2_c::draw();
 
+#ifdef MAP_FRAME_ORDER
+    frame_end();
+    std::printf("map-frame: enqueued=%d pre_draw=%d map_begin=%d total_begin=%d ind=%d tevdirect=%d "
+                "pos2f=%d\n",
+                enqueued, no_draw_before_drain, map_draw_begin, g_gx.begin,
+                g_gx.set_num_ind_stages, g_gx.set_tev_direct, g_gx.pos2f);
+    const bool ok = enqueued == 10 && no_draw_before_drain && map_draw_begin == 10 &&
+                    g_gx.begin == 11 && g_gx.set_num_ind_stages >= 1 &&
+                    g_gx.set_tev_direct >= 8 && g_gx.pos2f >= 4;
+    std::printf("map-frame: %s\n", ok ? "ok" : "FAIL");
+#else
     std::printf("map-draw: begin=%d pos3f=%d pos3s16=%d tex=%d loadtex=%d end=%d vtxfmtv=%d "
                 "getfmt=%d ind=%d tevdirect=%d pos2f=%d\n",
                 g_gx.begin, g_gx.pos3f, g_gx.pos3s16, g_gx.tex2f, g_gx.load_tex_obj, g_gx.end,
@@ -84,5 +110,6 @@ int main() {
                     g_gx.set_num_ind_stages >= 1 && g_gx.set_tev_direct >= 8 &&
                     g_gx.pos2f >= 4;
     std::printf("map-draw: %s\n", ok ? "ok" : "FAIL");
+#endif
     return ok ? 0 : 1;
 }
