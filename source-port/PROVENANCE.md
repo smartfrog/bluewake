@@ -7,8 +7,8 @@
 - Import date: 2026-10-17
 - Imported by: `scripts/source_port/import_switchwaker.sh` (this repository)
 - Manifest: `source-port/IMPORT_MANIFEST.sha256` (LC_ALL=C sorted, `sha256sum -c` format,
-  2 584 files, 30 878 956 bytes as committed; manifest sha256
-  `535d8f56101a271cc8f37e9f5420aea4b7213bc33f60922bdd01e3d2127d64d9`)
+  2 584 files, 30 894 659 bytes as committed; manifest sha256
+  `dac5fab815fa620db28a6eccabeb4c2f9edd14af2d1139dc351885cbd5e9c8be`)
 - Rule: refresh this header (file count, bytes, manifest sha256) whenever the manifest is
   regenerated; the manifest records the current hashes, so it must be regenerated after any
   change to an imported file.
@@ -53,7 +53,7 @@ No disc data, no game assets, no saves and no binaries: the source repository tr
 
 ## Local changes vs upstream
 
-Three changes so far, on top of the exact copy (all in `native/cmake/GameConfig.cmake`, all for
+The first changes, on top of the exact copy (all in `native/cmake/GameConfig.cmake`, all for
 the GCC host the smoke build runs on; the upstream build is written for clang):
 
 - `-ferror-limit=50` is gated on Clang/AppleClang, because GCC rejects it (its equivalent is
@@ -101,6 +101,42 @@ New local files, not from upstream and therefore not in the manifest:
 `native/include/pc/cos_pointer_width.h` (host pointer width), `native/include/pc/cos_heap_sizes.h`
 (the heap-size policy and its per-site table) and `native/check/ilp32_check.cpp` (the ILP32
 assertion profile). Journal: `docs/status/VITA_ILP32_CORRECTIONS_2026-10-17.md`.
+
+### Vita build and run (E1/E2 and the M1 follow-ups, 2026-10-17/18)
+
+The E1 skeleton made the imported tree build for the Vita and the E2 harness made it run headless;
+the later P-A/M1 commits added the profile slice and the first visible frame. These are the imported
+files changed since the ILP32 corrections (all guarded on the target or on a CMake option, or
+behaviour-preserving, so the host builds keep their behaviour):
+
+- `native/CMakeLists.txt`: non-PIC on 32-bit targets (`vita-elf-create` rejects the
+  `R_ARM_JUMP_SLOT` relocations of a PIE link), the Vita/static-init/profile-slice includes and the
+  `cos_ilp32_check` target.
+- `native/cmake/Aurora.cmake`: build-local abseil patches for newlib (`tm_gmtoff`, ELF mem image),
+  empty `Tracy::TracyClient` and `sqlite3` targets on the GX-less build, PIC cleared on every
+  target, and `COS_AURORA_LIBS` listing only the Aurora libraries the option set built.
+- `native/cmake/dsp_hle.cmake` and `sdk.cmake`: the `COS_DSP_HLE` option (ON by default; OFF on the
+  Vita, where `native/vita/stubs_dsp.cpp` supplies the entry points).
+- `native/cmake/executable.cmake`: Dawn's include directories only when `dawn::webgpu_dawn` exists.
+- `native/sdk/include/cos_sdk/host_alloc.h`: newlib's `memalign`, because `std::aligned_alloc` is
+  absent and `posix_memalign` is declared but does not link there.
+- `native/sdk/src/audio/AI.cpp`: the AI DMA thread asks for a 256 KiB stack, because PTE's pthread
+  default (4 KiB) is overrun by SDL's resampler.
+- `native/sdk/tests/`: printed skips for the AI, DSP, GX and child-process checks on the Vita, the
+  newlib allocation path, and the host_alloc counter's recognition of the C++ runtime's TLS
+  teardown node.
+- `native/src/pc/harness/pc_smoke.cpp`: the static-init check moved to
+  `native/src/pc/harness/pc_static_init.cpp` behind `native/include/pc/pc_static_init.h`, so the
+  Vita link needs no PC harness.
+- `game/src/d/d_camera.cpp`: the `cos_r3b_camera_draw` export under `COS_R3B_CAMERA_DRAW`.
+- `game/src/d/actor/d_a_npc_zl1.cpp`: `daNpc_Zl1_c::checkOrder` takes the `Vec` cast through
+  `&a_start_pos[0]`.
+
+New local files, not from upstream and therefore not in the manifest: `native/vita/` (boot,
+display, GX/GD/DVD/DSP/libc stubs, actor/scene services, profile list and slice tool, link checks),
+the four `native/cmake/vita*.cmake` modules, the new harnesses in `native/check/`,
+`native/src/pc/harness/pc_static_init.cpp`, `native/include/pc/pc_static_init.h`,
+`native/patches/abseil/` and Aurora patches 0022-0023.
 
 ## Attribution
 

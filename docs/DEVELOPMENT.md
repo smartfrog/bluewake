@@ -27,7 +27,7 @@ trial. It is not `main`: `main` is untouched and nothing here is pushed.
 | `60dcac7a` | `poc/perf-combined` `715f3065` | turn-cap and program-cache options, the program cache, cycle-domain work |
 | `511ff6d4` | `poc/global-ctx` `76ef2921` | scoped global-ctx transform, guest MEM1/RAM guard, their tests |
 | `a26bf4bd` | `poc/skip-logo` `e41ee920` | host and composite title-logo skip, behind `WW_SKIP_TITLE_LOGO` |
-| `53a8b731` | `poc/pa-assets` `87f23cd1` | the source-port track under `source-port/` (M0/M1), no recomp default changes |
+| `53a8b731` | `poc/pa-assets` `87f23cd1` | the source-port track under `source-port/`: the SwitchWaker import, the ILP32 corrections, the E1/E2 Vita skeleton and run harness, the GX/GD stub and profile/static-init harnesses, up to M1 (the first visible Vita frame); no recomp default changes |
 
 Conflict resolutions:
 
@@ -90,9 +90,9 @@ fix it.
 
 ## Not in this branch
 
-- The source-port ILP32 work (`source-port/ilp32`) and the other source-port branches beyond the
-  M0/M1 import in `poc/pa-assets`.
-- `poc/perf-ramguard`, `poc/dusk-transfer`, `poc/e3-gx-stub`, `poc/native-ctx-guard` and the
-  B3/ctx POC branches.
+- Source-port work after `87f23cd1`. The ILP32 corrections (`source-port/ilp32` `86b562fd`) and
+  the E3 GX/GD stub (`poc/e3-gx-stub` `1103e5dd`) are ancestors of `87f23cd1`, so they are part of
+  the merge; both branch tips are `87f23cd1` itself.
+- `poc/perf-ramguard`, `poc/dusk-transfer`, `poc/native-ctx-guard` and the B3/ctx POC branches.
 - Private packages, builds, saves, disc data and memory floors. They stay outside the repository.
 - Any behaviour change that has not been reviewed. Merged experimental code is present, off.
