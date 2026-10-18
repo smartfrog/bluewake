@@ -22,7 +22,7 @@ enum : unsigned {
   GL_TEXTURE_MIN_FILTER, GL_TEXTURE_MAG_FILTER, GL_LINEAR, GL_FRONT, GL_BACK,
   GL_CG_VERTEX_SHADER_EXT, GL_CG_FRAGMENT_SHADER_EXT, GL_COMPILE_STATUS,
   GL_LINK_STATUS, GL_TEXTURE0, VGL_MEM_RAM, VGL_MEM_VRAM,
-  SCE_GXM_MULTISAMPLE_NONE,
+  SCE_GXM_MULTISAMPLE_NONE, GL_PROGRAM_BINARY_LENGTH,
 };
 constexpr GLenum GL_NO_ERROR = 0;
 constexpr GLenum GL_INVALID_VALUE = 0x501;
@@ -44,6 +44,13 @@ inline unsigned invalid_deletions = 0;
 inline unsigned copies = 0;
 inline unsigned draws = 0;
 inline unsigned swaps = 0;
+inline unsigned compiled_shaders = 0;
+inline unsigned linked_programs = 0;
+inline unsigned binary_saves = 0;
+inline unsigned binary_loads = 0;
+inline GLsizei last_binary_size = 0;
+inline GLint link_status = 1;
+inline bool fail_next_binary_link = false;
 inline GLenum read_buffer = GL_BACK;
 inline std::size_t texture_bytes() {
   std::size_t bytes = 0;
@@ -109,7 +116,40 @@ inline void glDrawElements(GLenum, GLsizei, GLenum, const void*) { ++test_gl::dr
 inline GLuint glCreateShader(GLenum) { return test_gl::next_name++; }
 inline GLuint glCreateProgram() { return test_gl::next_name++; }
 inline void glGetShaderiv(GLuint, GLenum, GLint* status) { *status = 1; }
-inline void glGetProgramiv(GLuint, GLenum, GLint* status) { *status = 1; }
+inline void glCompileShader(GLuint) { ++test_gl::compiled_shaders; }
+inline void glLinkProgram(GLuint) {
+  ++test_gl::linked_programs;
+  test_gl::link_status = 1;
+}
+inline void glGetProgramiv(GLuint, GLenum name, GLint* status) {
+  if (name == GL_PROGRAM_BINARY_LENGTH)
+    *status = 16;
+  else if (name == GL_LINK_STATUS)
+    *status = test_gl::link_status;
+  else
+    *status = 1;
+}
+inline void glGetProgramBinary(GLuint, GLsizei bufSize, GLsizei* length,
+                               GLenum* binaryFormat, void* binary) {
+  constexpr GLsizei kBinarySize = 16;
+  if (bufSize < kBinarySize) {
+    test_gl::error = GL_INVALID_VALUE;
+    if (length != nullptr) *length = 0;
+    return;
+  }
+  auto* bytes = static_cast<std::uint8_t*>(binary);
+  for (GLsizei i = 0; i < kBinarySize; ++i)
+    bytes[i] = static_cast<std::uint8_t>(0x40 + i);
+  if (length != nullptr) *length = kBinarySize;
+  if (binaryFormat != nullptr) *binaryFormat = 0;
+  ++test_gl::binary_saves;
+}
+inline void glProgramBinary(GLuint, GLenum, const void*, GLsizei length) {
+  ++test_gl::binary_loads;
+  test_gl::last_binary_size = length;
+  test_gl::link_status = test_gl::fail_next_binary_link ? 0 : 1;
+  test_gl::fail_next_binary_link = false;
+}
 inline GLint glGetUniformLocation(GLuint, const char*) { return 0; }
 
 // Unobserved GL state calls keep their real signatures; resource calls above
@@ -139,12 +179,10 @@ TEST_GL_VOID(glVertexAttribPointer, (GLuint, GLint, GLenum, GLboolean, GLsizei, 
 TEST_GL_VOID(glFinish, ())
 TEST_GL_VOID(glTexParameteri, (GLenum, GLenum, GLint))
 TEST_GL_VOID(glShaderSource, (GLuint, GLsizei, const char* const*, const GLint*))
-TEST_GL_VOID(glCompileShader, (GLuint))
 TEST_GL_VOID(glGetShaderInfoLog, (GLuint, GLsizei, GLsizei*, char*))
 TEST_GL_VOID(glDeleteShader, (GLuint))
 TEST_GL_VOID(glAttachShader, (GLuint, GLuint))
 TEST_GL_VOID(glBindAttribLocation, (GLuint, GLuint, const char*))
-TEST_GL_VOID(glLinkProgram, (GLuint))
 TEST_GL_VOID(glGetProgramInfoLog, (GLuint, GLsizei, GLsizei*, char*))
 TEST_GL_VOID(glDeleteProgram, (GLuint))
 #undef TEST_GL_VOID

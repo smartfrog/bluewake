@@ -13,6 +13,14 @@
 #define WW_IDLE_DEADLINE_ADVANCE 0
 #endif
 
+// The parent's fixed turn cap. A host may request a different cap (a POC
+// package does), but a request of 0 keeps this value.
+#define BLUEWAKE_CYCLE_DOMAIN_DEFAULT_CAP 256
+
+// Turns a configured request into the cap the domain will use: a positive
+// request stands, anything else keeps the parent default.
+s64 bluewake_cycle_domain_select_cap(s64 requested);
+
 // See cycle_domain.c: what the host credits each turn, for the credit census.
 extern bool g_cycle_credit_census;
 extern u64 g_cycle_credit_calls;

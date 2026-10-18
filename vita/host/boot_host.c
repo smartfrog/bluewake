@@ -23,6 +23,10 @@
 #include <string.h>
 #include <stdlib.h>
 
+#ifndef WW_TURN_CAP
+#define WW_TURN_CAP 0
+#endif
+
 #define PPC_EXC_EXTERNAL 0x00000040u
 #define PPC_VECTOR_EXTERNAL 0x00500u
 #define PPC_EXC_DECREMENTER 0x00000080u
@@ -1489,7 +1493,12 @@ bool ww_host_init(WwHost* host) {
     host->decrementer = UINT32_MAX;
     ww_bat_init(&host->bat);
     host->decrementer_valid = true;
-    bluewake_cycle_domain_init(&host->cycles, 256, advance, deadline, host);
+    const s64 turn_cap = bluewake_cycle_domain_select_cap(WW_TURN_CAP);
+    bluewake_cycle_domain_init(&host->cycles, turn_cap, advance, deadline,
+                               host);
+    if (WW_TURN_CAP > 0 &&
+        fprintf(stderr, "[turn-cap] poc=1 cap=%lld\n", (long long)turn_cap) < 0)
+        return false;
 #if WW_IDLE_DEADLINE_ADVANCE
     // Off by default. One VI period is the natural ceiling for a single idle
     // turn: the VI retrace is the periodic event that ends every guest wait.
