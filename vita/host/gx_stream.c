@@ -1,5 +1,45 @@
 #include "boot_host.h"
 
+static const char* trace_renderer_stats(WwHost* host, const WwRendererStats* stats) {
+    if (fprintf(stderr,
+                "[renderer-stats] frame=%llu command=%llu draws=%llu plans=%llu plans_skipped=%llu "
+                "programs=%llu programs_distinct=%llu programs_refused=%llu copies=%llu "
+                "copies_refused=%llu display_copies=%llu presented=%llu fifo_bytes=%llu events=%llu "
+                "gaps=%u decoded=%llu pending=%u read_bytes=%llu\n",
+                (unsigned long long)stats->presented, (unsigned long long)host->stream.decoded,
+                (unsigned long long)stats->draws, (unsigned long long)stats->plans,
+                (unsigned long long)stats->plans_skipped, (unsigned long long)stats->programs,
+                (unsigned long long)stats->programs_distinct,
+                (unsigned long long)stats->programs_refused, (unsigned long long)stats->copies,
+                (unsigned long long)stats->copies_refused,
+                (unsigned long long)stats->display_copies,
+                (unsigned long long)stats->presented, (unsigned long long)stats->fifo_bytes,
+                (unsigned long long)stats->events, stats->gap_count,
+                (unsigned long long)host->stream.decoded, host->stream.command.size,
+                (unsigned long long)host->fifo_capture.total_read_bytes) < 0)
+        return "renderer stats trace write failed";
+    if (stats->presented > 8u && stats->presented % 100u != 0u)
+        return NULL;
+    const struct {
+        const char* category;
+        u32 count;
+        const char* const* reasons;
+    } groups[] = {{"plan", stats->skip_count, stats->skip_reasons},
+                  {"shader", stats->refusal_count, stats->refusal_reasons},
+                  {"copy", stats->copy_refusal_count, stats->copy_refusal_reasons}};
+    for (u32 group = 0u; group < sizeof(groups) / sizeof(groups[0]); ++group) {
+        for (u32 index = 0u; index < groups[group].count; ++index) {
+            if (groups[group].reasons[index] == NULL)
+                return "renderer stats reason is missing";
+            if (fprintf(stderr, "[renderer-reason] frame=%llu category=%s count=%u reason=%s\n",
+                        (unsigned long long)stats->presented, groups[group].category,
+                        groups[group].count, groups[group].reasons[index]) < 0)
+                return "renderer reason trace write failed";
+        }
+    }
+    return NULL;
+}
+
 static const char* journal_command(const WwGxCheckpoint* command, u64 index) {
     if (command->size == 0u || command->size > WW_GX_MAX_COMMAND_BYTES)
         return "GX command journal requires bounded complete bytes";
@@ -86,6 +126,9 @@ const char* ww_gx_stream_write(WwHost* host, u8 byte, const WwFifoOrigin* origin
                     return renderer_error;
                 WwRendererStats stats;
                 ww_renderer_stats(host->renderer, &stats);
+                const char* stats_error = trace_renderer_stats(host, &stats);
+                if (stats_error != NULL)
+                    return stats_error;
                 const char* marker_error = ww_host_frame_present(host, stats.presented);
                 if (marker_error != NULL)
                     return marker_error;
