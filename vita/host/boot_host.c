@@ -18,6 +18,9 @@
 #if WW05_OBSERVE_NATIVE_CTX || WW05_DISPATCH_ABI_SENTINEL
 #include "native_ctx.h"
 #endif
+#if WW05_SP_BALANCE
+#include "sp_balance.h"
+#endif
 #if WW05_REJECTION_CAPSULE
 #include "rejection_capsule.h"
 #endif
@@ -1462,15 +1465,25 @@ int ww_host_dispatch(WwHost* host, u32 address) {
         return -1;
     }
 #endif
+#if WW05_SP_BALANCE
+    const u32 sp_in = cpu->gpr[1];
+#endif
 #if WW05_DISPATCH_ABI_SENTINEL
     const int result = ww_abi_gate(&host->cpu, linked, (void*)host->module->dispatch);
+#if WW05_SP_BALANCE
+    ww_sp_balance_observe(linked, sp_in, cpu->gpr[1], cpu->ram, cpu->ram_size);
+#endif
     if (ww_abi_state == 2u || ww_abi_state == 4u) {
         ww_host_fail(host, ww_abi_stop_reason(ww_abi_dump.failure, ww_abi_dump.io_error), address, cpu->pc);
         return -1;
     }
     return result;
 #else
-    return host->module->dispatch(&host->cpu, linked);
+    const int result = host->module->dispatch(&host->cpu, linked);
+#if WW05_SP_BALANCE
+    ww_sp_balance_observe(linked, sp_in, cpu->gpr[1], cpu->ram, cpu->ram_size);
+#endif
+    return result;
 #endif
 }
 

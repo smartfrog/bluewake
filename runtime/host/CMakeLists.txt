@@ -255,6 +255,17 @@ target_include_directories(bluewake_return_census_test PRIVATE
 add_test(NAME bluewake_return_census_test
     COMMAND bluewake_return_census_test)
 
+add_executable(bluewake_sp_balance_test
+    ../../tests/sp_balance_test.c
+    src/sp_balance.c)
+target_link_libraries(bluewake_sp_balance_test PRIVATE gxruntime)
+target_include_directories(bluewake_sp_balance_test PRIVATE
+    ${GXRUNTIME_DIR}/include
+    ${CMAKE_CURRENT_SOURCE_DIR}/src
+)
+add_test(NAME bluewake_sp_balance_test
+    COMMAND bluewake_sp_balance_test)
+
 add_executable(bluewake_composite_dispatch_loop_test
     ../../tests/composite_dispatch_loop_test.c
     ../../cmake/composite/dispatch_loop.c)
