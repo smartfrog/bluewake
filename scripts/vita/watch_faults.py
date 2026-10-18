@@ -55,11 +55,6 @@ _FAST_WORDS = ('sigsegv', 'segfault', 'pc is 0x', 'invalid read', 'invalid write
                'fault')
 
 
-def may_hold_fault(text):
-    """True when `text` could contain a fault line; a cheap, conservative gate."""
-    return first_candidate(text.lower()) >= 0
-
-
 def first_candidate(lowered):
     """Index of the first fault word in a lowered chunk, or -1."""
     at = -1
@@ -83,10 +78,15 @@ def fault_match(lines, repeats=FAULT_REPEATS):
     if isinstance(lines, str):
         # Nothing before the first fault word can hold a fault or start a flood,
         # so skip it: logs reach hundreds of megabytes and lines cost real time.
-        at = first_candidate(lines.lower())
+        lowered = lines.lower()
+        at = first_candidate(lowered)
         if at < 0:
             return None
-        lines = lines[lines.rfind('\n', 0, at) + 1:].splitlines()
+        # lower() can change a string's length, which would shift that index.
+        if len(lowered) != len(lines):
+            lines = lines.splitlines()
+        else:
+            lines = lines[lines.rfind('\n', 0, at) + 1:].splitlines()
     counts = {}
     for line in lines:
         if fault_line(line):

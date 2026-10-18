@@ -9,6 +9,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 import watch_guest
+from watch_faults import fault_match
 
 
 class VerdictTests(unittest.TestCase):
@@ -163,8 +164,13 @@ class StopGuestTests(unittest.TestCase):
         self.assertEqual(guest.returncode, -signal.SIGKILL)
 
 
-if __name__ == '__main__':
-    unittest.main()
+class FaultMatchTests(unittest.TestCase):
+    def test_a_fault_after_a_case_changing_character_is_still_found(self):
+        # 'İ'.lower() is two characters: that used to shift the skipped prefix.
+        self.assertIsNotNone(fault_match('ok\n' + 'İ' * 8 + 'SIGSEGV\n'))
+
+    def test_a_healthy_chunk_with_no_fault_word_is_not_a_fault(self):
+        self.assertIsNone(fault_match('[frame-present] frame=1\n' * 10))
 
 
 class TruncationTests(unittest.TestCase):
@@ -211,3 +217,7 @@ class StaleConsoleTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             root = self.console(tmp, '[frame-present] frame=1\n' * 800000)
             self.assertIsNone(watch_guest.stale_console(root))
+
+
+if __name__ == '__main__':
+    unittest.main()
