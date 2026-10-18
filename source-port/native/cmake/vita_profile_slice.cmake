@@ -226,7 +226,7 @@ add_custom_command(OUTPUT "${COS_VITA_FPC_CHAIN_OBJECT}"
             --output "${COS_VITA_FPC_CHAIN_OBJECT}"
             --callable g_fpcLf_Method
             --keep "g_fopAc_Method,g_fopOvlp_Method,g_fopMsg_Method,g_fopKy_Method,g_fopCam_Method,g_fopVw_Method,g_fpcNd_Method,g_fopScn_Method,_Z13fpcMtd_MethodPFiPvES_,g_dComIfG_gameInfo,g_fopAcTg_Queue,_Z13fopAcIt_JudgePFPvS_S_ES_"
-            --allow "OSPanic,_impure_ptr,abort,fprintf,memset,stderr,__aeabi_atexit,__dso_handle,_ZdlPvj,OSReport_Error,strncpy,_Z17fopAcM_DeleteHeapP10fopAc_ac_c,_Z19fopAcM_cullingCheckP10fopAc_ac_c,_ZN13dDemo_actor_c8setActorEP10fopAc_ac_c,_ZN14dDemo_object_c8getActorEh"
+            --allow "OSPanic,_impure_ptr,abort,fprintf,memset,stderr,__aeabi_atexit,__dso_handle,_ZdlPvj,OSReport_Error,strncpy,_Z17fopAcM_DeleteHeapP10fopAc_ac_c,_Z19fopAcM_cullingCheckP10fopAc_ac_c,_ZN13dDemo_actor_c8setActorEP10fopAc_ac_c,_ZN14dDemo_object_c8getActorEh,_ZN12JUTAssertion10getSDeviceEv,_ZN12JUTAssertion10showAssertEjPKciS1_"
             $<TARGET_OBJECTS:cos_vita_fpc_chain_units>
         DEPENDS cos_vita_fpc_chain_units "${COS_NATIVE_ROOT}/vita/reduce_profile_slice.py"
         COMMAND_EXPAND_LISTS
@@ -324,6 +324,34 @@ add_custom_command(OUTPUT "${COS_VITA_DEMO_OBJECT}"
 add_custom_target(cos_vita_demo DEPENDS "${COS_VITA_DEMO_OBJECT}")
 set(COS_VITA_DEMO_OBJECT "${COS_VITA_DEMO_OBJECT}" CACHE INTERNAL
         "The callable dDemo_actor_c setActor/getActor closure for the Vita boot path")
+
+# JUT_ASSERT reaches getSDevice/showAssert; showAssert only needs the direct-print framebuffer text
+# path, not JUTConsole, JUTDbPrint or the JUTFont graph. Keep those out of the reduction.
+set(_cos_vita_assert_units
+        "${COS_ROOT}/src/JSystem/JUtility/JUTAssert.cpp"
+        "${COS_ROOT}/src/JSystem/JUtility/JUTDirectPrint.cpp")
+add_library(cos_vita_assert_units OBJECT EXCLUDE_FROM_ALL ${_cos_vita_assert_units})
+target_link_libraries(cos_vita_assert_units PRIVATE cos_game_headers)
+target_compile_options(cos_vita_assert_units PRIVATE -ffunction-sections -fdata-sections -g0)
+set_property(TARGET cos_vita_assert_units PROPERTY FOLDER "cos_native")
+
+set(COS_VITA_ASSERT_OBJECT "${CMAKE_BINARY_DIR}/vita_assert.o")
+add_custom_command(OUTPUT "${COS_VITA_ASSERT_OBJECT}"
+        COMMAND "${Python3_EXECUTABLE}" "${COS_NATIVE_ROOT}/vita/reduce_profile_slice.py"
+            --nm "${CMAKE_NM}" --objcopy "${CMAKE_OBJCOPY}" --objdump "${CMAKE_OBJDUMP}"
+            --readelf "${CMAKE_READELF}" --ld "${CMAKE_LINKER}"
+            --output "${COS_VITA_ASSERT_OBJECT}"
+            --callable _ZN12JUTAssertion10getSDeviceEv
+            --keep "_ZN12JUTAssertion10showAssertEjPKciS1_"
+            --allow "OSPanic,_impure_ptr,abort,fprintf,memset,stderr,__aeabi_atexit,__dso_handle,_ZdlPvj,OSReport_Error,strncpy,OSReport,VISetNextFrameBuffer,VIWaitForRetrace,VIFlush,OSGetTime,OSTicksToMilliseconds,DCFlushRange,snprintf,vsnprintf"
+            $<TARGET_OBJECTS:cos_vita_assert_units>
+        DEPENDS cos_vita_assert_units "${COS_NATIVE_ROOT}/vita/reduce_profile_slice.py"
+        COMMAND_EXPAND_LISTS
+        COMMENT "Reducing the assertion path to getSDevice/showAssert and direct print"
+        VERBATIM)
+add_custom_target(cos_vita_assert DEPENDS "${COS_VITA_ASSERT_OBJECT}")
+set(COS_VITA_ASSERT_OBJECT "${COS_VITA_ASSERT_OBJECT}" CACHE INTERNAL
+        "The callable JUTAssertion getSDevice/showAssert closure for the Vita boot path")
 message(STATUS "cos_native: cos_vita_profile_slice (${_cos_profile_slice_unit_count} units, "
         "reduced to their g_profile_* data, plus the callable g_fpcLf_Method/g_fopOvlp_Method/"
         "g_fopMsg_Method/g_fopAc_Method/g_fopKy_Method/g_fopCam_Method/g_fopVw_Method/"

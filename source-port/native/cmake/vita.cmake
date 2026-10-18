@@ -85,16 +85,19 @@ if (COS_VITA_PROFILE_SLICE_OBJECT AND COS_VITA_FPC_CHAIN_OBJECT)
             "${COS_VITA_DELETEHEAP_OBJECT}"
             "${COS_VITA_CULLING_OBJECT}"
             "${COS_VITA_DEMO_OBJECT}"
+            "${COS_VITA_ASSERT_OBJECT}"
             $<TARGET_OBJECTS:cos_vita_milestone_units>)
     set_source_files_properties("${COS_VITA_PROFILE_SLICE_OBJECT}"
             "${COS_VITA_FPC_CHAIN_OBJECT}" "${COS_VITA_DELETEHEAP_OBJECT}"
-            "${COS_VITA_CULLING_OBJECT}" "${COS_VITA_DEMO_OBJECT}" PROPERTIES
+            "${COS_VITA_CULLING_OBJECT}" "${COS_VITA_DEMO_OBJECT}"
+            "${COS_VITA_ASSERT_OBJECT}" PROPERTIES
             EXTERNAL_OBJECT TRUE GENERATED TRUE)
     target_link_libraries(cos_vita_boot PRIVATE cos_game_headers cos_sdk)
     target_sources(cos_vita_boot PRIVATE "${COS_NATIVE_ROOT}/vita/stubs_libc.cpp")
     target_link_options(cos_vita_boot PRIVATE -Wl,--gc-sections)
     add_dependencies(cos_vita_boot cos_vita_profile_slice cos_vita_fpc_chain
-            cos_vita_deleteheap cos_vita_culling cos_vita_demo cos_vita_milestone_units)
+            cos_vita_deleteheap cos_vita_culling cos_vita_demo cos_vita_assert
+            cos_vita_milestone_units)
     cos_vita_configure_executable(cos_vita_boot)
 else ()
     message(WARNING "cos_native: the actor profile slice is unavailable; cos_vita_boot is skipped")
