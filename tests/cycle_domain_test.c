@@ -374,6 +374,107 @@ static void test_valid_domain_returns_the_configured_budget(void) {
     assert(domain.last_budget == 256u);
 }
 
+// prepare_dispatch writes through the CPUState, so a NULL one is inert.
+static void test_prepare_dispatch_refuses_null_cpu(void) {
+    BluewakeCycleDomain domain;
+    bluewake_cycle_domain_init(&domain, 256, advance, deadline, NULL);
+    domain.dispatch_cycles = 99u;
+
+    bluewake_cycle_domain_prepare_dispatch(&domain, NULL);
+
+    assert(domain.dispatch_cycles == 99u);
+}
+
+// Below the first page a CPUState cannot live: refuse before any store.
+static void test_prepare_dispatch_refuses_low_cpu(void) {
+    BluewakeCycleDomain domain;
+    bluewake_cycle_domain_init(&domain, 256, advance, deadline, NULL);
+    domain.dispatch_cycles = 99u;
+
+    bluewake_cycle_domain_prepare_dispatch(
+        &domain, (CPUState*)(uintptr_t)0x40u);
+
+    assert(domain.dispatch_cycles == 99u);
+}
+
+// A misaligned pointer cannot be the CPUState either.
+static void test_prepare_dispatch_refuses_misaligned_cpu(void) {
+    BluewakeCycleDomain domain;
+    bluewake_cycle_domain_init(&domain, 256, advance, deadline, NULL);
+    domain.dispatch_cycles = 99u;
+
+    bluewake_cycle_domain_prepare_dispatch(
+        &domain, (CPUState*)(uintptr_t)(0x10000u + 1u));
+
+    assert(domain.dispatch_cycles == 99u);
+}
+
+// A usable CPUState still receives the budget the domain configured.
+static void test_prepare_dispatch_accepts_valid_cpu(void) {
+    CPUState cpu;
+    memset(&cpu, 0, sizeof(cpu));
+    Fixture fixture = {.deadline = 100000u};
+    BluewakeCycleDomain domain;
+    bluewake_cycle_domain_init(&domain, 256, advance, deadline, &fixture);
+
+    bluewake_cycle_domain_prepare_dispatch(&domain, &cpu);
+
+    assert(cpu.cycle_budget == 256);
+    assert(cpu.cycle_deadline_budget == 100000);
+    assert(domain.dispatch_cycles == 0u);
+}
+
+// begin_turn resets the turn through the CPUState, so a NULL one is inert.
+static void test_begin_turn_refuses_null_cpu(void) {
+    BluewakeCycleDomain domain;
+    bluewake_cycle_domain_init(&domain, 256, advance, deadline, NULL);
+    domain.dispatch_cycles = 99u;
+
+    bluewake_cycle_domain_begin_turn(&domain, NULL);
+
+    assert(domain.dispatch_cycles == 99u);
+}
+
+// Below the first page a CPUState cannot live: refuse before any store.
+static void test_begin_turn_refuses_low_cpu(void) {
+    BluewakeCycleDomain domain;
+    bluewake_cycle_domain_init(&domain, 256, advance, deadline, NULL);
+    domain.dispatch_cycles = 99u;
+
+    bluewake_cycle_domain_begin_turn(&domain, (CPUState*)(uintptr_t)0x40u);
+
+    assert(domain.dispatch_cycles == 99u);
+}
+
+// A misaligned pointer cannot be the CPUState either.
+static void test_begin_turn_refuses_misaligned_cpu(void) {
+    BluewakeCycleDomain domain;
+    bluewake_cycle_domain_init(&domain, 256, advance, deadline, NULL);
+    domain.dispatch_cycles = 99u;
+
+    bluewake_cycle_domain_begin_turn(
+        &domain, (CPUState*)(uintptr_t)(0x10000u + 1u));
+
+    assert(domain.dispatch_cycles == 99u);
+}
+
+// A usable CPUState still starts a fail-closed turn.
+static void test_begin_turn_accepts_valid_cpu(void) {
+    CPUState cpu;
+    memset(&cpu, 0, sizeof(cpu));
+    BluewakeCycleDomain domain;
+    bluewake_cycle_domain_init(&domain, 256, advance, deadline, NULL);
+    domain.dispatch_cycles = 99u;
+
+    bluewake_cycle_domain_begin_turn(&domain, &cpu);
+
+    assert(domain.dispatch_cycles == 0u);
+    assert(cpu.downcount == 0);
+    assert(cpu.cycle_budget == 1);
+    assert(cpu.cycle_deadline_active == 1u);
+    assert(cpu.cycle_deadline_budget == 1);
+}
+
 int main(void) {
     test_idle_advance_reaches_the_deadline_in_one_turn();
     test_idle_advance_clamps_at_the_event();
@@ -392,6 +493,14 @@ int main(void) {
     test_invalid_domain_low_pointer_fails_closed();
     test_invalid_domain_misaligned_pointer_fails_closed();
     test_valid_domain_returns_the_configured_budget();
+    test_prepare_dispatch_refuses_null_cpu();
+    test_prepare_dispatch_refuses_low_cpu();
+    test_prepare_dispatch_refuses_misaligned_cpu();
+    test_prepare_dispatch_accepts_valid_cpu();
+    test_begin_turn_refuses_null_cpu();
+    test_begin_turn_refuses_low_cpu();
+    test_begin_turn_refuses_misaligned_cpu();
+    test_begin_turn_accepts_valid_cpu();
 
     CPUState cpu;
     Fixture fixture = {.deadline = 900u};

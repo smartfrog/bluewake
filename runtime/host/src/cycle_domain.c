@@ -29,6 +29,14 @@ static bool domain_is_usable(const BluewakeCycleDomain* domain) {
            address % _Alignof(BluewakeCycleDomain) == 0u;
 }
 
+// The CPUState arrives through the same hand-off as the domain. A corrupt host
+// can hand us a non-NULL pointer that no store may touch.
+static bool cpu_is_usable(const CPUState* cpu) {
+    const uintptr_t address = (uintptr_t)cpu;
+    return address >= (uintptr_t)0x10000u &&
+           address % _Alignof(CPUState) == 0u;
+}
+
 static void report_invalid_domain(const void* domain, const void* cpu,
                                   const void* caller) {
     static unsigned reported;
@@ -153,6 +161,10 @@ void bluewake_cycle_domain_begin_turn(BluewakeCycleDomain* domain,
                                       CPUState* cpu) {
     if (domain == NULL || cpu == NULL)
         return;
+    if (!cpu_is_usable(cpu)) {
+        report_invalid_domain(domain, cpu, __builtin_return_address(0));
+        return;
+    }
     domain->dispatch_cycles = 0u;
     // An idle turn is a per-turn decision: never carry one into the next turn.
     domain->idle_turn = false;
@@ -168,6 +180,10 @@ void bluewake_cycle_domain_prepare_dispatch(BluewakeCycleDomain* domain,
                                              CPUState* cpu) {
     if (domain == NULL || cpu == NULL)
         return;
+    if (!cpu_is_usable(cpu)) {
+        report_invalid_domain(domain, cpu, __builtin_return_address(0));
+        return;
+    }
     (void)bluewake_cycle_domain_flush(domain, cpu);
     cpu->cycle_budget = bounded_budget(
         domain, cpu, &cpu->cycle_deadline_active,
