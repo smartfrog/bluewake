@@ -8,6 +8,9 @@
 #include <cstdio>
 #include <new>
 
+static stage_map_info_class g_mapInfo = {};
+static stage_stag_info_class g_stagInfo = {};
+
 int main() {
     reset_gx_counters();
 
@@ -19,6 +22,17 @@ int main() {
     J2DGrafContext graf(0.0f, 0.0f, 640.0f, 480.0f);
     dComIfGp_setCurrentGrafPort(reinterpret_cast<J2DOrthoGraph*>(&graf));
 
+    info->play.mStageData.mpStagInfo = &g_stagInfo;
+
+    dMap_RoomInfo_c room = {};
+    room.field_0x1 = 3;
+    room.m_no = 0;
+    room.mStageMapInfoP = &g_mapInfo;
+    dMap_c::mNowRoomInfoP = &room;
+    dMap_c::mRoomInfoCtrl.m_info = nullptr;
+    dMap_c::setMapDispMode(0);
+    new (&dMap_c::m2DSQdraw) dMap_2DSQ_c();
+    new (&dMap_c::m2DSQdraw2) dMap_2DSQ_c();
     dMap_c::mDispPosLeftUpX = 25;
     dMap_c::mDispPosLeftUpY = 338;
     dMap_c::mDispSizeX = 120;
@@ -42,7 +56,7 @@ int main() {
     }
 
 
-    dMap_c::mapDrawFrame(255);
+    dMap_c::mapDrawAll(0.0f, 0.0f, 0, 0.0f);
     list.draw2DOpa();
 
 
@@ -64,9 +78,9 @@ int main() {
                 g_gx.set_vtx_fmtv, g_gx.get_vtx_fmt, g_gx.set_num_ind_stages, g_gx.set_tev_direct,
                 g_gx.pos2f);
 
-    const bool ok = g_gx.begin >= 9 && g_gx.pos3f >= 0 && g_gx.pos3s16 >= 32 &&
-                    g_gx.tex2f >= 36 && g_gx.load_tex_obj >= 9 && g_gx.end >= 8 &&
-                    g_gx.set_vtx_fmtv >= 8 && g_gx.get_vtx_fmt >= 8 &&
+    const bool ok = g_gx.begin >= 11 && g_gx.pos3f >= 8 && g_gx.pos3s16 >= 32 &&
+                    g_gx.tex2f >= 36 && g_gx.load_tex_obj >= 9 && g_gx.end >= 10 &&
+                    g_gx.set_vtx_fmtv >= 10 && g_gx.get_vtx_fmt >= 10 &&
                     g_gx.set_num_ind_stages >= 1 && g_gx.set_tev_direct >= 8 &&
                     g_gx.pos2f >= 4;
     std::printf("map-draw: %s\n", ok ? "ok" : "FAIL");

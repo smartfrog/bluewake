@@ -409,26 +409,25 @@ add_custom_target(cos_vita_map_j2d DEPENDS "${COS_VITA_MAP_J2D_OBJECT}")
 set(COS_VITA_MAP_J2D_OBJECT "${COS_VITA_MAP_J2D_OBJECT}" CACHE INTERNAL
         "The R1 host J2D map draw object")
 
-# R2 host map draw harness: the real mapDrawFrame enqueue path (the smallest mapDrawAll child
-# that does not need the virtual stage data) plus the real dDlst_list_c draw drain. dMap_2DT2_c::draw
-# stays available for the J2D leaf check.
+# R2 host map draw harness: the real mapDrawAll enqueue path (with a synthetic stage-info object)
+# plus the real dDlst_list_c draw drain. dMap_2DT2_c::draw stays available for the J2D leaf check.
 set(COS_VITA_MAP_DRAW_OBJECT "${CMAKE_BINARY_DIR}/vita_map_draw.o")
 add_custom_command(OUTPUT "${COS_VITA_MAP_DRAW_OBJECT}"
         COMMAND "${Python3_EXECUTABLE}" "${COS_NATIVE_ROOT}/vita/reduce_profile_slice.py"
             --nm "${CMAKE_NM}" --objcopy "${CMAKE_OBJCOPY}" --objdump "${CMAKE_OBJDUMP}"
             --readelf "${CMAKE_READELF}" --ld "${CMAKE_LINKER}"
             --output "${COS_VITA_MAP_DRAW_OBJECT}"
-            --callable _ZN6dMap_c12mapDrawFrameEh
+            --callable _ZN6dMap_c10mapDrawAllEffif
             --keep "_ZN11dMap_2DT2_c4drawEv,_ZN6dMap_c13mNowRoomInfoPE,_ZN6dMap_c13mRoomInfoCtrlE,_ZN6dMap_c12mMapDispModeE,_ZN6dMap_c15mDispPosLeftUpXE,_ZN6dMap_c15mDispPosLeftUpYE,_ZN6dMap_c10mDispSizeXE,_ZN6dMap_c10mDispSizeYE,_ZN6dMap_c6mAlphaE,_ZN6dMap_c10mCompAlphaE,_ZN6dMap_c9mFrameTexE,_ZN6dMap_c13mFrameTextureE,_ZN6dMap_c9m2DSQdrawE,_ZN6dMap_c10m2DSQdraw2E,_ZTV18dMap_2DMtMapSpcl_c,_ZTV18dMap_2DAGBScrDsp_c,_ZTV11dMap_2DSQ_c"
             --allow "g_dComIfG_gameInfo,g_HIO,g_mapHIO,g_clearColor,j3dSys,C_MTXIdentity,C_MTXTrans,_Z12mDoMtx_ZrotMPA4_fs,_ZN14mDoMtx_stack_c3nowE,dComIfGd_set2DOpa,OSPanic,_ZN12JUTAssertion10getSDeviceEv,_ZN12JUTAssertion10showAssertEjPKciS1_,_ZN12dDlst_list_c3setERPP12dDlst_base_cS3_S1_,_Z15mDoLib_cnvind16t,_Z15mDoLib_cnvind32j,_ZdlPvm,fmodf,memset,GXEnd,GXGetVtxAttrFmtv,GXLoadTlut,GXPosition3f32,GXPosition3s16,GXSetAlphaUpdate,GXSetColorUpdate,GXSetDstAlpha,GXSetVtxAttrFmtv,GXSetVtxAttrFmt,GXClearVtxDesc,GXSetVtxDesc,GXLoadTexObj,GXSetNumChans,GXSetTevColor,GXSetNumTexGens,GXSetTexCoordGen2,GXSetNumTevStages,GXSetTevOrder,GXSetTevColorIn,GXSetTevColorOp,GXSetTevAlphaIn,GXSetTevAlphaOp,GXSetZCompLoc,GXSetZMode,GXSetBlendMode,GXSetAlphaCompare,GXSetFog,GXSetCullMode,GXSetDither,GXSetClipMode,GXLoadPosMtxImm,GXSetCurrentMtx,GXSetScissor,GXBegin,GXPosition2f32,GXTexCoord2f32,GXSetNumIndStages,GXSetTevDirect,GXSetTevOp,GXLoadTexMtxImm,GXSetChanCtrl,GXSetLineWidth,GXSetViewport"
             $<TARGET_OBJECTS:cos_vita_map_units>
         DEPENDS cos_vita_map_units "${COS_NATIVE_ROOT}/vita/reduce_profile_slice.py"
         COMMAND_EXPAND_LISTS
-        COMMENT "Reducing the R2 mapDrawFrame closure"
+        COMMENT "Reducing the R2 mapDrawAll closure"
         VERBATIM)
 add_custom_target(cos_vita_map_draw DEPENDS "${COS_VITA_MAP_DRAW_OBJECT}")
 set(COS_VITA_MAP_DRAW_OBJECT "${COS_VITA_MAP_DRAW_OBJECT}" CACHE INTERNAL
-        "The R2 mapDrawFrame draw object")
+        "The R2 mapDrawAll draw object")
 
 add_library(cos_vita_drawlist_units OBJECT EXCLUDE_FROM_ALL
         "${COS_ROOT}/src/d/d_drawlist.cpp")
