@@ -130,6 +130,12 @@ CPUState* bw_guest_ram_guard_slow(CPUState* cpu) {
         bw_guest_ram_guard_note("ram", cpu, bad, g_bw_guest_ram);
         cpu->ram = g_bw_guest_ram;
         cpu->ram_size = g_bw_guest_ram_size;
+    } else if (cpu != NULL && cpu->ram_size != g_bw_guest_ram_size) {
+        g_bw_guest_ram_guard.ram_repairs++;
+        bw_guest_ram_guard_note("ram-size", cpu,
+                                (const void*)(uintptr_t)cpu->ram_size,
+                                (const void*)(uintptr_t)g_bw_guest_ram_size);
+        cpu->ram_size = g_bw_guest_ram_size;
     }
     return cpu;
 }

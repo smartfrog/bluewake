@@ -1179,6 +1179,76 @@ def test_global_ctx_dol_scope_rejects_unprepared_chunk_without_writing():
             assert path.read_bytes() == original
 
 
+def test_ram_guard_repairs_a_corrupted_ram_size():
+    """Trial #26's first wild store is a guest address turned into a host
+    pointer because cpu->ram_size was corrupted while cpu->ram still matched
+    the adopted base. The guard must repair the size too, or get_ram_ptr
+    accepts an out-of-range guest address and 0x28bc8421 becomes a host store.
+    """
+    with tempfile.TemporaryDirectory() as td:
+        td = Path(td)
+        (td / 'core').mkdir()
+        (td / 'core' / 'cpu.h').write_text(
+            '#ifndef BW_TEST_RAM_SIZE_CPU_H\n#define BW_TEST_RAM_SIZE_CPU_H\n'
+            '#include <stdbool.h>\n#include <stddef.h>\n#include <stdint.h>\n#include <stdio.h>\n'
+            'typedef uint8_t u8; typedef uint16_t u16; typedef uint32_t u32;\n'
+            'typedef uint64_t u64; typedef int64_t s64;\n'
+            '#define GC_RAM_BASE 0x80000000u\n'
+            'typedef struct CPUState { u32 gpr[32]; u32 pc, lr; u32 ram_size; u8* ram; } CPUState;\n'
+            'static inline u8* get_ram_ptr(CPUState* cpu, u32 addr, u32 size, u32* out) {\n'
+            '    const u32 offset = addr - GC_RAM_BASE;\n'
+            '    if (addr >= GC_RAM_BASE && size <= cpu->ram_size && offset <= cpu->ram_size - size) {\n'
+            '        if (out) *out = offset;\n'
+            '        return cpu->ram + offset;\n'
+            '    }\n'
+            '    return 0;\n'
+            '}\n'
+            'static inline u8 mem_read8(CPUState* cpu, u32 addr) {\n'
+            '    u8* p = get_ram_ptr(cpu, addr, 1, 0); return p ? *p : 0u;\n'
+            '}\n'
+            'static inline u16 mem_read16(CPUState*, u32) { return 0u; }\n'
+            'static inline u32 mem_read32(CPUState*, u32) { return 0u; }\n'
+            'static inline u64 mem_read64(CPUState*, u32) { return 0u; }\n'
+            'static inline void mem_write8(CPUState* cpu, u32 addr, u8 v) {\n'
+            '    u8* p = get_ram_ptr(cpu, addr, 1, 0); if (p) *p = v;\n'
+            '}\n'
+            'static inline void mem_write16(CPUState*, u32, u16) {}\n'
+            'static inline void mem_write32(CPUState*, u32, u32) {}\n'
+            'static inline void mem_write64(CPUState*, u32, u64) {}\n'
+            '#endif\n')
+        main = td / 'main.c'
+        main.write_text(
+            '#include <assert.h>\n#include <stdint.h>\n#include <string.h>\n'
+            '#include "guest_ram_guard.h"\n'
+            'int main(void) {\n'
+            '    static u8 ram[0x1000];\n'
+            '    CPUState cpu;\n'
+            '    memset(&cpu, 0, sizeof cpu);\n'
+            '    memset(ram, 0, sizeof ram);\n'
+            '    cpu.ram = ram; cpu.ram_size = sizeof ram;\n'
+            '    bw_guest_ram_guard_adopt(&cpu);\n'
+            '    cpu.ram_size = 0u;\n'
+            '    bw_guest_mem_write8(&cpu, 0x80000020u, 0xABu);\n'
+            '    assert(cpu.ram_size == sizeof ram);\n'
+            '    assert(ram[0x20] == 0xABu);\n'
+            '    cpu.ram = (u8*)(uintptr_t)0x80000000u;\n'
+            '    cpu.ram_size = 0xFFFFFFFFu;\n'
+            '    bw_guest_ram_guard_slow(&cpu);\n'
+            '    assert(cpu.ram == ram);\n'
+            '    assert(cpu.ram_size == sizeof ram);\n'
+            '    bw_guest_ram_guard_forget();\n'
+            '    return 0;\n'
+            '}\n')
+        probe = td / 'probe'
+        subprocess.run(['cc', '-std=c11', '-Wall', '-Wextra', '-Werror',
+                        '-DBW_GUEST_RAM_GUARD_WRAP=1', '-DBW_GUEST_GLOBAL_CTX=1',
+                        '-include', str(SCRIPTS_DIR.parent / 'cmake/composite/guest_ram_guard.h'),
+                        '-I', str(td), '-I', str(SCRIPTS_DIR.parent / 'cmake/composite'),
+                        str(main), str(SCRIPTS_DIR.parent / 'cmake/composite/guest_ram_guard.c'),
+                        '-o', str(probe)], check=True, capture_output=True, text=True)
+        subprocess.run([str(probe)], check=True, capture_output=True, text=True)
+
+
 def test_scoped_global_ctx_chunk_uses_the_adopted_state():
     """A synthetic transformed chunk called with trial #24/#25's bogus pointer
     (0x800A29C4, a guest stack address) writes through the adopted CPU, and the
@@ -1383,6 +1453,7 @@ def main():
         test_scoped_global_ctx_transform_touches_only_selected_chunks,
         test_global_ctx_dol_scope_rewrites_every_dol_chunk,
         test_global_ctx_dol_scope_rejects_unprepared_chunk_without_writing,
+        test_ram_guard_repairs_a_corrupted_ram_size,
         test_scoped_global_ctx_chunk_uses_the_adopted_state,
         test_ship_identity_uses_disc_member_not_processed_member,
         test_ship_sources_reject_differences_outside_alignment_word,

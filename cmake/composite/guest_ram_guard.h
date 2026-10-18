@@ -10,13 +10,15 @@
  * guest store at 0x800A2A30. Both are host-state corruption: every guest value
  * in the dumps is ordinary (.data addresses, zero stored value).
  *
- * get_ram_ptr and the mem_* accessors read cpu->ram for every access, so a
- * write to that one field turns every later guest store into a wild host store.
- * The base adopted at init cannot be corrupted by the guest the same way: it
- * is a host global, not guest-addressable state. The chunks' memory helpers
- * therefore compare cpu->ram with it, repair the field when it differs, and
- * report the first occurrences, keeping the ordinary inline fast path for an
- * intact CPU. A corrupted CPU pointer (a stale or garbage CPUState) is
+ * get_ram_ptr and the mem_* accessors read cpu->ram and cpu->ram_size for every
+ * access, so a write to either field turns a later guest store into a wild host
+ * store: with a corrupted size an out-of-range guest address passes the bounds
+ * check and becomes cpu->ram + a huge offset. The base and size adopted at init
+ * cannot be corrupted by the guest the same way: they are host globals, not
+ * guest-addressable state. The chunks' memory helpers therefore compare both
+ * fields with them, repair the pair when either differs, and report the first
+ * occurrences, keeping the ordinary inline fast path for an intact CPU. A
+ * corrupted CPU pointer (a stale or garbage CPUState) is
  * redirected to the adopted CPUState, which is the only guest CPU in this host.
  * Redirecting one access is not enough for the pointer itself: the chunk keeps
  * its CPUState in a register for the whole block and reaches pc, lr and every
@@ -118,7 +120,8 @@ static inline __attribute__((always_inline)) CPUState* bw_guest_ctx_canonical(CP
 
 static inline __attribute__((always_inline)) CPUState* bw_guest_ram_guard_access(CPUState* cpu) {
     const bool intact = g_bw_guest_cpu == NULL ||
-                        (g_bw_guest_cpu == cpu && cpu->ram == g_bw_guest_ram);
+                        (g_bw_guest_cpu == cpu && cpu->ram == g_bw_guest_ram &&
+                         cpu->ram_size == g_bw_guest_ram_size);
     if (__builtin_expect(intact, 1))
         return cpu;
     return bw_guest_ram_guard_slow(cpu);
