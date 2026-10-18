@@ -74,6 +74,62 @@ class EndNoteTests(unittest.TestCase):
                          f'reason=guest-fault\ndetail={line}\n')
 
 
+class PreflightTests(unittest.TestCase):
+    def setUp(self):
+        self.temporary = tempfile.TemporaryDirectory(dir='/tmp/opencode')
+        self.root = Path(self.temporary.name)
+        self.fixture = self.root / watch_guest.FIXTURE_DIR
+        self.fixture.mkdir(parents=True)
+        for name in ('ww05.request', 'ww05.continue', 'ww05.audio'):
+            (self.fixture / name).write_text('request\n')
+
+    def tearDown(self):
+        self.temporary.cleanup()
+
+    def test_complete_fixture_passes(self):
+        self.assertIsNone(watch_guest.preflight(self.root))
+
+    def test_missing_continue_is_named(self):
+        (self.fixture / 'ww05.continue').unlink()
+        self.assertEqual(watch_guest.preflight(self.root), 'missing ww05.continue')
+
+    def test_missing_audio_is_named(self):
+        (self.fixture / 'ww05.audio').unlink()
+        self.assertEqual(watch_guest.preflight(self.root), 'missing ww05.audio')
+
+    def test_previous_outputs_are_named(self):
+        for name in ('ww05.dispatch', 'ww05.log', 'ww05.partial', 'ww05.report'):
+            with self.subTest(present=name):
+                path = self.fixture / name
+                path.write_text('output\n')
+                self.assertEqual(watch_guest.preflight(self.root), f'present {name}')
+                path.unlink()
+
+    def test_required_file_is_reported_before_a_previous_output(self):
+        (self.fixture / 'ww05.continue').unlink()
+        (self.fixture / 'ww05.dispatch').write_text('output\n')
+        self.assertEqual(watch_guest.preflight(self.root), 'missing ww05.continue')
+
+
+class WatchPreflightTests(unittest.TestCase):
+    def setUp(self):
+        self.temporary = tempfile.TemporaryDirectory(dir='/tmp/opencode')
+        self.root = Path(self.temporary.name)
+
+    def tearDown(self):
+        self.temporary.cleanup()
+
+    def test_incomplete_fixture_ends_the_watch_without_a_guest(self):
+        fixture = self.root / watch_guest.FIXTURE_DIR
+        fixture.mkdir(parents=True)
+        for name in ('ww05.request', 'ww05.audio'):
+            (fixture / name).write_text('request\n')
+        self.assertEqual(watch_guest.watch(self.root), 1)
+        self.assertEqual((self.root / 'live-end.txt').read_text(),
+                         'reason=preflight-failed\ndetail=missing ww05.continue\n')
+        self.assertFalse((self.root / 'cpu-samples.jsonl').exists())
+
+
 class StopGuestTests(unittest.TestCase):
     def test_terminates_a_guest_with_sigterm(self):
         guest = subprocess.Popen(['sleep', '30'])
