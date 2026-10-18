@@ -132,6 +132,7 @@ typedef struct WwHost {
     u32 alias_count;
     u64 edges;
     u64 turns;
+    u64 efb_peeks;
     u64 exi_transfers;
     u64 disc_reads;
     u64 next_edge_progress;

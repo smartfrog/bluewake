@@ -291,7 +291,67 @@ int main(int argc, char** argv) {
         assert(host->error != NULL);
         assert(host->error_address == 0xCC007000u);
         assert(host->error_pc == 0x80001000u);
+        assert(host->error_width == 4u && host->error_value == 0u);
         assert(ww_host_edge(host, &host->cpu, host->cpu.pc));
+    } else if (strcmp(argv[1], "efb-peek") == 0) {
+        assert(setenv("WW05_EFB_PEEK", "1", 1) == 0);
+        host->cpu.pc = 0x80322E04u;
+        mem_write32(&host->cpu, 0x80001000u, 0xA5A5A5A5u);
+        host->gather.size = 3u;
+        host->gather.transfers = 7u;
+        host->frontier.size = 2u;
+        host->frontier.pc = 0x80001000u;
+        host->frontier.completion_pc = 0x80001004u;
+        host->frontier.trailing_bytes = 9u;
+        host->frontier.complete = true;
+        host->cp_fifo_distance = 11u;
+        host->stream.decoded = 13u;
+        host->cpu.downcount = -17;
+        const WwGxCheckpoint frontier = host->frontier;
+        const WwGxStream stream = host->stream;
+        const WwGatherPipe gather = host->gather;
+        const DolGxRecompState gx = host->gx;
+        const DolInterrupts interrupts = host->interrupts;
+        assert(host->cpu.external_read(&host->cpu, 0xC84F0500u, 4u) == 0u);
+        assert(host->error == NULL);
+        assert(memcmp(&frontier, &host->frontier, sizeof frontier) == 0);
+        assert(memcmp(&gather, &host->gather, sizeof gather) == 0);
+        assert(memcmp(&stream, &host->stream, sizeof stream) == 0);
+        assert(memcmp(&gx, &host->gx, sizeof gx) == 0);
+        assert(memcmp(&interrupts, &host->interrupts, sizeof interrupts) == 0);
+        assert(host->cp_fifo_distance == 11u);
+        assert(host->cpu.downcount == -17);
+        assert(mem_read32(&host->cpu, 0x80001000u) == 0xA5A5A5A5u);
+        assert(host->cpu.external_read(&host->cpu, 0xC8400000u, 4u) == 0u);
+        assert(host->error == NULL);
+        assert(host->efb_peeks == 2u);
+        host->cpu.external_read(&host->cpu, 0xC8000000u, 4u);
+        assert(host->error != NULL);
+        assert(host->error_address == 0xC8000000u);
+        assert(host->error_width == 4u && host->error_value == 0u);
+    } else if (strcmp(argv[1], "efb-peek-default") == 0) {
+        host->cpu.pc = 0x80322E04u;
+        assert(host->cpu.external_read(&host->cpu, 0xC84F0500u, 4u) == 0u);
+        assert(host->error != NULL);
+        assert(host->error_address == 0xC84F0500u);
+        assert(host->error_width == 4u && host->error_value == 0u);
+        assert(host->efb_peeks == 0u);
+    } else if (strcmp(argv[1], "efb-peek-color") == 0) {
+        assert(setenv("WW05_EFB_PEEK", "1", 1) == 0);
+        host->cpu.pc = 0x80322E04u;
+        assert(host->cpu.external_read(&host->cpu, 0xC8000000u, 4u) == 0u);
+        assert(host->error != NULL);
+        assert(host->error_address == 0xC8000000u);
+        assert(host->error_width == 4u && host->error_value == 0u);
+        assert(host->efb_peeks == 0u);
+    } else if (strcmp(argv[1], "efb-peek-width") == 0) {
+        assert(setenv("WW05_EFB_PEEK", "1", 1) == 0);
+        host->cpu.pc = 0x80322E04u;
+        assert(host->cpu.external_read(&host->cpu, 0xC84F0500u, 2u) == 0u);
+        assert(host->error != NULL);
+        assert(host->error_address == 0xC84F0500u);
+        assert(host->error_width == 2u && host->error_value == 0u);
+        assert(host->efb_peeks == 0u);
     } else if (strcmp(argv[1], "pvr") == 0) {
         assert(ppc_mfspr(&host->cpu, 287u, 0x80001000u) == 0x00083214u);
         assert(host->error == NULL);

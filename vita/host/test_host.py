@@ -121,6 +121,18 @@ class StartupHostTest(unittest.TestCase):
     def test_unknown_mmio_stops_with_context(self):
         subprocess.run([str(OUT / 'host_probe'), 'unknown-mmio'], check=True)
 
+    def test_gx_depth_peek_answers_the_headless_value_without_touching_state(self):
+        subprocess.run([str(OUT / 'host_probe'), 'efb-peek'], check=True)
+
+    def test_gx_depth_peek_is_opt_in(self):
+        subprocess.run([str(OUT / 'host_probe'), 'efb-peek-default'], check=True)
+
+    def test_gx_depth_peek_leaves_the_colour_aperture_unclaimed(self):
+        subprocess.run([str(OUT / 'host_probe'), 'efb-peek-color'], check=True)
+
+    def test_gx_depth_peek_leaves_odd_widths_unclaimed(self):
+        subprocess.run([str(OUT / 'host_probe'), 'efb-peek-width'], check=True)
+
     def test_runtime_pvr_is_preserved(self):
         subprocess.run([str(OUT / 'host_probe'), 'pvr'], check=True)
 
