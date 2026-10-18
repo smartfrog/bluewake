@@ -10,6 +10,7 @@
 #include "dolphin/gx/GXBump.h"
 #include "dolphin/mtx/mtx.h"
 #include "m_Do/m_Do_mtx.h"
+#include "JSystem/JUtility/JUTAssert.h"
 
 GxCounters g_gx;
 Mtx mDoMtx_stack_c::now;
@@ -39,9 +40,11 @@ extern "C" void C_MTXTrans(Mtx m, f32 x, f32 y, f32 z) {
 
 extern "C" {
 void GXSetVtxAttrFmt(GXVtxFmt, GXAttr, GXCompCnt, GXCompType, u8) { g_gx.set_vtx_fmt++; }
+void GXSetVtxAttrFmtv(GXVtxFmt, const GXVtxAttrFmtList*) { g_gx.set_vtx_fmtv++; }
+void GXGetVtxAttrFmtv(GXVtxFmt, GXVtxAttrFmtList* list) { g_gx.get_vtx_fmt++; if (list) list[0].attr = GX_VA_NULL; }
 void GXClearVtxDesc() {}
 void GXSetVtxDesc(GXAttr, GXAttrType) {}
-void GXLoadTexObj(GXTexObj*, GXTexMapID) {}
+void GXLoadTexObj(GXTexObj*, GXTexMapID) { g_gx.load_tex_obj++; }
 void GXSetNumChans(u8) {}
 void GXSetTevColor(GXTevRegID, GXColor) { g_gx.set_tev_color++; }
 void GXSetNumTexGens(u8) {}
@@ -64,7 +67,10 @@ void GXLoadPosMtxImm(const void*, u32) { g_gx.load_pos_mtx++; }
 void GXSetCurrentMtx(u32) {}
 void GXSetScissor(u32, u32, u32, u32) { g_gx.set_scissor++; }
 void GXBegin(GXPrimitive, GXVtxFmt, u16) { g_gx.begin++; }
+void GXEnd(void) { g_gx.end++; }
 void GXPosition2f32(f32, f32) { g_gx.pos2f++; }
+void GXPosition3f32(f32, f32, f32) { g_gx.pos3f++; }
+void GXPosition3s16(s16, s16, s16) { g_gx.pos3s16++; }
 void GXTexCoord2f32(f32, f32) { g_gx.tex2f++; }
 void GXSetNumIndStages(u8) { g_gx.set_num_ind_stages++; }
 void GXSetTevDirect(GXTevStageID) { g_gx.set_tev_direct++; }
@@ -74,5 +80,17 @@ void GXSetChanCtrl(GXChannelID, GXBool, GXColorSrc, GXColorSrc, u32, GXDiffuseFn
     g_gx.set_chan_ctrl++;
 }
 void GXSetLineWidth(u8, GXTexOffset) { g_gx.set_line_width++; }
+void GXSetColorUpdate(GXBool) { g_gx.color_update++; }
+void GXSetAlphaUpdate(GXBool) { g_gx.alpha_update++; }
+void GXSetDstAlpha(GXBool, u8) { g_gx.dst_alpha++; }
 void GXSetViewport(f32, f32, f32, f32, f32, f32) {}
+void GXLoadTlut(const GXTlutObj*, u32) {}
+}
+
+u16 mDoLib_cnvind16(u16 v) { return v; }
+u32 mDoLib_cnvind32(u32 v) { return v; }
+
+namespace JUTAssertion {
+u32 getSDevice() { return 0; }
+void showAssert(u32, const char*, int, const char*) {}
 }

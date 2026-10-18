@@ -15,6 +15,15 @@ struct GxCounters {
     int set_fog;
     int set_chan_ctrl;
     int set_tev_color;
+    int pos3f;
+    int pos3s16;
+    int end;
+    int load_tex_obj;
+    int get_vtx_fmt;
+    int set_vtx_fmtv;
+    int color_update;
+    int alpha_update;
+    int dst_alpha;
 };
 
 extern GxCounters g_gx;
