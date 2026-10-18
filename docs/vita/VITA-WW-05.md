@@ -149,6 +149,15 @@ mapping, compiled ABI, single-owner symbols and all compiled frame sizes. This i
 any load. The source SHA is embedded after commit; an artifact is described as executed only when
 its own run record binds its exact bytes. Packaging timestamps need not be bit-reproducible; the exact
 built bytes are hashed.
+The builder passes every profile lever explicitly, so a reused `vita/` tree cannot keep a cached
+value: `--no-*` sends `OFF`, `--turn-cap 0` sends `0`, and the experimental switches
+(`WW05_DISPATCH_ABI_SENTINEL`, `WW05_OBSERVE_NATIVE_CTX`, `WW05_QUIET_LOGGING`, `WW05_GLOBAL_CTX`,
+`WW05_ENABLE_SHIP_PROLOG`, `WW05_ENABLE_TITLE_CONTRACT`, `WW05_ENABLE_IKADA_CONTRACT`,
+`WW05_ENABLE_ACTOR_BATCH_CONTRACTS`) are sent `OFF`. `WW05_RAM_GUARD` is sent `ON`;
+`--no-ram-guard` is a timing trial, not a profile. After configuring, the builder reads
+`vita/CMakeCache.txt` and stops before compiling if any of those entries is missing, non-boolean or
+disagrees with the config it is about to record in `build-evidence.json`; remove a stale tree rather
+than reusing it.
 Each completed build preserves its five artifact files, footprint, link map, compile commands and
 receipt in a fresh `artifacts-<uuid>/` directory. Rebuilding never overwrites these retained bytes;
 individual run plans refer to that preserved build, not merely a mutable filename in `vita/`.
