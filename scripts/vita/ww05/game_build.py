@@ -99,7 +99,7 @@ class Build:
 
 
 def dst_alpha_configure_option(enabled):
-    return ['-DWW_RENDERER_DST_ALPHA_ADMIT=ON'] if enabled else []
+    return [f'-DWW_RENDERER_DST_ALPHA_ADMIT={"ON" if enabled else "OFF"}']
 
 
 def edge_observation_admit_configure_option(enabled):
@@ -117,11 +117,15 @@ def checked_turn_cap(turn_cap):
 
 
 def turn_cap_configure_option(turn_cap):
-    return [] if checked_turn_cap(turn_cap) == 0 else [f'-DWW_TURN_CAP={turn_cap}']
+    return [f'-DWW_TURN_CAP={checked_turn_cap(turn_cap)}']
 
 
 def program_cache_configure_option(enabled):
-    return ['-DWW_PROGRAM_CACHE=ON'] if enabled else []
+    return [f'-DWW_PROGRAM_CACHE={"ON" if enabled else "OFF"}']
+
+
+def ram_guard_configure_option(enabled):
+    return [f'-DWW05_RAM_GUARD={"ON" if enabled else "OFF"}']
 
 
 def rejection_capsule_configure_option(enabled):
@@ -134,13 +138,15 @@ def skip_title_logo_configure_option(enabled):
 
 def experimental_configure_options():
     return ['-DWW05_DISPATCH_ABI_SENTINEL=OFF', '-DWW05_OBSERVE_NATIVE_CTX=OFF',
-            '-DWW05_QUIET_LOGGING=OFF', '-DWW05_GLOBAL_CTX=OFF']
+            '-DWW05_QUIET_LOGGING=OFF', '-DWW05_GLOBAL_CTX=OFF',
+            '-DWW05_ENABLE_SHIP_PROLOG=OFF', '-DWW05_ENABLE_TITLE_CONTRACT=OFF',
+            '-DWW05_ENABLE_IKADA_CONTRACT=OFF', '-DWW05_ENABLE_ACTOR_BATCH_CONTRACTS=OFF']
 
 
 def vita_configure_arguments(cmake, ninja, source, output, toolchain, recompcore, composite, identity, dol,
                              vitagl, renderer_sdk, opt_level, vi_clock, pad_input, dst_alpha_admit,
                              edge_observation_admit, idle_deadline_advance, turn_cap, program_cache,
-                             rejection_capsule, skip_title_logo):
+                             ram_guard, rejection_capsule, skip_title_logo):
     return [
         cmake, '-S', source, '-B', output, '-G', 'Ninja',
         f'-DCMAKE_TOOLCHAIN_FILE={toolchain}',
@@ -156,6 +162,7 @@ def vita_configure_arguments(cmake, ninja, source, output, toolchain, recompcore
         *idle_deadline_advance_configure_option(idle_deadline_advance),
         *turn_cap_configure_option(turn_cap),
         *program_cache_configure_option(program_cache),
+        *ram_guard_configure_option(ram_guard),
         *rejection_capsule_configure_option(rejection_capsule),
         *skip_title_logo_configure_option(skip_title_logo),
         *experimental_configure_options(),
@@ -177,9 +184,13 @@ def build_parser():
     parser.add_argument('--idle-deadline-advance', action=argparse.BooleanOptionalAction, default=True,
                         help='let a recognised scheduler-idle turn run to the next device deadline (needs the VI clock; on by default)')
     parser.add_argument('--turn-cap', type=int, default=4096,
-                        help='cap scheduler turns per host frame (default 4096; zero keeps the CMake default)')
+                        help='cap scheduler turns per host frame (default 4096; zero builds the '
+                             'parent 256-cycle cap)')
     parser.add_argument('--program-cache', action=argparse.BooleanOptionalAction, default=True,
                         help='translated-program cache (on by default)')
+    parser.add_argument('--ram-guard', action=argparse.BooleanOptionalAction, default=True,
+                        help='keep guest MEM1 on the base adopted after cpu_init (on by default; '
+                             '--no-ram-guard is a timing trial only)')
     parser.add_argument('--rejection-capsule', action=argparse.BooleanOptionalAction, default=True,
                         help='bounded admission-rejection capsule (on by default)')
     parser.add_argument('--skip-title-logo', action='store_true',
@@ -217,10 +228,63 @@ def evidence_config(args):
             'edge_observation_admit': args.edge_observation_admit,
             'idle_deadline_advance': args.idle_deadline_advance,
             'turn_cap': args.turn_cap, 'program_cache': args.program_cache,
+            'ram_guard': args.ram_guard,
             'rejection_capsule': args.rejection_capsule,
             'dispatch_abi_sentinel': False, 'observe_native_ctx': False,
             'quiet_logging': False, 'global_ctx': False,
+            'ship_prolog': False, 'title_contract': False, 'ikada_contract': False,
+            'actor_batch_contracts': False,
             'skip_title_logo': args.skip_title_logo}
+
+
+CACHE_FLAGS = (
+    ('WW05_ENABLE_VI_CLOCK', 'vi_clock'),
+    ('WW05_ENABLE_PAD_INPUT', 'pad_input'),
+    ('WW_RENDERER_DST_ALPHA_ADMIT', 'dst_alpha_admit'),
+    ('WW_EDGE_OBSERVATION_ADMIT', 'edge_observation_admit'),
+    ('WW_IDLE_DEADLINE_ADVANCE', 'idle_deadline_advance'),
+    ('WW_PROGRAM_CACHE', 'program_cache'),
+    ('WW05_RAM_GUARD', 'ram_guard'),
+    ('WW05_REJECTION_CAPSULE', 'rejection_capsule'),
+    ('WW_SKIP_TITLE_LOGO', 'skip_title_logo'),
+    ('WW05_DISPATCH_ABI_SENTINEL', 'dispatch_abi_sentinel'),
+    ('WW05_OBSERVE_NATIVE_CTX', 'observe_native_ctx'),
+    ('WW05_QUIET_LOGGING', 'quiet_logging'),
+    ('WW05_GLOBAL_CTX', 'global_ctx'),
+    ('WW05_ENABLE_SHIP_PROLOG', 'ship_prolog'),
+    ('WW05_ENABLE_TITLE_CONTRACT', 'title_contract'),
+    ('WW05_ENABLE_IKADA_CONTRACT', 'ikada_contract'),
+    ('WW05_ENABLE_ACTOR_BATCH_CONTRACTS', 'actor_batch_contracts'),
+)
+
+
+def parse_cache(text):
+    entries = {}
+    for line in text.splitlines():
+        stripped = line.strip()
+        if not stripped or stripped.startswith(('#', '//')) or '=' not in stripped:
+            continue
+        name, value = stripped.split('=', 1)
+        entries[name.partition(':')[0]] = value
+    return entries
+
+
+def checked_cache(text, config):
+    entries = parse_cache(text)
+    for variable, key in CACHE_FLAGS:
+        if variable not in entries:
+            raise ValueError(f'CMake cache is missing {variable}; a reused build tree must be removed')
+        value = entries[variable].upper()
+        if value not in ('ON', 'OFF', 'TRUE', 'FALSE'):
+            raise ValueError(f'CMake cache holds a non-boolean {variable}={entries[variable]}')
+        if (value in ('ON', 'TRUE')) != config[key]:
+            raise ValueError(f'CMake cache {variable}={entries[variable]} contradicts build evidence '
+                             f'{key}={config[key]}')
+    cap = entries.get('WW_TURN_CAP')
+    if cap != str(config['turn_cap']):
+        raise ValueError(f'CMake cache WW_TURN_CAP={cap} contradicts build evidence '
+                         f'turn_cap={config["turn_cap"]}')
+    return entries
 
 
 def main():
@@ -304,12 +368,14 @@ def main():
     vitagl = Path('/home/fred/cloudpunk-vita/tools/vita3k/vitagl-source/libvitaGL.a')
     renderer_sdk = Path('/home/fred/cloudpunk-vita/tools/vitasdk/arm-vita-eabi')
     vitagl_sha256 = sha256(vitagl)
+    config = evidence_config(args)
     build.run('vita-configure', vita_configure_arguments(
         cmake, ninja, ROOT / 'vita/host', vita, f'{STACK}/vitasdk/share/vita.toolchain.cmake',
         sources['RecompCore'], composite, identity, f'{private}/main.dol', vitagl, renderer_sdk,
         args.opt_level, args.vi_clock, args.pad_input, args.dst_alpha_admit, args.edge_observation_admit,
-        args.idle_deadline_advance, args.turn_cap, args.program_cache, args.rejection_capsule,
-        args.skip_title_logo))
+        args.idle_deadline_advance, args.turn_cap, args.program_cache, args.ram_guard,
+        args.rejection_capsule, args.skip_title_logo))
+    checked_cache((vita / 'CMakeCache.txt').read_text(), config)
     build.run('vita-build', [cmake, '--build', vita, '-j', args.jobs])
     from inspect_build import inspect
     inspect(vita)
@@ -331,7 +397,8 @@ def main():
                       'private_header_sha256': sha256(init_header)},
         **vectors,
         'composite_digest': digest, 'title': 'BWWG00005', 'method': 'startup-gx-v1',
-        'artifacts': artifacts, 'config': evidence_config(args),
+        'artifacts': artifacts, 'config': config,
+        'config_cache_sha256': sha256(vita / 'CMakeCache.txt'),
         'footprint_sha256': sha256(output / 'footprint.json'),
         'snapshot': str(snapshot)}, indent=2) + '\n'
     (snapshot / 'build-evidence.json').write_text(receipt)

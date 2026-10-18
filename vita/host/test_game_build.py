@@ -51,11 +51,12 @@ class GameInputTest(unittest.TestCase):
 
 
 class DstAlphaOptionTest(unittest.TestCase):
-    def test_configure_option_is_passed_only_when_requested(self):
+    def test_configure_option_is_always_explicit(self):
         module = load_module()
         self.assertEqual(module.dst_alpha_configure_option(True),
                          ['-DWW_RENDERER_DST_ALPHA_ADMIT=ON'])
-        self.assertEqual(module.dst_alpha_configure_option(False), [])
+        self.assertEqual(module.dst_alpha_configure_option(False),
+                         ['-DWW_RENDERER_DST_ALPHA_ADMIT=OFF'])
 
 
 class IdleDeadlineAdvanceOptionTest(unittest.TestCase):
@@ -86,27 +87,31 @@ class EdgeObservationAdmitOptionTest(unittest.TestCase):
                 '-DWW05_ENABLE_PAD_INPUT=OFF']
 
         experimental = ['-DWW05_DISPATCH_ABI_SENTINEL=OFF', '-DWW05_OBSERVE_NATIVE_CTX=OFF',
-                        '-DWW05_QUIET_LOGGING=OFF', '-DWW05_GLOBAL_CTX=OFF']
+                        '-DWW05_QUIET_LOGGING=OFF', '-DWW05_GLOBAL_CTX=OFF',
+                        '-DWW05_ENABLE_SHIP_PROLOG=OFF', '-DWW05_ENABLE_TITLE_CONTRACT=OFF',
+                        '-DWW05_ENABLE_IKADA_CONTRACT=OFF', '-DWW05_ENABLE_ACTOR_BATCH_CONTRACTS=OFF']
 
-        def arguments(enabled, idle=False, skip_title_logo=False):
+        def arguments(edge_observation, idle=False, skip_title_logo=False):
             return [str(value) for value in module.vita_configure_arguments(
                 'cmake', 'ninja', 'source', 'output', 'toolchain', 'recompcore', 'composite',
-                'identity', 'dol', 'vitagl', 'sdk', '1', False, False, False, enabled, idle,
-                0, False, False, skip_title_logo)]
+                'identity', 'dol', 'vitagl', 'sdk', '1', False, False, False, edge_observation, idle,
+                0, False, True, False, skip_title_logo)]
 
-        expected = {'ON': ['-DWW_EDGE_OBSERVATION_ADMIT=ON', '-DWW_IDLE_DEADLINE_ADVANCE=OFF',
-                           '-DWW05_REJECTION_CAPSULE=OFF', '-DWW_SKIP_TITLE_LOGO=OFF', *experimental],
-                    'OFF': ['-DWW_EDGE_OBSERVATION_ADMIT=OFF', '-DWW_IDLE_DEADLINE_ADVANCE=OFF',
-                            '-DWW05_REJECTION_CAPSULE=OFF', '-DWW_SKIP_TITLE_LOGO=OFF', *experimental]}
-        for state, option in expected.items():
+        prefix = base + ['-DWW_RENDERER_DST_ALPHA_ADMIT=OFF']
+        suffix = ['-DWW_IDLE_DEADLINE_ADVANCE=OFF', '-DWW_TURN_CAP=0', '-DWW_PROGRAM_CACHE=OFF',
+                  '-DWW05_RAM_GUARD=ON', '-DWW05_REJECTION_CAPSULE=OFF', '-DWW_SKIP_TITLE_LOGO=OFF',
+                  *experimental]
+        for state in ('ON', 'OFF'):
             with self.subTest(state=state):
-                self.assertEqual(arguments(state == 'ON'), base + option)
+                self.assertEqual(arguments(state == 'ON'),
+                                 prefix + [f'-DWW_EDGE_OBSERVATION_ADMIT={state}'] + suffix)
 
     def test_vita_configure_arguments_carry_the_perf_options_when_requested(self):
         module = load_module()
         arguments = [str(value) for value in module.vita_configure_arguments(
             'cmake', 'ninja', 'source', 'output', 'toolchain', 'recompcore', 'composite',
-            'identity', 'dol', 'vitagl', 'sdk', '1', True, False, True, True, True, 8, True, True, False)]
+            'identity', 'dol', 'vitagl', 'sdk', '1', True, False, True, True, True, 8, True, True,
+            True, False)]
         self.assertEqual(arguments, [
             'cmake', '-S', 'source', '-B', 'output', '-G', 'Ninja',
             '-DCMAKE_TOOLCHAIN_FILE=toolchain', '-DCMAKE_MAKE_PROGRAM=ninja',
@@ -116,14 +121,17 @@ class EdgeObservationAdmitOptionTest(unittest.TestCase):
             '-DWW05_MODULE_OPT_LEVEL=1', '-DWW05_ENABLE_VI_CLOCK=ON',
             '-DWW05_ENABLE_PAD_INPUT=OFF', '-DWW_RENDERER_DST_ALPHA_ADMIT=ON',
             '-DWW_EDGE_OBSERVATION_ADMIT=ON', '-DWW_IDLE_DEADLINE_ADVANCE=ON',
-            '-DWW_TURN_CAP=8', '-DWW_PROGRAM_CACHE=ON', '-DWW05_REJECTION_CAPSULE=ON',
-            '-DWW_SKIP_TITLE_LOGO=OFF', '-DWW05_DISPATCH_ABI_SENTINEL=OFF',
-            '-DWW05_OBSERVE_NATIVE_CTX=OFF', '-DWW05_QUIET_LOGGING=OFF', '-DWW05_GLOBAL_CTX=OFF'])
+            '-DWW_TURN_CAP=8', '-DWW_PROGRAM_CACHE=ON', '-DWW05_RAM_GUARD=ON',
+            '-DWW05_REJECTION_CAPSULE=ON', '-DWW_SKIP_TITLE_LOGO=OFF',
+            '-DWW05_DISPATCH_ABI_SENTINEL=OFF', '-DWW05_OBSERVE_NATIVE_CTX=OFF',
+            '-DWW05_QUIET_LOGGING=OFF', '-DWW05_GLOBAL_CTX=OFF',
+            '-DWW05_ENABLE_SHIP_PROLOG=OFF', '-DWW05_ENABLE_TITLE_CONTRACT=OFF',
+            '-DWW05_ENABLE_IKADA_CONTRACT=OFF', '-DWW05_ENABLE_ACTOR_BATCH_CONTRACTS=OFF'])
 
 
 class TurnCapOptionTest(unittest.TestCase):
-    def test_configure_option_is_absent_at_the_default(self):
-        self.assertEqual(load_module().turn_cap_configure_option(0), [])
+    def test_configure_option_is_always_explicit(self):
+        self.assertEqual(load_module().turn_cap_configure_option(0), ['-DWW_TURN_CAP=0'])
 
     def test_configure_option_is_passed_when_requested(self):
         self.assertEqual(load_module().turn_cap_configure_option(6), ['-DWW_TURN_CAP=6'])
@@ -142,10 +150,17 @@ class TurnCapOptionTest(unittest.TestCase):
 
 
 class ProgramCacheOptionTest(unittest.TestCase):
-    def test_configure_option_is_passed_only_when_requested(self):
+    def test_configure_option_is_always_explicit(self):
         module = load_module()
         self.assertEqual(module.program_cache_configure_option(True), ['-DWW_PROGRAM_CACHE=ON'])
-        self.assertEqual(module.program_cache_configure_option(False), [])
+        self.assertEqual(module.program_cache_configure_option(False), ['-DWW_PROGRAM_CACHE=OFF'])
+
+
+class RamGuardOptionTest(unittest.TestCase):
+    def test_configure_option_is_always_explicit(self):
+        module = load_module()
+        self.assertEqual(module.ram_guard_configure_option(True), ['-DWW05_RAM_GUARD=ON'])
+        self.assertEqual(module.ram_guard_configure_option(False), ['-DWW05_RAM_GUARD=OFF'])
 
 
 class RejectionCapsuleOptionTest(unittest.TestCase):
@@ -166,6 +181,7 @@ class ParserDefaultsTest(unittest.TestCase):
         self.assertTrue(args.edge_observation_admit)
         self.assertTrue(args.idle_deadline_advance)
         self.assertTrue(args.program_cache)
+        self.assertTrue(args.ram_guard)
         self.assertTrue(args.rejection_capsule)
         self.assertEqual(args.turn_cap, 4096)
         self.assertFalse(args.skip_title_logo)
@@ -176,12 +192,13 @@ class ParserDefaultsTest(unittest.TestCase):
         args = module.parse_arguments([
             '--disc', 'disc.iso', '--no-vi-clock', '--no-dst-alpha-admit',
             '--no-edge-observation-admit', '--no-idle-deadline-advance',
-            '--no-program-cache', '--no-rejection-capsule', '--turn-cap', '0'])
+            '--no-program-cache', '--no-ram-guard', '--no-rejection-capsule', '--turn-cap', '0'])
         self.assertFalse(args.vi_clock)
         self.assertFalse(args.dst_alpha_admit)
         self.assertFalse(args.edge_observation_admit)
         self.assertFalse(args.idle_deadline_advance)
         self.assertFalse(args.program_cache)
+        self.assertFalse(args.ram_guard)
         self.assertFalse(args.rejection_capsule)
         self.assertEqual(args.turn_cap, 0)
 
@@ -199,6 +216,7 @@ class BuildEvidenceConfigTest(unittest.TestCase):
         config = module.evidence_config(module.parse_arguments(['--disc', 'disc.iso']))
         self.assertEqual(config['turn_cap'], 4096)
         self.assertTrue(config['program_cache'])
+        self.assertTrue(config['ram_guard'])
         self.assertTrue(config['vi_clock'])
         self.assertTrue(config['dst_alpha_admit'])
         self.assertTrue(config['edge_observation_admit'])
@@ -209,14 +227,77 @@ class BuildEvidenceConfigTest(unittest.TestCase):
         self.assertFalse(config['observe_native_ctx'])
         self.assertFalse(config['quiet_logging'])
         self.assertFalse(config['global_ctx'])
+        self.assertFalse(config['ship_prolog'])
+        self.assertFalse(config['title_contract'])
+        self.assertFalse(config['ikada_contract'])
+        self.assertFalse(config['actor_batch_contracts'])
 
     def test_vita_configure_arguments_carry_the_title_logo_skip_when_requested(self):
         module = load_module()
         arguments = [str(value) for value in module.vita_configure_arguments(
             'cmake', 'ninja', 'source', 'output', 'toolchain', 'recompcore', 'composite',
             'identity', 'dol', 'vitagl', 'sdk', '1', False, False, False, False, False, 0, False,
-            False, True)]
+            True, False, True)]
         self.assertIn('-DWW_SKIP_TITLE_LOGO=ON', arguments)
+
+
+class CacheCheckTest(unittest.TestCase):
+    def config(self, argv=()):
+        module = load_module()
+        return module, module.evidence_config(module.parse_arguments(['--disc', 'disc.iso', *argv]))
+
+    def cache(self, module, config):
+        lines = [f'{variable}:BOOL={"ON" if config[key] else "OFF"}'
+                 for variable, key in module.CACHE_FLAGS]
+        lines.append(f"WW_TURN_CAP:STRING={config['turn_cap']}")
+        return '// generated by cmake\n# a comment\n\n' + '\n'.join(lines) + '\n'
+
+    def test_cache_matches_the_default_profile(self):
+        module, config = self.config()
+        entries = module.checked_cache(self.cache(module, config), config)
+        self.assertEqual(entries['WW_TURN_CAP'], '4096')
+        self.assertEqual(entries['WW_PROGRAM_CACHE'], 'ON')
+        self.assertEqual(entries['WW05_RAM_GUARD'], 'ON')
+
+    def test_cache_matches_an_explicit_off_profile(self):
+        module, config = self.config(['--no-program-cache', '--turn-cap', '0', '--no-dst-alpha-admit'])
+        entries = module.checked_cache(self.cache(module, config), config)
+        self.assertEqual(entries['WW_PROGRAM_CACHE'], 'OFF')
+        self.assertEqual(entries['WW_RENDERER_DST_ALPHA_ADMIT'], 'OFF')
+        self.assertEqual(entries['WW_TURN_CAP'], '0')
+
+    def test_stale_cached_program_cache_is_rejected(self):
+        module, config = self.config(['--no-program-cache'])
+        text = self.cache(module, config).replace('WW_PROGRAM_CACHE:BOOL=OFF',
+                                                 'WW_PROGRAM_CACHE:BOOL=ON')
+        with self.assertRaisesRegex(ValueError, 'WW_PROGRAM_CACHE=ON contradicts'):
+            module.checked_cache(text, config)
+
+    def test_stale_cached_turn_cap_is_rejected(self):
+        module, config = self.config(['--turn-cap', '0'])
+        text = self.cache(module, config).replace('WW_TURN_CAP:STRING=0', 'WW_TURN_CAP:STRING=4096')
+        with self.assertRaisesRegex(ValueError, 'WW_TURN_CAP=4096 contradicts'):
+            module.checked_cache(text, config)
+
+    def test_stale_cached_ram_guard_is_rejected(self):
+        module, config = self.config()
+        text = self.cache(module, config).replace('WW05_RAM_GUARD:BOOL=ON',
+                                                 'WW05_RAM_GUARD:BOOL=OFF')
+        with self.assertRaisesRegex(ValueError, 'WW05_RAM_GUARD=OFF contradicts'):
+            module.checked_cache(text, config)
+
+    def test_missing_option_is_rejected(self):
+        module, config = self.config()
+        text = self.cache(module, config).replace('WW_SKIP_TITLE_LOGO:BOOL=OFF\n', '')
+        with self.assertRaisesRegex(ValueError, 'missing WW_SKIP_TITLE_LOGO'):
+            module.checked_cache(text, config)
+
+    def test_non_boolean_option_is_rejected(self):
+        module, config = self.config()
+        text = self.cache(module, config).replace('WW_PROGRAM_CACHE:BOOL=ON',
+                                                 'WW_PROGRAM_CACHE:BOOL=maybe')
+        with self.assertRaisesRegex(ValueError, 'non-boolean WW_PROGRAM_CACHE'):
+            module.checked_cache(text, config)
 
 
 if __name__ == '__main__':
