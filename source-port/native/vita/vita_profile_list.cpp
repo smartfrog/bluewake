@@ -3,8 +3,8 @@
 // The list has all 502 g_profile_* definitions of game/src/f_pc/f_pc_profile_lst.cpp: 437
 // profile-bearing actor units plus 38 non-actor REL units (scenes, msg, overlap, camera,
 // kankyo). The slice reduction keeps each profile's real identity (mProcName, list IDs, size,
-// flags). The 453 actor-typed profiles and the 9 overlap profiles are wired to their base
-// tables; the other 40 non-actor base pointers stay zero because their tables are not linked.
+// flags). The 453 actor-typed, 9 overlap and 16 msg profiles are wired to their base tables;
+// the 24 scene/camera/kankyo base pointers stay zero because their tables are not linked.
 // The check reports 502 of 502.
 //
 // The slots and the base method-table pointers are set by a static initialiser, before main.
@@ -12,15 +12,17 @@
 // terminator. Keep this list in step with vita_profile_slice.cmake; a missing profile fails the
 // link, a wrong slot fails the check.
 //
-// g_fpcLf_Method and g_fopOvlp_Method are real: the fpcLf_* -> fpcMtd_* / fpcDwPi_* /
-// fpcBs_MakeOfType chain plus the fopOvlp_* wrappers and cReq_* helpers, so their function
-// pointers are callable. g_fopAc_Method/g_fopMsg_Method are reduced data (zero method pointers);
-// the actor/msg code is still the sweep's work. The actor method table at 0x24 stays NULL.
+// g_fpcLf_Method, g_fopOvlp_Method and g_fopMsg_Method are real: the fpcLf_* -> fpcMtd_* /
+// fpcDwPi_* / fpcBs_MakeOfType chain, the fopOvlp_* wrappers with cReq_*, and the fopMsg_*
+// wrappers with fopMsgM_GetAppend / fopDwTg_* / cTg/cTr/cLs/cNd, so their function pointers are
+// callable. g_fopAc_Method is reduced data (zero method pointers); the actor code is still the
+// sweep's work. The actor method table at 0x24 stays NULL.
 #include "f_pc/f_pc_name.h"
 #include "f_pc/f_pc_profile_lst.h"
 #include "f_pc/f_pc_leaf.h"
 #include "f_op/f_op_actor.h"
 #include "f_op/f_op_overlap.h"
+#include "f_op/f_op_msg.h"
 
 process_profile_definition* g_fpcPfLst_ProfileList[fpcNm_MAX_NUM_e + 1] = {};
 
@@ -34,6 +36,11 @@ void wireActor(actor_process_profile_definition& profile) {
 void wireOverlap(overlap_process_profile_definition& profile) {
     profile.base.base.sub_method = &g_fpcLf_Method.base;
     profile.base.sub_method = &g_fopOvlp_Method;
+}
+
+void wireMsg(msg_process_profile_definition& profile) {
+    profile.base.base.sub_method = &g_fpcLf_Method.base;
+    profile.base.sub_method = &g_fopMsg_Method;
 }
 
 struct SliceProfileList {
@@ -987,21 +994,37 @@ struct SliceProfileList {
         g_fpcPfLst_ProfileList[fpcNm_KYEFF_e] = &g_profile_KYEFF.base.base;
         g_fpcPfLst_ProfileList[fpcNm_KYEFF2_e] = &g_profile_KYEFF2.base.base;
         g_fpcPfLst_ProfileList[fpcNm_MESG_e] = &g_profile_MESG.base.base;
+        wireMsg(g_profile_MESG);
         g_fpcPfLst_ProfileList[fpcNm_MSG_e] = &g_profile_MSG.base.base;
+        wireMsg(g_profile_MSG);
         g_fpcPfLst_ProfileList[fpcNm_MSG2_e] = &g_profile_MSG2.base.base;
+        wireMsg(g_profile_MSG2);
         g_fpcPfLst_ProfileList[fpcNm_MSG3_e] = &g_profile_MSG3.base.base;
+        wireMsg(g_profile_MSG3);
         g_fpcPfLst_ProfileList[fpcNm_MENUWINDOW_e] = &g_profile_MENUWINDOW.base.base;
+        wireMsg(g_profile_MENUWINDOW);
         g_fpcPfLst_ProfileList[fpcNm_Menu_Cloth_e] = &g_profile_Menu_Cloth.base.base;
+        wireMsg(g_profile_Menu_Cloth);
         g_fpcPfLst_ProfileList[fpcNm_TIMER_e] = &g_profile_TIMER.base.base;
+        wireMsg(g_profile_TIMER);
         g_fpcPfLst_ProfileList[fpcNm_AUCTION_SCREEN_e] = &g_profile_AUCTION_SCREEN.base.base;
+        wireMsg(g_profile_AUCTION_SCREEN);
         g_fpcPfLst_ProfileList[fpcNm_PLACE_NAME_e] = &g_profile_PLACE_NAME.base.base;
+        wireMsg(g_profile_PLACE_NAME);
         g_fpcPfLst_ProfileList[fpcNm_MINIGAME_STARTER_e] = &g_profile_MINIGAME_STARTER.base.base;
+        wireMsg(g_profile_MINIGAME_STARTER);
         g_fpcPfLst_ProfileList[fpcNm_MINIGAME_TERMINATER_e] = &g_profile_MINIGAME_TERMINATER.base.base;
+        wireMsg(g_profile_MINIGAME_TERMINATER);
         g_fpcPfLst_ProfileList[fpcNm_METER_e] = &g_profile_METER.base.base;
+        wireMsg(g_profile_METER);
         g_fpcPfLst_ProfileList[fpcNm_OPERATE_WIND_e] = &g_profile_OPERATE_WIND.base.base;
+        wireMsg(g_profile_OPERATE_WIND);
         g_fpcPfLst_ProfileList[fpcNm_SCP_e] = &g_profile_SCP.base.base;
+        wireMsg(g_profile_SCP);
         g_fpcPfLst_ProfileList[fpcNm_PB_e] = &g_profile_PB.base.base;
+        wireMsg(g_profile_PB);
         g_fpcPfLst_ProfileList[fpcNm_GAMEOVER_e] = &g_profile_GAMEOVER.base.base;
+        wireMsg(g_profile_GAMEOVER);
     }
 };
 
