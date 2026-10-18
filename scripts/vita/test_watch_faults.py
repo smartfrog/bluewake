@@ -35,7 +35,7 @@ class FaultLineTests(unittest.TestCase):
                 self.assertIsNone(watch_faults.fault_match([line]))
 
     def test_repeated_fault_wording_is_a_flood(self):
-        line = '[E|MEM] invalid access outside MEM1 at 0x00000008'
+        line = '[E|MEM] fault: memory access outside MEM1 at 0x00000008'
         self.assertEqual(watch_faults.fault_match([line] * watch_faults.FAULT_REPEATS),
                          line)
 
@@ -55,6 +55,30 @@ class FaultLineTests(unittest.TestCase):
                 'action=ignored reply=none cpu_irq=none pcm_output=none')
         self.assertIsNone(watch_faults.fault_match([line]))
         self.assertIsNone(watch_faults.fault_match([line] * 200))
+
+    def test_other_boot_assert_events_are_not_faults(self):
+        for line in ('[audio-deferred] event=assert-deferred control=0952 action=ignored',
+                     '[audio-deferred] event=assert-skip control=0952 action=ignored'):
+            with self.subTest(line=line):
+                self.assertIsNone(watch_faults.fault_match([line]))
+
+    def test_real_assertion_failures_are_faults(self):
+        for line in ('assertion failed: false',
+                     'assert: guest invariant broken',
+                     "Assertion `frame' failed.",
+                     "[16:40:50.621] |C| [operator()]: Unhandled 'std::terminate()' call"):
+            with self.subTest(line=line):
+                self.assertEqual(watch_faults.fault_match([line]), line)
+
+    def test_real_console_fault_lines_are_faults(self):
+        for line in ('[17:56:44.233] |E| [MemoryRead]: Invalid read of uint32_t at address: 0x8',
+                     '[17:56:44.233] |C| [MemoryRead]: PC is 0x8'):
+            with self.subTest(line=line):
+                self.assertEqual(watch_faults.fault_match([line]), line)
+
+    def test_progress_exception_counter_is_not_a_fault(self):
+        line = '[progress] turns=148871 edges=13162849 exception=00000000 resume=9403 us'
+        self.assertIsNone(watch_faults.fault_match([line]))
 
     def test_identical_progress_lines_are_not_a_flood(self):
         line = '[progress] turns=148871 edges=13162849 exception=00000000 resume=9403 us'

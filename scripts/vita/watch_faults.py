@@ -8,14 +8,17 @@ failed, instead of waiting for the run ceiling while the guest floods the log:
     PC is 0xNN                    a stopped program counter, any value (0x0, 0x8)
     [MemoryRead]: Invalid read    a guest read outside mapped memory
     [MemoryWrite]: Invalid write  a guest write outside mapped memory
-    assert                        an assertion or an assertion failure
+    assert: / assertion /         an assertion failure ("assertion failed",
+      Assertion failed            "Assertion `frame' failed.")
+    Unhandled                     an unhandled fault or terminate call
     panic                         a panic
     std::terminate                an uncaught C++ exception
     <same line> x FAULT_REPEATS   a flood of one fault line, even when that line
                                   carries none of the signatures above
 
-A healthy guest logs `PC: 0x80000000` (a colon, a running program counter) and
-`[frame-present]`; neither matches.
+A healthy guest logs `PC: 0x80000000` (a colon, a running program counter),
+`[frame-present]`, the boot audio event `event=assert-to-no-op` and the counter
+`exception=00000000`; none of those matches.
 """
 
 import re
@@ -27,17 +30,21 @@ _SIGNATURE = re.compile('|'.join((
     r'pc is 0x[0-9a-f]+',
     r'\[memoryread\]: invalid read',
     r'\[memorywrite\]: invalid write',
-    r'\bassert(?!-to-no-op)',
+    r'assert:',
+    r'assertion',
+    r'unhandled',
     r'\bpanic',
     r'std::terminate',
 )), re.IGNORECASE)
 
 _FLOOD = re.compile('|'.join((
-    r'invalid',
+    r'invalid read',
+    r'invalid write',
     r'sigsegv',
     r'segfault',
-    r'fault',
-    r'\bassert(?!-to-no-op)',
+    r'\bfault',
+    r'assertion',
+    r'unhandled',
     r'\bpanic',
     r'terminate',
     r'abort',
@@ -47,8 +54,6 @@ _FLOOD = re.compile('|'.join((
 
 def fault_line(line):
     """True when one log line already reports a guest failure."""
-    if 'assert-to-no-op' in line.lower():
-        return False
     return _SIGNATURE.search(line) is not None
 
 
@@ -64,7 +69,7 @@ def fault_match(lines, repeats=FAULT_REPEATS):
         if fault_line(line):
             return line
         text = line.strip()
-        if not text or 'assert-to-no-op' in text.lower() or not _FLOOD.search(text):
+        if not text or not _FLOOD.search(text):
             continue
         counts[text] = counts.get(text, 0) + 1
         if counts[text] >= repeats:

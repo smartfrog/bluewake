@@ -3,10 +3,11 @@
 
 Usage: watch_guest.py RUNDIR
 
-RUNDIR holds `guest.pid` and the guest log under `profile/`. The watcher appends
+RUNDIR holds `guest.pid`, the guest log under `profile/` and the emulator
+console log at `profile/cache/Vita3K/vita3k.log`. The watcher appends
 `cpu-samples.jsonl`, stops the guest on the first fault line (see
 `scripts/vita/watch_faults.py`) or on a hang, and writes `live-end.txt` with the
-reason and the matched line. It never deletes or truncates the guest log.
+reason and the matched line. It never deletes or truncates either log.
 """
 
 import argparse
