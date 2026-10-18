@@ -231,4 +231,28 @@ elseif (NOT CMAKE_CROSSCOMPILING)
         set_target_properties(cos_vita_camera_frame_test PROPERTIES
                 RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}")
     endif ()
+
+    # R3b extended: real camera_draw window/view/projection wrapper + camera body + map frame.
+    #   ninja cos_vita_camera_draw_test && build/native-mac/cos_vita_camera_draw_test
+    if (COS_VITA_CAMERA_DRAW_OBJECT AND COS_VITA_MAP_DRAW_OBJECT AND COS_VITA_DRAWLIST_OBJECT)
+        add_executable(cos_vita_camera_draw_test EXCLUDE_FROM_ALL
+                "${COS_NATIVE_ROOT}/check/camera_draw_test.cpp"
+                "${COS_NATIVE_ROOT}/check/map_j2d_stubs.cpp"
+                "${COS_VITA_CAMERA_DRAW_OBJECT}"
+                "${COS_NATIVE_ROOT}/../game/src/SSystem/SComponent/c_bg_s_gnd_chk.cpp"
+                "${COS_NATIVE_ROOT}/../game/src/SSystem/SComponent/c_bg_s_chk.cpp"
+                "${COS_VITA_MAP_DRAW_OBJECT}"
+                "${COS_VITA_DRAWLIST_OBJECT}"
+                $<TARGET_OBJECTS:cos_vita_j2d_units>)
+        set_source_files_properties("${COS_VITA_CAMERA_DRAW_OBJECT}"
+                "${COS_VITA_MAP_DRAW_OBJECT}" "${COS_VITA_DRAWLIST_OBJECT}" PROPERTIES
+                EXTERNAL_OBJECT TRUE GENERATED TRUE)
+        target_include_directories(cos_vita_camera_draw_test PRIVATE "${COS_NATIVE_ROOT}")
+        target_link_libraries(cos_vita_camera_draw_test PRIVATE cos_game_headers)
+        target_link_options(cos_vita_camera_draw_test PRIVATE -Wl,--gc-sections)
+        add_dependencies(cos_vita_camera_draw_test cos_vita_camera_draw cos_vita_map_draw
+                cos_vita_drawlist cos_vita_j2d_units)
+        set_target_properties(cos_vita_camera_draw_test PROPERTIES
+                RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}")
+    endif ()
 endif ()

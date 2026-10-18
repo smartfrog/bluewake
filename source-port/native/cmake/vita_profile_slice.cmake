@@ -458,6 +458,7 @@ add_library(cos_vita_camera_units OBJECT EXCLUDE_FROM_ALL
         "${COS_ROOT}/src/d/d_camera.cpp")
 target_link_libraries(cos_vita_camera_units PRIVATE cos_game_headers)
 target_compile_options(cos_vita_camera_units PRIVATE -ffunction-sections -fdata-sections -g0)
+target_compile_definitions(cos_vita_camera_units PRIVATE COS_R3B_CAMERA_DRAW=1)
 set_property(TARGET cos_vita_camera_units PROPERTY FOLDER "cos_native")
 
 set(COS_VITA_CAMERA_OBJECT "${CMAKE_BINARY_DIR}/vita_camera.o")
@@ -476,6 +477,23 @@ add_custom_command(OUTPUT "${COS_VITA_CAMERA_OBJECT}"
 add_custom_target(cos_vita_camera DEPENDS "${COS_VITA_CAMERA_OBJECT}")
 set(COS_VITA_CAMERA_OBJECT "${COS_VITA_CAMERA_OBJECT}" CACHE INTERNAL
         "The R3b camera body draw object")
+
+set(COS_VITA_CAMERA_DRAW_OBJECT "${CMAKE_BINARY_DIR}/vita_camera_draw.o")
+add_custom_command(OUTPUT "${COS_VITA_CAMERA_DRAW_OBJECT}"
+        COMMAND "${Python3_EXECUTABLE}" "${COS_NATIVE_ROOT}/vita/reduce_profile_slice.py"
+            --nm "${CMAKE_NM}" --objcopy "${CMAKE_OBJCOPY}" --objdump "${CMAKE_OBJDUMP}"
+            --readelf "${CMAKE_READELF}" --ld "${CMAKE_LINKER}"
+            --output "${COS_VITA_CAMERA_DRAW_OBJECT}"
+            --callable cos_r3b_camera_draw
+            --allow "g_dComIfG_gameInfo,j3dSys,dComIfGd_set2DOpa,C_MTXPerspective,C_MTXCopy,C_MTXInverse,C_MTXConcat,_Z13mDoMtx_lookAtPA4_fPK3VecS3_S3_s,_ZN14mDoMtx_stack_c3nowE,_ZN8cM_rnd_c4initEiii,_ZN18dDlst_effectLine_c6updateER4cXyzR7GXColorttttffff,_ZN18dDlst_effectLine_c4drawEv,_ZN6dMap_c4drawEffif,dComIfGp_setCurrentGrafPort,dComIfGp_getCurrentGrafPort,OSPanic,_Z16fopCamM_GetParamP12camera_class,_Z17fpcLf_GetPriorityP14leafdraw_class,_Z19fopOvlpM_IsDoingReqv,_Z21mDoMtx_concatProjViewPA4_KfS1_PA4_f,_Z21pc_fps60_camera_drawnP10view_class,_ZN11JAIZelBasic13getCameraInfoEP3VecPA4_fj,_ZN11JAIZelBasic16getCameraMapInfoEj,_ZN11JAIZelBasic18setCameraGroupInfoEh,_ZN11JAIZelBasic19setCameraPolygonPosEP3Vec,_ZN11JAIZelBasic9zel_basicE,_ZN11cBgS_GndChkC2Ev,_ZN14dDlst_window_c10setScissorEffff,_ZN15mDoMch_render_c14mRenderModeObjE,_ZN20dStage_roomControl_c7mStayNoE,_ZN4cBgS11GroundCrossEP11cBgS_GndChk,_ZN4dBgS12GetMtrlSndIdER13cBgS_PolyInfo,_ZN4dBgS13GetGrpSoundIdER13cBgS_PolyInfo,_ZN8cBgS_ChkD2Ev,_ZdlPvm,pc_camera_override"
+            $<TARGET_OBJECTS:cos_vita_camera_units>
+        DEPENDS cos_vita_camera_units "${COS_NATIVE_ROOT}/vita/reduce_profile_slice.py"
+        COMMAND_EXPAND_LISTS
+        COMMENT "Reducing the R3b camera_draw wrapper"
+        VERBATIM)
+add_custom_target(cos_vita_camera_draw DEPENDS "${COS_VITA_CAMERA_DRAW_OBJECT}")
+set(COS_VITA_CAMERA_DRAW_OBJECT "${COS_VITA_CAMERA_DRAW_OBJECT}" CACHE INTERNAL
+        "The R3b camera_draw wrapper object")
 message(STATUS "cos_native: cos_vita_profile_slice (${_cos_profile_slice_unit_count} units, "
         "reduced to their g_profile_* data, plus the callable g_fpcLf_Method/g_fopOvlp_Method/"
         "g_fopMsg_Method/g_fopAc_Method/g_fopKy_Method/g_fopCam_Method/g_fopVw_Method/"

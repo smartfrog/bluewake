@@ -8309,3 +8309,9 @@ camera_process_profile_definition g_profile_CAMERA2 = {
     /* Camera SubMtd */ &method,
     /* Camera unk40  */ 0,
 };
+
+#ifdef COS_R3B_CAMERA_DRAW
+extern "C" bool cos_r3b_camera_draw(camera_process_class* i_this) {
+    return camera_draw(i_this);
+}
+#endif

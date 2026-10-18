@@ -13,6 +13,7 @@
 #include "JSystem/JUtility/JUTAssert.h"
 
 GxCounters g_gx;
+extern "C" unsigned char j3dSys[0x170] = {};
 Mtx mDoMtx_stack_c::now;
 extern "C" unsigned char g_dComIfG_gameInfo[0x1D1C8] = {};
 extern "C" GXColor g_clearColor = {};
