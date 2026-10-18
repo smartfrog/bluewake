@@ -35,7 +35,7 @@ if(WW05_DISPATCH_ABI_SENTINEL AND WW05_OBSERVE_NATIVE_CTX)
 endif()
 option(WW05_REJECTION_CAPSULE "Diagnostic bounded admission-rejection capsule for refused desktop edges" OFF)
 option(WW_SKIP_TITLE_LOGO "Diagnostic: open the file-select menu instead of the title logo and movie" OFF)
-option(WW_EDGE_OBSERVATION_ADMIT "Admit the two module-owned observation-only edges: 0x80120188 GroundCross caller-return and 0x8022F9FC NAME_SCENE block entry (off by default; see docs/vita/VITA-WW-05.md)" OFF)
+option(WW_EDGE_OBSERVATION_ADMIT "Admit the module-owned observation-only edges: 0x80120188 GroundCross caller-return, 0x8022F9FC NAME_SCENE block entry and the draw family (off by default; see docs/vita/VITA-WW-05.md)" OFF)
 option(WW05_RAM_GUARD "Keep guest MEM1 on the base adopted after cpu_init so a corrupted CPUState cannot redirect stores" ON)
 option(WW05_GLOBAL_CTX "Run the scoped global-ctx chunks on the adopted CPU (POC)" OFF)
 file(GENERATE OUTPUT "${CMAKE_CURRENT_BINARY_DIR}/ww05_pad_input.json"
