@@ -3100,7 +3100,7 @@ Private VPKs, game inputs and every attempt remain ignored and local. No network
 profile, protected `build-r1`/`build-f8`/`build-f9`/`build-f11` tree, other worktree or player
 data was changed. The final delivery does not publish or attach any personal game build.
 
-## GroundCross caller-return admission is a diagnostic waiver, off by default
+## Observation-only edge admission (GroundCross and NAME_SCENE create) is a diagnostic waiver, off by default
 
 Trial #11 with the destination-alpha admission reached the title sequence: the title module
 returned through its translated caller at frame 296, module 400 at frame 297, `TlogoE.arc`
@@ -3116,10 +3116,12 @@ exact key as observation-only - `bluewake_edge_address_requires_host` is false a
 at this boundary. The Vita guard refused it because `vita/host/boot_host.c` tests the raw
 shared table and the address was not in its compiled-boundary list.
 
-With `-DWW_EDGE_OBSERVATION_ADMIT=ON` (off by default) the host admits exactly this key:
-the address must be `0x80120188`, module-owned, return-shaped and free of a linked alias.
-The host does not change PC, LR, registers or MSR; the guest executes its own compiled block
-from `0x80120188`.
+With `-DWW_EDGE_OBSERVATION_ADMIT=ON` (off by default in CMake; the private perf builder
+enables it) the host admits exactly two keys, both module-owned and free of a linked alias:
+`0x80120188`, which must be return-shaped (`pc == lr == key`), and `0x8022F9FC`, which is a
+block entry (`pc == key`) and deliberately has **no** LR check. The host does not change
+PC, LR, registers or MSR; the guest executes its own compiled block from either key.
+`0x8022F9FC` is d_s_name's scene-create block observed by the NAME_SCENE boot milestone.
 
 The check is a **shape check**. The production call site passes `cpu->pc` as the address, so
 the discriminating term is `lr == key`; the address must also match that `pc`. It does not
@@ -3134,8 +3136,8 @@ that an incoherent `r29`/`f1` reaches the guest `stfs` unvalidated, so a later l
 collision anomaly could be a downstream symptom rather than a new fault. Unowned keys,
 non-caller-return shapes, other observation-only keys, alias-shadowed keys and every key
 that requires a host service are still refused. The admission is reported once per run as
-`[edge-admit] address=80120188 module_owned=1 reason=observation-only` so the next trial can
-tell that it fired.
+`[edge-admit] address=<80120188|8022F9FC> module_owned=1 reason=observation-only` so the
+next trial can tell which key fired.
 
 A private ON build is requested with `scripts/vita/ww05/game_build.py --edge-observation-admit`.
 Every run passes the option explicitly: `-DWW_EDGE_OBSERVATION_ADMIT=ON` with the flag and

@@ -17,11 +17,16 @@ class CompositeJaudioDeferTest(unittest.TestCase):
         self.assertEqual(out.count(defer.MARK), 1)
         self.assertEqual(out.count('mem_read32(ctx, ctx->gpr[13] - 27328u) == 0u'), 1)
         self.assertIn('ctx->pc = ctx->lr & ~3u;', out)
+        self.assertIn('        return;\n', out)
         self.assertIn('cycle_block_prepaid', out)
 
     def test_repeat_is_unchanged(self):
         once = defer.transform(self.fixture(), 'chunk.c')
         self.assertEqual(defer.transform(once, 'chunk.c'), once)
+
+    def test_duplicate_block_is_rejected(self):
+        with self.assertRaises(ValueError):
+            defer.transform(self.fixture() + defer.BEFORE, 'chunk.c')
 
     def test_unprepared_is_rejected(self):
         with self.assertRaises(ValueError):

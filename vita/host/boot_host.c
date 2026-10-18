@@ -1215,13 +1215,15 @@ bool ww_host_edge(void* user, CPUState* cpu, u32 address) {
     // registers or MSR. See docs/vita/VITA-WW-05.md.
     bool admitted_observation = false;
 #if WW_EDGE_OBSERVATION_ADMIT
-    // Observation-only edges: the guest executes its own compiled block. 0x8022F9FC
-    // is d_s_name's scene-create block, which the boot milestone reports; it does
-    // not run a host service, so admitting it cannot change PC, LR or registers.
-    admitted_observation = ww_edge_admit_observation(
-        address, cpu->pc, cpu->lr,
-        ww_host_module_contains_address(host->module, address),
-        ww_host_linked_alias_overlaps(address, 4u));
+    // Observation-only edges: the guest executes its own compiled block. 0x80120188
+    // is checkLavaFace's GroundCross caller-return (LR-shaped); 0x8022F9FC is
+    // d_s_name's scene-create block entry (no LR check), which the boot milestone
+    // reports. Neither runs a host service, so admission cannot change PC/LR/regs.
+    admitted_observation = (address == 0x80120188u || address == 0x8022F9FCu) &&
+        ww_edge_admit_observation(
+            address, cpu->pc, cpu->lr,
+            ww_host_module_contains_address(host->module, address),
+            ww_host_linked_alias_overlaps(address, 4u));
 #endif
     const bool compiled_cpu_boundary = (compiled_rel_resume || address == 0x80328F84u || address == 0x80303A50u || observed_dsp_task || observed_card_probe ||
                                        observed_retrace_sleep || observed_draw_done_sleep || observed_async_draw_done || observed_receive_sleep ||
