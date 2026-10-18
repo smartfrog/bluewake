@@ -6,7 +6,7 @@
 #include <stdint.h>
 
 #define WW_SP_BALANCE_WINDOW_WORDS 16u
-#define WW_SP_BALANCE_LINE_BYTES 192u
+#define WW_SP_BALANCE_LINE_BYTES 256u
 
 typedef struct {
     uint32_t pc;
