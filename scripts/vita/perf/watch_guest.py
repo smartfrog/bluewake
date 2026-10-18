@@ -232,6 +232,7 @@ def watch(root, deadline_seconds=DEADLINE_SECONDS):
             time.sleep(SAMPLE_SECONDS)
         else:
             reason = 'ceiling'
+            stop_guest(pid)
     finally:
         samples.close()
         write_end(root, reason, detail)
