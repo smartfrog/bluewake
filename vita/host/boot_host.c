@@ -1224,8 +1224,11 @@ bool ww_host_edge(void* user, CPUState* cpu, u32 address) {
     // Observation-only edges: the guest executes its own compiled block. 0x80120188
     // is checkLavaFace's GroundCross caller-return (LR-shaped); 0x8022F9FC is
     // d_s_name's scene-create block entry (no LR check), which the boot milestone
-    // reports. Neither runs a host service, so admission cannot change PC/LR/regs.
-    admitted_observation = (address == 0x80120188u || address == 0x8022F9FCu) &&
+    // reports. 0x8015EA5C is daVrbox2_Draw; its refusal capsule showed pc ==
+    // address, module-owned code, no alias and a real MEM1 r3/r31, and the draw
+    // block needs no host service. None changes PC/LR/regs.
+    admitted_observation = (address == 0x80120188u || address == 0x8022F9FCu ||
+                            address == 0x8015EA5Cu) &&
         ww_edge_admit_observation(
             address, cpu->pc, cpu->lr,
             ww_host_module_contains_address(host->module, address),

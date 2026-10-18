@@ -1227,6 +1227,65 @@ def test_dispatch_trace_ring_wraps_and_formats():
         assert 'dispatch=0xd1' in result.stderr
 
 
+def test_dispatch_trace_ignores_thumb_bit_and_caps_suspect_dumps():
+    """Thumb function pointers carry bit 0; 0x977a7e0d and 0x810028bf are
+    healthy targets and must not dump. 8, 1 and 0xCCCCCCCC are suspect, and the
+    suspect dump is capped at four per reason."""
+    with tempfile.TemporaryDirectory() as td:
+        td = Path(td)
+        (td / 'core').mkdir()
+        (td / 'core' / 'cpu.h').write_text(
+            '#ifndef BW_TEST_TRACE_THUMB_CPU_H\n#define BW_TEST_TRACE_THUMB_CPU_H\n'
+            '#include <stdint.h>\n'
+            'typedef uint8_t u8; typedef uint16_t u16; typedef uint32_t u32;\n'
+            'typedef uint64_t u64; typedef int64_t s64;\n'
+            'typedef struct CPUState { u32 pc, lr, srr0, exception; void* host_call; } CPUState;\n'
+            '#endif\n')
+        main = td / 'main.c'
+        main.write_text(
+            '#include <stdint.h>\n#include <string.h>\n'
+            '#include "dispatch_trace.h"\n'
+            'int main(int argc, char** argv) {\n'
+            '    (void)argv;\n'
+            '    CPUState cpu;\n'
+            '    memset(&cpu, 0, sizeof cpu);\n'
+            '    cpu.pc = 0x80000000u; cpu.lr = 0x80000000u; cpu.srr0 = 0x80000000u;\n'
+            '    if (argc > 1) {\n'
+            '        cpu.host_call = (void*)(uintptr_t)0x977a7e0du;\n'
+            '        bw_trace_call(&cpu, 0x80000001u);\n'
+            '        bw_trace_dispatch((void*)(uintptr_t)0x9a005090u,\n'
+            '                          (void*)(uintptr_t)0x978b5720u,\n'
+            '                          (void*)(uintptr_t)0x810028bfu);\n'
+            '        bw_trace_dump("sane");\n'
+            '    } else {\n'
+            '        cpu.host_call = (void*)(uintptr_t)8u;\n'
+            '        for (unsigned i = 0; i < 10; ++i) bw_trace_call(&cpu, 0x80000000u);\n'
+            '        cpu.host_call = (void*)(uintptr_t)1u;\n'
+            '        bw_trace_call(&cpu, 0x80000000u);\n'
+            '        cpu.host_call = (void*)(uintptr_t)0xCCCCCCCCu;\n'
+            '        bw_trace_call(&cpu, 0x80000000u);\n'
+            '        for (unsigned i = 0; i < 10; ++i)\n'
+            '            bw_trace_dispatch((void*)(uintptr_t)0x9a005090u,\n'
+            '                              (void*)(uintptr_t)0x978b5720u,\n'
+            '                              (void*)(uintptr_t)0xCCCCCCCCu);\n'
+            '        bw_trace_dump("bad");\n'
+            '    }\n'
+            '    return 0;\n'
+            '}\n')
+        probe = td / 'probe'
+        subprocess.run(['cc', '-std=c11', '-Wall', '-Wextra', '-Werror',
+                        '-I', str(td), '-I', str(SCRIPTS_DIR.parent / 'cmake/composite'),
+                        str(main), str(SCRIPTS_DIR.parent / 'cmake/composite/dispatch_trace.c'),
+                        '-o', str(probe)], check=True, capture_output=True, text=True)
+        sane = subprocess.run([str(probe), 'sane'], check=True, capture_output=True, text=True)
+        assert 'suspect' not in sane.stderr
+        assert 'why=sane' in sane.stderr
+        bad = subprocess.run([str(probe)], check=True, capture_output=True, text=True)
+        assert bad.stderr.count('why=suspect-call') == 4
+        assert bad.stderr.count('why=suspect-dispatch') == 4
+        assert '0xcccccccc' in bad.stderr.lower()
+
+
 def test_ram_guard_repairs_a_corrupted_ram_size():
     """Trial #26's first wild store is a guest address turned into a host
     pointer because cpu->ram_size was corrupted while cpu->ram still matched
@@ -1502,6 +1561,7 @@ def main():
         test_global_ctx_dol_scope_rewrites_every_dol_chunk,
         test_global_ctx_dol_scope_rejects_unprepared_chunk_without_writing,
         test_dispatch_trace_ring_wraps_and_formats,
+        test_dispatch_trace_ignores_thumb_bit_and_caps_suspect_dumps,
         test_ram_guard_repairs_a_corrupted_ram_size,
         test_scoped_global_ctx_chunk_uses_the_adopted_state,
         test_ship_identity_uses_disc_member_not_processed_member,

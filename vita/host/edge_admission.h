@@ -10,7 +10,9 @@
 // None of these edges runs a host service; the guest's own compiled block runs
 // unchanged. 0x8022F9FC is d_s_name's scene-create block (the NAME_SCENE
 // milestone); 0x80120188 is checkLavaFace's GroundCross return, which also
-// requires the caller-return LR.
+// requires the caller-return LR; 0x8015EA5C is daVrbox2_Draw, an observation
+// edge whose refusal capsule showed the compiled block entered normally
+// (pc == address, module-owned, no alias, r3/r31 a real MEM1 object).
 static inline bool ww_edge_admit_observation(uint32_t address, uint32_t pc,
                                              uint32_t lr, bool module_owned,
                                              bool alias_overlap) {
@@ -18,7 +20,7 @@ static inline bool ww_edge_admit_observation(uint32_t address, uint32_t pc,
         return false;
     if (address == 0x80120188u)
         return lr == address;
-    return address == 0x8022F9FCu;
+    return address == 0x8022F9FCu || address == 0x8015EA5Cu;
 }
 
 #endif
