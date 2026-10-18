@@ -92,6 +92,11 @@ class PreflightTests(unittest.TestCase):
         (self.fixture / 'ww05.request').unlink()
         self.assertEqual(watch_guest.preflight(self.root), 'missing ww05.request')
 
+    def test_continue_with_audio_passes(self):
+        for name in ('ww05.continue', 'ww05.audio'):
+            (self.fixture / name).write_text('request\n')
+        self.assertIsNone(watch_guest.preflight(self.root))
+
     def test_audio_needs_continue(self):
         (self.fixture / 'ww05.audio').write_text('audio\n')
         self.assertEqual(watch_guest.preflight(self.root), 'ww05.audio needs ww05.continue')
