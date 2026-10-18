@@ -110,10 +110,19 @@ static u64 deadline(const CPUState* cpu, u32* source, void* user) {
         return 1u;
     }
     u32 src = BLUEWAKE_DEADLINE_NONE;
+    const bool deferred_audio_idle = host->cycles.idle_turn &&
+                                     host->dsp.audio_deferred &&
+                                     host->dsp.deferred_task_started;
     const u64 decrementer_expiry = host->decrementer_valid ?
         ((u64)host->decrementer + 1u) * WW_HOST_CYCLES_PER_TIMEBASE_TICK - host->clock_remainder : UINT64_MAX;
-    u64 expiry = decrementer_expiry;
-    if (decrementer_expiry != UINT64_MAX)
+    // With deferred audio and a recognised idle poll the poll word is zero:
+    // the scheduler has no runnable thread, so a future decrementer expiry
+    // cannot switch to one. Let the turn reach the VI retrace; advance() makes
+    // the expiry pending inside the turn and the interrupt is delivered at the
+    // next turn boundary after the VI event. A pending decrementer above is
+    // still delivered immediately.
+    u64 expiry = deferred_audio_idle ? UINT64_MAX : decrementer_expiry;
+    if (!deferred_audio_idle && decrementer_expiry != UINT64_MAX)
         src = BLUEWAKE_DEADLINE_DEC_EXPIRY;
     // When audio is deferred and the guest is in the recognised idle poll, an
     // in-flight ARAM transfer belongs to the same no-op audio path. It must not
@@ -121,9 +130,6 @@ static u64 deadline(const CPUState* cpu, u32* source, void* user) {
     // completes the transfer (and its completion trace) inside that turn. The
     // completion interrupt is then delivered at the turn boundary after the VI
     // event, not at its exact ARAM cycle.
-    const bool deferred_audio_idle = host->cycles.idle_turn &&
-                                     host->dsp.audio_deferred &&
-                                     host->dsp.deferred_task_started;
     const u64 dsp_expiry = deferred_audio_idle ?
         ww_dsp_interface_deadline_excluding_aram(&host->dsp) :
         ww_dsp_interface_deadline(&host->dsp);
@@ -905,6 +911,14 @@ typedef struct {
     u32 jump_prints;
     u32 taken_prints;
     u64 ptr_restores;
+    u64 fail_pc;
+    u64 fail_exc;
+    u64 fail_state;
+    u64 fail_msr;
+    u64 fail_unsafe;
+    u64 fail_dvd;
+    u64 fail_r13;
+    u64 fail_poll;
     // The jump granted at prepare time, captured so a mid-turn rebudget (an
     // edge flush or a decrementer rebudget) cannot clear this turn's taken line.
     bool pending;
@@ -923,13 +937,21 @@ static void idle_lever_reset(void) {
 
 static void idle_lever_report(WwHost* host) {
     if (fprintf(stderr,
-                "[idle-lever] armed=%llu first_false=%08X turns=%llu edges=%llu cycles=%llu ptr_restores=%llu\n",
+                "[idle-lever] armed=%llu first_false=%08X turns=%llu edges=%llu cycles=%llu ptr_restores=%llu fail_pc=%llu fail_exc=%llu fail_state=%llu fail_msr=%llu fail_unsafe=%llu fail_dvd=%llu fail_r13=%llu fail_poll=%llu\n",
                 (unsigned long long)g_idle_lever.armed,
                 g_idle_lever.first_false,
                 (unsigned long long)g_idle_lever.turns,
                 (unsigned long long)g_idle_lever.edges,
                 (unsigned long long)g_idle_lever.cycles,
-                (unsigned long long)g_idle_lever.ptr_restores) < 0)
+                (unsigned long long)g_idle_lever.ptr_restores,
+                (unsigned long long)g_idle_lever.fail_pc,
+                (unsigned long long)g_idle_lever.fail_exc,
+                (unsigned long long)g_idle_lever.fail_state,
+                (unsigned long long)g_idle_lever.fail_msr,
+                (unsigned long long)g_idle_lever.fail_unsafe,
+                (unsigned long long)g_idle_lever.fail_dvd,
+                (unsigned long long)g_idle_lever.fail_r13,
+                (unsigned long long)g_idle_lever.fail_poll) < 0)
         ww_host_fail(host, "idle-lever report write failed", 0x80307EF4u,
                      host->cpu.pc);
 }
@@ -1048,17 +1070,48 @@ void ww_host_null_guard(const char* where, u32 pc) {
     abort();
 }
 
+static bool idle_poll_pc(u32 pc) {
+    // The retail scheduler idle loop is lwz/cmplwi/bc at 0x80307EF4..0x80307EFC.
+    // A dispatch can return on any of the three; all three still read the same
+    // poll word, so the same identity and stability checks apply.
+    return pc == 0x80307EF4u || pc == 0x80307EF8u || pc == 0x80307EFCu;
+}
+
 bool ww_host_idle_poll_ready(WwHost* host) {
     CPUState* cpu = &host->cpu;
     // Only the retail scheduler's idle poll, only after the port has observed
     // that scheduler, and only with interrupts deliverable.
-    if (cpu->pc != 0x80307EF4u)
+    if (!idle_poll_pc(cpu->pc)) {
+        ++g_idle_lever.fail_pc;
         return false;
-    if (cpu->exception != 0u || !host->scheduler_idle_observed ||
-        (cpu->msr & PPC_MSR_EE) == 0u ||
-        !bluewake_scheduler_interrupt_safe(cpu->pc) ||
-        host->dvd_completions.count != 0u || host->dvd_callback_active ||
-        cpu->gpr[13] - 26288u != 0x803F7A30u) {
+    }
+    if (cpu->exception != 0u) {
+        ++g_idle_lever.fail_exc;
+        idle_lever_fail(host, 8u);
+        return false;
+    }
+    if (!host->scheduler_idle_observed) {
+        ++g_idle_lever.fail_state;
+        idle_lever_fail(host, 8u);
+        return false;
+    }
+    if ((cpu->msr & PPC_MSR_EE) == 0u) {
+        ++g_idle_lever.fail_msr;
+        idle_lever_fail(host, 8u);
+        return false;
+    }
+    if (!bluewake_scheduler_interrupt_safe(cpu->pc)) {
+        ++g_idle_lever.fail_unsafe;
+        idle_lever_fail(host, 8u);
+        return false;
+    }
+    if (host->dvd_completions.count != 0u || host->dvd_callback_active) {
+        ++g_idle_lever.fail_dvd;
+        idle_lever_fail(host, 8u);
+        return false;
+    }
+    if (cpu->gpr[13] - 26288u != 0x803F7A30u) {
+        ++g_idle_lever.fail_r13;
         idle_lever_fail(host, 8u);
         return false;
     }
@@ -1066,6 +1119,7 @@ bool ww_host_idle_poll_ready(WwHost* host) {
     if (!ww_host_idle_poll_stable(cpu)) {
         u32 reason = 0u;
         (void)idle_poll_word_real(cpu, &reason);
+        ++g_idle_lever.fail_poll;
         idle_lever_fail(host, reason);
         return false;
     }
