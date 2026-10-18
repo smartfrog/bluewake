@@ -1,3 +1,14 @@
+## 2026-10-18 Composite digest re-pinned for the canonical-context dispatcher check
+
+The generated composite source tree now carries `DOLRECOMP_CANON_CTX` in its dispatcher, so the
+2026-10-10 private tree (754 files, `54f54434...`) no longer matches a fresh generation. The private
+composite was regenerated with the current generator and translator pins: 755 files (the extra file
+is `generation_receipt.json`), digest
+`afa9cfb7778995378b422d0138409c6fa90235ec66be122ad24dac45872a80c0`. `scripts/vita/ww05/game_build.py`
+and the Builder profile pin that digest, and the private build now refuses a reused composite that
+lacks the macro before it computes the digest. Generator determinism was checked twice; no Vita3K
+run and no package build were made.
+
 ## 2026-10-06 Triage checkpoint
 
 Start with [the October 6 handoff](HANDOFF_2026-10-06.md) and
@@ -614,7 +625,8 @@ resolves about 1 percent where the paced CPU percentage could not):
 ## 2026-09-26 (late night) Rechecked the mods; three optimization experiments, none worth keeping
 
 **Rechecks.** A fresh clone of main with the pinned RecompCore 7952fa2 passes
-`build_device.sh --source-only` with the updated composite source digest (54f54434..., 754 files).
+`build_device.sh --source-only` with the composite source digest then pinned (54f54434..., 754 files;
+re-pinned on 2026-10-18, see above).
 `scripts/mods/build_mods.sh` run in that clone produces mod_variants.inc, the dispatcher and the Better
 Wind Waker chunks byte-identical to the build on the iPad. Better Wind Waker's REL data changes are
 written after the base data images are materialized, and nothing re-materializes a module's data when
@@ -687,7 +699,7 @@ main thread 62-82 percent busy. On the simulator with all three enabled, the pau
 card (write and read-back of all three blocks), and the saved card reloads to the play scene with the
 mods and without them. scripts/mods/build_mods.sh reproduces, from the disc alone, byte-identical
 mod_variants.inc, variant chunks and dispatcher. 26/26 host tests pass. The composite source digest in
-build_device.sh is updated for the mod-ready dispatcher (754 files).
+build_device.sh is updated for the mod-ready dispatcher (754 files; re-pinned on 2026-10-18, see above).
 
 Open: Better Wind Waker's individual features (instant text, Swift Sail) have not been exercised on
 screen yet, only its code running and the game playing normally; mods are not yet combinable with

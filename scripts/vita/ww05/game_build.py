@@ -20,7 +20,8 @@ if not OUTPUT.is_absolute():
     raise ValueError('WW05_BUILD_ROOT must be an absolute path')
 PINS = {'RecompCore': 'ddd031b2a7f45fcbda37a49daac9b308b8d95da1',
         'DolRecomp': 'b8b534591cba8ca7cd43943a655ee6e2591cf5de'}
-COMPOSITE_DIGEST = '54f54434c3f9c899d43a96373dc0b4c1aed0e50db8b820b9698dfa76571a770a'
+COMPOSITE_DIGEST = 'afa9cfb7778995378b422d0138409c6fa90235ec66be122ad24dac45872a80c0'
+COMPOSITE_CANON_MARKER = '#define DOLRECOMP_CANON_CTX'
 
 sys.path.insert(0, str(ROOT / 'scripts/vita/armv7'))
 from build import checked_sources as checked_pinned_sources
@@ -46,6 +47,19 @@ def verify_disc(disc, extractor, output):
 def checked_sources():
     sources = checked_pinned_sources()
     return {'RecompCore': sources['recompcore'], 'DolRecomp': sources['dolrecomp']}
+
+
+def checked_composite(composite):
+    header = composite / 'generated_composite.h'
+    if not header.is_file():
+        raise ValueError(f'composite header is missing: {header}')
+    if COMPOSITE_CANON_MARKER not in header.read_text():
+        raise ValueError('composite predates DOLRECOMP_CANON_CTX; regenerate it')
+    digest = subprocess.check_output([sys.executable, '-B', ROOT / 'scripts/ios/composite_manifest.py',
+                                      composite], text=True).split()[0]
+    if digest != COMPOSITE_DIGEST:
+        raise ValueError(f'composite digest differs from verified tree: {digest}')
+    return digest
 
 
 def checked_output(output):
@@ -263,10 +277,7 @@ def main():
                                          '--rels-bin-dir', private / 'rels', '--main-dol', private / 'main.dol',
                                          '--ship-disc', args.disc,
                                          '--output-dir', composite])
-    digest = subprocess.check_output([sys.executable, '-B', ROOT / 'scripts/ios/composite_manifest.py', composite],
-                                     text=True).split()[0]
-    if digest != COMPOSITE_DIGEST:
-        raise ValueError(f'composite digest differs from verified tree: {digest}')
+    digest = checked_composite(composite)
     if args.prepare_only:
         print('PREPARED PRIVATE INPUTS ONLY; Vita3K NOT RUN')
         return 0

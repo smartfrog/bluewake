@@ -25,7 +25,10 @@ an exception or unsupported service is negative evidence, never permission to pa
   `b8b534591cba8ca7cd43943a655ee6e2591cf5de`; no pin/source/FP edits.
 - The existing importer verifies the privately supplied USA GZLE01 rev0 disc and DOL hash before
   any generation. A hash override is refused. The pinned C generator emits DOL plus 415 RELs;
-  the generated tree must match `54f54434c3f9c899d43a96373dc0b4c1aed0e50db8b820b9698dfa76571a770a`.
+  the generated tree (755 files) must match
+  `afa9cfb7778995378b422d0138409c6fa90235ec66be122ad24dac45872a80c0`. The earlier 754-file pin
+  `54f54434c3f9c899d43a96373dc0b4c1aed0e50db8b820b9698dfa76571a770a` predates the dispatcher's
+  `DOLRECOMP_CANON_CTX` check.
 - `cmake/composite/CMakeLists.txt`: new `BLUEWAKE_STATIC_MODULE`, default **OFF**. Only ON changes
   the target to STATIC and excludes exactly the six `src/core/cpu*.c` sources. OFF retains the
   original SHARED source list, order, flags, definitions and CPU ownership.
@@ -429,7 +432,8 @@ The unchanged pinned C emitter already implements DCBZ (31/1014) as eight zero-w
 the aligned 32-byte block (`emitter.c:1644-1646`; private generated DOL PC `803031AC`), not a
 no-op. DCBZ_L uses `ppc_dcbz_l`. SYNC/ISYNC/EIEIO/TLBSYNC already emit `ppc_memory_fence()`
 (`emitter.c:1891-1896`). These neighbors were inspected, not reimplemented or newly certified.
-Both upstream pins and the verified composite digest remain unchanged.
+Both upstream pins remain unchanged; the verified composite digest was re-pinned on 2026-10-18
+for the dispatcher's `DOLRECOMP_CANON_CTX` check.
 
 Run `53d461435d1b4d3fb9a6a835e0692a98` at `684665775603d588746c80d5a4565336a8b98e22`
 passed DCBI and reached 121,788 cycles and 1,134 edges before
@@ -1537,7 +1541,8 @@ semantics or enable an unobserved device. Before dispatch the host leaves PC, sa
 MSR, GPRs, GQRs and numeric state alone. The already compiled guest routine is responsible
 for every context change; any unsupported instruction reached later still fails explicitly.
 Unowned context entries and all remaining service keys are still refused. Interrupt/device
-priority, clock/cycle accounting, static archive, composite digest, pins and ABI are unchanged.
+priority, clock/cycle accounting, static archive, pins and ABI are unchanged. The composite digest
+was re-pinned separately on 2026-10-18 for the dispatcher's `DOLRECOMP_CANON_CTX` check.
 
 `logs/context-load-edge-red.log` reproduces the missing boundary permission.
 `logs/context-load-edge-green.log` passes **282 host tests**, including unchanged CPU state

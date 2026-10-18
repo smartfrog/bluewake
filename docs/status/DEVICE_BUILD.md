@@ -148,9 +148,12 @@ regenerated after DolRecomp patch 0018, its REL chunks still from before it); th
 every file from the same translator. The runtime checks below were run on the fresh tree.
 
 The script pins the digest of the generated base tree
-(`python3 scripts/ios/composite_manifest.py DIR`, 754 files,
-`54f54434c3f9c899d43a96373dc0b4c1aed0e50db8b820b9698dfa76571a770a`) and stops if a disc or
-translator produces anything else; `--accept-new-composite` overrides that for development.
+(`python3 scripts/ios/composite_manifest.py DIR`, 755 files,
+`afa9cfb7778995378b422d0138409c6fa90235ec66be122ad24dac45872a80c0`) and stops if a disc or
+translator produces anything else; `--accept-new-composite` overrides that for development. The
+digest was re-pinned on 2026-10-18 for the dispatcher's `DOLRECOMP_CANON_CTX` check and the
+generator's current ship and REL-lifecycle output. The earlier 754-file pin was
+`54f54434c3f9c899d43a96373dc0b4c1aed0e50db8b820b9698dfa76571a770a`.
 
 ## Historical verification (2026-09-25)
 

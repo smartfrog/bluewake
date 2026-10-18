@@ -2,6 +2,7 @@ import hashlib
 import importlib.util
 import json
 from pathlib import Path
+import re
 import sys
 import tempfile
 from types import SimpleNamespace
@@ -238,6 +239,43 @@ class PlanTest(unittest.TestCase):
                              [str(root / 'runtime/Vita3K'), '--backend-renderer', 'OpenGL', '--installed-path', 'BWWG00005'])
             self.assertNotIn('--unshare-all', plan['phases']['guest']['command'])
             self.assertEqual(plan['phases']['guest']['timeout_seconds'], 60)
+
+
+class CompositeIdentityTest(unittest.TestCase):
+    def setUp(self):
+        import game_build
+        self.game_build = game_build
+        self.temporary = tempfile.TemporaryDirectory(dir='/tmp/opencode', prefix='ww05-composite-')
+        self.addCleanup(self.temporary.cleanup)
+        self.composite = Path(self.temporary.name)
+        self.header = self.composite / 'generated_composite.h'
+
+    def manifest_digest(self):
+        file_digest = hashlib.sha256(self.header.read_bytes()).hexdigest()
+        return hashlib.sha256(f'{file_digest} generated_composite.h\n'.encode()).hexdigest()
+
+    def test_composite_without_the_canon_macro_is_refused(self):
+        self.header.write_text('// dispatcher without the adopted CPU check\n')
+        with patch.object(self.game_build, 'COMPOSITE_DIGEST', self.manifest_digest()):
+            with self.assertRaisesRegex(ValueError, 'DOLRECOMP_CANON_CTX'):
+                self.game_build.checked_composite(self.composite)
+
+    def test_composite_digest_must_match_the_pinned_tree(self):
+        self.header.write_text('#define DOLRECOMP_CANON_CTX(ctx, address) (ctx)\n')
+        with patch.object(self.game_build, 'COMPOSITE_DIGEST', '0' * 64):
+            with self.assertRaisesRegex(ValueError, 'digest differs'):
+                self.game_build.checked_composite(self.composite)
+
+    def test_verified_composite_is_admitted(self):
+        self.header.write_text('#define DOLRECOMP_CANON_CTX(ctx, address) (ctx)\n')
+        with patch.object(self.game_build, 'COMPOSITE_DIGEST', self.manifest_digest()):
+            self.assertEqual(self.game_build.checked_composite(self.composite), self.manifest_digest())
+
+    def test_builder_profile_pins_the_same_digest(self):
+        profile = (ROOT / 'scripts/builder/profiles/bluewake.sh').read_text()
+        match = re.search(r'^COMPOSITE_DIGEST=([0-9a-f]{64})$', profile, re.MULTILINE)
+        self.assertIsNotNone(match)
+        self.assertEqual(match.group(1), self.game_build.COMPOSITE_DIGEST)
 
 
 class BaselineBuildTest(unittest.TestCase):

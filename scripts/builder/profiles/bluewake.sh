@@ -42,9 +42,10 @@ DOLRECOMP_SHA=b8b534591cba8ca7cd43943a655ee6e2591cf5de
 DAWN_URL=https://github.com/encounter/dawn/releases/download/v20260618.032059/dawn-ios-arm64.tar.gz
 DAWN_SHA256=ada0bafc173152d80eba7c3b2f9609a71185d5809cbd5dd3251b91a0803a7ae2
 # Digest of the generated composite source (scripts/ios/composite_manifest.py)
-# for GZLE01 USA rev 0 with the translator above: 754 files (the mod-ready
-# dispatcher and an empty mod_variants.inc since 2026-09-26; docs/MODS.md).
-COMPOSITE_DIGEST=54f54434c3f9c899d43a96373dc0b4c1aed0e50db8b820b9698dfa76571a770a
+# for GZLE01 USA rev 0 with the translator above: 755 files (the mod-ready
+# dispatcher with its canonical-context macro and an empty mod_variants.inc;
+# docs/MODS.md).
+COMPOSITE_DIGEST=afa9cfb7778995378b422d0138409c6fa90235ec66be122ad24dac45872a80c0
 
 profile_check_tools() {
     # The mods need only python3's standard library: Better Wind Waker's
