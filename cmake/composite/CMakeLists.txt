@@ -22,8 +22,13 @@ option(BLUEWAKE_NATIVE_ENTRIES "Use Wind Waker Recomp's certified native entries
 option(BLUEWAKE_DIRECT_CALLS "Use explicitly prepared direct-call chunks" OFF)
 option(BLUEWAKE_FIXED_CPU "Use explicitly prepared fixed-address guest CPU chunks" OFF)
 option(BLUEWAKE_FIXED_MEM1 "Use module-owned guest RAM (requires fixed CPU)" OFF)
+option(BLUEWAKE_RAM_GUARD "Repair a corrupted guest MEM1 base from the one adopted at init" OFF)
 if(BLUEWAKE_FIXED_MEM1 AND NOT BLUEWAKE_FIXED_CPU)
   message(FATAL_ERROR "Fixed MEM1 requires BLUEWAKE_FIXED_CPU")
+endif()
+if(BLUEWAKE_RAM_GUARD AND BLUEWAKE_GATHER_PIPE)
+  # The gather-pipe header wraps the same accessors with its own macros.
+  message(FATAL_ERROR "The RAM guard cannot wrap the gather-pipe accessors; enable one")
 endif()
 set(COMPOSITE_OPTIMIZATION_LEVEL "2" CACHE STRING "Generated composite optimization level (0, 1, 2, or 3)")
 set_property(CACHE COMPOSITE_OPTIMIZATION_LEVEL PROPERTY STRINGS 0 1 2 3)
@@ -119,6 +124,19 @@ if(BLUEWAKE_GATHER_PIPE)
   target_sources(${MODULE_NAME} PRIVATE gather_pipe.c)
   target_include_directories(${MODULE_NAME} PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}")
   target_compile_definitions(${MODULE_NAME} PRIVATE BLUEWAKE_GATHER_PIPE=1)
+endif()
+
+if(BLUEWAKE_RAM_GUARD)
+  # The chunks' guest memory helpers go through the adopted MEM1 base
+  # (guest_ram_guard.h) without editing one generated file.
+  target_sources(${MODULE_NAME} PRIVATE guest_ram_guard.c)
+  target_include_directories(${MODULE_NAME} PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}")
+  target_compile_definitions(${MODULE_NAME} PRIVATE BW_GUEST_RAM_GUARD_WRAP=1)
+  if(MSVC)
+    target_compile_options(${MODULE_NAME} PRIVATE /FI"${CMAKE_CURRENT_SOURCE_DIR}/guest_ram_guard.h")
+  else()
+    target_compile_options(${MODULE_NAME} PRIVATE -include "${CMAKE_CURRENT_SOURCE_DIR}/guest_ram_guard.h")
+  endif()
 endif()
 
 if(BLUEWAKE_NATIVE_J3D)
