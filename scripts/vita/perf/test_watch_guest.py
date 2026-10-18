@@ -176,3 +176,21 @@ class TruncationTests(unittest.TestCase):
             self.assertEqual(offset, len('[MemoryRead]: Invalid read at 0x8\n'))
             self.assertIn('[MemoryRead]: Invalid read at 0x8', lines)
             self.assertEqual(pending, '')
+
+
+class StaleConsoleTests(unittest.TestCase):
+    def console(self, tmp, text):
+        console = Path(tmp) / watch_guest.CONSOLE_LOG
+        console.parent.mkdir(parents=True, exist_ok=True)
+        console.write_text(text)
+        return Path(tmp)
+
+    def test_a_console_log_that_already_records_a_fault_is_refused(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = self.console(tmp, '[MemoryRead]: Invalid read of uint32_t at 0x8\n')
+            self.assertIsNotNone(watch_guest.stale_console(root))
+
+    def test_a_console_log_without_a_fault_is_accepted(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = self.console(tmp, '[frame-present] frame=1\n')
+            self.assertIsNone(watch_guest.stale_console(root))

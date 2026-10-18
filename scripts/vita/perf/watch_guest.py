@@ -10,6 +10,10 @@ console log at `profile/cache/Vita3K/vita3k.log`. The watcher appends
 reason and the matched line. Start it before the guest: this run's own
 `ww05.log`/`ww05.partial` count as present outputs. It never deletes or truncates
 either log.
+
+A copied profile carries the previous run's console log, so the preflight refuses
+a run directory whose console log already records a fault instead of reporting
+that old fault as this run's. Rotate the console log before reusing a profile.
 """
 
 import argparse
@@ -34,6 +38,7 @@ PRESENT = '[frame-present]'
 SAMPLE_SECONDS = 0.5
 DEADLINE_SECONDS = 240
 HANG_SECONDS = 30
+STALE_SCAN_BYTES = 4 * 1024 * 1024
 IDLE_CPU = 0.05
 BUSY_CPU = 0.5
 TERM_GRACE_SECONDS = 1.0
@@ -122,6 +127,23 @@ def wait_guest(pidfile, deadline):
     return None
 
 
+def stale_console(root):
+    """Name a fault a previous run left in the console log, or None."""
+    console = root / CONSOLE_LOG
+    if not console.exists():
+        return None
+    size = console.stat().st_size
+    with console.open('rb') as stream:
+        raw = stream.read(STALE_SCAN_BYTES)
+        if size > STALE_SCAN_BYTES:
+            stream.seek(size - STALE_SCAN_BYTES)
+            raw += stream.read(STALE_SCAN_BYTES)
+    match = fault_match(raw.decode(errors='replace'))
+    if match is None:
+        return None
+    return f'{CONSOLE_LOG} already records a fault: {match.strip()[:120]}'
+
+
 def preflight(root):
     """Name the first fixture problem that would waste a run, or None."""
     fixture = root / FIXTURE_DIR
@@ -134,7 +156,7 @@ def preflight(root):
     for name in PREVIOUS_OUTPUTS:
         if (fixture / name).exists():
             return f'present {name}'
-    return None
+    return stale_console(root)
 
 
 def watch(root, deadline_seconds=DEADLINE_SECONDS):
