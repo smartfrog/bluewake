@@ -1,8 +1,9 @@
 # P-A follow-up: the bounded slice of REL actor units whose profiles the Vita boot path links.
-# The full profile list needs all 502 g_profile_* definitions; this slice takes 155 units of the
+# The full profile list needs all 502 g_profile_* definitions; this slice takes 201 units of the
 # sorted src/d/actor list, which compile for ARMv7/ILP32 against the generated stub assets. It
-# fills 168 profiles: d_a_gy_ctrl, d_a_npc_bj1 (9) and d_a_npc_bm1 (5) define several each, while
-# d_a_itembase and d_a_kamome2 define none at VERSION=2 (the latter is demo-only).
+# fills 216 profiles: d_a_gy_ctrl, d_a_npc_bj1 (9), d_a_npc_bm1 (5), d_a_npc_ko1 (2) and
+# d_a_npc_ym1 (2) define several each, while d_a_itembase and d_a_kamome2 define none at VERSION=2
+# (the latter is demo-only).
 #
 # The units are compiled with -ffunction-sections -fdata-sections, then reduced by
 # vita/reduce_profile_slice.py to their g_profile_* data: the profile's identity (mProcName, list
@@ -53,7 +54,16 @@ set(_cos_profile_slice_names
         d_a_movie_player d_a_mozo d_a_msw d_a_mt d_a_mtoge d_a_nh d_a_npc_ac1
         d_a_npc_ah d_a_npc_aj1 d_a_npc_auction d_a_npc_ba1 d_a_npc_bj1
         d_a_npc_bm1 d_a_npc_bmcon1 d_a_npc_bms1 d_a_npc_bmsw d_a_npc_bs1
-        d_a_npc_btsw)
+        d_a_npc_btsw
+        d_a_npc_btsw2 d_a_npc_cb1 d_a_npc_co1 d_a_npc_de1 d_a_npc_ds1
+        d_a_npc_fa1 d_a_npc_gk1 d_a_npc_gp1 d_a_npc_hi1 d_a_npc_ho d_a_npc_hr
+        d_a_npc_jb1 d_a_npc_ji1 d_a_npc_kamome d_a_npc_kf1 d_a_npc_kg1
+        d_a_npc_kg2 d_a_npc_kk1 d_a_npc_km1 d_a_npc_ko1 d_a_npc_kp1
+        d_a_npc_ls1 d_a_npc_md d_a_npc_mk d_a_npc_mn d_a_npc_mt d_a_npc_nz
+        d_a_npc_ob1 d_a_npc_os d_a_npc_p1 d_a_npc_p2 d_a_npc_people
+        d_a_npc_pf1 d_a_npc_photo d_a_npc_pm1 d_a_npc_roten d_a_npc_rsh1
+        d_a_npc_sarace d_a_npc_so d_a_npc_sv d_a_npc_tc d_a_npc_tt d_a_npc_uk
+        d_a_npc_ym1 d_a_npc_yw1 d_a_npc_zk1)
 list(TRANSFORM _cos_profile_slice_names PREPEND "${COS_ROOT}/src/d/actor/"
         OUTPUT_VARIABLE COS_VITA_PROFILE_SLICE_UNITS)
 list(TRANSFORM COS_VITA_PROFILE_SLICE_UNITS APPEND ".cpp")

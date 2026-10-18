@@ -1,12 +1,12 @@
 // P-A follow-up: the bounded actor slice of the Vita boot path's profile list.
 //
 // The real list (game/src/f_pc/f_pc_profile_lst.cpp) names all 502 g_profile_* definitions.
-// This one names the 155-unit slice from native/cmake/vita_profile_slice.cmake: those units
+// This one names the 201-unit slice from native/cmake/vita_profile_slice.cmake: those units
 // compile for ARMv7/ILP32 against the generated stub assets, and the slice reduction keeps their
-// real g_profile_* identities (mProcName, list IDs, size, flags). It fills 168 profiles:
-// d_a_gy_ctrl, d_a_npc_bj1 (9) and d_a_npc_bm1 (5) define several each; d_a_itembase and
-// d_a_kamome2 define none at VERSION=2. The other 334 definitions stay for the compile sweep,
-// so the check reports 168 of 502.
+// real g_profile_* identities (mProcName, list IDs, size, flags). It fills 216 profiles:
+// d_a_gy_ctrl, d_a_npc_bj1 (9), d_a_npc_bm1 (5), d_a_npc_ko1 (2) and d_a_npc_ym1 (2) define
+// several each; d_a_itembase and d_a_kamome2 define none at VERSION=2. The other 286 definitions
+// stay for the compile sweep, so the check reports 216 of 502.
 //
 // The slots and the base method-table pointers are set by a static initialiser, before main:
 // the real list and its pointers are static data too. pc::staticInitCheck then verifies every
@@ -65,12 +65,20 @@ struct SliceProfileList {
         wireActor(g_profile_BITA);
         g_fpcPfLst_ProfileList[fpcNm_MBDOOR_e] = &g_profile_MBDOOR.base.base;
         wireActor(g_profile_MBDOOR);
+        g_fpcPfLst_ProfileList[fpcNm_NPC_DE1_e] = &g_profile_NPC_DE1.base.base;
+        wireActor(g_profile_NPC_DE1);
+        g_fpcPfLst_ProfileList[fpcNm_NPC_NZ_e] = &g_profile_NPC_NZ.base.base;
+        wireActor(g_profile_NPC_NZ);
+        g_fpcPfLst_ProfileList[fpcNm_NPC_SO_e] = &g_profile_NPC_SO.base.base;
+        wireActor(g_profile_NPC_SO);
         g_fpcPfLst_ProfileList[fpcNm_FM_e] = &g_profile_FM.base.base;
         wireActor(g_profile_FM);
         g_fpcPfLst_ProfileList[fpcNm_LEAF_LIFT_e] = &g_profile_LEAF_LIFT.base.base;
         wireActor(g_profile_LEAF_LIFT);
         g_fpcPfLst_ProfileList[fpcNm_HOOKSHOT_e] = &g_profile_HOOKSHOT.base.base;
         wireActor(g_profile_HOOKSHOT);
+        g_fpcPfLst_ProfileList[fpcNm_NPC_MK_e] = &g_profile_NPC_MK.base.base;
+        wireActor(g_profile_NPC_MK);
         g_fpcPfLst_ProfileList[fpcNm_GRID_e] = &g_profile_GRID.base.base;
         wireActor(g_profile_GRID);
         g_fpcPfLst_ProfileList[fpcNm_MAJUU_FLAG_e] = &g_profile_MAJUU_FLAG.base.base;
@@ -101,6 +109,8 @@ struct SliceProfileList {
         wireActor(g_profile_KANTERA);
         g_fpcPfLst_ProfileList[fpcNm_KAMOME_e] = &g_profile_KAMOME.base.base;
         wireActor(g_profile_KAMOME);
+        g_fpcPfLst_ProfileList[fpcNm_NPC_KAM_e] = &g_profile_NPC_KAM.base.base;
+        wireActor(g_profile_NPC_KAM);
         g_fpcPfLst_ProfileList[fpcNm_DEMO_KMM_e] = &g_profile_DEMO_KMM.base.base;
         wireActor(g_profile_DEMO_KMM);
         g_fpcPfLst_ProfileList[fpcNm_KN_e] = &g_profile_KN.base.base;
@@ -237,6 +247,30 @@ struct SliceProfileList {
         wireActor(g_profile_DAI);
         g_fpcPfLst_ProfileList[fpcNm_NH_e] = &g_profile_NH.base.base;
         wireActor(g_profile_NH);
+        g_fpcPfLst_ProfileList[fpcNm_NPC_OS_e] = &g_profile_NPC_OS.base.base;
+        wireActor(g_profile_NPC_OS);
+        g_fpcPfLst_ProfileList[fpcNm_NPC_YM1_e] = &g_profile_NPC_YM1.base.base;
+        wireActor(g_profile_NPC_YM1);
+        g_fpcPfLst_ProfileList[fpcNm_NPC_YM2_e] = &g_profile_NPC_YM2.base.base;
+        wireActor(g_profile_NPC_YM2);
+        g_fpcPfLst_ProfileList[fpcNm_NPC_YW1_e] = &g_profile_NPC_YW1.base.base;
+        wireActor(g_profile_NPC_YW1);
+        g_fpcPfLst_ProfileList[fpcNm_NPC_JI1_e] = &g_profile_NPC_JI1.base.base;
+        wireActor(g_profile_NPC_JI1);
+        g_fpcPfLst_ProfileList[fpcNm_NPC_KO1_e] = &g_profile_NPC_KO1.base.base;
+        wireActor(g_profile_NPC_KO1);
+        g_fpcPfLst_ProfileList[fpcNm_NPC_KO2_e] = &g_profile_NPC_KO2.base.base;
+        wireActor(g_profile_NPC_KO2);
+        g_fpcPfLst_ProfileList[fpcNm_NPC_LS1_e] = &g_profile_NPC_LS1.base.base;
+        wireActor(g_profile_NPC_LS1);
+        g_fpcPfLst_ProfileList[fpcNm_NPC_P1_e] = &g_profile_NPC_P1.base.base;
+        wireActor(g_profile_NPC_P1);
+        g_fpcPfLst_ProfileList[fpcNm_NPC_P2_e] = &g_profile_NPC_P2.base.base;
+        wireActor(g_profile_NPC_P2);
+        g_fpcPfLst_ProfileList[fpcNm_NPC_SARACE_e] = &g_profile_NPC_SARACE.base.base;
+        wireActor(g_profile_NPC_SARACE);
+        g_fpcPfLst_ProfileList[fpcNm_NPC_TC_e] = &g_profile_NPC_TC.base.base;
+        wireActor(g_profile_NPC_TC);
         g_fpcPfLst_ProfileList[fpcNm_NPC_BM1_e] = &g_profile_NPC_BM1.base.base;
         wireActor(g_profile_NPC_BM1);
         g_fpcPfLst_ProfileList[fpcNm_NPC_BM2_e] = &g_profile_NPC_BM2.base.base;
@@ -247,8 +281,14 @@ struct SliceProfileList {
         wireActor(g_profile_NPC_BM4);
         g_fpcPfLst_ProfileList[fpcNm_NPC_BM5_e] = &g_profile_NPC_BM5.base.base;
         wireActor(g_profile_NPC_BM5);
+        g_fpcPfLst_ProfileList[fpcNm_NPC_OB1_e] = &g_profile_NPC_OB1.base.base;
+        wireActor(g_profile_NPC_OB1);
         g_fpcPfLst_ProfileList[fpcNm_NPC_AJ1_e] = &g_profile_NPC_AJ1.base.base;
         wireActor(g_profile_NPC_AJ1);
+        g_fpcPfLst_ProfileList[fpcNm_NPC_KM1_e] = &g_profile_NPC_KM1.base.base;
+        wireActor(g_profile_NPC_KM1);
+        g_fpcPfLst_ProfileList[fpcNm_NPC_CB1_e] = &g_profile_NPC_CB1.base.base;
+        wireActor(g_profile_NPC_CB1);
         g_fpcPfLst_ProfileList[fpcNm_NPC_BA1_e] = &g_profile_NPC_BA1.base.base;
         wireActor(g_profile_NPC_BA1);
         g_fpcPfLst_ProfileList[fpcNm_NPC_BJ1_e] = &g_profile_NPC_BJ1.base.base;
@@ -279,12 +319,68 @@ struct SliceProfileList {
         wireActor(g_profile_NPC_BMSW);
         g_fpcPfLst_ProfileList[fpcNm_NPC_BTSW_e] = &g_profile_NPC_BTSW.base.base;
         wireActor(g_profile_NPC_BTSW);
+        g_fpcPfLst_ProfileList[fpcNm_NPC_BTSW2_e] = &g_profile_NPC_BTSW2.base.base;
+        wireActor(g_profile_NPC_BTSW2);
+        g_fpcPfLst_ProfileList[fpcNm_NPC_DS1_e] = &g_profile_NPC_DS1.base.base;
+        wireActor(g_profile_NPC_DS1);
+        g_fpcPfLst_ProfileList[fpcNm_NPC_RSH1_e] = &g_profile_NPC_RSH1.base.base;
+        wireActor(g_profile_NPC_RSH1);
+        g_fpcPfLst_ProfileList[fpcNm_NPC_KK1_e] = &g_profile_NPC_KK1.base.base;
+        wireActor(g_profile_NPC_KK1);
+        g_fpcPfLst_ProfileList[fpcNm_NPC_PM1_e] = &g_profile_NPC_PM1.base.base;
+        wireActor(g_profile_NPC_PM1);
+        g_fpcPfLst_ProfileList[fpcNm_NPC_KP1_e] = &g_profile_NPC_KP1.base.base;
+        wireActor(g_profile_NPC_KP1);
+        g_fpcPfLst_ProfileList[fpcNm_NPC_PF1_e] = &g_profile_NPC_PF1.base.base;
+        wireActor(g_profile_NPC_PF1);
+        g_fpcPfLst_ProfileList[fpcNm_NPC_GP1_e] = &g_profile_NPC_GP1.base.base;
+        wireActor(g_profile_NPC_GP1);
+        g_fpcPfLst_ProfileList[fpcNm_NPC_JB1_e] = &g_profile_NPC_JB1.base.base;
+        wireActor(g_profile_NPC_JB1);
+        g_fpcPfLst_ProfileList[fpcNm_NPC_KF1_e] = &g_profile_NPC_KF1.base.base;
+        wireActor(g_profile_NPC_KF1);
+        g_fpcPfLst_ProfileList[fpcNm_NPC_FA1_e] = &g_profile_NPC_FA1.base.base;
+        wireActor(g_profile_NPC_FA1);
         g_fpcPfLst_ProfileList[fpcNm_NPC_AUCTION_e] = &g_profile_NPC_AUCTION.base.base;
         wireActor(g_profile_NPC_AUCTION);
+        g_fpcPfLst_ProfileList[fpcNm_NPC_KG1_e] = &g_profile_NPC_KG1.base.base;
+        wireActor(g_profile_NPC_KG1);
+        g_fpcPfLst_ProfileList[fpcNm_NPC_KG2_e] = &g_profile_NPC_KG2.base.base;
+        wireActor(g_profile_NPC_KG2);
+        g_fpcPfLst_ProfileList[fpcNm_NPC_TT_e] = &g_profile_NPC_TT.base.base;
+        wireActor(g_profile_NPC_TT);
+        g_fpcPfLst_ProfileList[fpcNm_NPC_HR_e] = &g_profile_NPC_HR.base.base;
+        wireActor(g_profile_NPC_HR);
+        g_fpcPfLst_ProfileList[fpcNm_NPC_HO_e] = &g_profile_NPC_HO.base.base;
+        wireActor(g_profile_NPC_HO);
+        g_fpcPfLst_ProfileList[fpcNm_NPC_MD_e] = &g_profile_NPC_MD.base.base;
+        wireActor(g_profile_NPC_MD);
+        g_fpcPfLst_ProfileList[fpcNm_NPC_UK_e] = &g_profile_NPC_UK.base.base;
+        wireActor(g_profile_NPC_UK);
         g_fpcPfLst_ProfileList[fpcNm_BIGELF_e] = &g_profile_BIGELF.base.base;
         wireActor(g_profile_BIGELF);
+        g_fpcPfLst_ProfileList[fpcNm_NPC_CO1_e] = &g_profile_NPC_CO1.base.base;
+        wireActor(g_profile_NPC_CO1);
+        g_fpcPfLst_ProfileList[fpcNm_NPC_ZK1_e] = &g_profile_NPC_ZK1.base.base;
+        wireActor(g_profile_NPC_ZK1);
+        g_fpcPfLst_ProfileList[fpcNm_NPC_ROTEN_e] = &g_profile_NPC_ROTEN.base.base;
+        wireActor(g_profile_NPC_ROTEN);
+        g_fpcPfLst_ProfileList[fpcNm_NPC_PEOPLE_e] = &g_profile_NPC_PEOPLE.base.base;
+        wireActor(g_profile_NPC_PEOPLE);
+        g_fpcPfLst_ProfileList[fpcNm_NPC_GK1_e] = &g_profile_NPC_GK1.base.base;
+        wireActor(g_profile_NPC_GK1);
+        g_fpcPfLst_ProfileList[fpcNm_NPC_PHOTO_e] = &g_profile_NPC_PHOTO.base.base;
+        wireActor(g_profile_NPC_PHOTO);
         g_fpcPfLst_ProfileList[fpcNm_NPC_AC1_e] = &g_profile_NPC_AC1.base.base;
         wireActor(g_profile_NPC_AC1);
+        g_fpcPfLst_ProfileList[fpcNm_NPC_HI1_e] = &g_profile_NPC_HI1.base.base;
+        wireActor(g_profile_NPC_HI1);
+        g_fpcPfLst_ProfileList[fpcNm_NPC_SV_e] = &g_profile_NPC_SV.base.base;
+        wireActor(g_profile_NPC_SV);
+        g_fpcPfLst_ProfileList[fpcNm_NPC_MT_e] = &g_profile_NPC_MT.base.base;
+        wireActor(g_profile_NPC_MT);
+        g_fpcPfLst_ProfileList[fpcNm_NPC_MN_e] = &g_profile_NPC_MN.base.base;
+        wireActor(g_profile_NPC_MN);
         g_fpcPfLst_ProfileList[fpcNm_NPC_AH_e] = &g_profile_NPC_AH.base.base;
         wireActor(g_profile_NPC_AH);
         g_fpcPfLst_ProfileList[fpcNm_AUCTION_e] = &g_profile_AUCTION.base.base;
