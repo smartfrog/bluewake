@@ -24,19 +24,19 @@ Retail GZLE01, from `config/GZLE01/symbols.txt` and `src/d/d_s_logo.cpp`:
 ## Skip
 
 `WW_SKIP_TITLE_LOGO=ON` (off by default) adds one host-side rewrite in
-`ww_host_dispatch`: when the dispatched address is `0x800531A8`, the return
-address is `0x8022D174`, and `r4` is `8`, it sets `r4` to `12`
-(`fpcNm_NAME_SCENE_e`) and logs `[scene-skip]`. The logo scene's preload still
-runs; only its final transition changes, so the file-select menu opens instead
-of the title logo, the title demo and the story movie. No ctx/guard code and no
-translated chunk is changed, so the composite digest is unchanged.
+`ww_host_dispatch`: when the dispatched address is `0x800531A8` and `r4` is `8`,
+it sets `r4` to `12` (`fpcNm_NAME_SCENE_e`) and logs `[scene-skip]`. The return
+address is not matched. The logo scene's preload still runs; only its final
+transition changes, so the file-select menu opens instead of the title logo, the
+title demo and the story movie. No ctx/guard code and no translated chunk is
+changed, so the composite digest is unchanged.
 
 ## Checks
 
 - `vita/host/scene_skip_probe.c` (CTest `scene-skip`) covers the exact call,
-  a wrong return address, a wrong incoming scene, a wrong call address, a null
-  CPU and a repeated call. It fails against a no-op stub and passes with the
-  implementation.
+  several return addresses (none are matched), a wrong incoming scene, a wrong
+  call address, a null CPU and a repeated call. It fails against a no-op stub
+  and passes with the implementation.
 - `vita/host/test_game_build.py` checks the builder passes
   `-DWW_SKIP_TITLE_LOGO=ON|OFF` explicitly.
 - Host services compile with the option on and off; the on object contains the
