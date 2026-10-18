@@ -68,6 +68,9 @@ def stop_guest(pid, grace=TERM_GRACE_SECONDS):
 
 def read_new(path, offset, pending=''):
     """Return the complete new lines since `offset`, the new offset and the tail."""
+    size = path.stat().st_size if path.exists() else 0
+    if size < offset:
+        offset, pending = 0, ''
     if not path.exists():
         return [], offset, pending
     with path.open('rb') as stream:
@@ -104,9 +107,12 @@ def write_end(root, reason, detail=None):
 def wait_guest(pidfile, deadline):
     while time.monotonic() < deadline:
         try:
-            return int(pidfile.read_text().strip())
+            pid = int(pidfile.read_text().strip())
         except (OSError, ValueError):
-            time.sleep(SAMPLE_SECONDS)
+            pid = None
+        if pid is not None and stat(pid) is not None:
+            return pid
+        time.sleep(SAMPLE_SECONDS)
     return None
 
 
@@ -127,9 +133,6 @@ def watch(root, deadline_seconds=DEADLINE_SECONDS):
     reason, detail = 'exited', None
     try:
         while time.monotonic() < deadline:
-            current = stat(pid)
-            if current is None:
-                break
             now = time.monotonic()
             lines, offset, pending = read_new(log, offset, pending)
             console_lines, console_offset, console_pending = read_new(
@@ -144,6 +147,9 @@ def watch(root, deadline_seconds=DEADLINE_SECONDS):
             if match is not None:
                 reason, detail = 'guest-fault', match
                 stop_guest(pid)
+                break
+            current = stat(pid)
+            if current is None:
                 break
             cpu = None if previous is None else (
                 (current['ticks'] - previous[1]) / CLOCK_TICKS / (now - previous[0]))

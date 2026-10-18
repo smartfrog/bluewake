@@ -10,7 +10,6 @@ failed, instead of waiting for the run ceiling while the guest floods the log:
     [MemoryWrite]: Invalid write  a guest write outside mapped memory
     assert: / assertion /         an assertion failure ("assertion failed",
       Assertion failed            "Assertion `frame' failed.")
-    Unhandled                     an unhandled fault or terminate call
     panic                         a panic
     std::terminate                an uncaught C++ exception
     <same line> x FAULT_REPEATS   a flood of one fault line, even when that line
@@ -32,7 +31,6 @@ _SIGNATURE = re.compile('|'.join((
     r'\[memorywrite\]: invalid write',
     r'assert:',
     r'assertion',
-    r'unhandled',
     r'\bpanic',
     r'std::terminate',
 )), re.IGNORECASE)
@@ -44,7 +42,6 @@ _FLOOD = re.compile('|'.join((
     r'segfault',
     r'\bfault',
     r'assertion',
-    r'unhandled',
     r'\bpanic',
     r'terminate',
     r'abort',

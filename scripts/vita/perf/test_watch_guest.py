@@ -101,3 +101,19 @@ class StopGuestTests(unittest.TestCase):
 
 if __name__ == '__main__':
     unittest.main()
+
+
+class ReadNewTests(unittest.TestCase):
+    def test_offset_resets_when_the_log_truncates(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            log = Path(tmp) / 'vita3k.log'
+            log.write_text('x' * 100 + '\n')
+            _, offset, _ = watch_guest.read_new(log, 0)
+            self.assertEqual(offset, 101)
+
+            log.write_text('[MemoryRead]: Invalid read at 0x8\n')
+            lines, offset, pending = watch_guest.read_new(log, offset)
+
+            self.assertEqual(offset, len('[MemoryRead]: Invalid read at 0x8\n'))
+            self.assertIn('[MemoryRead]: Invalid read at 0x8', lines)
+            self.assertEqual(pending, '')
