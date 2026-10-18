@@ -225,8 +225,8 @@ add_custom_command(OUTPUT "${COS_VITA_FPC_CHAIN_OBJECT}"
             --readelf "${CMAKE_READELF}" --ld "${CMAKE_LINKER}"
             --output "${COS_VITA_FPC_CHAIN_OBJECT}"
             --callable g_fpcLf_Method
-            --keep "g_fopAc_Method,g_fopOvlp_Method,g_fopMsg_Method,g_fopKy_Method,g_fopCam_Method,g_fopVw_Method,g_fpcNd_Method,g_fopScn_Method,_Z13fpcMtd_MethodPFiPvES_"
-            --allow "OSPanic,_impure_ptr,abort,fprintf,memset,stderr,__aeabi_atexit,__dso_handle,_ZdlPvj,OSReport_Error,strncpy,_Z17fopAcM_DeleteHeapP10fopAc_ac_c"
+            --keep "g_fopAc_Method,g_fopOvlp_Method,g_fopMsg_Method,g_fopKy_Method,g_fopCam_Method,g_fopVw_Method,g_fpcNd_Method,g_fopScn_Method,_Z13fpcMtd_MethodPFiPvES_,g_dComIfG_gameInfo"
+            --allow "OSPanic,_impure_ptr,abort,fprintf,memset,stderr,__aeabi_atexit,__dso_handle,_ZdlPvj,OSReport_Error,strncpy,_Z17fopAcM_DeleteHeapP10fopAc_ac_c,_Z19fopAcM_cullingCheckP10fopAc_ac_c"
             $<TARGET_OBJECTS:cos_vita_fpc_chain_units>
         DEPENDS cos_vita_fpc_chain_units "${COS_NATIVE_ROOT}/vita/reduce_profile_slice.py"
         COMMAND_EXPAND_LISTS
@@ -265,6 +265,36 @@ add_custom_command(OUTPUT "${COS_VITA_DELETEHEAP_OBJECT}"
 add_custom_target(cos_vita_deleteheap DEPENDS "${COS_VITA_DELETEHEAP_OBJECT}")
 set(COS_VITA_DELETEHEAP_OBJECT "${COS_VITA_DELETEHEAP_OBJECT}" CACHE INTERNAL
         "The callable fopAcM_DeleteHeap closure for the Vita boot path")
+
+# cullingCheck is the other edge in f_op_actor_mng.cpp. It needs the J3D frustum clipper and the
+# mDo_lib camera cache, but not DeleteHeap. A third callable root keeps those two services apart;
+# g_dComIfG_gameInfo is kept global by the chain so this object reads the same game info.
+set(_cos_vita_culling_units
+        "${COS_ROOT}/src/f_op/f_op_actor_mng.cpp"
+        "${COS_ROOT}/src/m_Do/m_Do_lib.cpp"
+        "${COS_ROOT}/src/JSystem/J3DU/J3DUClipper.cpp"
+        "${COS_ROOT}/src/JSystem/J3DGraphBase/J3DSys.cpp")
+add_library(cos_vita_culling_units OBJECT EXCLUDE_FROM_ALL ${_cos_vita_culling_units})
+target_link_libraries(cos_vita_culling_units PRIVATE cos_game_headers)
+target_compile_options(cos_vita_culling_units PRIVATE -ffunction-sections -fdata-sections -g0)
+set_property(TARGET cos_vita_culling_units PROPERTY FOLDER "cos_native")
+
+set(COS_VITA_CULLING_OBJECT "${CMAKE_BINARY_DIR}/vita_culling.o")
+add_custom_command(OUTPUT "${COS_VITA_CULLING_OBJECT}"
+        COMMAND "${Python3_EXECUTABLE}" "${COS_NATIVE_ROOT}/vita/reduce_profile_slice.py"
+            --nm "${CMAKE_NM}" --objcopy "${CMAKE_OBJCOPY}" --objdump "${CMAKE_OBJDUMP}"
+            --readelf "${CMAKE_READELF}" --ld "${CMAKE_LINKER}"
+            --output "${COS_VITA_CULLING_OBJECT}"
+            --callable _Z19fopAcM_cullingCheckP10fopAc_ac_c
+            --allow "OSPanic,_impure_ptr,abort,fprintf,memset,stderr,__aeabi_atexit,__dso_handle,_ZdlPvj,OSReport_Error,strncpy,g_dComIfG_gameInfo,C_MTXConcat,C_MTXMultVec,PSVECNormalize,tanf"
+            $<TARGET_OBJECTS:cos_vita_culling_units>
+        DEPENDS cos_vita_culling_units "${COS_NATIVE_ROOT}/vita/reduce_profile_slice.py"
+        COMMAND_EXPAND_LISTS
+        COMMENT "Reducing the actor culling path to its fopAcM_cullingCheck closure"
+        VERBATIM)
+add_custom_target(cos_vita_culling DEPENDS "${COS_VITA_CULLING_OBJECT}")
+set(COS_VITA_CULLING_OBJECT "${COS_VITA_CULLING_OBJECT}" CACHE INTERNAL
+        "The callable fopAcM_cullingCheck closure for the Vita boot path")
 message(STATUS "cos_native: cos_vita_profile_slice (${_cos_profile_slice_unit_count} units, "
         "reduced to their g_profile_* data, plus the callable g_fpcLf_Method/g_fopOvlp_Method/"
         "g_fopMsg_Method/g_fopAc_Method/g_fopKy_Method/g_fopCam_Method/g_fopVw_Method/"

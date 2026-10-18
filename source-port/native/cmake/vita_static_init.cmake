@@ -92,16 +92,18 @@ elseif (NOT CMAKE_CROSSCOMPILING)
                 "${COS_VITA_PROFILE_SLICE_OBJECT}"
                 "${COS_VITA_FPC_CHAIN_OBJECT}"
                 "${COS_VITA_DELETEHEAP_OBJECT}"
+                "${COS_VITA_CULLING_OBJECT}"
                 $<TARGET_OBJECTS:cos_vita_milestone_units>)
         set_source_files_properties("${COS_VITA_PROFILE_SLICE_OBJECT}"
-                "${COS_VITA_FPC_CHAIN_OBJECT}" "${COS_VITA_DELETEHEAP_OBJECT}" PROPERTIES
+                "${COS_VITA_FPC_CHAIN_OBJECT}" "${COS_VITA_DELETEHEAP_OBJECT}"
+                "${COS_VITA_CULLING_OBJECT}" PROPERTIES
                 EXTERNAL_OBJECT TRUE GENERATED TRUE)
         # Aurora's libraries reference each other in a cycle (core <-> gx/vi), as cos_sdk_smoke notes.
         target_link_libraries(cos_vita_boot_host PRIVATE cos_game_headers cos_sdk
                 "-Wl,--start-group" ${COS_AURORA_LIBS} "-Wl,--end-group")
         target_link_options(cos_vita_boot_host PRIVATE -Wl,--gc-sections)
         add_dependencies(cos_vita_boot_host cos_vita_profile_slice cos_vita_fpc_chain
-                cos_vita_deleteheap cos_vita_milestone_units)
+                cos_vita_deleteheap cos_vita_culling cos_vita_milestone_units)
         set_target_properties(cos_vita_boot_host PROPERTIES
                 RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}")
     endif ()
@@ -123,12 +125,15 @@ elseif (NOT CMAKE_CROSSCOMPILING)
         add_executable(cos_vita_fpc_chain_test EXCLUDE_FROM_ALL
                 "${COS_NATIVE_ROOT}/check/fpc_chain_test.cpp"
                 "${COS_VITA_FPC_CHAIN_OBJECT}"
-                "${COS_VITA_DELETEHEAP_OBJECT}")
+                "${COS_VITA_DELETEHEAP_OBJECT}"
+                "${COS_VITA_CULLING_OBJECT}")
         set_source_files_properties("${COS_VITA_FPC_CHAIN_OBJECT}"
-                "${COS_VITA_DELETEHEAP_OBJECT}" PROPERTIES
+                "${COS_VITA_DELETEHEAP_OBJECT}" "${COS_VITA_CULLING_OBJECT}" PROPERTIES
                 EXTERNAL_OBJECT TRUE GENERATED TRUE)
-        target_link_libraries(cos_vita_fpc_chain_test PRIVATE cos_game_headers)
-        add_dependencies(cos_vita_fpc_chain_test cos_vita_fpc_chain cos_vita_deleteheap)
+        target_link_libraries(cos_vita_fpc_chain_test PRIVATE cos_game_headers cos_sdk
+                "-Wl,--start-group" ${COS_AURORA_LIBS} "-Wl,--end-group")
+        add_dependencies(cos_vita_fpc_chain_test cos_vita_fpc_chain cos_vita_deleteheap
+                cos_vita_culling)
         set_target_properties(cos_vita_fpc_chain_test PROPERTIES
                 RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}")
     endif ()
