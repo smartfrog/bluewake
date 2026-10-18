@@ -15,6 +15,7 @@
 #include "gxruntime/dvd.h"
 #include "ww05_dsp_init.h"
 #include "guest_timing.h"
+#include "frame_timing.h"
 #if WW05_OBSERVE_NATIVE_CTX || WW05_DISPATCH_ABI_SENTINEL
 #include "native_ctx.h"
 #endif
@@ -905,12 +906,23 @@ typedef struct {
     u32 jump_prints;
     u32 taken_prints;
     u64 ptr_restores;
+    u64 fail_pc;
+    u64 fail_exc;
+    u64 fail_state;
+    u64 fail_msr;
+    u64 fail_unsafe;
+    u64 fail_dvd;
+    u64 fail_r13;
+    u64 fail_poll;
     // The jump granted at prepare time, captured so a mid-turn rebudget (an
     // edge flush or a decrementer rebudget) cannot clear this turn's taken line.
     bool pending;
+    bool pending_idle;
     u64 pending_turn;
+    u64 pending_budget;
     u64 pending_dist;
     u32 pending_src;
+    u64 pending_wall_us;
 } WwIdleLeverRecord;
 
 static WwIdleLeverRecord g_idle_lever;
@@ -923,13 +935,21 @@ static void idle_lever_reset(void) {
 
 static void idle_lever_report(WwHost* host) {
     if (fprintf(stderr,
-                "[idle-lever] armed=%llu first_false=%08X turns=%llu edges=%llu cycles=%llu ptr_restores=%llu\n",
+                "[idle-lever] armed=%llu first_false=%08X turns=%llu edges=%llu cycles=%llu ptr_restores=%llu fail_pc=%llu fail_exc=%llu fail_state=%llu fail_msr=%llu fail_unsafe=%llu fail_dvd=%llu fail_r13=%llu fail_poll=%llu\n",
                 (unsigned long long)g_idle_lever.armed,
                 g_idle_lever.first_false,
                 (unsigned long long)g_idle_lever.turns,
                 (unsigned long long)g_idle_lever.edges,
                 (unsigned long long)g_idle_lever.cycles,
-                (unsigned long long)g_idle_lever.ptr_restores) < 0)
+                (unsigned long long)g_idle_lever.ptr_restores,
+                (unsigned long long)g_idle_lever.fail_pc,
+                (unsigned long long)g_idle_lever.fail_exc,
+                (unsigned long long)g_idle_lever.fail_state,
+                (unsigned long long)g_idle_lever.fail_msr,
+                (unsigned long long)g_idle_lever.fail_unsafe,
+                (unsigned long long)g_idle_lever.fail_dvd,
+                (unsigned long long)g_idle_lever.fail_r13,
+                (unsigned long long)g_idle_lever.fail_poll) < 0)
         ww_host_fail(host, "idle-lever report write failed", 0x80307EF4u,
                      host->cpu.pc);
 }
@@ -957,16 +977,22 @@ static void idle_lever_fail(WwHost* host, u32 reason) {
 // One-shot, then 1-in-256: the granted budget and the limit that bounded it.
 void ww_host_note_idle_grant(WwHost* host) {
     const BluewakeCycleDomain* domain = &host->cycles;
+    u64 now = 0u;
+    (void)ww_host_wall_us(&now);
     // Capture the grant now: later flushes and rebudgets rewrite
     // last_idle_grant while this turn is still marked idle.
     g_idle_lever.pending = domain->last_idle_grant;
-    if (!g_idle_lever.pending)
+    g_idle_lever.pending_idle = host->cycles.idle_turn;
+    if (!g_idle_lever.pending && !g_idle_lever.pending_idle)
         return;
     g_idle_lever.pending_turn = host->turns;
+    g_idle_lever.pending_budget = domain->last_budget;
     g_idle_lever.pending_dist = domain->last_distance;
     g_idle_lever.pending_src = domain->last_source;
-    if (g_idle_lever.jump_prints < 4u ||
-        (g_idle_lever.jump_prints % 256u) == 0u) {
+    g_idle_lever.pending_wall_us = now;
+    if (g_idle_lever.pending &&
+        (g_idle_lever.jump_prints < 4u ||
+         (g_idle_lever.jump_prints % 256u) == 0u)) {
         if (fprintf(stderr,
                     "[idle-jump] turn=%llu cap=%lld budget=%lld dist=%llu src=%u\n",
                     (unsigned long long)host->turns,
@@ -977,31 +1003,63 @@ void ww_host_note_idle_grant(WwHost* host) {
             ww_host_fail(host, "idle-jump report write failed", 0x80307EF4u,
                          host->cpu.pc);
     }
-    ++g_idle_lever.jump_prints;
+    if (g_idle_lever.pending)
+        ++g_idle_lever.jump_prints;
 }
 
 // The final tail this turn took: end_turn returns only the last unflushed
 // period, so a turn that crossed an edge reports a smaller elapsed than its
 // granted budget; host->cycles.dispatch_cycles is the turn total. The durable
 // record is committed only here, from the grant captured at prepare time, so a
-// [host-null] line names one turn's jump as a coherent set.
+// [host-null] line names one turn's jump as a coherent set. The wall time is
+// the host monotonic time from prepare to end, for the leap-vs-turn question.
 void ww_host_note_idle_taken(WwHost* host, u64 elapsed) {
-    if (!g_idle_lever.pending)
+    const bool jump = g_idle_lever.pending;
+    const bool idle = g_idle_lever.pending_idle;
+    if (!jump && !idle)
         return;
+    u64 now = 0u;
+    (void)ww_host_wall_us(&now);
+    const u64 wall_us = now >= g_idle_lever.pending_wall_us
+                            ? now - g_idle_lever.pending_wall_us
+                            : 0u;
+    const u64 turn_cycles = host->cycles.dispatch_cycles != 0u
+                                ? host->cycles.dispatch_cycles
+                                : elapsed;
+    const u64 cycles_per_us = wall_us != 0u ? turn_cycles / wall_us : 0u;
     g_idle_lever.pending = false;
+    g_idle_lever.pending_idle = false;
     g_idle_lever.last_turn = g_idle_lever.pending_turn;
     g_idle_lever.last_elapsed = elapsed;
     g_idle_lever.last_dist = g_idle_lever.pending_dist;
     g_idle_lever.last_src = g_idle_lever.pending_src;
-    if (g_idle_lever.taken_prints < 4u ||
-        (g_idle_lever.taken_prints % 256u) == 0u) {
-        if (fprintf(stderr, "[idle-jump-taken] turn=%llu elapsed=%llu\n",
+    if (jump) {
+        if (g_idle_lever.taken_prints < 4u ||
+            (g_idle_lever.taken_prints % 256u) == 0u) {
+            if (fprintf(stderr,
+                        "[idle-jump-taken] turn=%llu elapsed=%llu cycles=%llu wall_us=%llu cycles_per_us=%llu\n",
+                        (unsigned long long)g_idle_lever.pending_turn,
+                        (unsigned long long)elapsed,
+                        (unsigned long long)turn_cycles,
+                        (unsigned long long)wall_us,
+                        (unsigned long long)cycles_per_us) < 0)
+                ww_host_fail(host, "idle-jump-taken write failed", 0x80307EF4u,
+                             host->cpu.pc);
+        }
+        ++g_idle_lever.taken_prints;
+    } else {
+        if (fprintf(stderr,
+                    "[idle-turn] turn=%llu src=%u budget=%llu elapsed=%llu cycles=%llu wall_us=%llu cycles_per_us=%llu\n",
                     (unsigned long long)g_idle_lever.pending_turn,
-                    (unsigned long long)elapsed) < 0)
-            ww_host_fail(host, "idle-jump-taken write failed", 0x80307EF4u,
+                    g_idle_lever.pending_src,
+                    (unsigned long long)g_idle_lever.pending_budget,
+                    (unsigned long long)elapsed,
+                    (unsigned long long)turn_cycles,
+                    (unsigned long long)wall_us,
+                    (unsigned long long)cycles_per_us) < 0)
+            ww_host_fail(host, "idle-turn write failed", 0x80307EF4u,
                          host->cpu.pc);
     }
-    ++g_idle_lever.taken_prints;
 }
 
 // Trial 13 lost the loop's host pointer across ww_host_dispatch: the post-call
@@ -1052,13 +1110,43 @@ bool ww_host_idle_poll_ready(WwHost* host) {
     CPUState* cpu = &host->cpu;
     // Only the retail scheduler's idle poll, only after the port has observed
     // that scheduler, and only with interrupts deliverable.
-    if (cpu->pc != 0x80307EF4u)
+    if (cpu->pc != 0x80307EF4u) {
+        ++g_idle_lever.fail_pc;
         return false;
-    if (cpu->exception != 0u || !host->scheduler_idle_observed ||
-        (cpu->msr & PPC_MSR_EE) == 0u ||
-        !bluewake_scheduler_interrupt_safe(cpu->pc) ||
-        host->dvd_completions.count != 0u || host->dvd_callback_active ||
-        cpu->gpr[13] - 26288u != 0x803F7A30u) {
+    }
+    if (cpu->exception != 0u) {
+        ++g_idle_lever.fail_exc;
+        idle_lever_fail(host, 8u);
+        return false;
+    }
+    if (!host->scheduler_idle_observed) {
+        ++g_idle_lever.fail_state;
+        idle_lever_fail(host, 8u);
+        return false;
+    }
+    if ((cpu->msr & PPC_MSR_EE) == 0u) {
+        ++g_idle_lever.fail_msr;
+        idle_lever_fail(host, 8u);
+        return false;
+    }
+    if (!bluewake_scheduler_interrupt_safe(cpu->pc)) {
+        ++g_idle_lever.fail_unsafe;
+        idle_lever_fail(host, 8u);
+        return false;
+    }
+    // A queued completion can be coalesced on the deferred-audio idle path:
+    // the turn reaches the VI retrace and the main loop delivers the FIFO
+    // completion at the boundary, before any next dispatch or dependent read.
+    // An active callback must still block the leap.
+    const bool deferred_audio = host->dsp.audio_deferred && host->dsp.deferred_task_started;
+    if (host->dvd_callback_active ||
+        (host->dvd_completions.count != 0u && !deferred_audio)) {
+        ++g_idle_lever.fail_dvd;
+        idle_lever_fail(host, 8u);
+        return false;
+    }
+    if (cpu->gpr[13] - 26288u != 0x803F7A30u) {
+        ++g_idle_lever.fail_r13;
         idle_lever_fail(host, 8u);
         return false;
     }
@@ -1066,6 +1154,7 @@ bool ww_host_idle_poll_ready(WwHost* host) {
     if (!ww_host_idle_poll_stable(cpu)) {
         u32 reason = 0u;
         (void)idle_poll_word_real(cpu, &reason);
+        ++g_idle_lever.fail_poll;
         idle_lever_fail(host, reason);
         return false;
     }

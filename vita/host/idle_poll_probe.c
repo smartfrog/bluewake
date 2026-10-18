@@ -73,6 +73,14 @@ int main(void) {
 
     host->dvd_completions.count = 1u;
     assert(!ww_host_idle_poll_ready(host));
+    host->dsp.audio_deferred = true;
+    host->dsp.deferred_task_started = true;
+    assert(ww_host_idle_poll_ready(host));
+    host->dvd_callback_active = true;
+    assert(!ww_host_idle_poll_ready(host));
+    host->dvd_callback_active = false;
+    host->dsp.audio_deferred = false;
+    host->dsp.deferred_task_started = false;
     host->dvd_completions.count = 0u;
 
     host->dvd_callback_active = true;
