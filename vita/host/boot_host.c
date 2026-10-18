@@ -1427,16 +1427,22 @@ int ww_host_dispatch(WwHost* host, u32 address) {
 #endif
     if (host == NULL)
         return 0;
+    CPUState* cpu = &host->cpu;
+    u32 linked = address;
+    void* const ret = __builtin_return_address(0);
+    if (!ww_host_linked_thumb_return(ret)) {
+        fprintf(stderr, "[dispatch-return] lr=%p address=%08X pc=%08X\n", ret, linked, cpu->pc);
+        ww_host_fail(host, "dispatch entered without a linked Thumb return", linked, cpu->pc);
+        return -1;
+    }
 #if WW05_DISPATCH_ABI_SENTINEL
     if (ww_abi_state == 2u || ww_abi_state == 4u)
         return -1;
 #endif
-    CPUState* cpu = &host->cpu;
     if (host->module == NULL || host->module->dispatch == NULL) {
         ww_host_fail(host, "dispatch requires a loaded module", address, cpu->pc);
         return 0;
     }
-    u32 linked = address;
     if (rel_execution_blocked(host, address, &linked))
         return -1;
     const WwRelProfileService profile_service = ww_host_rel_profile_service(host, address);
@@ -1486,7 +1492,12 @@ int ww_host_dispatch(WwHost* host, u32 address) {
     }
     return result;
 #else
-    return host->module->dispatch(&host->cpu, linked);
+    const int result = host->module->dispatch(&host->cpu, linked);
+    if (result != 0 && result != 1) {
+        ww_host_fail(host, "dispatch returned an invalid result", linked, host->cpu.pc);
+        return -1;
+    }
+    return result;
 #endif
 }
 

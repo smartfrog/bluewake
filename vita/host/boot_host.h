@@ -1,6 +1,8 @@
 #ifndef WW05_BOOT_HOST_H
 #define WW05_BOOT_HOST_H
 
+#include <stdint.h>
+
 #include "module_exports.h"
 #include "module_cpu_contract.h"
 #include "gx_checkpoint.h"
@@ -18,6 +20,7 @@
 #include "rel_service.h"
 #include "rel_contract.h"
 #include "rel_lifecycle.h"
+#include "return_address.h"
 #include "rel_profile_block.h"
 #include "pad_input.h"
 #include "gxruntime/di.h"
