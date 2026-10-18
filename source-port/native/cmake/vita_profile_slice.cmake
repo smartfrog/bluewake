@@ -1,8 +1,8 @@
 # P-A follow-up: the bounded slice of REL actor units whose profiles the Vita boot path links.
-# The full profile list needs all 502 g_profile_* definitions; this slice takes 119 units of the
+# The full profile list needs all 502 g_profile_* definitions; this slice takes 155 units of the
 # sorted src/d/actor list, which compile for ARMv7/ILP32 against the generated stub assets. It
-# fills 120 profiles: d_a_gy_ctrl defines two, while d_a_itembase and d_a_kamome2 define none at
-# VERSION=2 (the latter is demo-only), so d_a_kytag05 makes the 48th new profile.
+# fills 168 profiles: d_a_gy_ctrl, d_a_npc_bj1 (9) and d_a_npc_bm1 (5) define several each, while
+# d_a_itembase and d_a_kamome2 define none at VERSION=2 (the latter is demo-only).
 #
 # The units are compiled with -ffunction-sections -fdata-sections, then reduced by
 # vita/reduce_profile_slice.py to their g_profile_* data: the profile's identity (mProcName, list
@@ -46,7 +46,14 @@ set(_cos_profile_slice_names
         d_a_icelift d_a_ikari d_a_item d_a_jbo d_a_kaji d_a_kamome d_a_kanban
         d_a_kantera d_a_kb d_a_kddoor d_a_ki d_a_kita d_a_klft d_a_kmon d_a_kn
         d_a_knob00 d_a_kokiie d_a_komore d_a_ks d_a_kt d_a_kui d_a_kytag00
-        d_a_kytag01 d_a_kytag02 d_a_kytag03 d_a_kytag04 d_a_kytag05)
+        d_a_kytag01 d_a_kytag02 d_a_kytag03 d_a_kytag04 d_a_kytag05
+        d_a_kytag06 d_a_kytag07 d_a_lamp d_a_lbridge d_a_leaflift d_a_lod_bg
+        d_a_lstair d_a_lwood d_a_machine d_a_magma d_a_majuu_flag d_a_mant
+        d_a_mbdoor d_a_mdoor d_a_mflft d_a_mgameboard d_a_mmusic d_a_mo2
+        d_a_movie_player d_a_mozo d_a_msw d_a_mt d_a_mtoge d_a_nh d_a_npc_ac1
+        d_a_npc_ah d_a_npc_aj1 d_a_npc_auction d_a_npc_ba1 d_a_npc_bj1
+        d_a_npc_bm1 d_a_npc_bmcon1 d_a_npc_bms1 d_a_npc_bmsw d_a_npc_bs1
+        d_a_npc_btsw)
 list(TRANSFORM _cos_profile_slice_names PREPEND "${COS_ROOT}/src/d/actor/"
         OUTPUT_VARIABLE COS_VITA_PROFILE_SLICE_UNITS)
 list(TRANSFORM COS_VITA_PROFILE_SLICE_UNITS APPEND ".cpp")
