@@ -9,7 +9,7 @@ flags per trial. It is not `main`: `main` is left unchanged, and nothing here is
 - **Verify the base before dispatch.** Resolve `refs/heads/development` to a commit and record its SHA
   before dispatching implementation. If the branch is missing, establish the intended base from
   project evidence and the user's mandate before creating it; never guess a base or claim it exists
-  before verifying it.
+  before verifying it. Ask when the base cannot be established safely.
 - **Branch per task.** Every code-changing task opens `task/<id>` from the verified current head of
   `development`, never from another task or POC branch. Record its base SHA, branch and workspace. On
   resume, verify the recorded branch and actual Git state instead of recreating or resetting it.
@@ -20,7 +20,7 @@ flags per trial. It is not `main`: `main` is left unchanged, and nothing here is
 - **Integrate serially, after the gates.** Merge into `development` only after acceptance, the
   required independent review and checks at the exact delivery revision. If `development` advances,
   synchronize and revalidate before integrating. Prefer a fast-forward of a validated revision that
-  contains the current head; never force, reset or overwrite existing work.
+  contains development's current head; never force, reset or overwrite existing work.
 - **Prove completion.** After integration verify
   `git merge-base --is-ancestor <validated-task-tip> refs/heads/development`, check the integrated
   revision, and record the task tip, integration SHA, review and check results. A finished
