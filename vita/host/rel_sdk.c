@@ -634,6 +634,9 @@ static const char* unlinked_image(WwHost* host, const WwRelImage* unlinked, u64*
 }
 
 static const char* reconcile_unlink(WwHost* host, WwRelImage* unlinked) {
+    if (host == NULL || host->cpu.pc != 0x80240F8Cu ||
+        host->rel_pending_unlink.phase != WW_REL_UNLINK_SDK_ACTIVE)
+        return "REL unlink identity removed before the guest returned";
     const u32 head = mem_read32(&host->cpu, WW_REL_SDK_HEAD);
     const u32 tail = mem_read32(&host->cpu, WW_REL_SDK_TAIL);
     u32 members = 0u;
@@ -710,6 +713,22 @@ static const char* unlink_sdk(WwHost* host, u32 address) {
                         cpu->gpr[13], pending->r13, cpu->gpr[31], pending->r31, cpu->lr) < 0)
                 return "REL SDK unlink state trace failed";
             return "REL SDK unlink lost its caller state";
+        }
+        const u32 live_callback = mem_read32(cpu, pending->owner + 60u);
+        const bool expected_code = pending->callback == 0u ||
+            ww_host_module_contains_address(host->module, pending->callback);
+        const bool live_code = live_callback == 0u ||
+            ww_host_module_contains_address(host->module, live_callback);
+        if (!ww_rel_unlink_callback_matches(pending, live_callback) || !live_code) {
+            if (fprintf(stderr, "[rel-unlink] module=%u stage=sdk-callback live=%08X expected=%08X\n",
+                        pending->module_id, live_callback, pending->callback) < 0)
+                return "REL SDK unlink callback trace failed";
+            if (!expected_code)
+                return "REL SDK unlink callback is not relocated module code";
+            mem_write32(cpu, pending->owner + 60u, pending->callback);
+            if (fprintf(stderr, "[rel-unlink] module=%u stage=sdk-callback-restore live=%08X restored=%08X\n",
+                        pending->module_id, live_callback, pending->callback) < 0)
+                return "REL SDK unlink callback restore trace failed";
         }
         if (!ww_host_rel_unlink_identity(host, pending))
             return "REL SDK unlink lost its exact live owner";

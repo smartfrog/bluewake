@@ -68,6 +68,7 @@ typedef struct WwRelPendingUnlink {
     u32 r13;
     u32 r31;
     u32 lr;
+    u32 callback;
     bool destructor_open;
     bool destructor_observation_open;
     bool destructor_completed;
@@ -85,6 +86,14 @@ static inline bool ww_rel_unlink_caller_matches(const WwRelPendingUnlink* pendin
     return pending != NULL && cpu != NULL &&
         cpu->gpr[1] == pending->r1 && cpu->gpr[2] == pending->r2 &&
         cpu->gpr[13] == pending->r13 && cpu->gpr[31] == pending->r31;
+}
+
+/* owner+0x3C is the callback the guest calls with mtlr/blrl at 0x80305B40.
+ * It must still hold the relocated module code pointer captured before the
+ * dtor; the raw unlinked value is a data word (0x65E20 in the fault). */
+static inline bool ww_rel_unlink_callback_matches(const WwRelPendingUnlink* pending,
+                                                  u32 live) {
+    return pending != NULL && live == pending->callback;
 }
 
 struct WwHost;

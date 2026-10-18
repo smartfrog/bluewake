@@ -132,7 +132,8 @@ const char* ww_host_rel_unlink_entry(WwHost* host, u32 address) {
     host->rel_pending_unlink = (WwRelPendingUnlink){.phase = WW_REL_UNLINK_ENTRY_READY, .image = image,
         .certificate = image->certificate, .identity = image->certificate->rel_bytes,
         .sections = image->sections, .module_id = image->module_id, .owner = image->owner,
-        .guest = image->guest, .bytes = image->bytes, .capacity = image->capacity, .r31 = cpu->gpr[31]};
+        .guest = image->guest, .bytes = image->bytes, .capacity = image->capacity, .r31 = cpu->gpr[31],
+        .callback = mem_read32(cpu, cpu->gpr[3] + 60u)};
     return NULL;
 }
 

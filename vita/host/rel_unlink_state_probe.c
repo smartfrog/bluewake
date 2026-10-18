@@ -12,6 +12,7 @@ int main(void) {
     pending.r2 = 0x8024560Cu;
     pending.r13 = 0x803FE0E0u;
     pending.r31 = 0x80AE1940u;
+    pending.callback = 0x81BD380Bu;
     cpu.gpr[1] = pending.r1;
     cpu.gpr[2] = pending.r2;
     cpu.gpr[13] = pending.r13;
@@ -30,5 +31,8 @@ int main(void) {
     assert(!ww_rel_unlink_caller_matches(&pending, &cpu));
     assert(!ww_rel_unlink_caller_matches(NULL, &cpu));
     assert(!ww_rel_unlink_caller_matches(&pending, NULL));
+    assert(ww_rel_unlink_callback_matches(&pending, pending.callback));
+    assert(!ww_rel_unlink_callback_matches(&pending, 0x00065E20u));
+    assert(!ww_rel_unlink_callback_matches(NULL, pending.callback));
     return 0;
 }
