@@ -1,10 +1,16 @@
 #include "callback_delivery.h"
 
 #include <stdio.h>
-#include <stdlib.h>
 #include <string.h>
+#include <sys/stat.h>
 
 #define OS_RESCHEDULE 0x803F7A38u
+
+/* The guest has no usable environment (getenv is empty inside the Vita
+ * guest), so the probe is gated by a fixture file the guest can open. */
+#ifndef BLUEWAKE_CALLBACK_CPU_PROBE_FILE
+#define BLUEWAKE_CALLBACK_CPU_PROBE_FILE "ux0:data/bluewake-ww-fixture/ww05.cpu-probe"
+#endif
 
 typedef struct GuestRegisterImage {
     u32 gpr[32];
@@ -83,8 +89,12 @@ static void restore_registers(CPUState* cpu,
 static bool callback_cpu_probe_enabled(void) {
     static int enabled = -1;
     if (enabled < 0) {
-        const char* const value = getenv("WW05_CALLBACK_CPU_PROBE");
-        enabled = value != NULL && value[0] != '\0' && strcmp(value, "0") != 0;
+        struct stat info;
+        enabled = lstat(BLUEWAKE_CALLBACK_CPU_PROBE_FILE, &info) == 0 &&
+                  S_ISREG(info.st_mode);
+        if (enabled)
+            fprintf(stderr, "[callback-cpu] probe=on gate=%s\n",
+                    BLUEWAKE_CALLBACK_CPU_PROBE_FILE);
     }
     return enabled != 0;
 }

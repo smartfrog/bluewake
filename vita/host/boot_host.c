@@ -1,4 +1,5 @@
 #include "boot_host.h"
+#include <sys/stat.h>
 #include "cache_flush_fallback.h"
 #include "external_memory.h"
 #include "interrupt_sources.h"
@@ -1450,6 +1451,125 @@ u64 ww_host_end_dispatch(WwHost* host) {
     return bluewake_cycle_domain_end_turn(&host->cycles, cpu);
 }
 
+/* File-gated audit of every pointer a dispatch may call through. The guest
+ * has no environment, so the gate is a fixture file (WW05_DIRECTORY).
+ * It records the first dispatch and then reports the first change, which is
+ * the closest observable to the (chunk-internal) indirect call that left the
+ * module. Off unless the file exists. */
+#ifndef WW05_CPU_PROBE_FILE
+#define WW05_CPU_PROBE_FILE WW05_DIRECTORY "ww05.cpu-probe"
+#endif
+
+typedef struct WwCpuProbePointers {
+    const void* external_read;
+    const void* external_write;
+    const void* external_read32;
+    const void* external_write32;
+    const void* instruction_fallback;
+    const void* host_call;
+    const void* ram;
+    const void* module_dispatch;
+    u32 ram_size;
+} WwCpuProbePointers;
+
+static const char* const ww_cpu_probe_names[8] = {
+    "external_read", "external_write", "external_read32", "external_write32",
+    "instruction_fallback", "host_call", "ram", "module_dispatch",
+};
+
+static bool ww_cpu_probe_enabled(void) {
+    static int enabled = -1;
+    if (enabled < 0) {
+        struct stat info;
+        enabled = lstat(WW05_CPU_PROBE_FILE, &info) == 0 && S_ISREG(info.st_mode);
+        if (enabled)
+            fprintf(stderr, "[cpu-probe] enabled file=%s\n", WW05_CPU_PROBE_FILE);
+    }
+    return enabled != 0;
+}
+
+static void ww_cpu_probe_pointers(const WwHost* host, const void** fn,
+                                  WwCpuProbePointers* out) {
+    const CPUState* const cpu = &host->cpu;
+    fn[0] = (const void*)cpu->external_read;
+    fn[1] = (const void*)cpu->external_write;
+    fn[2] = (const void*)cpu->external_read32;
+    fn[3] = (const void*)cpu->external_write32;
+    fn[4] = (const void*)cpu->instruction_fallback;
+    fn[5] = (const void*)cpu->host_call;
+    fn[6] = (const void*)cpu->ram;
+    fn[7] = host->module != NULL ? (const void*)host->module->dispatch : NULL;
+    out->external_read = fn[0];
+    out->external_write = fn[1];
+    out->external_read32 = fn[2];
+    out->external_write32 = fn[3];
+    out->instruction_fallback = fn[4];
+    out->host_call = fn[5];
+    out->ram = fn[6];
+    out->module_dispatch = fn[7];
+    out->ram_size = cpu->ram_size;
+}
+
+static void ww_cpu_probe_dispatch(const WwHost* host, u32 address, const void* ret) {
+    static WwCpuProbePointers first;
+    static bool have_first;
+    static bool reported;
+    static bool address_reported;
+    if (reported || !ww_cpu_probe_enabled())
+        return;
+    const CPUState* const cpu = &host->cpu;
+    if (!address_reported && address >= 0x95000000u) {
+        address_reported = true;
+        fprintf(stderr,
+                "[cpu-probe] implausible-address address=%08X pc=%08X cpu=%p "
+                "ret=%p\n",
+                address, cpu->pc, (const void*)cpu, ret);
+    }
+    const void* fn[8];
+    WwCpuProbePointers now;
+    ww_cpu_probe_pointers(host, fn, &now);
+    if (!have_first) {
+        have_first = true;
+        first = now;
+        fprintf(stderr,
+                "[cpu-probe] snapshot cpu=%p pc=%08X address=%08X ret=%p ram=%p "
+                "ram_size=%08X host_call=%p ext_read=%p ext_write=%p "
+                "ext_read32=%p ext_write32=%p fallback=%p module_dispatch=%p\n",
+                (const void*)cpu, cpu->pc, address, ret, (const void*)cpu->ram,
+                cpu->ram_size, (const void*)cpu->host_call,
+                (const void*)cpu->external_read, (const void*)cpu->external_write,
+                (const void*)cpu->external_read32, (const void*)cpu->external_write32,
+                (const void*)cpu->instruction_fallback,
+                host->module != NULL ? (const void*)host->module->dispatch : NULL);
+        return;
+    }
+    const void* const seen[8] = {
+        first.external_read, first.external_write, first.external_read32,
+        first.external_write32, first.instruction_fallback, first.host_call,
+        first.ram, first.module_dispatch,
+    };
+    for (unsigned i = 0u; i < 8u; ++i) {
+        if (seen[i] == fn[i])
+            continue;
+        reported = true;
+        fprintf(stderr,
+                "[cpu-probe] changed field=%s old=%p new=%p cpu=%p pc=%08X "
+                "address=%08X ret=%p\n",
+                ww_cpu_probe_names[i], seen[i], fn[i], (const void*)cpu, cpu->pc,
+                address, ret);
+        return;
+    }
+    if (first.ram_size != now.ram_size) {
+        reported = true;
+        fprintf(stderr,
+                "[cpu-probe] changed field=ram_size old=%08X new=%08X cpu=%p "
+                "pc=%08X address=%08X ret=%p\n",
+                first.ram_size, now.ram_size, (const void*)cpu, cpu->pc,
+                address, ret);
+        return;
+    }
+}
+
 int ww_host_dispatch(WwHost* host, u32 address) {
 #if WW05_OBSERVE_NATIVE_CTX
     ww_native_trace_boundary(host, WW_NATIVE_OUTER_DISPATCH);
@@ -1459,6 +1579,7 @@ int ww_host_dispatch(WwHost* host, u32 address) {
     CPUState* cpu = &host->cpu;
     u32 linked = address;
     void* const ret = __builtin_return_address(0);
+    ww_cpu_probe_dispatch(host, linked, ret);
     if (!ww_host_linked_thumb_return(ret)) {
         fprintf(stderr, "[dispatch-return] lr=%p address=%08X pc=%08X\n", ret, linked, cpu->pc);
         ww_host_fail(host, "dispatch entered without a linked Thumb return", linked, cpu->pc);
