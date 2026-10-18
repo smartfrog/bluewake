@@ -1,12 +1,12 @@
 # P-A follow-up: the bounded slice of REL actor units whose profiles the Vita boot path links.
-# The full profile list needs all 502 g_profile_* definitions; this slice takes 437 units of the
-# sorted src/d/actor list, which compile for ARMv7/ILP32 against the generated stub assets. It
-# fills 452 profiles: d_a_gy_ctrl, d_a_npc_bj1 (9), d_a_npc_bm1 (5), d_a_npc_ko1 (2) and
-# d_a_npc_ym1 (2) define several each, while d_a_itembase, d_a_kamome2, d_a_player and
-# d_a_player_npc define none at VERSION=2 (kamome2 is demo-only). d_a_npc_zl1 is back in the
-# slice after fixing its Vec-array cast. This is every profile-bearing unit of src/d/actor; the
-# target 456 is unreachable there (only 44 such units followed d_a_tag_etc), and the remaining 50
-# profiles are non-actor REL units (scenes, msg, overlap, ...).
+# The full profile list needs all 502 g_profile_* definitions. This slice takes every
+# profile-bearing actor unit (437) plus the 38 non-actor REL units that provide the other 50
+# profiles: 475 units, 502 profiles. The actor units compile for ARMv7/ILP32 against the generated
+# stub assets; d_a_gy_ctrl, d_a_npc_bj1 (9), d_a_npc_bm1 (5), d_a_npc_ko1 (2) and d_a_npc_ym1 (2)
+# define several actor profiles each, while d_a_itembase, d_a_kamome2, d_a_player and
+# d_a_player_npc define none at VERSION=2 (kamome2 is demo-only). d_a_npc_zl1 is back in the slice
+# after fixing its Vec-array cast. The non-actor profiles (scenes, msg, overlap, camera, kankyo)
+# keep their identity data; their own base tables are not linked, so those pointers stay zero.
 #
 # The units are compiled with -ffunction-sections -fdata-sections, then reduced by
 # vita/reduce_profile_slice.py to their g_profile_* data: the profile's identity (mProcName, list
@@ -120,6 +120,24 @@ set(_cos_profile_slice_names
 list(TRANSFORM _cos_profile_slice_names PREPEND "${COS_ROOT}/src/d/actor/"
         OUTPUT_VARIABLE COS_VITA_PROFILE_SLICE_UNITS)
 list(TRANSFORM COS_VITA_PROFILE_SLICE_UNITS APPEND ".cpp")
+
+# The remaining 50 profiles are the non-actor REL units of the list: scenes, msg, overlap,
+# camera, kankyo. Same reduction; their unit-specific base pointers stay zero (only the actor base
+# tables and the callable g_fpcLf_Method chain are linked).
+set(_cos_profile_slice_d_units
+        d/d_ovlp_fade.cpp d/d_s_logo.cpp d/d_s_menu.cpp d/d_s_play.cpp
+        d/d_s_title.cpp d/d_s_name.cpp d/d_s_open.cpp d/d_ovlp_fade2.cpp
+        d/d_ovlp_fade4.cpp d/d_s_room.cpp d/d_kankyo.cpp d/d_envse.cpp
+        d/d_wind_arrow.cpp d/d_wpot_water.cpp d/d_level_se.cpp
+        d/d_throwstone.cpp d/d_ky_thunder.cpp d/d_wpillar.cpp
+        d/d_water_mark.cpp d/d_camera.cpp d/d_kyeff.cpp d/d_kyeff2.cpp
+        d/d_message_paper.cpp d/d_mesg.cpp d/d_msg.cpp d/d_message.cpp
+        d/d_menu_window.cpp d/d_menu_cloth.cpp d/d_timer.cpp
+        d/d_auction_screen.cpp d/d_place_name.cpp d/d_minigame_starter.cpp
+        d/d_minigame_terminater.cpp d/d_meter.cpp d/d_operate_wind.cpp
+        d/d_scope.cpp d/d_picture_box.cpp d/d_gameover.cpp)
+list(TRANSFORM _cos_profile_slice_d_units PREPEND "${COS_ROOT}/src/")
+list(APPEND COS_VITA_PROFILE_SLICE_UNITS ${_cos_profile_slice_d_units})
 list(LENGTH COS_VITA_PROFILE_SLICE_UNITS _cos_profile_slice_unit_count)
 
 add_library(cos_vita_profile_slice_units OBJECT EXCLUDE_FROM_ALL ${COS_VITA_PROFILE_SLICE_UNITS})
@@ -203,6 +221,6 @@ add_custom_command(OUTPUT "${COS_VITA_FPC_CHAIN_OBJECT}"
 add_custom_target(cos_vita_fpc_chain DEPENDS "${COS_VITA_FPC_CHAIN_OBJECT}")
 set(COS_VITA_FPC_CHAIN_OBJECT "${COS_VITA_FPC_CHAIN_OBJECT}" CACHE INTERNAL
         "The callable g_fpcLf_Method chain for the Vita boot path")
-message(STATUS "cos_native: cos_vita_profile_slice (${_cos_profile_slice_unit_count} actor units, "
+message(STATUS "cos_native: cos_vita_profile_slice (${_cos_profile_slice_unit_count} units, "
         "reduced to their g_profile_* data, plus the callable g_fpcLf_Method chain and three "
         "data-only base tables)")

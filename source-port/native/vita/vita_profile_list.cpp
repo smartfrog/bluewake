@@ -1,18 +1,15 @@
-// P-A follow-up: the bounded actor slice of the Vita boot path's profile list.
+// P-A follow-up: the complete Vita boot path profile list.
 //
-// The real list (game/src/f_pc/f_pc_profile_lst.cpp) names all 502 g_profile_* definitions.
-// This one names the 437-unit slice from native/cmake/vita_profile_slice.cmake: those units
-// compile for ARMv7/ILP32 against the generated stub assets, and the slice reduction keeps their
-// real g_profile_* identities (mProcName, list IDs, size, flags). It fills 452 profiles:
-// d_a_gy_ctrl, d_a_npc_bj1 (9), d_a_npc_bm1 (5), d_a_npc_ko1 (2) and d_a_npc_ym1 (2) define
-// several each; d_a_itembase, d_a_kamome2, d_a_player and d_a_player_npc define none at
-// VERSION=2. This is every profile-bearing unit of src/d/actor; the other 50 profiles are
-// non-actor REL units, so the check reports 452 of 502.
+// The list has all 502 g_profile_* definitions of game/src/f_pc/f_pc_profile_lst.cpp: 437
+// profile-bearing actor units plus 38 non-actor REL units (scenes, msg, overlap, camera,
+// kankyo). The slice reduction keeps each profile's real identity (mProcName, list IDs, size,
+// flags); the non-actor units' own base tables are not linked, so their base pointers stay
+// zero. The check now reports 502 of 502.
 //
-// The slots and the base method-table pointers are set by a static initialiser, before main:
-// the real list and its pointers are static data too. pc::staticInitCheck then verifies every
-// mProcName against its slot (and the list pointer and terminator). Keep this list in step with
-// vita_profile_slice.cmake; a missing profile fails the link, a wrong slot fails the check.
+// The slots and the actor base method-table pointers are set by a static initialiser, before
+// main. pc::staticInitCheck verifies every mProcName against its slot, the list pointer and the
+// terminator. Keep this list in step with vita_profile_slice.cmake; a missing profile fails the
+// link, a wrong slot fails the check.
 //
 // g_fpcLf_Method is the real f_pc chain (fpcLf_* -> fpcMtd_* / fpcDwPi_* / fpcBs_MakeOfType), so
 // its function pointers are callable. g_fopAc_Method/g_fopMsg_Method/g_fopOvlp_Method are the
@@ -34,8 +31,35 @@ void wireActor(actor_process_profile_definition& profile) {
 
 struct SliceProfileList {
     SliceProfileList() {
+        g_fpcPfLst_ProfileList[fpcNm_OVERLAP0_e] = &g_profile_OVERLAP0.base.base;
+        g_fpcPfLst_ProfileList[fpcNm_OVERLAP1_e] = &g_profile_OVERLAP1.base.base;
+        g_fpcPfLst_ProfileList[fpcNm_OVERLAP6_e] = &g_profile_OVERLAP6.base.base;
+        g_fpcPfLst_ProfileList[fpcNm_OVERLAP7_e] = &g_profile_OVERLAP7.base.base;
+        g_fpcPfLst_ProfileList[fpcNm_OVERLAP8_e] = &g_profile_OVERLAP8.base.base;
+        g_fpcPfLst_ProfileList[fpcNm_LOGO_SCENE_e] = &g_profile_LOGO_SCENE.base.base;
+        g_fpcPfLst_ProfileList[fpcNm_MENU_SCENE_e] = &g_profile_MENU_SCENE.base.base;
+        g_fpcPfLst_ProfileList[fpcNm_PLAY_SCENE_e] = &g_profile_PLAY_SCENE.base.base;
+        g_fpcPfLst_ProfileList[fpcNm_OPENING_SCENE_e] = &g_profile_OPENING_SCENE.base.base;
+        g_fpcPfLst_ProfileList[fpcNm_OPENING2_SCENE_e] = &g_profile_OPENING2_SCENE.base.base;
+        g_fpcPfLst_ProfileList[fpcNm_TITLE_SCENE_e] = &g_profile_TITLE_SCENE.base.base;
+        g_fpcPfLst_ProfileList[fpcNm_ENDING_SCENE_e] = &g_profile_ENDING_SCENE.base.base;
+        g_fpcPfLst_ProfileList[fpcNm_NAME_SCENE_e] = &g_profile_NAME_SCENE.base.base;
+        g_fpcPfLst_ProfileList[fpcNm_NAMEEX_SCENE_e] = &g_profile_NAMEEX_SCENE.base.base;
+        g_fpcPfLst_ProfileList[fpcNm_OPEN_SCENE_e] = &g_profile_OPEN_SCENE.base.base;
+        g_fpcPfLst_ProfileList[fpcNm_OPEN2_SCENE_e] = &g_profile_OPEN2_SCENE.base.base;
+        g_fpcPfLst_ProfileList[fpcNm_OVERLAP2_e] = &g_profile_OVERLAP2.base.base;
+        g_fpcPfLst_ProfileList[fpcNm_OVERLAP3_e] = &g_profile_OVERLAP3.base.base;
+        g_fpcPfLst_ProfileList[fpcNm_OVERLAP4_e] = &g_profile_OVERLAP4.base.base;
+        g_fpcPfLst_ProfileList[fpcNm_OVERLAP5_e] = &g_profile_OVERLAP5.base.base;
+        g_fpcPfLst_ProfileList[fpcNm_ROOM_SCENE_e] = &g_profile_ROOM_SCENE.base.base;
+        g_fpcPfLst_ProfileList[fpcNm_KANKYO_e] = &g_profile_KANKYO.base.base;
         g_fpcPfLst_ProfileList[fpcNm_ALLDIE_e] = &g_profile_ALLDIE.base.base;
         wireActor(g_profile_ALLDIE);
+        g_fpcPfLst_ProfileList[fpcNm_ENVSE_e] = &g_profile_ENVSE.base.base;
+        g_fpcPfLst_ProfileList[fpcNm_WIND_ARROW_e] = &g_profile_WIND_ARROW.base.base;
+        g_fpcPfLst_ProfileList[fpcNm_WPOT_WATER_e] = &g_profile_WPOT_WATER.base.base;
+        g_fpcPfLst_ProfileList[fpcNm_LEVEL_SE_e] = &g_profile_LEVEL_SE.base.base;
+        g_fpcPfLst_ProfileList[fpcNm_THROWSTONE_e] = &g_profile_THROWSTONE.base.base;
         g_fpcPfLst_ProfileList[fpcNm_TAG_EVSW_e] = &g_profile_TAG_EVSW.base.base;
         wireActor(g_profile_TAG_EVSW);
         g_fpcPfLst_ProfileList[fpcNm_Obj_Swpush_e] = &g_profile_Obj_Swpush.base.base;
@@ -862,6 +886,7 @@ struct SliceProfileList {
         wireActor(g_profile_MAGMA);
         g_fpcPfLst_ProfileList[fpcNm_GRASS_e] = &g_profile_GRASS.base.base;
         wireActor(g_profile_GRASS);
+        g_fpcPfLst_ProfileList[fpcNm_KY_THUNDER_e] = &g_profile_KY_THUNDER.base.base;
         g_fpcPfLst_ProfileList[fpcNm_VRBOX_e] = &g_profile_VRBOX.base.base;
         wireActor(g_profile_VRBOX);
         g_fpcPfLst_ProfileList[fpcNm_VRBOX2_e] = &g_profile_VRBOX2.base.base;
@@ -888,6 +913,7 @@ struct SliceProfileList {
         wireActor(g_profile_HIMO3);
         g_fpcPfLst_ProfileList[fpcNm_ATT_e] = &g_profile_ATT.base.base;
         wireActor(g_profile_ATT);
+        g_fpcPfLst_ProfileList[fpcNm_WPILLAR_e] = &g_profile_WPILLAR.base.base;
         g_fpcPfLst_ProfileList[fpcNm_Hys_e] = &g_profile_Hys.base.base;
         wireActor(g_profile_Hys);
         g_fpcPfLst_ProfileList[fpcNm_SWHIT0_e] = &g_profile_SWHIT0.base.base;
@@ -924,6 +950,7 @@ struct SliceProfileList {
         wireActor(g_profile_Obj_Correct);
         g_fpcPfLst_ProfileList[fpcNm_Obj_Eff_e] = &g_profile_Obj_Eff.base.base;
         wireActor(g_profile_Obj_Eff);
+        g_fpcPfLst_ProfileList[fpcNm_WATER_MARK_e] = &g_profile_WATER_MARK.base.base;
         g_fpcPfLst_ProfileList[fpcNm_Tag_Light_e] = &g_profile_Tag_Light.base.base;
         wireActor(g_profile_Tag_Light);
         g_fpcPfLst_ProfileList[fpcNm_Tag_Attention_e] = &g_profile_Tag_Attention.base.base;
@@ -938,6 +965,26 @@ struct SliceProfileList {
         wireActor(g_profile_ARROW_LIGHTEFF);
         g_fpcPfLst_ProfileList[fpcNm_Obj_Timer_e] = &g_profile_Obj_Timer.base.base;
         wireActor(g_profile_Obj_Timer);
+        g_fpcPfLst_ProfileList[fpcNm_CAMERA_e] = &g_profile_CAMERA.base.base.base;
+        g_fpcPfLst_ProfileList[fpcNm_CAMERA2_e] = &g_profile_CAMERA2.base.base.base;
+        g_fpcPfLst_ProfileList[fpcNm_KYEFF_e] = &g_profile_KYEFF.base.base;
+        g_fpcPfLst_ProfileList[fpcNm_KYEFF2_e] = &g_profile_KYEFF2.base.base;
+        g_fpcPfLst_ProfileList[fpcNm_MESG_e] = &g_profile_MESG.base.base;
+        g_fpcPfLst_ProfileList[fpcNm_MSG_e] = &g_profile_MSG.base.base;
+        g_fpcPfLst_ProfileList[fpcNm_MSG2_e] = &g_profile_MSG2.base.base;
+        g_fpcPfLst_ProfileList[fpcNm_MSG3_e] = &g_profile_MSG3.base.base;
+        g_fpcPfLst_ProfileList[fpcNm_MENUWINDOW_e] = &g_profile_MENUWINDOW.base.base;
+        g_fpcPfLst_ProfileList[fpcNm_Menu_Cloth_e] = &g_profile_Menu_Cloth.base.base;
+        g_fpcPfLst_ProfileList[fpcNm_TIMER_e] = &g_profile_TIMER.base.base;
+        g_fpcPfLst_ProfileList[fpcNm_AUCTION_SCREEN_e] = &g_profile_AUCTION_SCREEN.base.base;
+        g_fpcPfLst_ProfileList[fpcNm_PLACE_NAME_e] = &g_profile_PLACE_NAME.base.base;
+        g_fpcPfLst_ProfileList[fpcNm_MINIGAME_STARTER_e] = &g_profile_MINIGAME_STARTER.base.base;
+        g_fpcPfLst_ProfileList[fpcNm_MINIGAME_TERMINATER_e] = &g_profile_MINIGAME_TERMINATER.base.base;
+        g_fpcPfLst_ProfileList[fpcNm_METER_e] = &g_profile_METER.base.base;
+        g_fpcPfLst_ProfileList[fpcNm_OPERATE_WIND_e] = &g_profile_OPERATE_WIND.base.base;
+        g_fpcPfLst_ProfileList[fpcNm_SCP_e] = &g_profile_SCP.base.base;
+        g_fpcPfLst_ProfileList[fpcNm_PB_e] = &g_profile_PB.base.base;
+        g_fpcPfLst_ProfileList[fpcNm_GAMEOVER_e] = &g_profile_GAMEOVER.base.base;
     }
 };
 
