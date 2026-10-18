@@ -260,6 +260,10 @@ class CompositeIdentityTest(unittest.TestCase):
             with self.assertRaisesRegex(ValueError, 'DOLRECOMP_CANON_CTX'):
                 self.game_build.checked_composite(self.composite)
 
+    def test_missing_composite_header_is_refused(self):
+        with self.assertRaisesRegex(ValueError, 'header is missing'):
+            self.game_build.checked_composite(self.composite)
+
     def test_composite_digest_must_match_the_pinned_tree(self):
         self.header.write_text('#define DOLRECOMP_CANON_CTX(ctx, address) (ctx)\n')
         with patch.object(self.game_build, 'COMPOSITE_DIGEST', '0' * 64):
