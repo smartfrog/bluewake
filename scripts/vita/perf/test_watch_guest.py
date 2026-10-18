@@ -199,3 +199,15 @@ class StaleConsoleTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             root = self.console(tmp, '[frame-present] frame=1\n')
             self.assertIsNone(watch_guest.stale_console(root))
+
+    def test_a_fault_in_the_middle_of_a_large_log_is_found(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = self.console(tmp, '[frame-present] frame=1\n' * 400000
+                                + '[MemoryRead]: Invalid read of uint32_t at 0x8\n'
+                                + '[frame-present] frame=2\n' * 400000)
+            self.assertIsNotNone(watch_guest.stale_console(root))
+
+    def test_a_large_log_without_a_fault_is_accepted(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = self.console(tmp, '[frame-present] frame=1\n' * 800000)
+            self.assertIsNone(watch_guest.stale_console(root))

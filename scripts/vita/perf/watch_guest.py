@@ -41,7 +41,7 @@ HANG_SECONDS = 30
 # Shader pre-compilation blocks in the driver and logs nothing between programs,
 # so a low-CPU silent stretch there is normal: give it far longer than a spin.
 IDLE_SILENT_SECONDS = 120
-STALE_SCAN_BYTES = 4 * 1024 * 1024
+STALE_CHUNK_BYTES = 1024 * 1024
 IDLE_CPU = 0.05
 BUSY_CPU = 0.5
 TERM_GRACE_SECONDS = 1.0
@@ -131,20 +131,25 @@ def wait_guest(pidfile, deadline):
 
 
 def stale_console(root):
-    """Name a fault a previous run left in the console log, or None."""
+    """Name a fault a previous run left in the console log, or None.
+
+    Reads the whole log in bounded chunks, carrying the partial last line into
+    the next chunk, so no fault can hide in the middle of a large log.
+    """
     console = root / CONSOLE_LOG
     if not console.exists():
         return None
-    size = console.stat().st_size
     with console.open('rb') as stream:
-        raw = stream.read(STALE_SCAN_BYTES)
-        if size > STALE_SCAN_BYTES:
-            stream.seek(size - STALE_SCAN_BYTES)
-            raw += stream.read(STALE_SCAN_BYTES)
-    match = fault_match(raw.decode(errors='replace'))
-    if match is None:
-        return None
-    return f'{CONSOLE_LOG} already records a fault: {match.strip()[:120]}'
+        pending = ''
+        while True:
+            raw = stream.read(STALE_CHUNK_BYTES)
+            text = pending + raw.decode(errors='replace')
+            complete, _, pending = text.rpartition('\n')
+            match = fault_match(complete) if raw else fault_match(text)
+            if match is not None:
+                return f'{CONSOLE_LOG} already records a fault: {match.strip()[:120]}'
+            if not raw:
+                return None
 
 
 def preflight(root):
