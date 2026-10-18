@@ -723,6 +723,11 @@ def main():
     # Composite dispatcher: binary search over sorted chunks
     n = len(all_chunks)
     lines.append("static inline DolRecompFunction dolrecomp_find_original(u32 address) {")
+    lines.append("    extern int bw_fn_cache_probe_enabled;")
+    lines.append("    extern void bw_fn_cache_probe_hit(u32, unsigned, DolRecompFunction,")
+    lines.append("                                      const u32*, const DolRecompFunction*);")
+    lines.append("    extern void bw_fn_cache_probe_fill(u32, unsigned, DolRecompFunction,")
+    lines.append("                                       const void*, const u32*, const DolRecompFunction*);")
     lines.append("    // A pc's translation is a pure function of that pc - the chunk table")
     lines.append("    // is built at compile time and nothing at runtime rewrites it - so a")
     lines.append("    // cache keyed by the pc is exact: a key match is a hit, with no range")
@@ -737,8 +742,13 @@ def main():
     lines.append("    const unsigned cache_index =")
     lines.append("        (unsigned)(((address >> 2) ^ (address >> 14)) &")
     lines.append("                   (DOLRECOMP_PC_CACHE_SIZE - 1u));")
-    lines.append("    if (s_cached_pc[cache_index] == address)")
-    lines.append("        return s_cached_pc_fn[cache_index];")
+    lines.append("    if (s_cached_pc[cache_index] == address) {")
+    lines.append("        DolRecompFunction cached = s_cached_pc_fn[cache_index];")
+    lines.append("        if (__builtin_expect(bw_fn_cache_probe_enabled != 0, 0))")
+    lines.append("            bw_fn_cache_probe_hit(address, cache_index, cached,")
+    lines.append("                                 s_cached_pc, s_cached_pc_fn);")
+    lines.append("        return cached;")
+    lines.append("    }")
     lines.append("    static const u32 s_starts[] = {")
     for start, _ in all_chunks:
         lines.append(f"        0x{start:08X}u,")
@@ -766,14 +776,23 @@ def main():
     lines.append(f"        && ((address - s_starts[idx]) & 3u) == 0u) {{")
     lines.append("        s_cached_pc[cache_index] = address;")
     lines.append("        s_cached_pc_fn[cache_index] = s_fns[idx];")
+    lines.append("        if (__builtin_expect(bw_fn_cache_probe_enabled != 0, 0))")
+    lines.append("            bw_fn_cache_probe_fill(address, cache_index,")
+    lines.append("                                   s_cached_pc_fn[cache_index],")
+    lines.append("                                   __builtin_return_address(0),")
+    lines.append("                                   s_cached_pc, s_cached_pc_fn);")
     lines.append("        return s_fns[idx];")
     lines.append("    }")
     lines.append("    return NULL;")
     lines.append("}")
 
     lines.append("""static inline int dolrecomp_call_original(CPUState* ctx, u32 address) {
+    extern int bw_fn_cache_probe_enabled;
+    extern void bw_fn_cache_probe_call(u32, DolRecompFunction);
     DolRecompFunction fn = dolrecomp_find_original(address);
     if (!fn) return 0;
+    if (__builtin_expect(bw_fn_cache_probe_enabled != 0, 0))
+        bw_fn_cache_probe_call(address, fn);
     ctx->pc = address;
     fn(ctx);
     return 1;

@@ -9,6 +9,160 @@
 
 extern void ppc_set_mem_write_journal(PPCMemWriteJournal fn, void* user);
 
+/* File-gated audit of the pc->function cache in generated_composite.h. The
+ * guest has no usable environment, so the gate is a fixture file. When it is
+ * absent the hot path pays one load and a never-taken branch. */
+#include <stdbool.h>
+#include <stdio.h>
+#include <sys/stat.h>
+#include <unistd.h>
+
+#ifndef BW_FN_CACHE_PROBE_FILE
+#define BW_FN_CACHE_PROBE_FILE "ux0:data/bluewake-ww-fixture/ww05.fn-cache-probe"
+#endif
+#define BW_FN_CACHE_SIZE 4096u
+#define BW_FN_CACHE_TARGET 0x801296E0u
+
+int bw_fn_cache_probe_enabled = -1;
+
+static u32 s_fn_probe_low;
+static u32 s_fn_probe_high;
+static unsigned s_fn_probe_hits;
+static unsigned s_fn_probe_target_hits;
+static unsigned s_fn_probe_fills;
+static unsigned s_fn_probe_target_fills;
+static unsigned s_fn_probe_calls;
+static unsigned s_fn_probe_target_calls;
+static u32 s_fn_probe_target_expected;
+static bool s_fn_probe_target_mismatch;
+static bool s_fn_probe_stopped;
+
+static bool bw_fn_cache_probe_text(u32 value)
+{
+    return value >= s_fn_probe_low && value <= s_fn_probe_high;
+}
+
+static void bw_fn_cache_probe_slots(const u32* pcs, const DolRecompFunction* fns,
+                                    unsigned index)
+{
+    for (int delta = -4; delta <= 4; ++delta) {
+        const unsigned i = (index + (unsigned)delta) & (BW_FN_CACHE_SIZE - 1u);
+        fprintf(stderr, "[fn-cache] slot index=0x%03X pc=%08X fn=%p\n",
+                i, pcs[i], (const void*)fns[i]);
+    }
+}
+
+static bool bw_fn_cache_probe_init(void)
+{
+    struct stat info;
+    bw_fn_cache_probe_enabled =
+        lstat(BW_FN_CACHE_PROBE_FILE, &info) == 0 && S_ISREG(info.st_mode);
+    if (!bw_fn_cache_probe_enabled)
+        return false;
+    s_fn_probe_low = 0xFFFFFFFFu;
+    for (unsigned i = 0; i < DOLRECOMP_CHUNK_COUNT; ++i) {
+        const u32 fn = (u32)s_dolrecomp_chunk_fns[i];
+        if (fn < s_fn_probe_low)
+            s_fn_probe_low = fn;
+        if (fn > s_fn_probe_high)
+            s_fn_probe_high = fn;
+        if (s_dolrecomp_chunk_starts[i] == BW_FN_CACHE_TARGET)
+            s_fn_probe_target_expected = fn;
+    }
+    fprintf(stderr,
+            "[fn-cache] enabled file=%s chunks=%u text=[%08X,%08X] target=%08X "
+            "expected=%08X\n",
+            BW_FN_CACHE_PROBE_FILE, DOLRECOMP_CHUNK_COUNT, s_fn_probe_low,
+            s_fn_probe_high, BW_FN_CACHE_TARGET, s_fn_probe_target_expected);
+    fflush(stderr);
+    return true;
+}
+
+void bw_fn_cache_probe_hit(u32 address, unsigned index, DolRecompFunction value,
+                           const u32* pcs, const DolRecompFunction* fns)
+{
+    if (bw_fn_cache_probe_enabled < 0 && !bw_fn_cache_probe_init())
+        return;
+    if (!bw_fn_cache_probe_enabled || s_fn_probe_stopped)
+        return;
+    ++s_fn_probe_hits;
+    const u32 raw = (u32)value;
+    if (!bw_fn_cache_probe_text(raw)) {
+        s_fn_probe_stopped = true;
+        fprintf(stderr,
+                "[fn-cache] bad-hit pc=%08X index=0x%03X raw=%08X text=0 range=[%08X,%08X]\n",
+                address, index, raw, s_fn_probe_low, s_fn_probe_high);
+        bw_fn_cache_probe_slots(pcs, fns, index);
+        fprintf(stderr, "[fn-cache] stop bad-hit hits=%u fills=%u calls=%u\n",
+                s_fn_probe_hits, s_fn_probe_fills, s_fn_probe_calls);
+        fflush(stderr);
+        _exit(70);
+    }
+    if (s_fn_probe_hits <= 8u ||
+        (address == BW_FN_CACHE_TARGET && ++s_fn_probe_target_hits <= 8u))
+        fprintf(stderr,
+                "[fn-cache] hit n=%u pc=%08X index=0x%03X raw=%08X text=1%s\n",
+                s_fn_probe_hits, address, index, raw,
+                address == BW_FN_CACHE_TARGET ? " target" : "");
+    if (address == BW_FN_CACHE_TARGET && raw != s_fn_probe_target_expected &&
+        !s_fn_probe_target_mismatch) {
+        s_fn_probe_target_mismatch = true;
+        fprintf(stderr,
+                "[fn-cache] target-mismatch pc=%08X index=0x%03X raw=%08X expected=%08X\n",
+                address, index, raw, s_fn_probe_target_expected);
+    }
+    if ((s_fn_probe_hits & 0xFFFFFu) == 0u)
+        fprintf(stderr, "[fn-cache] count hits=%u target=%u fills=%u calls=%u\n",
+                s_fn_probe_hits, s_fn_probe_target_hits, s_fn_probe_fills,
+                s_fn_probe_calls);
+}
+
+void bw_fn_cache_probe_fill(u32 address, unsigned index, DolRecompFunction value,
+                            const void* ret, const u32* pcs,
+                            const DolRecompFunction* fns)
+{
+    if (bw_fn_cache_probe_enabled < 0 && !bw_fn_cache_probe_init())
+        return;
+    if (!bw_fn_cache_probe_enabled || s_fn_probe_stopped)
+        return;
+    ++s_fn_probe_fills;
+    const u32 raw = (u32)value;
+    if (!bw_fn_cache_probe_text(raw)) {
+        s_fn_probe_stopped = true;
+        fprintf(stderr, "[fn-cache] bad-fill pc=%08X index=0x%03X raw=%08X ret=%p\n",
+                address, index, raw, ret);
+        bw_fn_cache_probe_slots(pcs, fns, index);
+        fprintf(stderr, "[fn-cache] stop bad-fill hits=%u fills=%u calls=%u\n",
+                s_fn_probe_hits, s_fn_probe_fills, s_fn_probe_calls);
+        fflush(stderr);
+        _exit(70);
+    }
+    if (s_fn_probe_fills <= 8u ||
+        (address == BW_FN_CACHE_TARGET && ++s_fn_probe_target_fills <= 8u))
+        fprintf(stderr, "[fn-cache] fill n=%u pc=%08X index=0x%03X raw=%08X ret=%p\n",
+                s_fn_probe_fills, address, index, raw, ret);
+}
+
+void bw_fn_cache_probe_call(u32 address, DolRecompFunction value)
+{
+    if (bw_fn_cache_probe_enabled < 0 && !bw_fn_cache_probe_init())
+        return;
+    if (!bw_fn_cache_probe_enabled || s_fn_probe_stopped)
+        return;
+    ++s_fn_probe_calls;
+    const u32 raw = (u32)value;
+    if (!bw_fn_cache_probe_text(raw)) {
+        s_fn_probe_stopped = true;
+        fprintf(stderr, "[fn-cache] bad-call pc=%08X raw=%08X text=0\n", address, raw);
+        fflush(stderr);
+        _exit(70);
+    }
+    if (s_fn_probe_calls <= 8u ||
+        (address == BW_FN_CACHE_TARGET && ++s_fn_probe_target_calls <= 8u))
+        fprintf(stderr, "[fn-cache] call n=%u pc=%08X fn=%08X\n",
+                s_fn_probe_calls, address, raw);
+}
+
 unsigned dolrecomp_call_depth = 0;
 static BluewakeEdgeServiceFn s_edge_service;
 static void* s_edge_service_user;
