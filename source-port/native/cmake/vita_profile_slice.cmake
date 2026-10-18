@@ -225,8 +225,8 @@ add_custom_command(OUTPUT "${COS_VITA_FPC_CHAIN_OBJECT}"
             --readelf "${CMAKE_READELF}" --ld "${CMAKE_LINKER}"
             --output "${COS_VITA_FPC_CHAIN_OBJECT}"
             --callable g_fpcLf_Method
-            --keep "g_fopAc_Method,g_fopOvlp_Method,g_fopMsg_Method,g_fopKy_Method,g_fopCam_Method,g_fopVw_Method,g_fpcNd_Method,g_fopScn_Method,_Z13fpcMtd_MethodPFiPvES_,g_dComIfG_gameInfo,g_fopAcTg_Queue,_Z13fopAcIt_JudgePFPvS_S_ES_"
-            --allow "OSPanic,_impure_ptr,abort,fprintf,memset,stderr,__aeabi_atexit,__dso_handle,_ZdlPvj,OSReport_Error,strncpy,_Z17fopAcM_DeleteHeapP10fopAc_ac_c,_Z19fopAcM_cullingCheckP10fopAc_ac_c,_ZN13dDemo_actor_c8setActorEP10fopAc_ac_c,_ZN14dDemo_object_c8getActorEh,_ZN12JUTAssertion10getSDeviceEv,_ZN12JUTAssertion10showAssertEjPKciS1_"
+            --keep "g_fopAc_Method,g_fopOvlp_Method,g_fopMsg_Method,g_fopKy_Method,g_fopCam_Method,g_fopVw_Method,g_fpcNd_Method,g_fopScn_Method,_Z13fpcMtd_MethodPFiPvES_,g_dComIfG_gameInfo,g_fopAcTg_Queue,_Z13fopAcIt_JudgePFPvS_S_ES_,_ZN7daAgb_c8MapNoSetEhhh"
+            --allow "OSPanic,_impure_ptr,abort,fprintf,memset,stderr,__aeabi_atexit,__dso_handle,_ZdlPvj,OSReport_Error,strncpy,_Z17fopAcM_DeleteHeapP10fopAc_ac_c,_Z19fopAcM_cullingCheckP10fopAc_ac_c,_ZN13dDemo_actor_c8setActorEP10fopAc_ac_c,_ZN14dDemo_object_c8getActorEh,_ZN12JUTAssertion10getSDeviceEv,_ZN12JUTAssertion10showAssertEjPKciS1_,_ZN6dMap_c21drawActorPointMiniMapEP10fopAc_ac_c"
             $<TARGET_OBJECTS:cos_vita_fpc_chain_units>
         DEPENDS cos_vita_fpc_chain_units "${COS_NATIVE_ROOT}/vita/reduce_profile_slice.py"
         COMMAND_EXPAND_LISTS
@@ -352,6 +352,37 @@ add_custom_command(OUTPUT "${COS_VITA_ASSERT_OBJECT}"
 add_custom_target(cos_vita_assert DEPENDS "${COS_VITA_ASSERT_OBJECT}")
 set(COS_VITA_ASSERT_OBJECT "${COS_VITA_ASSERT_OBJECT}" CACHE INTERNAL
         "The callable JUTAssertion getSDevice/showAssert closure for the Vita boot path")
+
+# Map collector M1: drawActorPointMiniMap plus the attention lockon queries and the save-arrive
+# call it uses. J2D is not in this closure; the collector only fills the point lists.
+# daAgb_c::MapNoSet stays a bounded stub because dComIfGp_getAgb() is null on the current boot path.
+set(_cos_vita_map_units
+        "${COS_ROOT}/src/d/d_map.cpp"
+        "${COS_ROOT}/src/d/d_attention.cpp"
+        "${COS_ROOT}/src/d/d_save.cpp"
+        "${COS_ROOT}/src/f_pc/f_pc_searcher.cpp")
+add_library(cos_vita_map_units OBJECT EXCLUDE_FROM_ALL ${_cos_vita_map_units})
+target_link_libraries(cos_vita_map_units PRIVATE cos_game_headers)
+target_compile_options(cos_vita_map_units PRIVATE -ffunction-sections -fdata-sections -g0)
+set_property(TARGET cos_vita_map_units PROPERTY FOLDER "cos_native")
+
+set(COS_VITA_MAP_OBJECT "${CMAKE_BINARY_DIR}/vita_map.o")
+add_custom_command(OUTPUT "${COS_VITA_MAP_OBJECT}"
+        COMMAND "${Python3_EXECUTABLE}" "${COS_NATIVE_ROOT}/vita/reduce_profile_slice.py"
+            --nm "${CMAKE_NM}" --objcopy "${CMAKE_OBJCOPY}" --objdump "${CMAKE_OBJDUMP}"
+            --readelf "${CMAKE_READELF}" --ld "${CMAKE_LINKER}"
+            --output "${COS_VITA_MAP_OBJECT}"
+            --callable _ZN6dMap_c21drawActorPointMiniMapEP10fopAc_ac_c
+            --keep "_ZN12dAttention_c12LockonTargetEi,_ZN12dAttention_c11LockonTruthEv"
+            --allow "OSPanic,_impure_ptr,abort,fprintf,memset,stderr,__aeabi_atexit,__dso_handle,_ZdlPvj,OSReport_Error,strncpy,g_dComIfG_gameInfo,_Z13fopAcIt_JudgePFPvS_S_ES_,_ZN7daAgb_c8MapNoSetEhhh,_ZN12JUTAssertion10getSDeviceEv,_ZN12JUTAssertion10showAssertEjPKciS1_,strcmp,floor,floorf"
+            $<TARGET_OBJECTS:cos_vita_map_units>
+        DEPENDS cos_vita_map_units "${COS_NATIVE_ROOT}/vita/reduce_profile_slice.py"
+        COMMAND_EXPAND_LISTS
+        COMMENT "Reducing the map point collector and attention lockon closure"
+        VERBATIM)
+add_custom_target(cos_vita_map DEPENDS "${COS_VITA_MAP_OBJECT}")
+set(COS_VITA_MAP_OBJECT "${COS_VITA_MAP_OBJECT}" CACHE INTERNAL
+        "The callable dMap_c drawActorPointMiniMap closure for the Vita boot path")
 message(STATUS "cos_native: cos_vita_profile_slice (${_cos_profile_slice_unit_count} units, "
         "reduced to their g_profile_* data, plus the callable g_fpcLf_Method/g_fopOvlp_Method/"
         "g_fopMsg_Method/g_fopAc_Method/g_fopKy_Method/g_fopCam_Method/g_fopVw_Method/"
