@@ -1,10 +1,12 @@
 # P-A follow-up: the bounded slice of REL actor units whose profiles the Vita boot path links.
-# The full profile list needs all 502 g_profile_* definitions; this slice takes 393 units of the
+# The full profile list needs all 502 g_profile_* definitions; this slice takes 437 units of the
 # sorted src/d/actor list, which compile for ARMv7/ILP32 against the generated stub assets. It
-# fills 408 profiles: d_a_gy_ctrl, d_a_npc_bj1 (9), d_a_npc_bm1 (5), d_a_npc_ko1 (2) and
+# fills 452 profiles: d_a_gy_ctrl, d_a_npc_bj1 (9), d_a_npc_bm1 (5), d_a_npc_ko1 (2) and
 # d_a_npc_ym1 (2) define several each, while d_a_itembase, d_a_kamome2, d_a_player and
 # d_a_player_npc define none at VERSION=2 (kamome2 is demo-only). d_a_npc_zl1 is back in the
-# slice after fixing its Vec-array cast.
+# slice after fixing its Vec-array cast. This is every profile-bearing unit of src/d/actor; the
+# target 456 is unreachable there (only 44 such units followed d_a_tag_etc), and the remaining 50
+# profiles are non-actor REL units (scenes, msg, overlap, ...).
 #
 # The units are compiled with -ffunction-sections -fdata-sections, then reduced by
 # vita/reduce_profile_slice.py to their g_profile_* data: the profile's identity (mProcName, list
@@ -106,7 +108,15 @@ set(_cos_profile_slice_names
         d_a_spotbox d_a_ss d_a_ssk d_a_sss d_a_st d_a_steam_tag d_a_stone
         d_a_stone2 d_a_swattack d_a_swc00 d_a_swhit0 d_a_switem
         d_a_swpropeller d_a_swtact d_a_swtdoor d_a_syan d_a_tag_attention
-        d_a_tag_ba1 d_a_tag_etc)
+        d_a_tag_ba1 d_a_tag_etc
+        d_a_tag_event d_a_tag_evsw d_a_tag_ghostship d_a_tag_hint d_a_tag_island
+        d_a_tag_kb_item d_a_tag_kf1 d_a_tag_kk1 d_a_tag_light d_a_tag_md_cb
+        d_a_tag_mk d_a_tag_msg d_a_tag_photo d_a_tag_ret d_a_tag_so
+        d_a_tag_volcano d_a_tag_waterlevel d_a_tama d_a_tbox d_a_title d_a_tn
+        d_a_toge d_a_tori_flag d_a_tornado d_a_tpota d_a_tsubo d_a_vrbox
+        d_a_vrbox2 d_a_wall d_a_warpdm20 d_a_warpf d_a_warpfout d_a_warpgn
+        d_a_warphr d_a_warpls d_a_warpmj d_a_waterfall d_a_wbird d_a_wind_tag
+        d_a_windmill d_a_wz d_a_ygcwp d_a_ykgr d_a_yougan)
 list(TRANSFORM _cos_profile_slice_names PREPEND "${COS_ROOT}/src/d/actor/"
         OUTPUT_VARIABLE COS_VITA_PROFILE_SLICE_UNITS)
 list(TRANSFORM COS_VITA_PROFILE_SLICE_UNITS APPEND ".cpp")

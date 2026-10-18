@@ -1,12 +1,13 @@
 // P-A follow-up: the bounded actor slice of the Vita boot path's profile list.
 //
 // The real list (game/src/f_pc/f_pc_profile_lst.cpp) names all 502 g_profile_* definitions.
-// This one names the 393-unit slice from native/cmake/vita_profile_slice.cmake: those units
+// This one names the 437-unit slice from native/cmake/vita_profile_slice.cmake: those units
 // compile for ARMv7/ILP32 against the generated stub assets, and the slice reduction keeps their
-// real g_profile_* identities (mProcName, list IDs, size, flags). It fills 408 profiles:
+// real g_profile_* identities (mProcName, list IDs, size, flags). It fills 452 profiles:
 // d_a_gy_ctrl, d_a_npc_bj1 (9), d_a_npc_bm1 (5), d_a_npc_ko1 (2) and d_a_npc_ym1 (2) define
 // several each; d_a_itembase, d_a_kamome2, d_a_player and d_a_player_npc define none at
-// VERSION=2. The other 94 definitions stay for the compile sweep, so the check reports 408 of 502.
+// VERSION=2. This is every profile-bearing unit of src/d/actor; the other 50 profiles are
+// non-actor REL units, so the check reports 452 of 502.
 //
 // The slots and the base method-table pointers are set by a static initialiser, before main:
 // the real list and its pointers are static data too. pc::staticInitCheck then verifies every
@@ -35,6 +36,8 @@ struct SliceProfileList {
     SliceProfileList() {
         g_fpcPfLst_ProfileList[fpcNm_ALLDIE_e] = &g_profile_ALLDIE.base.base;
         wireActor(g_profile_ALLDIE);
+        g_fpcPfLst_ProfileList[fpcNm_TAG_EVSW_e] = &g_profile_TAG_EVSW.base.base;
+        wireActor(g_profile_TAG_EVSW);
         g_fpcPfLst_ProfileList[fpcNm_Obj_Swpush_e] = &g_profile_Obj_Swpush.base.base;
         wireActor(g_profile_Obj_Swpush);
         g_fpcPfLst_ProfileList[fpcNm_Obj_Swheavy_e] = &g_profile_Obj_Swheavy.base.base;
@@ -49,6 +52,10 @@ struct SliceProfileList {
         wireActor(g_profile_Obj_Quake);
         g_fpcPfLst_ProfileList[fpcNm_Obj_Drift_e] = &g_profile_Obj_Drift.base.base;
         wireActor(g_profile_Obj_Drift);
+        g_fpcPfLst_ProfileList[fpcNm_Tag_Volcano_e] = &g_profile_Tag_Volcano.base.base;
+        wireActor(g_profile_Tag_Volcano);
+        g_fpcPfLst_ProfileList[fpcNm_TAG_SO_e] = &g_profile_TAG_SO.base.base;
+        wireActor(g_profile_TAG_SO);
         g_fpcPfLst_ProfileList[fpcNm_Obj_Pbco_e] = &g_profile_Obj_Pbco.base.base;
         wireActor(g_profile_Obj_Pbco);
         g_fpcPfLst_ProfileList[fpcNm_SEATAG_e] = &g_profile_SEATAG.base.base;
@@ -95,6 +102,8 @@ struct SliceProfileList {
         wireActor(g_profile_Obj_Pirateship);
         g_fpcPfLst_ProfileList[fpcNm_Obj_Tousekiki_e] = &g_profile_Obj_Tousekiki.base.base;
         wireActor(g_profile_Obj_Tousekiki);
+        g_fpcPfLst_ProfileList[fpcNm_Tag_Ret_e] = &g_profile_Tag_Ret.base.base;
+        wireActor(g_profile_Tag_Ret);
         g_fpcPfLst_ProfileList[fpcNm_Kaji_e] = &g_profile_Kaji.base.base;
         wireActor(g_profile_Kaji);
         g_fpcPfLst_ProfileList[fpcNm_Canon_e] = &g_profile_Canon.base.base;
@@ -183,12 +192,28 @@ struct SliceProfileList {
         wireActor(g_profile_SK2);
         g_fpcPfLst_ProfileList[fpcNm_SSK_e] = &g_profile_SSK.base.base;
         wireActor(g_profile_SSK);
+        g_fpcPfLst_ProfileList[fpcNm_WARPFLOWER_e] = &g_profile_WARPFLOWER.base.base;
+        wireActor(g_profile_WARPFLOWER);
+        g_fpcPfLst_ProfileList[fpcNm_WARPFOUT_e] = &g_profile_WARPFOUT.base.base;
+        wireActor(g_profile_WARPFOUT);
+        g_fpcPfLst_ProfileList[fpcNm_WARPLIGHT_e] = &g_profile_WARPLIGHT.base.base;
+        wireActor(g_profile_WARPLIGHT);
+        g_fpcPfLst_ProfileList[fpcNm_WARPHYRULE_e] = &g_profile_WARPHYRULE.base.base;
+        wireActor(g_profile_WARPHYRULE);
+        g_fpcPfLst_ProfileList[fpcNm_WARPDEMO20_e] = &g_profile_WARPDEMO20.base.base;
+        wireActor(g_profile_WARPDEMO20);
+        g_fpcPfLst_ProfileList[fpcNm_WARPGANON_e] = &g_profile_WARPGANON.base.base;
+        wireActor(g_profile_WARPGANON);
+        g_fpcPfLst_ProfileList[fpcNm_WARPMAJYUU_e] = &g_profile_WARPMAJYUU.base.base;
+        wireActor(g_profile_WARPMAJYUU);
         g_fpcPfLst_ProfileList[fpcNm_Balancelift_e] = &g_profile_Balancelift.base.base;
         wireActor(g_profile_Balancelift);
         g_fpcPfLst_ProfileList[fpcNm_SHUTTER_e] = &g_profile_SHUTTER.base.base;
         wireActor(g_profile_SHUTTER);
         g_fpcPfLst_ProfileList[fpcNm_SHUTTER2_e] = &g_profile_SHUTTER2.base.base;
         wireActor(g_profile_SHUTTER2);
+        g_fpcPfLst_ProfileList[fpcNm_WINDMILL_e] = &g_profile_WINDMILL.base.base;
+        wireActor(g_profile_WINDMILL);
         g_fpcPfLst_ProfileList[fpcNm_MBDOOR_e] = &g_profile_MBDOOR.base.base;
         wireActor(g_profile_MBDOOR);
         g_fpcPfLst_ProfileList[fpcNm_NPC_DE1_e] = &g_profile_NPC_DE1.base.base;
@@ -203,6 +228,8 @@ struct SliceProfileList {
         wireActor(g_profile_LEAF_LIFT);
         g_fpcPfLst_ProfileList[fpcNm_Obj_Roten_e] = &g_profile_Obj_Roten.base.base;
         wireActor(g_profile_Obj_Roten);
+        g_fpcPfLst_ProfileList[fpcNm_TOGE_e] = &g_profile_TOGE.base.base;
+        wireActor(g_profile_TOGE);
         g_fpcPfLst_ProfileList[fpcNm_Obj_Ferris_e] = &g_profile_Obj_Ferris.base.base;
         wireActor(g_profile_Obj_Ferris);
         g_fpcPfLst_ProfileList[fpcNm_Obj_Xfuta_e] = &g_profile_Obj_Xfuta.base.base;
@@ -271,6 +298,8 @@ struct SliceProfileList {
         wireActor(g_profile_Obj_Vmsms);
         g_fpcPfLst_ProfileList[fpcNm_Obj_Vmsdz_e] = &g_profile_Obj_Vmsdz.base.base;
         wireActor(g_profile_Obj_Vmsdz);
+        g_fpcPfLst_ProfileList[fpcNm_Ygcwp_e] = &g_profile_Ygcwp.base.base;
+        wireActor(g_profile_Ygcwp);
         g_fpcPfLst_ProfileList[fpcNm_Obj_Vgnfd_e] = &g_profile_Obj_Vgnfd.base.base;
         wireActor(g_profile_Obj_Vgnfd);
         g_fpcPfLst_ProfileList[fpcNm_Obj_Kanoke_e] = &g_profile_Obj_Kanoke.base.base;
@@ -303,6 +332,8 @@ struct SliceProfileList {
         wireActor(g_profile_PIRATE_FLAG);
         g_fpcPfLst_ProfileList[fpcNm_MAJUU_FLAG_e] = &g_profile_MAJUU_FLAG.base.base;
         wireActor(g_profile_MAJUU_FLAG);
+        g_fpcPfLst_ProfileList[fpcNm_Tori_Flag_e] = &g_profile_Tori_Flag.base.base;
+        wireActor(g_profile_Tori_Flag);
         g_fpcPfLst_ProfileList[fpcNm_Sie_Flag_e] = &g_profile_Sie_Flag.base.base;
         wireActor(g_profile_Sie_Flag);
         g_fpcPfLst_ProfileList[fpcNm_SYAN_e] = &g_profile_SYAN.base.base;
@@ -333,6 +364,8 @@ struct SliceProfileList {
         wireActor(g_profile_BK);
         g_fpcPfLst_ProfileList[fpcNm_ST_e] = &g_profile_ST.base.base;
         wireActor(g_profile_ST);
+        g_fpcPfLst_ProfileList[fpcNm_TN_e] = &g_profile_TN.base.base;
+        wireActor(g_profile_TN);
         g_fpcPfLst_ProfileList[fpcNm_MANT_e] = &g_profile_MANT.base.base;
         wireActor(g_profile_MANT);
         g_fpcPfLst_ProfileList[fpcNm_KANTERA_e] = &g_profile_KANTERA.base.base;
@@ -341,6 +374,8 @@ struct SliceProfileList {
         wireActor(g_profile_KAMOME);
         g_fpcPfLst_ProfileList[fpcNm_NPC_KAM_e] = &g_profile_NPC_KAM.base.base;
         wireActor(g_profile_NPC_KAM);
+        g_fpcPfLst_ProfileList[fpcNm_WBIRD_e] = &g_profile_WBIRD.base.base;
+        wireActor(g_profile_WBIRD);
         g_fpcPfLst_ProfileList[fpcNm_DEMO_KMM_e] = &g_profile_DEMO_KMM.base.base;
         wireActor(g_profile_DEMO_KMM);
         g_fpcPfLst_ProfileList[fpcNm_NZ_e] = &g_profile_NZ.base.base;
@@ -363,6 +398,8 @@ struct SliceProfileList {
         wireActor(g_profile_CC);
         g_fpcPfLst_ProfileList[fpcNm_BL_e] = &g_profile_BL.base.base;
         wireActor(g_profile_BL);
+        g_fpcPfLst_ProfileList[fpcNm_WZ_e] = &g_profile_WZ.base.base;
+        wireActor(g_profile_WZ);
         g_fpcPfLst_ProfileList[fpcNm_PH_e] = &g_profile_PH.base.base;
         wireActor(g_profile_PH);
         g_fpcPfLst_ProfileList[fpcNm_PZ_e] = &g_profile_PZ.base.base;
@@ -531,6 +568,8 @@ struct SliceProfileList {
         wireActor(g_profile_Obj_HSH);
         g_fpcPfLst_ProfileList[fpcNm_Goal_Flag_e] = &g_profile_Goal_Flag.base.base;
         wireActor(g_profile_Goal_Flag);
+        g_fpcPfLst_ProfileList[fpcNm_TBOX_e] = &g_profile_TBOX.base.base;
+        wireActor(g_profile_TBOX);
         g_fpcPfLst_ProfileList[fpcNm_SBOX_e] = &g_profile_SBOX.base.base;
         wireActor(g_profile_SBOX);
         g_fpcPfLst_ProfileList[fpcNm_BOMB_e] = &g_profile_BOMB.base.base;
@@ -727,14 +766,22 @@ struct SliceProfileList {
         wireActor(g_profile_KYTAG06);
         g_fpcPfLst_ProfileList[fpcNm_KYTAG07_e] = &g_profile_KYTAG07.base.base;
         wireActor(g_profile_KYTAG07);
+        g_fpcPfLst_ProfileList[fpcNm_WindTag_e] = &g_profile_WindTag.base.base;
+        wireActor(g_profile_WindTag);
+        g_fpcPfLst_ProfileList[fpcNm_YOUGAN_e] = &g_profile_YOUGAN.base.base;
+        wireActor(g_profile_YOUGAN);
         g_fpcPfLst_ProfileList[fpcNm_Mmusic_e] = &g_profile_Mmusic.base.base;
         wireActor(g_profile_Mmusic);
         g_fpcPfLst_ProfileList[fpcNm_Komore_e] = &g_profile_Komore.base.base;
         wireActor(g_profile_Komore);
+        g_fpcPfLst_ProfileList[fpcNm_Tpota_e] = &g_profile_Tpota.base.base;
+        wireActor(g_profile_Tpota);
         g_fpcPfLst_ProfileList[fpcNm_Obj_Itnak_e] = &g_profile_Obj_Itnak.base.base;
         wireActor(g_profile_Obj_Itnak);
         g_fpcPfLst_ProfileList[fpcNm_Obj_Zouk_e] = &g_profile_Obj_Zouk.base.base;
         wireActor(g_profile_Obj_Zouk);
+        g_fpcPfLst_ProfileList[fpcNm_Ykgr_e] = &g_profile_Ykgr.base.base;
+        wireActor(g_profile_Ykgr);
         g_fpcPfLst_ProfileList[fpcNm_SAKU_e] = &g_profile_SAKU.base.base;
         wireActor(g_profile_SAKU);
         g_fpcPfLst_ProfileList[fpcNm_Iball_e] = &g_profile_Iball.base.base;
@@ -757,8 +804,28 @@ struct SliceProfileList {
         wireActor(g_profile_Lwood);
         g_fpcPfLst_ProfileList[fpcNm_Dummy_e] = &g_profile_Dummy.base.base;
         wireActor(g_profile_Dummy);
+        g_fpcPfLst_ProfileList[fpcNm_TAG_EVENT_e] = &g_profile_TAG_EVENT.base.base;
+        wireActor(g_profile_TAG_EVENT);
+        g_fpcPfLst_ProfileList[fpcNm_TAG_HINT_e] = &g_profile_TAG_HINT.base.base;
+        wireActor(g_profile_TAG_HINT);
+        g_fpcPfLst_ProfileList[fpcNm_TAG_MSG_e] = &g_profile_TAG_MSG.base.base;
+        wireActor(g_profile_TAG_MSG);
         g_fpcPfLst_ProfileList[fpcNm_TAG_ETC_e] = &g_profile_TAG_ETC.base.base;
         wireActor(g_profile_TAG_ETC);
+        g_fpcPfLst_ProfileList[fpcNm_TAG_ISLAND_e] = &g_profile_TAG_ISLAND.base.base;
+        wireActor(g_profile_TAG_ISLAND);
+        g_fpcPfLst_ProfileList[fpcNm_TAG_KF1_e] = &g_profile_TAG_KF1.base.base;
+        wireActor(g_profile_TAG_KF1);
+        g_fpcPfLst_ProfileList[fpcNm_TAG_KK1_e] = &g_profile_TAG_KK1.base.base;
+        wireActor(g_profile_TAG_KK1);
+        g_fpcPfLst_ProfileList[fpcNm_TAG_PHOTO_e] = &g_profile_TAG_PHOTO.base.base;
+        wireActor(g_profile_TAG_PHOTO);
+        g_fpcPfLst_ProfileList[fpcNm_TAG_KB_ITEM_e] = &g_profile_TAG_KB_ITEM.base.base;
+        wireActor(g_profile_TAG_KB_ITEM);
+        g_fpcPfLst_ProfileList[fpcNm_TAG_MK_e] = &g_profile_TAG_MK.base.base;
+        wireActor(g_profile_TAG_MK);
+        g_fpcPfLst_ProfileList[fpcNm_TAG_MDCB_e] = &g_profile_TAG_MDCB.base.base;
+        wireActor(g_profile_TAG_MDCB);
         g_fpcPfLst_ProfileList[fpcNm_TAG_BA1_e] = &g_profile_TAG_BA1.base.base;
         wireActor(g_profile_TAG_BA1);
         g_fpcPfLst_ProfileList[fpcNm_TagRock_e] = &g_profile_TagRock.base.base;
@@ -773,10 +840,14 @@ struct SliceProfileList {
         wireActor(g_profile_BRANCH);
         g_fpcPfLst_ProfileList[fpcNm_NPC_ZL1_e] = &g_profile_NPC_ZL1.base.base;
         wireActor(g_profile_NPC_ZL1);
+        g_fpcPfLst_ProfileList[fpcNm_WATERFALL_e] = &g_profile_WATERFALL.base.base;
+        wireActor(g_profile_WATERFALL);
         g_fpcPfLst_ProfileList[fpcNm_LIGHTBRIDGE_e] = &g_profile_LIGHTBRIDGE.base.base;
         wireActor(g_profile_LIGHTBRIDGE);
         g_fpcPfLst_ProfileList[fpcNm_LIGHTSTAIR_e] = &g_profile_LIGHTSTAIR.base.base;
         wireActor(g_profile_LIGHTSTAIR);
+        g_fpcPfLst_ProfileList[fpcNm_WALL_e] = &g_profile_WALL.base.base;
+        wireActor(g_profile_WALL);
         g_fpcPfLst_ProfileList[fpcNm_SW_PROPELLER_e] = &g_profile_SW_PROPELLER.base.base;
         wireActor(g_profile_SW_PROPELLER);
         g_fpcPfLst_ProfileList[fpcNm_IKARI_e] = &g_profile_IKARI.base.base;
@@ -791,6 +862,10 @@ struct SliceProfileList {
         wireActor(g_profile_MAGMA);
         g_fpcPfLst_ProfileList[fpcNm_GRASS_e] = &g_profile_GRASS.base.base;
         wireActor(g_profile_GRASS);
+        g_fpcPfLst_ProfileList[fpcNm_VRBOX_e] = &g_profile_VRBOX.base.base;
+        wireActor(g_profile_VRBOX);
+        g_fpcPfLst_ProfileList[fpcNm_VRBOX2_e] = &g_profile_VRBOX2.base.base;
+        wireActor(g_profile_VRBOX2);
         g_fpcPfLst_ProfileList[fpcNm_BG_e] = &g_profile_BG.def.base.base;
         wireActor(g_profile_BG.def);
         g_fpcPfLst_ProfileList[fpcNm_Obj_Tower_e] = &g_profile_Obj_Tower.base.base;
@@ -799,6 +874,10 @@ struct SliceProfileList {
         wireActor(g_profile_Obj_DoguuD);
         g_fpcPfLst_ProfileList[fpcNm_SPOTBOX_e] = &g_profile_SPOTBOX.base.base;
         wireActor(g_profile_SPOTBOX);
+        g_fpcPfLst_ProfileList[fpcNm_TORNADO_e] = &g_profile_TORNADO.base.base;
+        wireActor(g_profile_TORNADO);
+        g_fpcPfLst_ProfileList[fpcNm_TITLE_e] = &g_profile_TITLE.base.base;
+        wireActor(g_profile_TITLE);
         g_fpcPfLst_ProfileList[fpcNm_MP_e] = &g_profile_MP.base.base;
         wireActor(g_profile_MP);
         g_fpcPfLst_ProfileList[fpcNm_LODBG_e] = &g_profile_LODBG.base.base;
@@ -813,6 +892,10 @@ struct SliceProfileList {
         wireActor(g_profile_Hys);
         g_fpcPfLst_ProfileList[fpcNm_SWHIT0_e] = &g_profile_SWHIT0.base.base;
         wireActor(g_profile_SWHIT0);
+        g_fpcPfLst_ProfileList[fpcNm_TAG_GSHIP_e] = &g_profile_TAG_GSHIP.base.base;
+        wireActor(g_profile_TAG_GSHIP);
+        g_fpcPfLst_ProfileList[fpcNm_TSUBO_e] = &g_profile_TSUBO.base.base;
+        wireActor(g_profile_TSUBO);
         g_fpcPfLst_ProfileList[fpcNm_STONE_e] = &g_profile_STONE.base.base;
         wireActor(g_profile_STONE);
         g_fpcPfLst_ProfileList[fpcNm_Stone2_e] = &g_profile_Stone2.base.base;
@@ -833,14 +916,20 @@ struct SliceProfileList {
         wireActor(g_profile_STANDITEM);
         g_fpcPfLst_ProfileList[fpcNm_BOKO_e] = &g_profile_BOKO.base.base;
         wireActor(g_profile_BOKO);
+        g_fpcPfLst_ProfileList[fpcNm_TAMA_e] = &g_profile_TAMA.base.base;
+        wireActor(g_profile_TAMA);
         g_fpcPfLst_ProfileList[fpcNm_Obj_Buoyflag_e] = &g_profile_Obj_Buoyflag.base.base;
         wireActor(g_profile_Obj_Buoyflag);
         g_fpcPfLst_ProfileList[fpcNm_Obj_Correct_e] = &g_profile_Obj_Correct.base.base;
         wireActor(g_profile_Obj_Correct);
         g_fpcPfLst_ProfileList[fpcNm_Obj_Eff_e] = &g_profile_Obj_Eff.base.base;
         wireActor(g_profile_Obj_Eff);
+        g_fpcPfLst_ProfileList[fpcNm_Tag_Light_e] = &g_profile_Tag_Light.base.base;
+        wireActor(g_profile_Tag_Light);
         g_fpcPfLst_ProfileList[fpcNm_Tag_Attention_e] = &g_profile_Tag_Attention.base.base;
         wireActor(g_profile_Tag_Attention);
+        g_fpcPfLst_ProfileList[fpcNm_Tag_Waterlevel_e] = &g_profile_Tag_Waterlevel.base.base;
+        wireActor(g_profile_Tag_Waterlevel);
         g_fpcPfLst_ProfileList[fpcNm_ARROW_e] = &g_profile_ARROW.base.base;
         wireActor(g_profile_ARROW);
         g_fpcPfLst_ProfileList[fpcNm_ARROW_ICEEFF_e] = &g_profile_ARROW_ICEEFF.base.base;
