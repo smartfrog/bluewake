@@ -57,8 +57,17 @@ _FAST_WORDS = ('sigsegv', 'segfault', 'pc is 0x', 'invalid read', 'invalid write
 
 def may_hold_fault(text):
     """True when `text` could contain a fault line; a cheap, conservative gate."""
-    lowered = text.lower()
-    return any(word in lowered for word in _FAST_WORDS)
+    return first_candidate(text.lower()) >= 0
+
+
+def first_candidate(lowered):
+    """Index of the first fault word in a lowered chunk, or -1."""
+    at = -1
+    for word in _FAST_WORDS:
+        found = lowered.find(word)
+        if found >= 0 and (at < 0 or found < at):
+            at = found
+    return at
 
 
 def fault_line(line):
@@ -72,15 +81,12 @@ def fault_match(lines, repeats=FAULT_REPEATS):
     `lines` is an iterable of log lines or one log chunk.
     """
     if isinstance(lines, str):
-        if not may_hold_fault(lines):
+        # Nothing before the first fault word can hold a fault or start a flood,
+        # so skip it: logs reach hundreds of megabytes and lines cost real time.
+        at = first_candidate(lines.lower())
+        if at < 0:
             return None
-        found = _SIGNATURE.search(lines)
-        if found is not None:
-            line_start = max(0, found.start() - 512)
-            start = lines.rfind('\n', line_start, found.start()) + 1
-            end = lines.find('\n', found.end())
-            return lines[start:] if end < 0 else lines[start:end]
-        lines = lines.splitlines()
+        lines = lines[lines.rfind('\n', 0, at) + 1:].splitlines()
     counts = {}
     for line in lines:
         if fault_line(line):
