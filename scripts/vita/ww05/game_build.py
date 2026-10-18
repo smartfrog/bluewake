@@ -110,9 +110,13 @@ def idle_deadline_advance_configure_option(enabled):
     return [f'-DWW_IDLE_DEADLINE_ADVANCE={"ON" if enabled else "OFF"}']
 
 
+def skip_title_logo_configure_option(enabled):
+    return [f'-DWW_SKIP_TITLE_LOGO={"ON" if enabled else "OFF"}']
+
+
 def vita_configure_arguments(cmake, ninja, source, output, toolchain, recompcore, composite, identity, dol,
                              vitagl, renderer_sdk, opt_level, vi_clock, pad_input, dst_alpha_admit,
-                             edge_observation_admit, idle_deadline_advance):
+                             edge_observation_admit, idle_deadline_advance, skip_title_logo):
     return [
         cmake, '-S', source, '-B', output, '-G', 'Ninja',
         f'-DCMAKE_TOOLCHAIN_FILE={toolchain}',
@@ -126,6 +130,7 @@ def vita_configure_arguments(cmake, ninja, source, output, toolchain, recompcore
         *dst_alpha_configure_option(dst_alpha_admit),
         *edge_observation_admit_configure_option(edge_observation_admit),
         *idle_deadline_advance_configure_option(idle_deadline_advance),
+        *skip_title_logo_configure_option(skip_title_logo),
     ]
 
 
@@ -142,6 +147,8 @@ def main():
                         help='admit the module-owned GroundCross caller-return observation edge (off by default)')
     parser.add_argument('--idle-deadline-advance', action='store_true',
                         help='let a recognised scheduler-idle turn run to the next device deadline (needs --vi-clock; off by default)')
+    parser.add_argument('--skip-title-logo', action='store_true',
+                        help='diagnostic: open the file-select menu instead of the title logo and movie (off by default)')
     parser.add_argument('--jobs', type=int, default=2)
     parser.add_argument('--opt-level', choices=('1', '2', '3'), default='1',
                         help='translated module optimization level (default matches the verified private module)')
@@ -237,7 +244,7 @@ def main():
         cmake, ninja, ROOT / 'vita/host', vita, f'{STACK}/vitasdk/share/vita.toolchain.cmake',
         sources['RecompCore'], composite, identity, f'{private}/main.dol', vitagl, renderer_sdk,
         args.opt_level, args.vi_clock, args.pad_input, args.dst_alpha_admit, args.edge_observation_admit,
-        args.idle_deadline_advance))
+        args.idle_deadline_advance, args.skip_title_logo))
     build.run('vita-build', [cmake, '--build', vita, '-j', args.jobs])
     from inspect_build import inspect
     inspect(vita)
@@ -265,7 +272,8 @@ def main():
          'pad_input': args.pad_input, 'pad_sampling': 'guest-SI-only',
          'dst_alpha_admit': args.dst_alpha_admit,
          'edge_observation_admit': args.edge_observation_admit,
-         'idle_deadline_advance': args.idle_deadline_advance},
+         'idle_deadline_advance': args.idle_deadline_advance,
+         'skip_title_logo': args.skip_title_logo},
         'footprint_sha256': sha256(output / 'footprint.json'),
         'snapshot': str(snapshot)}, indent=2) + '\n'
     (snapshot / 'build-evidence.json').write_text(receipt)

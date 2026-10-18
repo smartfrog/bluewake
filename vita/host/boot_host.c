@@ -7,6 +7,7 @@
 #include "edge_intercept_table.h"
 #include "callback_delivery.h"
 #include "scheduler_contract.h"
+#include "scene_skip.h"
 #include "gxruntime/boot.h"
 #include "gxruntime/guest_memory_dirty.h"
 #include "gxruntime/aram.h"
@@ -1441,6 +1442,14 @@ int ww_host_dispatch(WwHost* host, u32 address) {
     }
     if (linked != address)
         cpu->pc = linked;
+#ifdef WW_SKIP_TITLE_LOGO
+    if (ww_scene_skip_logo_rewrite(&host->cpu, linked) &&
+        fprintf(stderr, "[scene-skip] pc=%08X lr=%08X scene=%u->%u\n", linked, host->cpu.lr,
+                WW_SCENE_SKIP_OPENING_SCENE, host->cpu.gpr[4]) < 0) {
+        ww_host_fail(host, "scene-skip trace write failed", linked, host->cpu.pc);
+        return -1;
+    }
+#endif
 #if WW05_DISPATCH_ABI_SENTINEL
     const int result = ww_abi_gate(&host->cpu, linked, (void*)host->module->dispatch);
     if (ww_abi_state == 2u || ww_abi_state == 4u) {
