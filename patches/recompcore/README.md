@@ -130,3 +130,9 @@ draws became 0.87 million, and on four E-cores Forest Haven went from 30.6 to 40
 profiler (`DOL_AURORA_GPU_PROF=1`). Fusion is on for Windows, where he tested it; the host turns it off elsewhere
 until it has been played there (`DOL_GX_FUSE=1` turns it on). His later commits (the compact vertex layout and the
 upload changes) conflict with patch 0157 and are not here yet.
+
+Patch 0169 records the L1 poll-skip change, `cab530113583330ac3640b4de62f740274cc7f5d` on
+`perf/poll-skip-alias`: it resolves the poll word exactly instead of refusing on the coarse MEM1-overlap
+flag. The commit is not published and is not in the pinned runtime; the Vita trials applied it as one
+substituted object. It becomes a build input only after it is published and pinned (see
+`docs/DEVELOPMENT.md`).

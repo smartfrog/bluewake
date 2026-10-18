@@ -1,0 +1,115 @@
+From cab530113583330ac3640b4de62f740274cc7f5d Mon Sep 17 00:00:00 2001
+From: Fred <297854+fdematos@users.noreply.github.com>
+Date: Sun, 18 Oct 2026 00:03:23 +0200
+Subject: [PATCH] runtime: resolve the poll word instead of refusing on the
+ coarse alias flag
+
+---
+ GXRuntime/include/core/cpu.h    | 10 ++++--
+ GXRuntime/tests/runtime_tests.c | 58 +++++++++++++++++++++++++++++++--
+ 2 files changed, 62 insertions(+), 6 deletions(-)
+
+diff --git a/GXRuntime/include/core/cpu.h b/GXRuntime/include/core/cpu.h
+index 2490178..2f8b53d 100644
+--- a/GXRuntime/include/core/cpu.h
++++ b/GXRuntime/include/core/cpu.h
+@@ -260,11 +260,15 @@ static GXRUNTIME_ALWAYS_INLINE u8* get_ram_ptr(CPUState* cpu, u32 addr, u32 size
+ // ordinary per-iteration path.
+ static GXRUNTIME_ALWAYS_INLINE bool ppc_dispatch_poll_read_stable(
+     CPUState* cpu, u32 addr, u32 size) {
+-    if (g_ppc_guest_aliases_overlap_mem1 || (addr & 0x40000000u) != 0u ||
+-        size == 0u || size > cpu->ram_size)
++    if ((addr & 0x40000000u) != 0u || size == 0u || size > cpu->ram_size)
+         return false;
+     u32 offset = addr - GC_RAM_BASE;
+-    return offset <= cpu->ram_size - size;
++    if (offset > cpu->ram_size - size)
++        return false;
++    if (!g_ppc_guest_aliases_overlap_mem1)
++        return true;
++    u8* alias = NULL;
++    return !ppc_guest_alias_resolve(addr, size, &alias, NULL);
+ }
+ 
+ #define DOLRECOMP_POLL_READ_STABLE(cpu, addr, size) \
+diff --git a/GXRuntime/tests/runtime_tests.c b/GXRuntime/tests/runtime_tests.c
+index a82ed17..4256925 100644
+--- a/GXRuntime/tests/runtime_tests.c
++++ b/GXRuntime/tests/runtime_tests.c
+@@ -1090,10 +1090,62 @@ static void test_guest_data_alias(void) {
+     assert(!ppc_dispatch_poll_read_stable(
+         &cpu, GC_RAM_BASE | 0x40000000u, 4u));
+     const u8 initial[4] = {0x12u, 0x34u, 0x56u, 0x78u};
+-    const u32 linked = 0x815581A0u;
++    // 0x803F7A30 is the retail idle poll word the translated skip reads.
++    const u32 poll_word = 0x803F7A30u;
++    ppc_guest_alias_clear();
++    assert(!g_ppc_guest_aliases_overlap_mem1);
++    assert(ppc_dispatch_poll_read_stable(&cpu, poll_word, 4u));
++    u8* poll_alias = NULL;
++    assert(!ppc_guest_alias_resolve(poll_word, 4u, &poll_alias, NULL));
++    const u8 scratch[0x40] = {0};
++    assert(ppc_guest_alias_add(0x803A71C0u, sizeof(scratch), scratch));
++    assert(g_ppc_guest_aliases_overlap_mem1);
++    assert(!ppc_guest_alias_resolve(poll_word, 4u, &poll_alias, NULL));
++    assert(ppc_dispatch_poll_read_stable(&cpu, poll_word, 4u));
++    assert(ppc_guest_alias_remove(0x803A71C0u, sizeof(scratch)));
++
++    assert(ppc_guest_alias_add(poll_word - 4u, 4u, initial));
++    assert(ppc_dispatch_poll_read_stable(&cpu, poll_word, 4u));
++    assert(ppc_guest_alias_remove(poll_word - 4u, 4u));
++
++    assert(ppc_guest_alias_add(poll_word + 4u, 4u, initial));
++    assert(ppc_dispatch_poll_read_stable(&cpu, poll_word, 4u));
++    assert(ppc_guest_alias_remove(poll_word + 4u, 4u));
++
++    assert(ppc_guest_alias_add(poll_word - 4u, 8u, NULL));
++    assert(ppc_guest_alias_resolve(poll_word, 4u, &poll_alias, NULL));
++    assert(!ppc_dispatch_poll_read_stable(&cpu, poll_word, 4u));
++    assert(ppc_guest_alias_remove(poll_word - 4u, 8u));
++
++    assert(ppc_guest_alias_add(poll_word, 4u, initial));
++    assert(ppc_guest_alias_resolve(poll_word, 4u, &poll_alias, NULL));
++    assert(!ppc_dispatch_poll_read_stable(&cpu, poll_word, 4u));
++    assert(ppc_guest_alias_remove(poll_word, 4u));
++
++    assert(ppc_guest_alias_add(0x81822E80u, 16500u, NULL));
++    assert(g_ppc_guest_aliases_overlap_mem1);
++    assert(ppc_dispatch_poll_read_stable(&cpu, poll_word, 4u));
++    assert(ppc_guest_alias_remove(0x81822E80u, 16500u));
++
++    assert(ppc_guest_alias_add(0x90001000u, 0x40u, NULL));
++    assert(!g_ppc_guest_aliases_overlap_mem1);
++    assert(ppc_dispatch_poll_read_stable(&cpu, poll_word, 4u));
++    assert(!ppc_guest_alias_resolve(poll_word, 4u, &poll_alias, NULL));
++    assert(ppc_guest_alias_remove(0x90001000u, 0x40u));
++
++    assert(ppc_guest_alias_add(0x803A71C0u, sizeof(scratch), scratch));
++    // With any MEM1-overlapping alias present the gate must equal the exact
++    // per-word answer; with none, it must stay on the O(1) fast path.
++    assert(ppc_dispatch_poll_read_stable(&cpu, poll_word, 4u) ==
++           (!g_ppc_guest_aliases_overlap_mem1 ||
++            !ppc_guest_alias_resolve(poll_word, 4u, &poll_alias, NULL)));
+     ppc_guest_alias_clear();
++    assert(ppc_dispatch_poll_read_stable(&cpu, poll_word, 4u));
++
++    const u32 linked = 0x815581A0u;
+     assert(ppc_guest_alias_add(linked, sizeof(initial), initial));
+-    assert(!ppc_dispatch_poll_read_stable(&cpu, GC_RAM_BASE, 4u));
++    // 0x815581A0 overlaps MEM1 but does not shadow 0x80000000.
++    assert(ppc_dispatch_poll_read_stable(&cpu, GC_RAM_BASE, 4u));
+     u8* resolved = NULL;
+     assert(!ppc_guest_alias_resolve(0x80000000u, 4u, &resolved, NULL));
+     assert(!ppc_guest_alias_resolve(0x817FFFFCu, 4u, &resolved, NULL));
+@@ -1126,7 +1178,7 @@ static void test_guest_data_alias(void) {
+     u8 shared_storage[4] = {0x01u, 0x23u, 0x45u, 0x67u};
+     assert(ppc_guest_alias_add_shared(linked, sizeof(shared_storage),
+                                       shared_storage));
+-    assert(!ppc_dispatch_poll_read_stable(&cpu, GC_RAM_BASE, 4u));
++    assert(ppc_dispatch_poll_read_stable(&cpu, GC_RAM_BASE, 4u));
+     resolved = NULL;
+     assert(ppc_guest_alias_get_storage(linked, sizeof(shared_storage),
+                                        &resolved));
+-- 
+2.56.0
+
