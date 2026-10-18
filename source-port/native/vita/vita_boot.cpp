@@ -13,8 +13,9 @@
 //    pc_milestone.cpp reads - is up.
 // 3. pc::staticInitCheck, the M0 check split out of pc_smoke.cpp by the previous commit.
 // 4. fpcMtd_Method, to touch the callable f_pc chain the profiles point at.
-// 5. The "[cos] MILESTONE static-init" line and its COS_MILESTONE exit (0), from the real
-//    pc_milestone.cpp with a minimal gConfig/support (native/vita/pc_milestone_support.cpp).
+// 5. On the Vita, M1: two CPU-cleared 960x544 frames through sceDisplay (the first visible frame,
+//    no GXM/Aurora renderer yet), then the "[cos] MILESTONE aurora-up" line and exit (0).
+//    The host boot still stops at static-init: it has no Vita display.
 //
 // What this does not do: fill the list. It is native/vita/vita_profile_list.cpp, the bounded actor
 // slice of cmake/vita_profile_slice.cmake: the slice's real g_profile_* identities are linked (its
@@ -28,6 +29,10 @@
 #include "pc_milestone_support.h"
 
 #include "f_pc/f_pc_method.h"
+
+#if defined(__vita__)
+#include "vita_display_vita.h"
+#endif
 
 #include <aurora/aurora.h>
 #include <dolphin/os.h>
@@ -90,7 +95,17 @@ int main() {
     }
     std::fprintf(stderr, "[cos] vita-boot: OS and VI up, static-init 0 errors, fpcMtd_Method ok\n");
 
+#if defined(__vita__)
+    // M0 must remain visible in the log; it no longer exits, because M1 follows.
+    vitaMilestoneLogStaticInit();
+    if (!vitaDisplayBringUp()) {
+        return fail("the VI display clear/swap failed");
+    }
+    std::fprintf(stderr, "[cos] vita-boot: display up, 2 frames, hold 30 vblanks\n");
+    vitaMilestoneAuroraUp();
+#else
     // The M0 line and its COS_MILESTONE exit, printed by the harness's pc_milestone.cpp.
     vitaMilestoneStaticInit();
+#endif
     return fail("pc_milestone returned without exiting");
 }

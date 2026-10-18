@@ -63,4 +63,15 @@ __attribute__((noreturn)) void vitaMilestoneStaticInit() {
     std::_Exit(PC_EXIT_CHECK_FAILED);
 }
 
+void vitaMilestoneLogStaticInit() {
+    pc::gConfig.milestone = nullptr;
+    pc_milestone("static-init");
+}
+
+__attribute__((noreturn)) void vitaMilestoneAuroraUp() {
+    pc::gConfig.milestone = "aurora-up";
+    pc_milestone("aurora-up");
+    std::_Exit(PC_EXIT_CHECK_FAILED);
+}
+
 } // extern "C"

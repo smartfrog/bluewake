@@ -93,8 +93,12 @@ if (COS_VITA_PROFILE_SLICE_OBJECT AND COS_VITA_FPC_CHAIN_OBJECT)
             "${COS_VITA_CULLING_OBJECT}" "${COS_VITA_DEMO_OBJECT}"
             "${COS_VITA_ASSERT_OBJECT}" "${COS_VITA_MAP_OBJECT}" PROPERTIES
             EXTERNAL_OBJECT TRUE GENERATED TRUE)
-    target_link_libraries(cos_vita_boot PRIVATE cos_game_headers cos_sdk)
-    target_sources(cos_vita_boot PRIVATE "${COS_NATIVE_ROOT}/vita/stubs_libc.cpp")
+    target_sources(cos_vita_boot PRIVATE
+            "${COS_NATIVE_ROOT}/vita/vita_display.cpp"
+            "${COS_NATIVE_ROOT}/vita/vita_display_vita.cpp"
+            "${COS_NATIVE_ROOT}/vita/stubs_libc.cpp")
+    target_link_libraries(cos_vita_boot PRIVATE cos_game_headers cos_sdk
+            SceDisplay_stub SceSysmem_stub)
     target_link_options(cos_vita_boot PRIVATE -Wl,--gc-sections)
     add_dependencies(cos_vita_boot cos_vita_profile_slice cos_vita_fpc_chain
             cos_vita_deleteheap cos_vita_culling cos_vita_demo cos_vita_assert

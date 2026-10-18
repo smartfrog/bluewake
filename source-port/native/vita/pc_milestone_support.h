@@ -3,3 +3,5 @@
 #pragma once
 
 extern "C" void vitaMilestoneStaticInit();
+extern "C" void vitaMilestoneLogStaticInit();
+extern "C" void vitaMilestoneAuroraUp();

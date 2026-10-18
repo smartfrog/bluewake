@@ -78,6 +78,16 @@ elseif (NOT CMAKE_CROSSCOMPILING)
     set_target_properties(cos_static_init_test PROPERTIES
             RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}")
 
+    # Host test of the Vita display clear/swap sequence (native/vita/vita_display.cpp); the
+    # sceDisplay callbacks are faked, so no display or Vita is needed.
+    #   ninja cos_vita_display_test && build/native-mac/cos_vita_display_test
+    add_executable(cos_vita_display_test EXCLUDE_FROM_ALL
+            "${COS_NATIVE_ROOT}/check/vita_display_test.cpp"
+            "${COS_NATIVE_ROOT}/vita/vita_display.cpp")
+    target_include_directories(cos_vita_display_test PRIVATE "${COS_NATIVE_ROOT}/vita")
+    set_target_properties(cos_vita_display_test PROPERTIES
+            RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}")
+
     # The same boot unit on the host (the Vita executable cos_vita_boot is in cmake/vita.cmake):
     # Aurora's OSInit and VI and pc::staticInitCheck, with the bounded actor profile slice, no
     # pc_harness and no disc. Runtime evidence for native/vita/vita_boot.cpp; a Vita run is E2's.
