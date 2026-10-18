@@ -7345,6 +7345,15 @@ int main(int argc, char** argv) {
         fprintf(stderr, "[host] expanded guest RAM to 0x%08X for linked REL data\n",
                 cpu.ram_size);
     }
+    /* The module keeps this MEM1 base and repairs a corrupted CPUState field
+     * before using it (cmake/composite/guest_ram_guard.h; absent unless the
+     * module was built with BLUEWAKE_RAM_GUARD). */
+    {
+        void (*const module_ram_guard_adopt)(CPUState*) =
+            (void (*)(CPUState*))dlsym(lib, "bluewake_composite_ram_guard_adopt");
+        if (module_ram_guard_adopt != NULL)
+            module_ram_guard_adopt(&cpu);
+    }
     dol_platform_set_guest_address_resolver(host_graphics_guest_resolve, &cpu);
 
     g_dsp_control = 0;

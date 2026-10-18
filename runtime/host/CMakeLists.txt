@@ -294,6 +294,15 @@ target_include_directories(bluewake_inline_gpr_memory_test PRIVATE
 target_link_libraries(bluewake_inline_gpr_memory_test PRIVATE gxruntime)
 add_test(NAME bluewake_inline_gpr_memory_test COMMAND bluewake_inline_gpr_memory_test)
 
+add_executable(bluewake_guest_ram_guard_test
+    ${BLUEWAKE_REPO_ROOT}/tests/guest_ram_guard_test.c
+    ${BLUEWAKE_REPO_ROOT}/cmake/composite/guest_ram_guard.c)
+target_include_directories(bluewake_guest_ram_guard_test PRIVATE
+    ${GXRUNTIME_DIR}/include ${BLUEWAKE_REPO_ROOT}/cmake/composite)
+target_compile_definitions(bluewake_guest_ram_guard_test PRIVATE BW_GUEST_RAM_GUARD_WRAP=1)
+target_link_libraries(bluewake_guest_ram_guard_test PRIVATE gxruntime)
+add_test(NAME bluewake_guest_ram_guard_test COMMAND bluewake_guest_ram_guard_test)
+
 add_executable(bluewake_direct_calls_test
     ${BLUEWAKE_REPO_ROOT}/tests/direct_calls_test.c
     ${BLUEWAKE_REPO_ROOT}/cmake/composite/direct_calls.c)
