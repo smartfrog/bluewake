@@ -815,7 +815,21 @@ int dolrecomp_call_slow(CPUState* ctx, u32 address) {
     return 0;
 }
 
+/* Every entry into a translated block comes through dolrecomp_call, which is
+ * where the guest pc is first written. A CPUState other than the one the host
+ * adopted must be replaced there and not repaired later: the block holds that
+ * pointer in a callee-saved register and reaches pc, lr, the gprs and the
+ * entry switch through it, so a redirected store would leave control flow on
+ * the bogus state (trial #24: 7 redirected accesses, PC 0). The adopted state
+ * is the only guest CPU in this host, and the fast path is one compare. */
+#if defined(BW_GUEST_RAM_GUARD_WRAP)
+#define DOLRECOMP_CANON_CTX(ctx, address) bw_guest_ctx_canonical((ctx), (address))
+#else
+#define DOLRECOMP_CANON_CTX(ctx, address) (ctx)
+#endif
+
 static inline int dolrecomp_call(CPUState* ctx, u32 address) {
+    ctx = DOLRECOMP_CANON_CTX(ctx, address);
     ctx->pc = address;
     if (dolrecomp_dispatch_replacement(ctx, address)) return 1;
     if (ctx->host_call && ppc_host_call(ctx, address)) return 1;
