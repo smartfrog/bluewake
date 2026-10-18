@@ -306,5 +306,48 @@ class TerminalOwnershipTests(ownership.OwnedGateFixture):
             self.assertEqual(disposition['error'], str(first_error))
 
 
+class BoundedTerminalCaptureTests(ownership.OwnedGateFixture):
+    def setUp(self):
+        super().setUp()
+        self.release()
+        self.state['requested_stop'] = {'stop_reason': 'installed_payload'}
+        self.terminal = dict(self.props, ActiveState='active', SubState='exited',
+                             MainPID='0', ControlGroup='', Result='success',
+                             ExecMainCode='2', ExecMainStatus='15')
+
+    def test_requested_stop_captures_terminal_published_after_wrapper_exit(self):
+        with patch.object(run, 'phase_properties', side_effect=[self.props, self.props, self.terminal]), \
+                patch.object(run, 'process_identity', return_value=(987, self.cgroup)), \
+                patch.object(phase_identity, 'process_identity', return_value=(987, self.cgroup)), \
+                patch.object(run.subprocess, 'run') as signal, redirect_stdout(io.StringIO()):
+            result = run.stop_owned_unit(self.unit, self.state)
+        self.assertEqual(result, self.terminal)
+        self.assertEqual(self.state['properties_at_exit'], self.terminal)
+        signal.assert_called_once_with(['systemctl', '--user', 'stop', self.unit], check=True,
+                                       timeout=30)
+
+    def test_changed_invocation_during_bounded_capture_is_never_adopted(self):
+        foreign = dict(self.props, InvocationID='f' * 32)
+        with patch.object(run, 'phase_properties', side_effect=[self.props, self.props, foreign]), \
+                patch.object(run, 'process_identity', return_value=(987, self.cgroup)), \
+                patch.object(phase_identity, 'process_identity', return_value=(987, self.cgroup)), \
+                patch.object(run.subprocess, 'run') as signal:
+            with self.assertRaisesRegex(ValueError, 'UNVERIFIED changed'):
+                run.stop_owned_unit(self.unit, self.state)
+        self.assertNotIn('properties_at_exit', self.state)
+        signal.assert_not_called()
+
+    def test_bounded_capture_expiry_keeps_authenticated_stop_without_terminal(self):
+        with patch.object(run, 'TERMINAL_CAPTURE_SECONDS', 0.05), \
+                patch.object(run, 'phase_properties', return_value=self.props), \
+                patch.object(run, 'process_identity', return_value=(987, self.cgroup)), \
+                patch.object(phase_identity, 'process_identity', return_value=(987, self.cgroup)), \
+                patch.object(run.subprocess, 'run') as signal:
+            run.stop_owned_unit(self.unit, self.state)
+        signal.assert_called_once_with(['systemctl', '--user', 'stop', self.unit], check=True,
+                                       timeout=30)
+        self.assertNotIn('properties_at_exit', self.state)
+
+
 if __name__ == '__main__':
     unittest.main()

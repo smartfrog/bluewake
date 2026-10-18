@@ -78,6 +78,8 @@ from phase_identity import OwnedIdentity, original_process_gone, process_identit
 
 INSTALL_DEADLINE_SECONDS = 60
 PERMIT_TIMEOUT_SECONDS = 15
+TERMINAL_CAPTURE_SECONDS = 2.0
+TERMINAL_CAPTURE_POLL_SECONDS = 0.02
 
 
 class PreconditionBlocked(RuntimeError):
@@ -240,6 +242,28 @@ def verify_owned_process_or_terminal(unit, state, current):
     return current, False
 
 
+def capture_owned_terminal(unit, state, current):
+    """Capture the owned unit's own final properties before cleanup unloads them.
+
+    The wrapper can exit (after its SIGTERM was delivered) before the phase main
+    process is reaped. Stopping the unit then removes the transient unit and its
+    final Result/ExecMain* before any observer reads them. Poll only while the
+    observed invocation stays the owned one; a vanished or changed unit is never
+    adopted as terminal (owned_terminal still raises).
+    """
+    deadline = time.monotonic() + TERMINAL_CAPTURE_SECONDS
+    while True:
+        if owned_terminal(unit, state, current):
+            return current
+        if current.get('LoadState') == 'not-found':
+            return None
+        remaining = deadline - time.monotonic()
+        if remaining <= 0:
+            return None
+        time.sleep(min(TERMINAL_CAPTURE_POLL_SECONDS, remaining))
+        current = phase_properties(unit, state.get('diagnostic', False))
+
+
 def stop_owned_unit(unit, state):
     current = phase_properties(unit, state.get('diagnostic', False))
     terminal = state.get('diagnostic') and owned_terminal(unit, state, current)
@@ -247,7 +271,12 @@ def stop_owned_unit(unit, state):
         return current
     if (state.get('diagnostic') and state.get('owned_identity') and
             current.get('MainPID') == '0' and not terminal):
-        raise ValueError('UNVERIFIED phase terminal identity: ' + unit)
+        current = capture_owned_terminal(unit, state, current)
+        if current is None:
+            raise ValueError('UNVERIFIED phase terminal identity: ' + unit)
+        terminal = True
+        if not (current.get('ActiveState') == 'active' and current.get('SubState') == 'exited'):
+            return current
     recorded = state.get('invocation_id') or wrapper_invocation(state.get('phase_root'), unit)
     loaded_active = (current.get('LoadState') == 'loaded' and
                      current.get('ActiveState') in ('active', 'activating', 'reloading'))
@@ -259,6 +288,12 @@ def stop_owned_unit(unit, state):
             if terminal:
                 if not (current.get('ActiveState') == 'active' and current.get('SubState') == 'exited'):
                     return current
+            elif state.get('requested_stop') or state.get('run_owned_status') == 125:
+                captured = capture_owned_terminal(unit, state, current)
+                if captured is not None:
+                    current = captured
+                    if not (current.get('ActiveState') == 'active' and current.get('SubState') == 'exited'):
+                        return current
             recorded = owned.invocation_id
         if recorded is None or current.get('InvocationID') != recorded:
             state['foreign_unit_untouched'] = {'unit': unit, 'recorded_invocation': recorded,
