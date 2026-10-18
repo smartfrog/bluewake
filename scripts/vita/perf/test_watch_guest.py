@@ -103,7 +103,7 @@ if __name__ == '__main__':
     unittest.main()
 
 
-class ReadNewTests(unittest.TestCase):
+class TruncationTests(unittest.TestCase):
     def test_offset_resets_when_the_log_truncates(self):
         with tempfile.TemporaryDirectory() as tmp:
             log = Path(tmp) / 'vita3k.log'
