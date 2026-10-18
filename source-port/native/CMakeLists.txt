@@ -129,6 +129,8 @@ include(cmake/sdk.cmake)
 include(cmake/sdk_gf.cmake)
 # E3 POC: the GX/GD stub a renderer-less Vita build links (no-op on host builds).
 include(cmake/vita_gx_stub.cmake)
+# P-A follow-up: the first bounded actor slice reduced to its g_profile_* data.
+include(cmake/vita_profile_slice.cmake)
 # P-A blocker 2 POC: the Vita static-init main and its no-harness link check (no-op on host builds).
 include(cmake/vita_static_init.cmake)
 # E1: the Vita package of the headless skeleton (no-op on host builds).

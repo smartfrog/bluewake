@@ -12,12 +12,13 @@
 //    pc_milestone.cpp reads - is up.
 // 3. pc::staticInitCheck, the M0 check split out of pc_smoke.cpp by the previous commit.
 //
-// What this does not do: reach M0. The profile list is
-// native/vita/vita_profile_list.cpp, a bounded stub with no actor unit in it, because the 502
-// g_profile_* definitions are the REL actor units of the compile sweep (the remaining P-A
-// blocker). The check therefore reports "0 of 502 profile slots filled". The boot path fails
-// loudly (exit 1, a [cos] vita-boot: FAIL line) if OSInit leaves no MEM1 arena, if the first
-// retrace does not advance the count, or if the check reports an error.
+// What this does not do: reach M0. The profile list is native/vita/vita_profile_list.cpp, the
+// bounded actor slice of cmake/vita_profile_slice.cmake: the slice's real g_profile_* identities
+// are linked (its code and method tables are not), and the rest of the 502 definitions are still
+// the REL actor units of the compile sweep (the remaining P-A blocker). The check reports how
+// many slots the slice fills. The boot path fails loudly (exit 1, a [cos] vita-boot: FAIL line)
+// if OSInit leaves no MEM1 arena, if the first retrace does not advance the count, or if the
+// check reports an error.
 #include "pc/pc_static_init.h"
 
 #include <aurora/aurora.h>
@@ -73,7 +74,7 @@ int main() {
     }
     std::fprintf(stderr,
                  "[cos] vita-boot: ok, OS and VI up and the static-init check ran without errors; "
-                 "the profile list is the bounded stub, not the game's (the 502 g_profile_* "
+                 "the profile list is the bounded actor slice (the rest of the 502 g_profile_* "
                  "definitions are still the REL sweep)\n");
     return 0;
 }

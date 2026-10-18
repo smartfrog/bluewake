@@ -70,14 +70,23 @@ endif ()
 
 # P-A follow-up: the smallest boot path to the M0 static-init check (native/vita/vita_boot.cpp).
 # Aurora's OSInit and VI, then pc::staticInitCheck, with no pc_harness, no Aurora DVD and no
-# renderer; the profile list is the bounded stub native/vita/vita_profile_list.cpp. Not packaged:
-# packaging and Vita3K runs are separate. The E1 build directory and flags build it as is:
+# renderer. The profile list is the bounded actor slice of native/vita/vita_profile_list.cpp
+# (cmake/vita_profile_slice.cmake), reduced to its g_profile_* data. Not packaged: packaging and
+# Vita3K runs are separate. The E1 build directory and flags build it as is:
 #   cmake --build <e1-vita> --target cos_vita_boot
-add_executable(cos_vita_boot
-        "${COS_NATIVE_ROOT}/vita/vita_boot.cpp"
-        "${COS_NATIVE_ROOT}/vita/vita_profile_list.cpp"
-        "${COS_NATIVE_ROOT}/src/pc/harness/pc_static_init.cpp"
-        "${COS_ROOT}/src/f_pc/f_pc_profile.cpp")
-target_link_libraries(cos_vita_boot PRIVATE cos_game_headers cos_sdk)
-target_sources(cos_vita_boot PRIVATE "${COS_NATIVE_ROOT}/vita/stubs_libc.cpp")
-cos_vita_configure_executable(cos_vita_boot)
+if (COS_VITA_PROFILE_SLICE_OBJECT)
+    add_executable(cos_vita_boot
+            "${COS_NATIVE_ROOT}/vita/vita_boot.cpp"
+            "${COS_NATIVE_ROOT}/vita/vita_profile_list.cpp"
+            "${COS_NATIVE_ROOT}/src/pc/harness/pc_static_init.cpp"
+            "${COS_ROOT}/src/f_pc/f_pc_profile.cpp"
+            "${COS_VITA_PROFILE_SLICE_OBJECT}")
+    set_source_files_properties("${COS_VITA_PROFILE_SLICE_OBJECT}" PROPERTIES
+            EXTERNAL_OBJECT TRUE GENERATED TRUE)
+    target_link_libraries(cos_vita_boot PRIVATE cos_game_headers cos_sdk)
+    target_sources(cos_vita_boot PRIVATE "${COS_NATIVE_ROOT}/vita/stubs_libc.cpp")
+    add_dependencies(cos_vita_boot cos_vita_profile_slice)
+    cos_vita_configure_executable(cos_vita_boot)
+else ()
+    message(WARNING "cos_native: the actor profile slice is unavailable; cos_vita_boot is skipped")
+endif ()
