@@ -12,11 +12,11 @@
 // terminator. Keep this list in step with vita_profile_slice.cmake; a missing profile fails the
 // link, a wrong slot fails the check.
 //
-// g_fpcLf_Method, g_fopOvlp_Method and g_fopMsg_Method are real: the fpcLf_* -> fpcMtd_* /
-// fpcDwPi_* / fpcBs_MakeOfType chain, the fopOvlp_* wrappers with cReq_*, and the fopMsg_*
-// wrappers with fopMsgM_GetAppend / fopDwTg_* / cTg/cTr/cLs/cNd, so their function pointers are
-// callable. g_fopAc_Method is reduced data (zero method pointers); the actor code is still the
-// sweep's work. The actor method table at 0x24 stays NULL.
+// g_fpcLf_Method, g_fopOvlp_Method, g_fopMsg_Method and g_fopAc_Method are real: the fpcLf_* ->
+// fpcMtd_* / fpcDwPi_* / fpcBs_MakeOfType chain, the fopOvlp_* wrappers with cReq_*, the fopMsg_*
+// wrappers with fopMsgM_GetAppend / fopDwTg_* / cTg/cTr/cLs/cNd, and the fopAc_* wrappers with
+// fopAcTg_*. The actor services are bounded stubs (vita/actor_services.cpp), so the table is real
+// but not every service call is. The actor method table at 0x24 stays NULL.
 #include "f_pc/f_pc_name.h"
 #include "f_pc/f_pc_profile_lst.h"
 #include "f_pc/f_pc_leaf.h"

@@ -74,23 +74,22 @@ endif ()
 # (cmake/vita_profile_slice.cmake), reduced to its g_profile_* data. Not packaged: packaging and
 # Vita3K runs are separate. The E1 build directory and flags build it as is:
 #   cmake --build <e1-vita> --target cos_vita_boot
-if (COS_VITA_PROFILE_SLICE_OBJECT AND COS_VITA_BASE_TABLES_OBJECT AND COS_VITA_FPC_CHAIN_OBJECT)
+if (COS_VITA_PROFILE_SLICE_OBJECT AND COS_VITA_FPC_CHAIN_OBJECT)
     add_executable(cos_vita_boot
             "${COS_NATIVE_ROOT}/vita/vita_boot.cpp"
             "${COS_NATIVE_ROOT}/vita/vita_profile_list.cpp"
             "${COS_NATIVE_ROOT}/src/pc/harness/pc_static_init.cpp"
             "${COS_ROOT}/src/f_pc/f_pc_profile.cpp"
             "${COS_VITA_PROFILE_SLICE_OBJECT}"
-            "${COS_VITA_BASE_TABLES_OBJECT}"
             "${COS_VITA_FPC_CHAIN_OBJECT}"
             $<TARGET_OBJECTS:cos_vita_milestone_units>)
     set_source_files_properties("${COS_VITA_PROFILE_SLICE_OBJECT}"
-            "${COS_VITA_BASE_TABLES_OBJECT}" "${COS_VITA_FPC_CHAIN_OBJECT}" PROPERTIES
+            "${COS_VITA_FPC_CHAIN_OBJECT}" PROPERTIES
             EXTERNAL_OBJECT TRUE GENERATED TRUE)
     target_link_libraries(cos_vita_boot PRIVATE cos_game_headers cos_sdk)
     target_sources(cos_vita_boot PRIVATE "${COS_NATIVE_ROOT}/vita/stubs_libc.cpp")
     target_link_options(cos_vita_boot PRIVATE -Wl,--gc-sections)
-    add_dependencies(cos_vita_boot cos_vita_profile_slice cos_vita_base_tables cos_vita_fpc_chain
+    add_dependencies(cos_vita_boot cos_vita_profile_slice cos_vita_fpc_chain
             cos_vita_milestone_units)
     cos_vita_configure_executable(cos_vita_boot)
 else ()

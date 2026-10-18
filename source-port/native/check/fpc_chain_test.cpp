@@ -1,7 +1,8 @@
 // Host test of the callable g_fpcLf_Method chain (cmake/vita_profile_slice.cmake): the table's
 // five function pointers must be real, and the fpcLf_* -> fpcMtd_* path must run on a zeroed leaf
-// whose profile points at the reduced g_fopAc_Method. fpcMtd_Method treats a NULL method as
-// success, so the reduced actor table makes the path finite. No pc_harness, no disc.
+// whose profile points at a zeroed leafdraw_method_class. fpcMtd_Method treats a NULL method as
+// success, so the path is finite and does not enter the real g_fopAc_Method actor code. No
+// pc_harness, no disc.
 //
 //   ninja cos_vita_fpc_chain_test && build/native-mac/cos_vita_fpc_chain_test
 #include "f_pc/f_pc_leaf.h"
@@ -31,8 +32,9 @@ int main() {
     // reads are set.
     alignas(leafdraw_class) unsigned char storage[sizeof(leafdraw_class)] = {};
     auto& leaf = *reinterpret_cast<leafdraw_class*>(storage);
+    static leafdraw_method_class sNoMethods = {};
     leaf_process_profile_definition profile = {};
-    profile.sub_method = &g_fopAc_Method.base;
+    profile.sub_method = &sNoMethods;
     profile.mPriority = 7;
     leaf.mpProf = &profile.base;
 
@@ -52,7 +54,7 @@ int main() {
                 "priority=%d subtype=%d bad=%d\n",
                 (int)state, drew, executed, isDel, removed, (void*)leaf.mpDrawMtd,
                 (int)leaf.mDwPi.mPriority, (int)leaf.mSubType, bad);
-    if (leaf.mpDrawMtd != &g_fopAc_Method.base) {
+    if (leaf.mpDrawMtd != &sNoMethods) {
         bad++;
     }
     if (leaf.mDwPi.mPriority != 7) {

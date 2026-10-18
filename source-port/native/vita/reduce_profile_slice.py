@@ -135,7 +135,9 @@ def reduce_callable(args, objects, out):
             if part.startswith("R_") and index + 1 < len(parts):
                 referenced.add(parts[index + 1])
                 break
-    missing = sorted(name for name in referenced & undefined if not name.startswith("."))
+    allowed = set(args.allow.split(",")) if args.allow else set()
+    missing = sorted(name for name in referenced & undefined
+                     if not name.startswith(".") and name not in allowed)
     if missing:
         raise SystemExit(f"profile-slice: FAIL {out}: callable chain still needs {missing}")
     return f"{out.stat().st_size} bytes, callable, {len(referenced)} local relocations"
@@ -155,6 +157,8 @@ def main():
                         "code they reach stay real, everything else is localized and dropped")
     parser.add_argument("--keep", help="comma list of further globals to keep beside the callable "
                         "symbol (e.g. the chain's fpcMtd_Method for the boot path to call)")
+    parser.add_argument("--allow", help="comma list of external symbols the final link resolves "
+                        "(newlib/Aurora), so the callable check does not count them")
     parser.add_argument("objects", nargs="+")
     args = parser.parse_args()
 
