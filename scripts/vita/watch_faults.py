@@ -48,6 +48,18 @@ _FLOOD = re.compile('|'.join((
     r'crash',
 )), re.IGNORECASE)
 
+# Literal pre-check for large chunks: `str.lower` plus `in` is far cheaper than
+# running the alternations over hundreds of megabytes of console log.
+_FAST_WORDS = ('sigsegv', 'segfault', 'pc is 0x', 'invalid read', 'invalid write',
+               'assert:', 'assertion', 'panic', 'terminate', 'abort', 'crash',
+               'fault')
+
+
+def may_hold_fault(text):
+    """True when `text` could contain a fault line; a cheap, conservative gate."""
+    lowered = text.lower()
+    return any(word in lowered for word in _FAST_WORDS)
+
 
 def fault_line(line):
     """True when one log line already reports a guest failure."""
@@ -60,10 +72,13 @@ def fault_match(lines, repeats=FAULT_REPEATS):
     `lines` is an iterable of log lines or one log chunk.
     """
     if isinstance(lines, str):
-        # One regex pass over the chunk before splitting it: a chunk carrying no
-        # fault word at all cannot hold a fault or a flood, and logs reach 545 MB.
-        if _SIGNATURE.search(lines) is None and _FLOOD.search(lines) is None:
+        if not may_hold_fault(lines):
             return None
+        found = _SIGNATURE.search(lines)
+        if found is not None:
+            start = lines.rfind('\n', 0, found.start()) + 1
+            end = lines.find('\n', found.end())
+            return lines[start:] if end < 0 else lines[start:end]
         lines = lines.splitlines()
     counts = {}
     for line in lines:
