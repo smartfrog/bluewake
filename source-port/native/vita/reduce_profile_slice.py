@@ -118,14 +118,19 @@ def reduce_callable(args, objects, out):
     run([args.objcopy, "--remove-section=.init_array", "--remove-section=.fini_array",
          str(combined), str(stripped)])
     names = globals_defined(args.nm, stripped)
-    if args.callable not in names:
-        raise SystemExit(f"profile-slice: FAIL {out}: {args.callable} is not a global definition")
-    localize_list.write_text("\n".join(name for name in names if name != args.callable) + "\n")
+    keep = set(args.keep.split(",")) if args.keep else set()
+    required = {args.callable} | keep
+    missing = sorted(name for name in required if name not in names)
+    if missing:
+        raise SystemExit(f"profile-slice: FAIL {out}: not global definitions: {missing}")
+    localize_list.write_text("\n".join(name for name in names if name not in required) + "\n")
     run([args.objcopy, f"--localize-symbols={localize_list}", str(stripped), str(localized)])
-    run([args.ld, "-r", "--gc-sections", "-u", args.callable, "-o", str(out), str(localized)])
+    run([args.ld, "-r", "--gc-sections"] + [arg for name in sorted(required) for arg in ("-u", name)]
+        + ["-o", str(out), str(localized)])
     defined = globals_defined(args.nm, out)
-    if defined != [args.callable]:
-        raise SystemExit(f"profile-slice: FAIL {out}: globals {defined}, expected [{args.callable}]")
+    if sorted(defined) != sorted(required):
+        raise SystemExit(f"profile-slice: FAIL {out}: globals {defined}, expected "
+                         f"{sorted(required)}")
     undefined = set(run([args.nm, "-u", str(out)]).split())
     referenced = set()
     for line in run([args.objdump, "-r", str(out)]).splitlines():
@@ -154,6 +159,8 @@ def main():
                         "without it each object must define exactly one g_profile_*")
     parser.add_argument("--callable", help="keep one symbol callable: its own relocations and the "
                         "code they reach stay real, everything else is localized and dropped")
+    parser.add_argument("--keep", help="comma list of further globals to keep beside the callable "
+                        "symbol (e.g. the chain's fpcMtd_Method for the boot path to call)")
     parser.add_argument("objects", nargs="+")
     args = parser.parse_args()
 

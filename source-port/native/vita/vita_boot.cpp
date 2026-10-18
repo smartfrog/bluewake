@@ -11,15 +11,22 @@
 // 2. VI: VIInit and one VIWaitForRetrace (cos_sdk's VI), so VIGetRetraceCount - the one VI value
 //    pc_milestone.cpp reads - is up.
 // 3. pc::staticInitCheck, the M0 check split out of pc_smoke.cpp by the previous commit.
+// 4. fpcMtd_Method, to touch the callable f_pc chain the profiles point at.
+// 5. The "[cos] MILESTONE static-init" line and its COS_MILESTONE exit (0), from the real
+//    pc_milestone.cpp with a minimal gConfig/support (native/vita/pc_milestone_support.cpp).
 //
-// What this does not do: reach M0. The profile list is native/vita/vita_profile_list.cpp, the
-// bounded actor slice of cmake/vita_profile_slice.cmake: the slice's real g_profile_* identities
-// are linked (its code and method tables are not), and the rest of the 502 definitions are still
-// the REL actor units of the compile sweep (the remaining P-A blocker). The check reports how
-// many slots the slice fills. The boot path fails loudly (exit 1, a [cos] vita-boot: FAIL line)
-// if OSInit leaves no MEM1 arena, if the first retrace does not advance the count, or if the
-// check reports an error.
+// What this does not do: fill the list. It is native/vita/vita_profile_list.cpp, the bounded actor
+// slice of cmake/vita_profile_slice.cmake: the slice's real g_profile_* identities are linked (its
+// code and method tables are not), and the rest of the 502 definitions are still the REL actor
+// units of the compile sweep (the remaining P-A blocker). The check reports 72 of 502; the
+// milestone line says the same, so it is the M0 line, not a 502/502 claim. The boot path fails
+// loudly (exit 1, a [cos] vita-boot: FAIL line) if OSInit leaves no MEM1 arena, if the first
+// retrace does not advance the count, if the check reports an error, or if the chain touch fails.
+#include "pc/pc_harness.h"
 #include "pc/pc_static_init.h"
+#include "pc_milestone_support.h"
+
+#include "f_pc/f_pc_method.h"
 
 #include <aurora/aurora.h>
 #include <dolphin/os.h>
@@ -72,9 +79,15 @@ int main() {
                      errors);
         return 1;
     }
-    std::fprintf(stderr,
-                 "[cos] vita-boot: ok, OS and VI up and the static-init check ran without errors; "
-                 "the profile list is the bounded actor slice (the rest of the 502 g_profile_* "
-                 "definitions are still the REL sweep)\n");
-    return 0;
+
+    // Touch the callable f_pc chain the profiles' sub_method points at: fpcMtd_Method is the leaf
+    // every g_fpcLf_Method call reaches; a NULL method is success, so the bounded path is safe.
+    if (fpcMtd_Method(nullptr, nullptr) != TRUE) {
+        return fail("fpcMtd_Method(nullptr, nullptr) did not return TRUE");
+    }
+    std::fprintf(stderr, "[cos] vita-boot: OS and VI up, static-init 0 errors, fpcMtd_Method ok\n");
+
+    // The M0 line and its COS_MILESTONE exit, printed by the harness's pc_milestone.cpp.
+    vitaMilestoneStaticInit();
+    return fail("pc_milestone returned without exiting");
 }

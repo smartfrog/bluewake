@@ -13,12 +13,23 @@
 # What this proves: the M0 check compiles for ARMv7 from a Vita main and its link needs no pc::
 # harness symbol and no Aurora/GX/DVD/feature symbol from outside the stubs. What it does not: M0
 # itself. "502 of 502 profile slots filled" needs the 502 REL actor units' g_profile_* definitions
-# (the compile sweep), and the "[cos] MILESTONE static-init" line needs pc_milestone.cpp's Aurora VI
-# counter. The check prints the g_profile_* count as the size of what remains.
+# (the compile sweep). The "[cos] MILESTONE static-init" line is now reached through the real
+# pc_milestone.cpp, with a minimal gConfig/support (vita/pc_milestone_support.cpp). The check
+# prints the g_profile_* count as the size of what remains.
 #
 # 32-bit Vita builds only: a host build has the real features and Aurora DVD, so the stubs would
 # duplicate them.
 include_guard(GLOBAL)
+
+# pc_milestone.cpp plus the smallest gConfig, writef, elapsedMs and pc_exit it needs on a path with
+# no PC harness. EXCLUDE_FROM_ALL: only the boot executables depend on it.
+add_library(cos_vita_milestone_units OBJECT EXCLUDE_FROM_ALL
+        "${COS_NATIVE_ROOT}/src/pc/harness/pc_milestone.cpp"
+        "${COS_NATIVE_ROOT}/vita/pc_milestone_support.cpp")
+target_link_libraries(cos_vita_milestone_units PRIVATE cos_game_headers)
+target_include_directories(cos_vita_milestone_units PRIVATE "${COS_NATIVE_ROOT}/src/pc")
+target_compile_options(cos_vita_milestone_units PRIVATE -ffunction-sections -fdata-sections -g0)
+set_property(TARGET cos_vita_milestone_units PROPERTY FOLDER "cos_native")
 
 if (CMAKE_SIZEOF_VOID_P EQUAL 4 AND NOT TARGET aurora::gx)
     add_library(cos_vita_pc_stubs STATIC
@@ -80,15 +91,17 @@ elseif (NOT CMAKE_CROSSCOMPILING)
                 "${COS_ROOT}/src/f_pc/f_pc_profile.cpp"
                 "${COS_VITA_PROFILE_SLICE_OBJECT}"
                 "${COS_VITA_BASE_TABLES_OBJECT}"
-                "${COS_VITA_FPC_CHAIN_OBJECT}")
+                "${COS_VITA_FPC_CHAIN_OBJECT}"
+                $<TARGET_OBJECTS:cos_vita_milestone_units>)
         set_source_files_properties("${COS_VITA_PROFILE_SLICE_OBJECT}"
                 "${COS_VITA_BASE_TABLES_OBJECT}" "${COS_VITA_FPC_CHAIN_OBJECT}" PROPERTIES
                 EXTERNAL_OBJECT TRUE GENERATED TRUE)
         # Aurora's libraries reference each other in a cycle (core <-> gx/vi), as cos_sdk_smoke notes.
         target_link_libraries(cos_vita_boot_host PRIVATE cos_game_headers cos_sdk
                 "-Wl,--start-group" ${COS_AURORA_LIBS} "-Wl,--end-group")
+        target_link_options(cos_vita_boot_host PRIVATE -Wl,--gc-sections)
         add_dependencies(cos_vita_boot_host cos_vita_profile_slice cos_vita_base_tables
-                cos_vita_fpc_chain)
+                cos_vita_fpc_chain cos_vita_milestone_units)
         set_target_properties(cos_vita_boot_host PROPERTIES
                 RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}")
     endif ()
