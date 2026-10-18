@@ -60,6 +60,10 @@ def fault_match(lines, repeats=FAULT_REPEATS):
     `lines` is an iterable of log lines or one log chunk.
     """
     if isinstance(lines, str):
+        # One regex pass over the chunk before splitting it: a chunk carrying no
+        # fault word at all cannot hold a fault or a flood, and logs reach 545 MB.
+        if _SIGNATURE.search(lines) is None and _FLOOD.search(lines) is None:
+            return None
         lines = lines.splitlines()
     counts = {}
     for line in lines:
