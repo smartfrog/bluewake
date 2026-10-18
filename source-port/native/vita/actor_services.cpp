@@ -12,7 +12,6 @@
 #include "d/d_event.h"
 #include "d/d_map.h"
 #include "d/d_meter.h"
-#include "d/d_stage.h"
 #include "f_op/f_op_actor_mng.h"
 #include "JAZelAudio/JAIZelBasic.h"
 #include "JSystem/JUtility/JUTAssert.h"
@@ -45,8 +44,6 @@ void dMap_c::drawActorPointMiniMap(fopAc_ac_c*) {}
 JAIZelBasic* JAIZelBasic::zel_basic = nullptr;
 
 void JAIZelBasic::seDeleteObject(Vec*) {}
-
-s8 dStage_roomControl_c::mStayNo = -1;
 
 u32 JUTAssertion::getSDevice() {
     return 0;

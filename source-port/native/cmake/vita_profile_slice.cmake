@@ -173,6 +173,7 @@ set(_cos_fpc_chain_units
         "${COS_ROOT}/src/f_op/f_op_view.cpp"
         "${COS_ROOT}/src/d/d_com_inf_game.cpp"
         "${COS_ROOT}/src/d/d_kankyo.cpp"
+        "${COS_ROOT}/src/d/d_stage.cpp"
         "${COS_ROOT}/src/f_op/f_op_scene.cpp"
         "${COS_ROOT}/src/f_op/f_op_scene_tag.cpp"
         "${COS_ROOT}/src/f_pc/f_pc_node.cpp"
