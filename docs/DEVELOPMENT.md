@@ -90,9 +90,9 @@ fix it.
 
 ## Not in this branch
 
-- Source-port work after `87f23cd1`. The ILP32 corrections (`source-port/ilp32` `86b562fd`) and
-  the E3 GX/GD stub (`poc/e3-gx-stub` `1103e5dd`) are ancestors of `87f23cd1`, so they are part of
-  the merge; both branch tips are `87f23cd1` itself.
+- Source-port implementation work after `87f23cd1`. The ILP32 corrections
+  (`source-port/ilp32` `86b562fd`) and the E3 GX/GD stub (`poc/e3-gx-stub` `1103e5dd`) are
+  ancestors of `87f23cd1`, so they are part of the merge; the merged branch tip is `87f23cd1`.
 - `poc/perf-ramguard`, `poc/dusk-transfer`, `poc/native-ctx-guard` and the B3/ctx POC branches.
 - Private packages, builds, saves, disc data and memory floors. They stay outside the repository.
 - Any behaviour change that has not been reviewed. Merged experimental code is present, off.
