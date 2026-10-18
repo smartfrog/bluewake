@@ -24,6 +24,7 @@ if(WW05_DISPATCH_ABI_SENTINEL AND WW05_OBSERVE_NATIVE_CTX)
 endif()
 option(WW05_REJECTION_CAPSULE "Diagnostic bounded admission-rejection capsule for refused desktop edges" OFF)
 option(WW05_RAM_GUARD "Keep guest MEM1 on the base adopted after cpu_init so a corrupted CPUState cannot redirect stores" ON)
+option(WW05_GLOBAL_CTX "Run the scoped global-ctx chunks on the adopted CPU (POC)" OFF)
 file(GENERATE OUTPUT "${CMAKE_CURRENT_BINARY_DIR}/ww05_pad_input.json"
     CONTENT "{\"option\":\"WW05_ENABLE_PAD_INPUT\",\"enabled\":$<IF:$<BOOL:${WW05_ENABLE_PAD_INPUT}>,true,false>,\"source\":\"$<IF:$<BOOL:${WW05_ENABLE_PAD_INPUT}>,sceCtrlPeekBufferPositive,empty-legacy>\",\"sampling\":\"guest-SI-only\"}\n")
 get_filename_component(BLUEWAKE_ROOT "../.." ABSOLUTE BASE_DIR "${CMAKE_CURRENT_SOURCE_DIR}")
@@ -315,6 +316,10 @@ else()
     # after ww_host_init and repairs a corrupted field instead of writing to it.
     # A timing trial may turn it off with -DWW05_RAM_GUARD=OFF.
     set(BLUEWAKE_RAM_GUARD ${WW05_RAM_GUARD} CACHE BOOL "" FORCE)
+    if(WW05_GLOBAL_CTX AND NOT WW05_RAM_GUARD)
+        message(FATAL_ERROR "WW05_GLOBAL_CTX needs WW05_RAM_GUARD: the chunks read the state the guard adopts")
+    endif()
+    set(BLUEWAKE_GLOBAL_CTX ${WW05_GLOBAL_CTX} CACHE BOOL "" FORCE)
     set(WW05_MODULE_OPT_LEVEL 1 CACHE STRING "Translated module optimization level (1, 2, or 3)")
     set(COMPOSITE_OPTIMIZATION_LEVEL ${WW05_MODULE_OPT_LEVEL} CACHE STRING "" FORCE)
     add_subdirectory("${BLUEWAKE_ROOT}/cmake/composite" composite)

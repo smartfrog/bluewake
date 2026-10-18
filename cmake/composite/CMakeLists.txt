@@ -23,8 +23,14 @@ option(BLUEWAKE_DIRECT_CALLS "Use explicitly prepared direct-call chunks" OFF)
 option(BLUEWAKE_FIXED_CPU "Use explicitly prepared fixed-address guest CPU chunks" OFF)
 option(BLUEWAKE_FIXED_MEM1 "Use module-owned guest RAM (requires fixed CPU)" OFF)
 option(BLUEWAKE_RAM_GUARD "Repair a corrupted guest MEM1 base from the one adopted at init" OFF)
+option(BLUEWAKE_GLOBAL_CTX "Run the scoped global-ctx chunks on the adopted CPU (needs guest_ram_guard.c)" OFF)
 if(BLUEWAKE_FIXED_MEM1 AND NOT BLUEWAKE_FIXED_CPU)
   message(FATAL_ERROR "Fixed MEM1 requires BLUEWAKE_FIXED_CPU")
+endif()
+if(BLUEWAKE_GLOBAL_CTX AND BLUEWAKE_FIXED_CPU)
+  # The Windows fixed-CPU transform uses a by-value object; the scoped transform
+  # uses the adopted slot. Enabling both would define bw_guest_cpu twice.
+  message(FATAL_ERROR "Global ctx and fixed CPU are alternative CPU storage")
 endif()
 if(BLUEWAKE_RAM_GUARD AND BLUEWAKE_GATHER_PIPE)
   # The gather-pipe header wraps the same accessors with its own macros.
@@ -137,6 +143,26 @@ if(BLUEWAKE_RAM_GUARD)
   else()
     target_compile_options(${MODULE_NAME} PRIVATE -include "${CMAKE_CURRENT_SOURCE_DIR}/guest_ram_guard.h")
   endif()
+endif()
+
+if(BLUEWAKE_GLOBAL_CTX)
+  # Only the chunks the scoped transformer rewrote may exist here; every other
+  # chunk keeps the dispatcher-supplied pointer. The marker is the transformer's
+  # first inserted line, so an accidentally unscoped or unprepared tree fails
+  # here.
+  set(GLOBAL_CTX_CHUNKS 0)
+  foreach(CHUNK_SOURCE IN LISTS CHUNK_INPUTS)
+    file(STRINGS "${CHUNK_SOURCE}" GLOBAL_CTX_MARKER LIMIT_COUNT 1
+      REGEX "^#define ctx \\(&bw_guest_cpu\\)$")
+    if(GLOBAL_CTX_MARKER)
+      math(EXPR GLOBAL_CTX_CHUNKS "${GLOBAL_CTX_CHUNKS} + 1")
+    endif()
+  endforeach()
+  if(GLOBAL_CTX_CHUNKS EQUAL 0)
+    message(FATAL_ERROR "Global ctx has no prepared chunk")
+  endif()
+  message(STATUS "${GLOBAL_CTX_CHUNKS} global-ctx chunk(s)")
+  target_compile_definitions(${MODULE_NAME} PRIVATE BW_GUEST_GLOBAL_CTX=1)
 endif()
 
 if(BLUEWAKE_NATIVE_J3D)

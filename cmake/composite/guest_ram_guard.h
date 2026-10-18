@@ -74,6 +74,34 @@ CPUState* bw_guest_ram_guard_slow(CPUState* cpu);
  * runs on the real CPU. */
 CPUState* bw_guest_ctx_canon(CPUState* cpu, u32 address);
 
+#if defined(BW_GUEST_GLOBAL_CTX)
+
+/* Trial #25 (build-f5/runtime-next/perf-ctx-canon-trial25-run-84433891) lost the
+ * block after the guard's ctx redirect at pc=8024738C: the dispatcher was never
+ * entered with a foreign state, and no [ctx-canon] line was printed, so the
+ * block's own ctx (the host r4) was clobbered inside the block. The scoped
+ * global-ctx chunks reach the adopted state through this fixed module slot
+ * instead of their r4 argument, so the body cannot follow a clobbered pointer.
+ *
+ * The Vita host owns its CPUState inside WwHost, so the slot holds a pointer to
+ * it rather than the Windows fixed-CPU module's by-value object; the host
+ * adopts the same state through bw_guest_ram_guard_adopt, which sets this slot.
+ * bw_guest_global_ctx_adopt is the separate entry for a host or test that owns
+ * the adoption point itself. The entry check fails closed (aborts) if a
+ * transformed chunk runs before adoption or with a slot the guard did not
+ * adopt. */
+typedef struct BwGuestGlobalCtxStats {
+    unsigned long entries;
+    unsigned long mismatches;
+} BwGuestGlobalCtxStats;
+
+extern CPUState* bw_guest_cpu_ptr;
+void bw_guest_global_ctx_adopt(CPUState* cpu);
+void bw_guest_global_ctx_entry(CPUState* entry);
+BwGuestGlobalCtxStats bw_guest_global_ctx_stats(void);
+
+#endif
+
 #if defined(BW_GUEST_RAM_GUARD_WRAP)
 
 /* Trial #24 (build-f5/trial24-pc0-diag-72c50764): redirecting the mem_* argument

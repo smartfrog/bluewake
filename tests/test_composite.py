@@ -1033,6 +1033,192 @@ def test_ship_disc_section_table_is_checked_directly():
         assert 'ship contract section metadata disagrees with raw REL bytes' in result.stderr
 
 
+def test_scoped_global_ctx_transform_touches_only_selected_chunks():
+    """Trial #25's next step: the body, not just the accessor, must use the
+    adopted state, but only the chunks that need it may be rewritten. The
+    scoped transformer is repeatable, rejects an unprepared chunk, and leaves
+    every other translation unit byte-identical.
+    """
+    chunk_body = (
+        '// DolRecomp output\n'
+        '#include "../generated.h"\n'
+        '\n'
+        'static void loop_%s(CPUState* ctx) {\n'
+        '    ctx->gpr[4] = 0x1111u;\n'
+        '}\n'
+        '\n'
+        'void func_%s(CPUState* ctx) {\n'
+        '    loop_%s(ctx);\n'
+        '    ctx->gpr[5] = 0x2222u;\n'
+        '}\n')
+    names = {
+        'chunk_0040_text1_800A16E0.c': '800A16E0',
+        'chunk_0145_text1_802456E0.c': '802456E0',
+        'chunk_0175_text1_802BD6E0.c': '802BD6E0',
+        'chunk_0200_text1_80300000.c': '80300000',
+    }
+    script = SCRIPTS_DIR.parent / 'scripts/windows/global_guest_cpu_scope.py'
+    with tempfile.TemporaryDirectory() as td:
+        root = Path(td) / 'composite'
+        (root / 'chunks_dol').mkdir(parents=True)
+        (root / 'generated.h').write_text('/* synthetic */\n')
+        for name, address in names.items():
+            (root / 'chunks_dol' / name).write_text(
+                chunk_body % (address, address, address))
+        untouched = {name: (root / 'chunks_dol' / name).read_bytes()
+                     for name in names if not name.startswith(('chunk_0040', 'chunk_0145', 'chunk_0175'))}
+        command = [sys.executable, str(script), str(root),
+                   '--chunk', '0040', '--chunk', '0145', '--chunk', '0175']
+        first = subprocess.run(command, check=True, capture_output=True, text=True)
+        assert '3 of 3 selected chunks rewritten' in first.stdout
+        for name in ('chunk_0040_text1_800A16E0.c', 'chunk_0145_text1_802456E0.c',
+                     'chunk_0175_text1_802BD6E0.c'):
+            text = (root / 'chunks_dol' / name).read_text()
+            assert '#define ctx (&bw_guest_cpu)' in text
+            assert '#define bw_guest_cpu (*bw_guest_cpu_ptr)' in text
+            assert 'void func_' in text and '(CPUState* ctx_param)' in text
+            assert 'bw_guest_global_ctx_entry(ctx_param);' in text
+        for name, original in untouched.items():
+            assert (root / 'chunks_dol' / name).read_bytes() == original
+        second = subprocess.run(command, check=True, capture_output=True, text=True)
+        assert '0 of 3 selected chunks rewritten' in second.stdout
+        check = subprocess.run(command + ['--check'], check=True, capture_output=True, text=True)
+        assert '0 of 3 selected chunks need the transform' in check.stdout
+        missing = subprocess.run([sys.executable, str(script), str(root), '--chunk', '0999'],
+                                 check=False, capture_output=True, text=True)
+        assert missing.returncode != 0 and 'no chunk matches' in missing.stderr
+        unprepared = root / 'chunks_dol' / 'chunk_0200_text1_80300000.c'
+        unprepared.write_text('int not_a_chunk;\n')
+        rejected = subprocess.run([sys.executable, str(script), str(root), '--chunk', '0200'],
+                                  check=False, capture_output=True, text=True)
+        assert rejected.returncode != 0 and 'no generated.h include' in rejected.stderr
+
+
+def test_scoped_global_ctx_chunk_uses_the_adopted_state():
+    """A synthetic transformed chunk called with trial #24/#25's bogus pointer
+    (0x800A29C4, a guest stack address) writes through the adopted CPU, and the
+    entry mismatch is counted without being followed. Not adopted, or a slot
+    the guard did not adopt, aborts (fail closed). This is compiled and run,
+    not grepped.
+    """
+    with tempfile.TemporaryDirectory() as td:
+        td = Path(td)
+        (td / 'core').mkdir()
+        (td / 'core' / 'cpu.h').write_text(
+            '#ifndef BW_TEST_GLOBAL_CPU_H\n#define BW_TEST_GLOBAL_CPU_H\n'
+            '#include <stdbool.h>\n#include <stddef.h>\n#include <stdint.h>\n#include <stdio.h>\n'
+            'typedef uint8_t u8; typedef uint16_t u16; typedef uint32_t u32;\n'
+            'typedef uint64_t u64; typedef int64_t s64;\n'
+            '#define GC_RAM_BASE 0x80000000u\n'
+            'typedef struct CPUState {\n'
+            '    u32 gpr[32]; u32 pc, lr; u32 ram_size; u8* ram;\n'
+            '} CPUState;\n'
+            'static inline void mem_write32(CPUState* cpu, u32 addr, u32 value) {\n'
+            '    const u32 offset = addr - GC_RAM_BASE;\n'
+            '    cpu->ram[offset] = (u8)(value >> 24); cpu->ram[offset + 1u] = (u8)(value >> 16);\n'
+            '    cpu->ram[offset + 2u] = (u8)(value >> 8); cpu->ram[offset + 3u] = (u8)value;\n'
+            '}\n'
+            'static inline u32 mem_read32(CPUState* cpu, u32 addr) {\n'
+            '    const u32 offset = addr - GC_RAM_BASE;\n'
+            '    return ((u32)cpu->ram[offset] << 24) | ((u32)cpu->ram[offset + 1u] << 16) |\n'
+            '           ((u32)cpu->ram[offset + 2u] << 8) | (u32)cpu->ram[offset + 3u];\n'
+            '}\n'
+            'static inline u8 mem_read8(CPUState*, u32) { return 0u; }\n'
+            'static inline u16 mem_read16(CPUState*, u32) { return 0u; }\n'
+            'static inline u64 mem_read64(CPUState*, u32) { return 0u; }\n'
+            'static inline void mem_write8(CPUState*, u32, u8) {}\n'
+            'static inline void mem_write16(CPUState*, u32, u16) {}\n'
+            'static inline void mem_write64(CPUState*, u32, u64) {}\n'
+            'static inline u8* get_ram_ptr(CPUState*, u32, u32, u32*) { return 0; }\n'
+            '#endif\n')
+        composite = td / 'composite'
+        (composite / 'chunks_dol').mkdir(parents=True)
+        (composite / 'generated.h').write_text(
+            '#include "core/cpu.h"\n#include "guest_ram_guard.h"\n')
+        chunk = composite / 'chunks_dol' / 'chunk_0040_text1_800A16E0.c'
+        chunk.write_text(
+            '// DolRecomp output\n'
+            '#include "../generated.h"\n'
+            '\n'
+            'static void loop_800A2D28(CPUState* ctx) {\n'
+            '    ctx->gpr[4] = 0x1111u;\n'
+            '}\n'
+            '\n'
+            'void func_800A16E0(CPUState* ctx) {\n'
+            '    loop_800A2D28(ctx);\n'
+            '    ctx->gpr[5] = 0x2222u;\n'
+            '    mem_write32(ctx, 0x80000020u, ctx->gpr[4]);\n'
+            '}\n')
+        script = SCRIPTS_DIR.parent / 'scripts/windows/global_guest_cpu_scope.py'
+        subprocess.run([sys.executable, str(script), str(composite), '--chunk', '0040'],
+                       check=True, capture_output=True, text=True)
+        main = td / 'main.c'
+        main.write_text(
+            '#include <assert.h>\n#include <stdint.h>\n#include <stdio.h>\n#include <string.h>\n'
+            '#include "guest_ram_guard.h"\n'
+            'void func_800A16E0(CPUState* ctx);\n'
+            'int main(void) {\n'
+            '    static u8 ram[0x1000];\n'
+            '    CPUState adopted;\n'
+            '    memset(&adopted, 0, sizeof adopted);\n'
+            '    adopted.ram = ram; adopted.ram_size = sizeof ram; adopted.pc = 0x800A16E0u;\n'
+            '    bw_guest_ram_guard_adopt(&adopted);\n'
+            '    func_800A16E0((CPUState*)(uintptr_t)0x800A29C4u);\n'
+            '    assert(adopted.gpr[4] == 0x1111u && adopted.gpr[5] == 0x2222u);\n'
+            '    assert(mem_read32(&adopted, 0x80000020u) == 0x1111u);\n'
+            '    BwGuestGlobalCtxStats stats = bw_guest_global_ctx_stats();\n'
+            '    assert(stats.entries == 2u && stats.mismatches == 1u);\n'
+            '    func_800A16E0(&adopted);\n'
+            '    stats = bw_guest_global_ctx_stats();\n'
+            '    assert(stats.entries == 4u && stats.mismatches == 1u);\n'
+            '    bw_guest_ram_guard_forget();\n'
+            '    puts("scoped global ctx keeps the adopted state");\n'
+            '    return 0;\n'
+            '}\n')
+        probe = td / 'probe'
+        subprocess.run(['cc', '-std=c11', '-Wall', '-Wextra', '-Werror',
+                        '-DBW_GUEST_RAM_GUARD_WRAP=1', '-DBW_GUEST_GLOBAL_CTX=1',
+                        '-include', str(SCRIPTS_DIR.parent / 'cmake/composite/guest_ram_guard.h'),
+                        '-I', str(td), '-I', str(composite),
+                        '-I', str(SCRIPTS_DIR.parent / 'cmake/composite'),
+                        str(main), str(chunk),
+                        str(SCRIPTS_DIR.parent / 'cmake/composite/guest_ram_guard.c'),
+                        '-o', str(probe)], check=True, capture_output=True, text=True)
+        subprocess.run([str(probe)], check=True, capture_output=True, text=True)
+
+        fail = td / 'fail.c'
+        fail.write_text(
+            '#include <string.h>\n'
+            '#include "guest_ram_guard.h"\n'
+            'int main(int argc, char** argv) {\n'
+            '    (void)argv;\n'
+            '    static u8 ram[0x100];\n'
+            '    CPUState cpu, decoy;\n'
+            '    memset(&cpu, 0, sizeof cpu); memset(&decoy, 0, sizeof decoy);\n'
+            '    cpu.ram = ram; cpu.ram_size = sizeof ram;\n'
+            '    if (argc > 1) {\n'
+            '        bw_guest_ram_guard_adopt(&cpu);\n'
+            '        bw_guest_global_ctx_adopt(&decoy);\n'
+            '    } else {\n'
+            '        bw_guest_ram_guard_forget();\n'
+            '    }\n'
+            '    bw_guest_global_ctx_entry(&cpu);\n'
+            '    return 0;\n'
+            '}\n')
+        fail_probe = td / 'fail'
+        subprocess.run(['cc', '-std=c11', '-Wall', '-Wextra', '-Werror',
+                        '-DBW_GUEST_RAM_GUARD_WRAP=1', '-DBW_GUEST_GLOBAL_CTX=1',
+                        '-include', str(SCRIPTS_DIR.parent / 'cmake/composite/guest_ram_guard.h'),
+                        '-I', str(td), '-I', str(SCRIPTS_DIR.parent / 'cmake/composite'),
+                        str(fail), str(SCRIPTS_DIR.parent / 'cmake/composite/guest_ram_guard.c'),
+                        '-o', str(fail_probe)], check=True, capture_output=True, text=True)
+        for arguments in ([], ['different-slot']):
+            result = subprocess.run([str(fail_probe), *arguments],
+                                    check=False, capture_output=True, text=True)
+            assert result.returncode != 0
+            assert '[global-ctx] not adopted' in result.stderr
+
+
 def test_ship_identity_hash_pin_rejects_processed_identity():
     with tempfile.TemporaryDirectory() as td:
         td = setup_fixture(td)
@@ -1109,6 +1295,8 @@ def main():
         test_failed_regeneration_invalidates_success_receipt,
         test_generated_contract_compiles_with_existing_export_abi,
         test_dispatch_runs_a_foreign_cpu_on_the_adopted_state,
+        test_scoped_global_ctx_transform_touches_only_selected_chunks,
+        test_scoped_global_ctx_chunk_uses_the_adopted_state,
         test_ship_identity_uses_disc_member_not_processed_member,
         test_ship_sources_reject_differences_outside_alignment_word,
         test_ship_disc_section_table_is_checked_directly,
