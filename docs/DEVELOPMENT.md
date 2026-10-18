@@ -1,22 +1,42 @@
 # The `development` branch
 
-`development` is the long-lived trunk for the Vita work and for private packages. It collects
-finished, reviewed work so a package does not have to name a different base and a pile of flags per
-trial. It is not `main`: `main` is untouched and nothing here is pushed.
+`development` is the long-lived integration branch for the Vita work and for private packages. It
+collects finished, reviewed work so a package does not have to name a different base and a pile of
+flags per trial. It is not `main`: `main` is left unchanged, and nothing here is pushed or released.
 
-## Rules
+## Git flow
 
-- Every task or POC branch is created from `development` (for example `task/<id>`), not from an
-  ad-hoc base.
-- A task merges back into `development` only when it is finished **and** independently
-  reviewed/validated. A POC result is not a merge request by itself.
-- Packages build from `development`.
-- Experimental features stay OFF by default. Their code may be merged behind a flag, but a package
-  must opt in explicitly.
-- The POC branches are evidence, not bases: `poc/global-ctx` (`76ef2921`), `poc/skip-logo`
-  (`face5385`, head `e41ee920`), `poc/perf-combined` (`715f3065`) and any later perf rebuild. Their
-  commits are rebased or cherry-picked onto a `task/<id>` branch created from `development`.
-- `main` is not touched, and no branch is pushed from this work.
+- **Verify the base before dispatch.** Resolve `refs/heads/development` to a commit and record its SHA
+  before dispatching implementation. If the branch is missing, establish the intended base from
+  project evidence and the user's mandate before creating it; never guess a base or claim it exists
+  before verifying it.
+- **Branch per task.** Every code-changing task opens `task/<id>` from the verified current head of
+  `development`, never from another task or POC branch. Record its base SHA, branch and workspace. On
+  resume, verify the recorded branch and actual Git state instead of recreating or resetting it.
+- **Isolate writes.** One writer per task branch and workspace. Never edit `development` or `main`
+  directly. Sequential tasks may reuse a workspace only after preserving existing work and switching
+  to the correct branch; use separate worktrees for concurrent or conflicting work. Verify the
+  assigned branch and starting SHA before making changes.
+- **Integrate serially, after the gates.** Merge into `development` only after acceptance, the
+  required independent review and checks at the exact delivery revision. If `development` advances,
+  synchronize and revalidate before integrating. Prefer a fast-forward of a validated revision that
+  contains the current head; never force, reset or overwrite existing work.
+- **Prove completion.** After integration verify
+  `git merge-base --is-ancestor <validated-task-tip> refs/heads/development`, check the integrated
+  revision, and record the task tip, integration SHA, review and check results. A finished
+  implementation is not a finished task: mark it done only after integration. Read-only assignments
+  do not merge.
+- **Report observed state.** A saved policy or board record is not proof of Git state. Report branches
+  and merges as planned, pending or blocked until their refs and SHAs are verified. This flow does not
+  authorize a push or a release.
+
+POCs remain evidence, not bases. Their commits are ported selectively onto a `task/<id>` branch
+created from `development`, and their original refs and work are preserved: `poc/global-ctx`
+(`76ef2921`), `poc/skip-logo` (`face5385`, head `e41ee920`), `poc/perf-combined` (`715f3065`) and any
+later perf rebuild.
+
+Packages build from `development`. Experimental features stay OFF by default: their code may be merged
+behind a flag, but a package must opt in explicitly.
 
 ## What is merged
 
