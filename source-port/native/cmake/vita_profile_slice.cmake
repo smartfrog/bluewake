@@ -451,6 +451,31 @@ add_custom_command(OUTPUT "${COS_VITA_DRAWLIST_OBJECT}"
 add_custom_target(cos_vita_drawlist DEPENDS "${COS_VITA_DRAWLIST_OBJECT}")
 set(COS_VITA_DRAWLIST_OBJECT "${COS_VITA_DRAWLIST_OBJECT}" CACHE INTERNAL
         "The R2 dDlst_list_c draw object")
+
+# R3b camera tail: the public dCamera_c::Draw body path, not the full static camera_draw.
+# The view/window/BG/audio camera tail remains the R3b boundary.
+add_library(cos_vita_camera_units OBJECT EXCLUDE_FROM_ALL
+        "${COS_ROOT}/src/d/d_camera.cpp")
+target_link_libraries(cos_vita_camera_units PRIVATE cos_game_headers)
+target_compile_options(cos_vita_camera_units PRIVATE -ffunction-sections -fdata-sections -g0)
+set_property(TARGET cos_vita_camera_units PROPERTY FOLDER "cos_native")
+
+set(COS_VITA_CAMERA_OBJECT "${CMAKE_BINARY_DIR}/vita_camera.o")
+add_custom_command(OUTPUT "${COS_VITA_CAMERA_OBJECT}"
+        COMMAND "${Python3_EXECUTABLE}" "${COS_NATIVE_ROOT}/vita/reduce_profile_slice.py"
+            --nm "${CMAKE_NM}" --objcopy "${CMAKE_OBJCOPY}" --objdump "${CMAKE_OBJDUMP}"
+            --readelf "${CMAKE_READELF}" --ld "${CMAKE_LINKER}"
+            --output "${COS_VITA_CAMERA_OBJECT}"
+            --callable _ZN9dCamera_c4DrawEv
+            --allow "g_dComIfG_gameInfo,j3dSys,dComIfGd_set2DOpa,_ZN8cM_rnd_c4initEiii,GXSetVtxAttrFmt,GXClearVtxDesc,GXSetVtxDesc,GXSetNumChans,GXSetChanCtrl,GXSetNumTexGens,GXSetNumTevStages,GXSetTevColor,GXSetTevOrder,GXSetTevColorIn,GXSetTevColorOp,GXSetTevAlphaIn,GXSetTevAlphaOp,GXSetZMode,GXSetBlendMode,GXSetAlphaCompare,GXSetCullMode,GXSetClipMode,GXLoadPosMtxImm,GXBegin,GXPosition3f32,GXEnd,_ZN18dDlst_effectLine_c6updateER4cXyzR7GXColorttttffff,_ZN18dDlst_effectLine_c4drawEv"
+            $<TARGET_OBJECTS:cos_vita_camera_units>
+        DEPENDS cos_vita_camera_units "${COS_NATIVE_ROOT}/vita/reduce_profile_slice.py"
+        COMMAND_EXPAND_LISTS
+        COMMENT "Reducing the R3b dCamera_c::Draw tail"
+        VERBATIM)
+add_custom_target(cos_vita_camera DEPENDS "${COS_VITA_CAMERA_OBJECT}")
+set(COS_VITA_CAMERA_OBJECT "${COS_VITA_CAMERA_OBJECT}" CACHE INTERNAL
+        "The R3b camera body draw object")
 message(STATUS "cos_native: cos_vita_profile_slice (${_cos_profile_slice_unit_count} units, "
         "reduced to their g_profile_* data, plus the callable g_fpcLf_Method/g_fopOvlp_Method/"
         "g_fopMsg_Method/g_fopAc_Method/g_fopKy_Method/g_fopCam_Method/g_fopVw_Method/"
