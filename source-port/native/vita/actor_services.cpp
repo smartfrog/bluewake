@@ -6,9 +6,10 @@
 // (which creates no actor) never to reach them.
 //
 // Not stubbed here: g_dComIfG_gameInfo (d_com_inf_game.cpp), dKy_tevstr_init (d_kankyo.cpp),
-// dMenu_flag/dMenu_pause (d_meter.cpp), dStage_roomControl_c::mStayNo (d_stage.cpp) and
+// dMenu_flag/dMenu_pause (d_meter.cpp), dStage_roomControl_c::mStayNo (d_stage.cpp),
 // dEvt_control_c::moveApproval (d_event.cpp with f_op_actor_iter.cpp, f_pc_searcher.cpp and
-// c_list_iter.cpp) all come from their real units in the callable group.
+// c_list_iter.cpp) and fopAcM_DeleteHeap (a separate f_op_actor_mng.cpp reduction with
+// m_Do_ext.cpp and JKR) all come from their real units.
 #include "d/d_demo.h"
 #include "d/d_map.h"
 #include "f_op/f_op_actor_mng.h"
@@ -17,8 +18,6 @@
 
 #include <cstdio>
 #include <cstdlib>
-
-void fopAcM_DeleteHeap(fopAc_ac_c*) {}
 
 BOOL fopAcM_cullingCheck(fopAc_ac_c*) {
     return FALSE;

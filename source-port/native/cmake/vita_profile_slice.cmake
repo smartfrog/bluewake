@@ -226,7 +226,7 @@ add_custom_command(OUTPUT "${COS_VITA_FPC_CHAIN_OBJECT}"
             --output "${COS_VITA_FPC_CHAIN_OBJECT}"
             --callable g_fpcLf_Method
             --keep "g_fopAc_Method,g_fopOvlp_Method,g_fopMsg_Method,g_fopKy_Method,g_fopCam_Method,g_fopVw_Method,g_fpcNd_Method,g_fopScn_Method,_Z13fpcMtd_MethodPFiPvES_"
-            --allow "OSPanic,_impure_ptr,abort,fprintf,memset,stderr,__aeabi_atexit,__dso_handle,_ZdlPvj,OSReport_Error,strncpy"
+            --allow "OSPanic,_impure_ptr,abort,fprintf,memset,stderr,__aeabi_atexit,__dso_handle,_ZdlPvj,OSReport_Error,strncpy,_Z17fopAcM_DeleteHeapP10fopAc_ac_c"
             $<TARGET_OBJECTS:cos_vita_fpc_chain_units>
         DEPENDS cos_vita_fpc_chain_units "${COS_NATIVE_ROOT}/vita/reduce_profile_slice.py"
         COMMAND_EXPAND_LISTS
@@ -235,6 +235,36 @@ add_custom_command(OUTPUT "${COS_VITA_FPC_CHAIN_OBJECT}"
 add_custom_target(cos_vita_fpc_chain DEPENDS "${COS_VITA_FPC_CHAIN_OBJECT}")
 set(COS_VITA_FPC_CHAIN_OBJECT "${COS_VITA_FPC_CHAIN_OBJECT}" CACHE INTERNAL
         "The callable g_fpcLf_Method chain for the Vita boot path")
+
+# f_op_actor_mng.cpp defines cullingCheck next to DeleteHeap. Reducing the unit with a second
+# callable root keeps only the delete path, so cullingCheck stays a stub and no J3D enters the
+# chain. mDoExt_destroySolidHeap and the JKR heap it calls are the whole dependency.
+set(_cos_vita_deleteheap_units
+        "${COS_ROOT}/src/f_op/f_op_actor_mng.cpp"
+        "${COS_ROOT}/src/m_Do/m_Do_ext.cpp"
+        "${COS_ROOT}/src/JSystem/JKernel/JKRHeap.cpp"
+        "${COS_ROOT}/src/JSystem/JKernel/JKRSolidHeap.cpp")
+add_library(cos_vita_deleteheap_units OBJECT EXCLUDE_FROM_ALL ${_cos_vita_deleteheap_units})
+target_link_libraries(cos_vita_deleteheap_units PRIVATE cos_game_headers)
+target_compile_options(cos_vita_deleteheap_units PRIVATE -ffunction-sections -fdata-sections -g0)
+set_property(TARGET cos_vita_deleteheap_units PROPERTY FOLDER "cos_native")
+
+set(COS_VITA_DELETEHEAP_OBJECT "${CMAKE_BINARY_DIR}/vita_deleteheap.o")
+add_custom_command(OUTPUT "${COS_VITA_DELETEHEAP_OBJECT}"
+        COMMAND "${Python3_EXECUTABLE}" "${COS_NATIVE_ROOT}/vita/reduce_profile_slice.py"
+            --nm "${CMAKE_NM}" --objcopy "${CMAKE_OBJCOPY}" --objdump "${CMAKE_OBJDUMP}"
+            --readelf "${CMAKE_READELF}" --ld "${CMAKE_LINKER}"
+            --output "${COS_VITA_DELETEHEAP_OBJECT}"
+            --callable _Z17fopAcM_DeleteHeapP10fopAc_ac_c
+            --allow "OSPanic,_impure_ptr,abort,fprintf,memset,stderr,__aeabi_atexit,__dso_handle,_ZdlPvj,OSReport_Error,strncpy"
+            $<TARGET_OBJECTS:cos_vita_deleteheap_units>
+        DEPENDS cos_vita_deleteheap_units "${COS_NATIVE_ROOT}/vita/reduce_profile_slice.py"
+        COMMAND_EXPAND_LISTS
+        COMMENT "Reducing the actor DeleteHeap path to its fopAcM_DeleteHeap closure"
+        VERBATIM)
+add_custom_target(cos_vita_deleteheap DEPENDS "${COS_VITA_DELETEHEAP_OBJECT}")
+set(COS_VITA_DELETEHEAP_OBJECT "${COS_VITA_DELETEHEAP_OBJECT}" CACHE INTERNAL
+        "The callable fopAcM_DeleteHeap closure for the Vita boot path")
 message(STATUS "cos_native: cos_vita_profile_slice (${_cos_profile_slice_unit_count} units, "
         "reduced to their g_profile_* data, plus the callable g_fpcLf_Method/g_fopOvlp_Method/"
         "g_fopMsg_Method/g_fopAc_Method/g_fopKy_Method/g_fopCam_Method/g_fopVw_Method/"
