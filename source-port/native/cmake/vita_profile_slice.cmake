@@ -225,8 +225,8 @@ add_custom_command(OUTPUT "${COS_VITA_FPC_CHAIN_OBJECT}"
             --readelf "${CMAKE_READELF}" --ld "${CMAKE_LINKER}"
             --output "${COS_VITA_FPC_CHAIN_OBJECT}"
             --callable g_fpcLf_Method
-            --keep "g_fopAc_Method,g_fopOvlp_Method,g_fopMsg_Method,g_fopKy_Method,g_fopCam_Method,g_fopVw_Method,g_fpcNd_Method,g_fopScn_Method,_Z13fpcMtd_MethodPFiPvES_,g_dComIfG_gameInfo"
-            --allow "OSPanic,_impure_ptr,abort,fprintf,memset,stderr,__aeabi_atexit,__dso_handle,_ZdlPvj,OSReport_Error,strncpy,_Z17fopAcM_DeleteHeapP10fopAc_ac_c,_Z19fopAcM_cullingCheckP10fopAc_ac_c"
+            --keep "g_fopAc_Method,g_fopOvlp_Method,g_fopMsg_Method,g_fopKy_Method,g_fopCam_Method,g_fopVw_Method,g_fpcNd_Method,g_fopScn_Method,_Z13fpcMtd_MethodPFiPvES_,g_dComIfG_gameInfo,g_fopAcTg_Queue,_Z13fopAcIt_JudgePFPvS_S_ES_"
+            --allow "OSPanic,_impure_ptr,abort,fprintf,memset,stderr,__aeabi_atexit,__dso_handle,_ZdlPvj,OSReport_Error,strncpy,_Z17fopAcM_DeleteHeapP10fopAc_ac_c,_Z19fopAcM_cullingCheckP10fopAc_ac_c,_ZN13dDemo_actor_c8setActorEP10fopAc_ac_c,_ZN14dDemo_object_c8getActorEh"
             $<TARGET_OBJECTS:cos_vita_fpc_chain_units>
         DEPENDS cos_vita_fpc_chain_units "${COS_NATIVE_ROOT}/vita/reduce_profile_slice.py"
         COMMAND_EXPAND_LISTS
@@ -295,6 +295,35 @@ add_custom_command(OUTPUT "${COS_VITA_CULLING_OBJECT}"
 add_custom_target(cos_vita_culling DEPENDS "${COS_VITA_CULLING_OBJECT}")
 set(COS_VITA_CULLING_OBJECT "${COS_VITA_CULLING_OBJECT}" CACHE INTERNAL
         "The callable fopAcM_cullingCheck closure for the Vita boot path")
+
+# The demo actor lookups use the inline fopAcM_SearchByID, which is the actor iterator over the
+# chain's g_fopAcTg_Queue. Keep that queue and fopAcIt_Judge global in the chain, and reduce
+# d_demo.cpp here so setActor/getActor share the real actor list instead of a second empty one.
+set(_cos_vita_demo_units
+        "${COS_ROOT}/src/d/d_demo.cpp"
+        "${COS_ROOT}/src/f_pc/f_pc_searcher.cpp")
+add_library(cos_vita_demo_units OBJECT EXCLUDE_FROM_ALL ${_cos_vita_demo_units})
+target_link_libraries(cos_vita_demo_units PRIVATE cos_game_headers)
+target_compile_options(cos_vita_demo_units PRIVATE -ffunction-sections -fdata-sections -g0)
+set_property(TARGET cos_vita_demo_units PROPERTY FOLDER "cos_native")
+
+set(COS_VITA_DEMO_OBJECT "${CMAKE_BINARY_DIR}/vita_demo.o")
+add_custom_command(OUTPUT "${COS_VITA_DEMO_OBJECT}"
+        COMMAND "${Python3_EXECUTABLE}" "${COS_NATIVE_ROOT}/vita/reduce_profile_slice.py"
+            --nm "${CMAKE_NM}" --objcopy "${CMAKE_OBJCOPY}" --objdump "${CMAKE_OBJDUMP}"
+            --readelf "${CMAKE_READELF}" --ld "${CMAKE_LINKER}"
+            --output "${COS_VITA_DEMO_OBJECT}"
+            --callable _ZN13dDemo_actor_c8getActorEv
+            --keep "_ZN13dDemo_actor_c8setActorEP10fopAc_ac_c,_ZN14dDemo_object_c8getActorEh"
+            --allow "OSPanic,_impure_ptr,abort,fprintf,memset,stderr,__aeabi_atexit,__dso_handle,_ZdlPvj,OSReport_Error,strncpy,_Z13fopAcIt_JudgePFPvS_S_ES_,g_fopAcTg_Queue"
+            $<TARGET_OBJECTS:cos_vita_demo_units>
+        DEPENDS cos_vita_demo_units "${COS_NATIVE_ROOT}/vita/reduce_profile_slice.py"
+        COMMAND_EXPAND_LISTS
+        COMMENT "Reducing the demo actor lookups to their setActor/getActor closure"
+        VERBATIM)
+add_custom_target(cos_vita_demo DEPENDS "${COS_VITA_DEMO_OBJECT}")
+set(COS_VITA_DEMO_OBJECT "${COS_VITA_DEMO_OBJECT}" CACHE INTERNAL
+        "The callable dDemo_actor_c setActor/getActor closure for the Vita boot path")
 message(STATUS "cos_native: cos_vita_profile_slice (${_cos_profile_slice_unit_count} units, "
         "reduced to their g_profile_* data, plus the callable g_fpcLf_Method/g_fopOvlp_Method/"
         "g_fopMsg_Method/g_fopAc_Method/g_fopKy_Method/g_fopCam_Method/g_fopVw_Method/"
