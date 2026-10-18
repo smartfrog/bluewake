@@ -16,9 +16,9 @@
 # native/ keep their names, so the port's own CMakeLists.txt, cmake/ and tools/ keep working
 # unchanged (COS_ROOT is ../game from native/, gen_assets.sh reads ../../game/UPSTREAM).
 #
-# The manifest records the current file hashes (destination-relative, LC_ALL=C sorted). One
-# imported file carries documented local changes (native/cmake/GameConfig.cmake: three GCC flag
-# gates, see source-port/PROVENANCE.md), so its manifest hash is not the upstream one.
+# The manifest records the current file hashes (destination-relative, LC_ALL=C sorted). Local
+# changes made after the import (documented in source-port/PROVENANCE.md) are reflected when the
+# manifest is regenerated, so an imported file's manifest hash need not be the upstream one.
 
 set -euo pipefail
 

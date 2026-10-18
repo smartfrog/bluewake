@@ -40,6 +40,27 @@ else
   echo "OK: dependency lock is valid JSON"
 fi
 
+if [ -f source-port/IMPORT_MANIFEST.sha256 ]; then
+  manifest_check_cmd=()
+  if command -v sha256sum >/dev/null 2>&1; then
+    manifest_check_cmd=(sha256sum --check --strict)
+  elif command -v shasum >/dev/null 2>&1; then
+    manifest_check_cmd=(shasum -a 256 --check --strict)
+  else
+    echo "FAIL: neither sha256sum nor shasum is available for the source-port manifest"
+    fail=1
+  fi
+  if [ "${#manifest_check_cmd[@]}" -gt 0 ]; then
+    if manifest_check="$(cd source-port && LC_ALL=C "${manifest_check_cmd[@]}" IMPORT_MANIFEST.sha256 2>&1)"; then
+      echo "OK: source-port import manifest matches the imported tree"
+    else
+      echo "FAIL: source-port/IMPORT_MANIFEST.sha256 does not match the imported tree"
+      printf '%s\n' "$manifest_check" | grep -v ': OK$' || true
+      fail=1
+    fi
+  fi
+fi
+
 for f in docs/status/CURRENT.md docs/status/GATES.md docs/status/DECISIONS.md docs/status/COMPATIBILITY.md docs/status/PERFORMANCE.md docs/status/RELEASE.md tests/coverage/catalog.json; do
   if [ ! -f "$f" ]; then echo "FAIL: required ledger $f missing"; fail=1; fi
 done

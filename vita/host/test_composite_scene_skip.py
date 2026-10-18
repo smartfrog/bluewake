@@ -10,13 +10,12 @@ class CompositeSceneSkipTest(unittest.TestCase):
     def fixture(self):
         return ('// DolRecomp output\n#include "../generated.h"\n\n'
                 'label_80023238:\n    ctx->pc = 0x80023238u;\n'
-                '    // 80023238: li      r4, 8\n'
+                '    // 80023238: li      r3, 5\n'
                 '    ctx->gpr[3] = (u32)(s32)(5);\n\n'
                 'label_80023248:\n    ctx->pc = 0x80023248u;\n')
 
     def test_rewrites_only_the_scene_argument(self):
-        original = self.fixture()
-        out = skip.transform(original, 'chunk.c')
+        out = skip.transform(self.fixture(), 'chunk.c')
         self.assertEqual(out.count('ctx->gpr[3] = (u32)(s32)(12);'), 1)
         self.assertEqual(out.count(skip.MARK), 1)
         self.assertEqual(out.count('label_80023248'), 1)
