@@ -148,4 +148,22 @@ elseif (NOT CMAKE_CROSSCOMPILING)
         set_target_properties(cos_vita_fpc_chain_test PROPERTIES
                 RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}")
     endif ()
+
+    # R1: the real dMap_2DT2_c::draw path with a bounded host GX/matrix backend.
+    #   ninja cos_vita_map_j2d_test && build/native-mac/cos_vita_map_j2d_test
+    if (COS_VITA_MAP_J2D_OBJECT)
+        add_executable(cos_vita_map_j2d_test EXCLUDE_FROM_ALL
+                "${COS_NATIVE_ROOT}/check/map_j2d_test.cpp"
+                "${COS_NATIVE_ROOT}/check/map_j2d_stubs.cpp"
+                "${COS_VITA_MAP_J2D_OBJECT}"
+                $<TARGET_OBJECTS:cos_vita_j2d_units>)
+        set_source_files_properties("${COS_VITA_MAP_J2D_OBJECT}" PROPERTIES
+                EXTERNAL_OBJECT TRUE GENERATED TRUE)
+        target_include_directories(cos_vita_map_j2d_test PRIVATE "${COS_NATIVE_ROOT}")
+        target_link_libraries(cos_vita_map_j2d_test PRIVATE cos_game_headers)
+        target_link_options(cos_vita_map_j2d_test PRIVATE -Wl,--gc-sections)
+        add_dependencies(cos_vita_map_j2d_test cos_vita_map_j2d cos_vita_j2d_units)
+        set_target_properties(cos_vita_map_j2d_test PROPERTIES
+                RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}")
+    endif ()
 endif ()

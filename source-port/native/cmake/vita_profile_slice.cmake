@@ -383,6 +383,31 @@ add_custom_command(OUTPUT "${COS_VITA_MAP_OBJECT}"
 add_custom_target(cos_vita_map DEPENDS "${COS_VITA_MAP_OBJECT}")
 set(COS_VITA_MAP_OBJECT "${COS_VITA_MAP_OBJECT}" CACHE INTERNAL
         "The callable dMap_c drawActorPointMiniMap closure for the Vita boot path")
+
+# R1 host J2D harness: the map texture-quad draw is the only J2D use in d_map.cpp. Keep the
+# reduction to dMap_2DT2_c::draw; the host test supplies a bounded GX/matrix/graf-port backend.
+add_library(cos_vita_j2d_units OBJECT EXCLUDE_FROM_ALL
+        "${COS_ROOT}/src/JSystem/J2DGraph/J2DGrafContext.cpp")
+target_link_libraries(cos_vita_j2d_units PRIVATE cos_game_headers)
+target_compile_options(cos_vita_j2d_units PRIVATE -ffunction-sections -fdata-sections -g0)
+set_property(TARGET cos_vita_j2d_units PROPERTY FOLDER "cos_native")
+
+set(COS_VITA_MAP_J2D_OBJECT "${CMAKE_BINARY_DIR}/vita_map_j2d.o")
+add_custom_command(OUTPUT "${COS_VITA_MAP_J2D_OBJECT}"
+        COMMAND "${Python3_EXECUTABLE}" "${COS_NATIVE_ROOT}/vita/reduce_profile_slice.py"
+            --nm "${CMAKE_NM}" --objcopy "${CMAKE_OBJCOPY}" --objdump "${CMAKE_OBJDUMP}"
+            --readelf "${CMAKE_READELF}" --ld "${CMAKE_LINKER}"
+            --output "${COS_VITA_MAP_J2D_OBJECT}"
+            --callable _ZN11dMap_2DT2_c4drawEv
+            --allow "g_dComIfG_gameInfo,C_MTXIdentity,C_MTXTrans,_Z12mDoMtx_ZrotMPA4_fs,_ZN14mDoMtx_stack_c3nowE,GXSetVtxAttrFmt,GXClearVtxDesc,GXSetVtxDesc,GXLoadTexObj,GXSetNumChans,GXSetTevColor,GXSetNumTexGens,GXSetTexCoordGen2,GXSetNumTevStages,GXSetTevOrder,GXSetTevColorIn,GXSetTevColorOp,GXSetTevAlphaIn,GXSetTevAlphaOp,GXSetZCompLoc,GXSetZMode,GXSetBlendMode,GXSetAlphaCompare,GXSetFog,GXSetCullMode,GXSetDither,GXSetClipMode,GXLoadPosMtxImm,GXSetCurrentMtx,GXSetScissor,GXBegin,GXPosition2f32,GXTexCoord2f32,GXSetNumIndStages,GXSetTevDirect,GXSetTevOp,GXLoadTexMtxImm,GXSetChanCtrl,GXSetLineWidth,GXSetViewport,g_clearColor"
+            $<TARGET_OBJECTS:cos_vita_map_units>
+        DEPENDS cos_vita_map_units "${COS_NATIVE_ROOT}/vita/reduce_profile_slice.py"
+        COMMAND_EXPAND_LISTS
+        COMMENT "Reducing the R1 J2D map draw to dMap_2DT2_c::draw"
+        VERBATIM)
+add_custom_target(cos_vita_map_j2d DEPENDS "${COS_VITA_MAP_J2D_OBJECT}")
+set(COS_VITA_MAP_J2D_OBJECT "${COS_VITA_MAP_J2D_OBJECT}" CACHE INTERNAL
+        "The R1 host J2D map draw object")
 message(STATUS "cos_native: cos_vita_profile_slice (${_cos_profile_slice_unit_count} units, "
         "reduced to their g_profile_* data, plus the callable g_fpcLf_Method/g_fopOvlp_Method/"
         "g_fopMsg_Method/g_fopAc_Method/g_fopKy_Method/g_fopCam_Method/g_fopVw_Method/"
