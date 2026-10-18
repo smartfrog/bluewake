@@ -1,9 +1,10 @@
 # P-A follow-up: the bounded slice of REL actor units whose profiles the Vita boot path links.
-# The full profile list needs all 502 g_profile_* definitions; this slice takes 201 units of the
+# The full profile list needs all 502 g_profile_* definitions; this slice takes 249 units of the
 # sorted src/d/actor list, which compile for ARMv7/ILP32 against the generated stub assets. It
-# fills 216 profiles: d_a_gy_ctrl, d_a_npc_bj1 (9), d_a_npc_bm1 (5), d_a_npc_ko1 (2) and
+# fills 264 profiles: d_a_gy_ctrl, d_a_npc_bj1 (9), d_a_npc_bm1 (5), d_a_npc_ko1 (2) and
 # d_a_npc_ym1 (2) define several each, while d_a_itembase and d_a_kamome2 define none at VERSION=2
-# (the latter is demo-only).
+# (the latter is demo-only). d_a_npc_zl1 is skipped: its static_cast of a Vec array to cXyz*
+# is rejected by GCC.
 #
 # The units are compiled with -ffunction-sections -fdata-sections, then reduced by
 # vita/reduce_profile_slice.py to their g_profile_* data: the profile's identity (mProcName, list
@@ -63,7 +64,19 @@ set(_cos_profile_slice_names
         d_a_npc_ob1 d_a_npc_os d_a_npc_p1 d_a_npc_p2 d_a_npc_people
         d_a_npc_pf1 d_a_npc_photo d_a_npc_pm1 d_a_npc_roten d_a_npc_rsh1
         d_a_npc_sarace d_a_npc_so d_a_npc_sv d_a_npc_tc d_a_npc_tt d_a_npc_uk
-        d_a_npc_ym1 d_a_npc_yw1 d_a_npc_zk1)
+        d_a_npc_ym1 d_a_npc_yw1 d_a_npc_zk1
+        d_a_nz d_a_nzg d_a_obj_AjavW d_a_obj_Itnak d_a_obj_Vds
+        d_a_obj_Vteng d_a_obj_YLzou d_a_obj_Yboil d_a_obj_Ygush00
+        d_a_obj_adnno d_a_obj_ajav d_a_obj_akabe d_a_obj_apzl d_a_obj_ashut
+        d_a_obj_auzu d_a_obj_aygr d_a_obj_balancelift d_a_obj_barrel
+        d_a_obj_barrel2 d_a_obj_barrier d_a_obj_bemos d_a_obj_bscurtain
+        d_a_obj_buoyflag d_a_obj_buoyrace d_a_obj_cafelmp d_a_obj_canon
+        d_a_obj_coming d_a_obj_correct d_a_obj_demo_barrel d_a_obj_dmgroom
+        d_a_obj_doguu d_a_obj_doguu_demo d_a_obj_dragonhead d_a_obj_drift
+        d_a_obj_eayogn d_a_obj_ebomzo d_a_obj_eff d_a_obj_ekskz d_a_obj_eskban
+        d_a_obj_ferris d_a_obj_figure d_a_obj_firewall d_a_obj_flame
+        d_a_obj_ftree d_a_obj_ganonbed d_a_obj_gaship d_a_obj_gaship2
+        d_a_obj_gnnbtltaki)
 list(TRANSFORM _cos_profile_slice_names PREPEND "${COS_ROOT}/src/d/actor/"
         OUTPUT_VARIABLE COS_VITA_PROFILE_SLICE_UNITS)
 list(TRANSFORM COS_VITA_PROFILE_SLICE_UNITS APPEND ".cpp")
