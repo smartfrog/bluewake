@@ -124,9 +124,14 @@ def program_cache_configure_option(enabled):
     return ['-DWW_PROGRAM_CACHE=ON'] if enabled else []
 
 
+def skip_title_logo_configure_option(enabled):
+    return [f'-DWW_SKIP_TITLE_LOGO={"ON" if enabled else "OFF"}']
+
+
 def vita_configure_arguments(cmake, ninja, source, output, toolchain, recompcore, composite, identity, dol,
                              vitagl, renderer_sdk, opt_level, vi_clock, pad_input, dst_alpha_admit,
-                             edge_observation_admit, idle_deadline_advance, turn_cap, program_cache):
+                             edge_observation_admit, idle_deadline_advance, turn_cap, program_cache,
+                             skip_title_logo):
     return [
         cmake, '-S', source, '-B', output, '-G', 'Ninja',
         f'-DCMAKE_TOOLCHAIN_FILE={toolchain}',
@@ -142,6 +147,7 @@ def vita_configure_arguments(cmake, ninja, source, output, toolchain, recompcore
         *idle_deadline_advance_configure_option(idle_deadline_advance),
         *turn_cap_configure_option(turn_cap),
         *program_cache_configure_option(program_cache),
+        *skip_title_logo_configure_option(skip_title_logo),
     ]
 
 
@@ -162,6 +168,8 @@ def build_parser():
                         help='cap scheduler turns per host frame (zero keeps the package default)')
     parser.add_argument('--program-cache', action='store_true',
                         help='enable the translated-program cache (off by default)')
+    parser.add_argument('--skip-title-logo', action='store_true',
+                        help='diagnostic: open the file-select menu instead of the title logo and movie (off by default)')
     parser.add_argument('--jobs', type=int, default=2)
     parser.add_argument('--opt-level', choices=('1', '2', '3'), default='1',
                         help='translated module optimization level (default matches the verified private module)')
@@ -194,7 +202,8 @@ def evidence_config(args):
             'dst_alpha_admit': args.dst_alpha_admit,
             'edge_observation_admit': args.edge_observation_admit,
             'idle_deadline_advance': args.idle_deadline_advance,
-            'turn_cap': args.turn_cap, 'program_cache': args.program_cache}
+            'turn_cap': args.turn_cap, 'program_cache': args.program_cache,
+            'skip_title_logo': args.skip_title_logo}
 
 
 def main():
@@ -282,7 +291,7 @@ def main():
         cmake, ninja, ROOT / 'vita/host', vita, f'{STACK}/vitasdk/share/vita.toolchain.cmake',
         sources['RecompCore'], composite, identity, f'{private}/main.dol', vitagl, renderer_sdk,
         args.opt_level, args.vi_clock, args.pad_input, args.dst_alpha_admit, args.edge_observation_admit,
-        args.idle_deadline_advance, args.turn_cap, args.program_cache))
+        args.idle_deadline_advance, args.turn_cap, args.program_cache, args.skip_title_logo))
     build.run('vita-build', [cmake, '--build', vita, '-j', args.jobs])
     from inspect_build import inspect
     inspect(vita)

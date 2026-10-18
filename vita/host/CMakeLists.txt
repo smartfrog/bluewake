@@ -34,6 +34,7 @@ if(WW05_DISPATCH_ABI_SENTINEL AND WW05_OBSERVE_NATIVE_CTX)
     message(FATAL_ERROR "The narrow dispatch sentinel cannot use broad native-context wrappers")
 endif()
 option(WW05_REJECTION_CAPSULE "Diagnostic bounded admission-rejection capsule for refused desktop edges" OFF)
+option(WW_SKIP_TITLE_LOGO "Diagnostic: open the file-select menu instead of the title logo and movie" OFF)
 option(WW_EDGE_OBSERVATION_ADMIT "Admit the module-owned GroundCross caller-return observation edge (off by default; see docs/vita/VITA-WW-05.md)" OFF)
 option(WW05_RAM_GUARD "Keep guest MEM1 on the base adopted after cpu_init so a corrupted CPUState cannot redirect stores" ON)
 option(WW05_GLOBAL_CTX "Run the scoped global-ctx chunks on the adopted CPU (POC)" OFF)
@@ -86,7 +87,7 @@ target_compile_options(gxruntime PRIVATE -ffp-contract=off -fno-fast-math -fstac
 add_library(ww05_services STATIC boot_host.c gx_checkpoint.c gx_stream.c fifo_gather.c fifo_consumer.c
     code_guard.c dsp_interface.c bat_contract.c disc_service.c rel_provider.c rel_service.c rel_link.c rel_contract.c rel_sdk.c rel_lifecycle.c rel_profile_block.c ship_contract.c
     scheduler_observation.c game_stop.c vi_clock.c gx_draw_observation.c gpu_finish.c frame_timing.c mem1_capture.c frame_capture.cpp
-    dsp_rom_mail.c dsp_deferred.c pad_input.c
+    dsp_rom_mail.c dsp_deferred.c pad_input.c scene_skip.c
     $<TARGET_OBJECTS:ww13_dvd_pin>
     "${BLUEWAKE_ROOT}/runtime/host/src/cycle_domain.c"
     "${BLUEWAKE_ROOT}/runtime/host/src/aram_dma.c"
@@ -120,6 +121,9 @@ if(WW05_REJECTION_CAPSULE)
 endif()
 if(WW_EDGE_OBSERVATION_ADMIT)
     target_compile_definitions(ww05_services PUBLIC WW_EDGE_OBSERVATION_ADMIT=1)
+endif()
+if(WW_SKIP_TITLE_LOGO)
+    target_compile_definitions(ww05_services PUBLIC WW_SKIP_TITLE_LOGO=1)
 endif()
 if(WW05_OBSERVE_NATIVE_CTX)
     if(NOT VITA)
@@ -194,6 +198,11 @@ if(WW05_TESTS_ONLY)
     target_compile_options(host_probe PRIVATE -UNDEBUG)
     target_link_libraries(host_probe PRIVATE ww05_services)
     target_link_options(host_probe PRIVATE -Wl,--wrap=calloc -Wl,--wrap=fprintf)
+    add_executable(scene_skip_probe scene_skip_probe.c scene_skip.c)
+    target_include_directories(scene_skip_probe PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}" "${GXRUNTIME_DIR}/include")
+    target_compile_options(scene_skip_probe PRIVATE -UNDEBUG)
+    add_test(NAME scene-skip COMMAND scene_skip_probe)
+    set_tests_properties(scene-skip PROPERTIES LABELS "synthetic;scene")
     add_executable(aram_probe aram_probe.c)
     target_compile_options(aram_probe PRIVATE -UNDEBUG)
     target_link_libraries(aram_probe PRIVATE ww05_services)

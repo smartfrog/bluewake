@@ -85,13 +85,16 @@ class EdgeObservationAdmitOptionTest(unittest.TestCase):
                 '-DWW05_MODULE_OPT_LEVEL=1', '-DWW05_ENABLE_VI_CLOCK=OFF',
                 '-DWW05_ENABLE_PAD_INPUT=OFF']
 
-        def arguments(enabled, idle=False):
+        def arguments(enabled, idle=False, skip_title_logo=False):
             return [str(value) for value in module.vita_configure_arguments(
                 'cmake', 'ninja', 'source', 'output', 'toolchain', 'recompcore', 'composite',
-                'identity', 'dol', 'vitagl', 'sdk', '1', False, False, False, enabled, idle, 0, False)]
+                'identity', 'dol', 'vitagl', 'sdk', '1', False, False, False, enabled, idle,
+                0, False, skip_title_logo)]
 
-        expected = {'ON': ['-DWW_EDGE_OBSERVATION_ADMIT=ON', '-DWW_IDLE_DEADLINE_ADVANCE=OFF'],
-                    'OFF': ['-DWW_EDGE_OBSERVATION_ADMIT=OFF', '-DWW_IDLE_DEADLINE_ADVANCE=OFF']}
+        expected = {'ON': ['-DWW_EDGE_OBSERVATION_ADMIT=ON', '-DWW_IDLE_DEADLINE_ADVANCE=OFF',
+                           '-DWW_SKIP_TITLE_LOGO=OFF'],
+                    'OFF': ['-DWW_EDGE_OBSERVATION_ADMIT=OFF', '-DWW_IDLE_DEADLINE_ADVANCE=OFF',
+                            '-DWW_SKIP_TITLE_LOGO=OFF']}
         for state, option in expected.items():
             with self.subTest(state=state):
                 self.assertEqual(arguments(state == 'ON'), base + option)
@@ -100,7 +103,7 @@ class EdgeObservationAdmitOptionTest(unittest.TestCase):
         module = load_module()
         arguments = [str(value) for value in module.vita_configure_arguments(
             'cmake', 'ninja', 'source', 'output', 'toolchain', 'recompcore', 'composite',
-            'identity', 'dol', 'vitagl', 'sdk', '1', True, False, True, True, True, 8, True)]
+            'identity', 'dol', 'vitagl', 'sdk', '1', True, False, True, True, True, 8, True, False)]
         self.assertEqual(arguments, [
             'cmake', '-S', 'source', '-B', 'output', '-G', 'Ninja',
             '-DCMAKE_TOOLCHAIN_FILE=toolchain', '-DCMAKE_MAKE_PROGRAM=ninja',
@@ -110,7 +113,7 @@ class EdgeObservationAdmitOptionTest(unittest.TestCase):
             '-DWW05_MODULE_OPT_LEVEL=1', '-DWW05_ENABLE_VI_CLOCK=ON',
             '-DWW05_ENABLE_PAD_INPUT=OFF', '-DWW_RENDERER_DST_ALPHA_ADMIT=ON',
             '-DWW_EDGE_OBSERVATION_ADMIT=ON', '-DWW_IDLE_DEADLINE_ADVANCE=ON',
-            '-DWW_TURN_CAP=8', '-DWW_PROGRAM_CACHE=ON'])
+            '-DWW_TURN_CAP=8', '-DWW_PROGRAM_CACHE=ON', '-DWW_SKIP_TITLE_LOGO=OFF'])
 
 
 class TurnCapOptionTest(unittest.TestCase):
@@ -153,6 +156,16 @@ class BuildEvidenceConfigTest(unittest.TestCase):
         config = module.evidence_config(module.parse_arguments(['--disc', 'disc.iso']))
         self.assertEqual(config['turn_cap'], 0)
         self.assertFalse(config['program_cache'])
+
+    def test_vita_configure_arguments_carry_the_title_logo_skip_when_requested(self):
+        spec = importlib.util.spec_from_file_location('ww05_game_build',
+                                                      ROOT / 'scripts/vita/ww05/game_build.py')
+        module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(module)
+        arguments = [str(value) for value in module.vita_configure_arguments(
+            'cmake', 'ninja', 'source', 'output', 'toolchain', 'recompcore', 'composite',
+            'identity', 'dol', 'vitagl', 'sdk', '1', False, False, False, False, False, 0, False, True)]
+        self.assertIn('-DWW_SKIP_TITLE_LOGO=ON', arguments)
 
 
 if __name__ == '__main__':
