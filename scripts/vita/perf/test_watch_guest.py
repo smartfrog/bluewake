@@ -80,22 +80,21 @@ class PreflightTests(unittest.TestCase):
         self.root = Path(self.temporary.name)
         self.fixture = self.root / watch_guest.FIXTURE_DIR
         self.fixture.mkdir(parents=True)
-        for name in ('ww05.request', 'ww05.continue', 'ww05.audio'):
-            (self.fixture / name).write_text('request\n')
+        (self.fixture / 'ww05.request').write_text('request\n')
 
     def tearDown(self):
         self.temporary.cleanup()
 
-    def test_complete_fixture_passes(self):
+    def test_request_only_fixture_passes(self):
         self.assertIsNone(watch_guest.preflight(self.root))
 
-    def test_missing_continue_is_named(self):
-        (self.fixture / 'ww05.continue').unlink()
-        self.assertEqual(watch_guest.preflight(self.root), 'missing ww05.continue')
+    def test_missing_request_is_named(self):
+        (self.fixture / 'ww05.request').unlink()
+        self.assertEqual(watch_guest.preflight(self.root), 'missing ww05.request')
 
-    def test_missing_audio_is_named(self):
-        (self.fixture / 'ww05.audio').unlink()
-        self.assertEqual(watch_guest.preflight(self.root), 'missing ww05.audio')
+    def test_audio_needs_continue(self):
+        (self.fixture / 'ww05.audio').write_text('audio\n')
+        self.assertEqual(watch_guest.preflight(self.root), 'ww05.audio needs ww05.continue')
 
     def test_previous_outputs_are_named(self):
         for name in ('ww05.dispatch', 'ww05.log', 'ww05.partial', 'ww05.report'):
@@ -106,9 +105,9 @@ class PreflightTests(unittest.TestCase):
                 path.unlink()
 
     def test_required_file_is_reported_before_a_previous_output(self):
-        (self.fixture / 'ww05.continue').unlink()
+        (self.fixture / 'ww05.request').unlink()
         (self.fixture / 'ww05.dispatch').write_text('output\n')
-        self.assertEqual(watch_guest.preflight(self.root), 'missing ww05.continue')
+        self.assertEqual(watch_guest.preflight(self.root), 'missing ww05.request')
 
 
 class WatchPreflightTests(unittest.TestCase):
@@ -122,11 +121,10 @@ class WatchPreflightTests(unittest.TestCase):
     def test_incomplete_fixture_ends_the_watch_without_a_guest(self):
         fixture = self.root / watch_guest.FIXTURE_DIR
         fixture.mkdir(parents=True)
-        for name in ('ww05.request', 'ww05.audio'):
-            (fixture / name).write_text('request\n')
+        (fixture / 'ww05.audio').write_text('audio\n')
         self.assertEqual(watch_guest.watch(self.root), 1)
         self.assertEqual((self.root / 'live-end.txt').read_text(),
-                         'reason=preflight-failed\ndetail=missing ww05.continue\n')
+                         'reason=preflight-failed\ndetail=missing ww05.request\n')
         self.assertFalse((self.root / 'cpu-samples.jsonl').exists())
 
 

@@ -7,8 +7,9 @@ RUNDIR holds `guest.pid`, the guest log under `profile/` and the emulator
 console log at `profile/cache/Vita3K/vita3k.log`. The watcher appends
 `cpu-samples.jsonl`, stops the guest on the first fault line (see
 `scripts/vita/watch_faults.py`) or on a hang, and writes `live-end.txt` with the
-reason and the matched line. It refuses an incomplete fixture before waiting for
-a guest. It never deletes or truncates either log.
+reason and the matched line. Start it before the guest: this run's own
+`ww05.log`/`ww05.partial` count as present outputs. It never deletes or truncates
+either log.
 """
 
 import argparse
@@ -26,7 +27,8 @@ from watch_faults import fault_match  # noqa: E402
 FIXTURE_DIR = 'profile/data/Vita3K/Vita3K/ux0/data/bluewake-ww-fixture'
 GUEST_LOG = FIXTURE_DIR + '/ww05.log'
 CONSOLE_LOG = 'profile/cache/Vita3K/vita3k.log'
-REQUIRED_REQUESTS = ('ww05.request', 'ww05.continue', 'ww05.audio')
+REQUIRED_REQUESTS = ('ww05.request',)
+OPTIONAL_WITH_CONTINUE = ('ww05.audio', 'ww05.mem1')
 PREVIOUS_OUTPUTS = ('ww05.dispatch', 'ww05.log', 'ww05.partial', 'ww05.report')
 PRESENT = '[frame-present]'
 SAMPLE_SECONDS = 0.5
@@ -126,6 +128,9 @@ def preflight(root):
     for name in REQUIRED_REQUESTS:
         if not (fixture / name).exists():
             return f'missing {name}'
+    for name in OPTIONAL_WITH_CONTINUE:
+        if (fixture / name).exists() and not (fixture / 'ww05.continue').exists():
+            return f'{name} needs ww05.continue'
     for name in PREVIOUS_OUTPUTS:
         if (fixture / name).exists():
             return f'present {name}'
