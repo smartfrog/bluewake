@@ -3,27 +3,28 @@
 // The list has all 502 g_profile_* definitions of game/src/f_pc/f_pc_profile_lst.cpp: 437
 // profile-bearing actor units plus 38 non-actor REL units (scenes, msg, overlap, camera,
 // kankyo). The slice reduction keeps each profile's real identity (mProcName, list IDs, size,
-// flags). The 453 actor-typed, 9 overlap, 16 msg, 10 kankyo and 2 camera profiles are wired to
-// their real base tables; the 12 scene base pointers stay zero because g_fpcNd_Method/
-// g_fopScn_Method are not linked yet. The check reports 502 of 502.
+// flags). All 502 profiles are now wired to real base tables: actor, overlap, msg, kankyo,
+// camera and scene. The check reports 502 of 502.
 //
 // The slots and the base method-table pointers are set by a static initialiser, before main.
 // pc::staticInitCheck verifies every mProcName against its slot, the list pointer and the
 // terminator. Keep this list in step with vita_profile_slice.cmake; a missing profile fails the
 // link, a wrong slot fails the check.
 //
-// g_fpcLf_Method, g_fopOvlp_Method, g_fopMsg_Method, g_fopAc_Method, g_fopKy_Method,
-// g_fopCam_Method and g_fopVw_Method are real. The actor services behind fopAc_* are bounded
-// stubs (vita/actor_services.cpp); the actor/overlap/msg/camera method tables at 0x24 stay NULL.
+// The base tables are real; the actor services behind fopAc_* are bounded stubs
+// (vita/actor_services.cpp) and the harness pc_trace_scene hook is a no-op. The actor/overlap/
+// msg/camera/scene method tables at the next offset stay NULL.
 #include "f_pc/f_pc_name.h"
 #include "f_pc/f_pc_profile_lst.h"
 #include "f_pc/f_pc_leaf.h"
+#include "f_pc/f_pc_node.h"
 #include "f_op/f_op_actor.h"
 #include "f_op/f_op_overlap.h"
 #include "f_op/f_op_msg.h"
 #include "f_op/f_op_kankyo.h"
 #include "f_op/f_op_camera.h"
 #include "f_op/f_op_view.h"
+#include "f_op/f_op_scene.h"
 
 process_profile_definition* g_fpcPfLst_ProfileList[fpcNm_MAX_NUM_e + 1] = {};
 
@@ -55,6 +56,11 @@ void wireCamera(camera_process_profile_definition& profile) {
     profile.base.sub_method = &g_fopCam_Method;
 }
 
+void wireScene(scene_process_profile_definition& profile) {
+    profile.base.base.sub_method = &g_fpcNd_Method.base;
+    profile.base.sub_method = &g_fopScn_Method.base;
+}
+
 struct SliceProfileList {
     SliceProfileList() {
         g_fpcPfLst_ProfileList[fpcNm_OVERLAP0_e] = &g_profile_OVERLAP0.base.base;
@@ -68,16 +74,27 @@ struct SliceProfileList {
         g_fpcPfLst_ProfileList[fpcNm_OVERLAP8_e] = &g_profile_OVERLAP8.base.base;
         wireOverlap(g_profile_OVERLAP8);
         g_fpcPfLst_ProfileList[fpcNm_LOGO_SCENE_e] = &g_profile_LOGO_SCENE.base.base;
+        wireScene(g_profile_LOGO_SCENE);
         g_fpcPfLst_ProfileList[fpcNm_MENU_SCENE_e] = &g_profile_MENU_SCENE.base.base;
+        wireScene(g_profile_MENU_SCENE);
         g_fpcPfLst_ProfileList[fpcNm_PLAY_SCENE_e] = &g_profile_PLAY_SCENE.base.base;
+        wireScene(g_profile_PLAY_SCENE);
         g_fpcPfLst_ProfileList[fpcNm_OPENING_SCENE_e] = &g_profile_OPENING_SCENE.base.base;
+        wireScene(g_profile_OPENING_SCENE);
         g_fpcPfLst_ProfileList[fpcNm_OPENING2_SCENE_e] = &g_profile_OPENING2_SCENE.base.base;
+        wireScene(g_profile_OPENING2_SCENE);
         g_fpcPfLst_ProfileList[fpcNm_TITLE_SCENE_e] = &g_profile_TITLE_SCENE.base.base;
+        wireScene(g_profile_TITLE_SCENE);
         g_fpcPfLst_ProfileList[fpcNm_ENDING_SCENE_e] = &g_profile_ENDING_SCENE.base.base;
+        wireScene(g_profile_ENDING_SCENE);
         g_fpcPfLst_ProfileList[fpcNm_NAME_SCENE_e] = &g_profile_NAME_SCENE.base.base;
+        wireScene(g_profile_NAME_SCENE);
         g_fpcPfLst_ProfileList[fpcNm_NAMEEX_SCENE_e] = &g_profile_NAMEEX_SCENE.base.base;
+        wireScene(g_profile_NAMEEX_SCENE);
         g_fpcPfLst_ProfileList[fpcNm_OPEN_SCENE_e] = &g_profile_OPEN_SCENE.base.base;
+        wireScene(g_profile_OPEN_SCENE);
         g_fpcPfLst_ProfileList[fpcNm_OPEN2_SCENE_e] = &g_profile_OPEN2_SCENE.base.base;
+        wireScene(g_profile_OPEN2_SCENE);
         g_fpcPfLst_ProfileList[fpcNm_OVERLAP2_e] = &g_profile_OVERLAP2.base.base;
         wireOverlap(g_profile_OVERLAP2);
         g_fpcPfLst_ProfileList[fpcNm_OVERLAP3_e] = &g_profile_OVERLAP3.base.base;
@@ -87,6 +104,7 @@ struct SliceProfileList {
         g_fpcPfLst_ProfileList[fpcNm_OVERLAP5_e] = &g_profile_OVERLAP5.base.base;
         wireOverlap(g_profile_OVERLAP5);
         g_fpcPfLst_ProfileList[fpcNm_ROOM_SCENE_e] = &g_profile_ROOM_SCENE.base.base;
+        wireScene(g_profile_ROOM_SCENE);
         g_fpcPfLst_ProfileList[fpcNm_KANKYO_e] = &g_profile_KANKYO.base.base;
         wireKankyo(g_profile_KANKYO);
         g_fpcPfLst_ProfileList[fpcNm_ALLDIE_e] = &g_profile_ALLDIE.base.base;

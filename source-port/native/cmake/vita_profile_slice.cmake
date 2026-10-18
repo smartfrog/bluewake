@@ -148,13 +148,14 @@ set_property(TARGET cos_vita_profile_slice_units PROPERTY FOLDER "cos_native")
 
 # g_fpcLf_Method, g_fopOvlp_Method, g_fopMsg_Method and g_fopAc_Method have real function
 # pointers: the minimal f_pc chain, the fopOvlp_* wrappers with cReq_*, the fopMsg_* wrappers with
-# fopMsgM_GetAppend/fopDwTg_*/cTg/cTr/cLs/cNd, the fopAc_* wrappers with fopAcTg_*, and the
-# fopKy_*/fopCam_*/fopVw_* wrappers (the kankyo and camera profiles). The actor services the
-# wrappers call are bounded stubs (vita/actor_services.cpp), except g_dComIfG_gameInfo, whose real
-# zeroed .bss object comes from d_com_inf_game.cpp. Everything else is localized and dropped by
-# --callable. fpcBs_Create and the layer/priority machinery stay out; d_s_play is avoided by the
-# two pause flags in vita/msg_pause.cpp. The scene group waits for f_pc_node/layer and the hostIO
-# and harness trace hooks.
+# fopMsgM_GetAppend/fopDwTg_*/cTg/cTr/cLs/cNd, the fopAc_* wrappers with fopAcTg_*, the
+# fopKy_*/fopCam_*/fopVw_* wrappers, and the scene chain fpcNd_Method/fopScn_Method with
+# f_pc_node/layer, mDoHIO_root and the fopScnTg_* tags. The actor services the wrappers call are
+# bounded stubs (vita/actor_services.cpp), except g_dComIfG_gameInfo and dKy_tevstr_init, whose
+# real units are in the group. The harness pc_trace_scene hook is a no-op
+# (vita/scene_services.cpp). Everything else is localized and dropped by --callable. fpcBs_Create
+# and the priority machinery stay out; d_s_play is avoided by the two pause flags in
+# vita/msg_pause.cpp.
 set(_cos_fpc_chain_units
         "${COS_ROOT}/src/f_pc/f_pc_leaf.cpp"
         "${COS_ROOT}/src/f_pc/f_pc_method.cpp"
@@ -172,12 +173,23 @@ set(_cos_fpc_chain_units
         "${COS_ROOT}/src/f_op/f_op_view.cpp"
         "${COS_ROOT}/src/d/d_com_inf_game.cpp"
         "${COS_ROOT}/src/d/d_kankyo.cpp"
+        "${COS_ROOT}/src/f_op/f_op_scene.cpp"
+        "${COS_ROOT}/src/f_op/f_op_scene_tag.cpp"
+        "${COS_ROOT}/src/f_pc/f_pc_node.cpp"
+        "${COS_ROOT}/src/f_pc/f_pc_layer.cpp"
+        "${COS_ROOT}/src/f_pc/f_pc_layer_iter.cpp"
+        "${COS_ROOT}/src/f_pc/f_pc_method_tag.cpp"
+        "${COS_ROOT}/src/f_pc/f_pc_method_iter.cpp"
+        "${COS_ROOT}/src/m_Do/m_Do_hostIO.cpp"
+        "${COS_ROOT}/src/SSystem/SComponent/c_tag_iter.cpp"
+        "${COS_ROOT}/src/SSystem/SComponent/c_tree_iter.cpp"
         "${COS_ROOT}/src/SSystem/SComponent/c_tag.cpp"
         "${COS_ROOT}/src/SSystem/SComponent/c_list.cpp"
         "${COS_ROOT}/src/SSystem/SComponent/c_tree.cpp"
         "${COS_ROOT}/src/SSystem/SComponent/c_node.cpp"
         "${COS_NATIVE_ROOT}/vita/msg_pause.cpp"
-        "${COS_NATIVE_ROOT}/vita/actor_services.cpp")
+        "${COS_NATIVE_ROOT}/vita/actor_services.cpp"
+        "${COS_NATIVE_ROOT}/vita/scene_services.cpp")
 add_library(cos_vita_fpc_chain_units OBJECT EXCLUDE_FROM_ALL ${_cos_fpc_chain_units})
 target_link_libraries(cos_vita_fpc_chain_units PRIVATE cos_game_headers)
 target_compile_options(cos_vita_fpc_chain_units PRIVATE -ffunction-sections -fdata-sections -g0)
@@ -206,8 +218,8 @@ add_custom_command(OUTPUT "${COS_VITA_FPC_CHAIN_OBJECT}"
             --readelf "${CMAKE_READELF}" --ld "${CMAKE_LINKER}"
             --output "${COS_VITA_FPC_CHAIN_OBJECT}"
             --callable g_fpcLf_Method
-            --keep "g_fopAc_Method,g_fopOvlp_Method,g_fopMsg_Method,g_fopKy_Method,g_fopCam_Method,g_fopVw_Method,_Z13fpcMtd_MethodPFiPvES_"
-            --allow "OSPanic,_impure_ptr,abort,fprintf,memset,stderr"
+            --keep "g_fopAc_Method,g_fopOvlp_Method,g_fopMsg_Method,g_fopKy_Method,g_fopCam_Method,g_fopVw_Method,g_fpcNd_Method,g_fopScn_Method,_Z13fpcMtd_MethodPFiPvES_"
+            --allow "OSPanic,_impure_ptr,abort,fprintf,memset,stderr,__aeabi_atexit,__dso_handle,_ZdlPvj,OSReport_Error,strncpy"
             $<TARGET_OBJECTS:cos_vita_fpc_chain_units>
         DEPENDS cos_vita_fpc_chain_units "${COS_NATIVE_ROOT}/vita/reduce_profile_slice.py"
         COMMAND_EXPAND_LISTS
@@ -218,4 +230,5 @@ set(COS_VITA_FPC_CHAIN_OBJECT "${COS_VITA_FPC_CHAIN_OBJECT}" CACHE INTERNAL
         "The callable g_fpcLf_Method chain for the Vita boot path")
 message(STATUS "cos_native: cos_vita_profile_slice (${_cos_profile_slice_unit_count} units, "
         "reduced to their g_profile_* data, plus the callable g_fpcLf_Method/g_fopOvlp_Method/"
-        "g_fopMsg_Method/g_fopAc_Method/g_fopKy_Method/g_fopCam_Method/g_fopVw_Method chain)")
+        "g_fopMsg_Method/g_fopAc_Method/g_fopKy_Method/g_fopCam_Method/g_fopVw_Method/"
+        "g_fpcNd_Method/g_fopScn_Method chain)")
