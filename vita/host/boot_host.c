@@ -905,6 +905,7 @@ typedef struct {
     u64 next_armed;
     u32 jump_prints;
     u32 taken_prints;
+    u32 turn_prints;
     u64 ptr_restores;
     u64 fail_pc;
     u64 fail_exc;
@@ -923,6 +924,8 @@ typedef struct {
     u64 pending_dist;
     u32 pending_src;
     u64 pending_wall_us;
+    u64 total_leap_cycles;
+    u64 total_leap_wall_us;
 } WwIdleLeverRecord;
 
 static WwIdleLeverRecord g_idle_lever;
@@ -977,14 +980,14 @@ static void idle_lever_fail(WwHost* host, u32 reason) {
 // One-shot, then 1-in-256: the granted budget and the limit that bounded it.
 void ww_host_note_idle_grant(WwHost* host) {
     const BluewakeCycleDomain* domain = &host->cycles;
-    u64 now = 0u;
-    (void)ww_host_wall_us(&now);
     // Capture the grant now: later flushes and rebudgets rewrite
     // last_idle_grant while this turn is still marked idle.
     g_idle_lever.pending = domain->last_idle_grant;
     g_idle_lever.pending_idle = host->cycles.idle_turn;
     if (!g_idle_lever.pending && !g_idle_lever.pending_idle)
         return;
+    u64 now = 0u;
+    (void)ww_host_wall_us(&now);
     g_idle_lever.pending_turn = host->turns;
     g_idle_lever.pending_budget = domain->last_budget;
     g_idle_lever.pending_dist = domain->last_distance;
@@ -1047,19 +1050,33 @@ void ww_host_note_idle_taken(WwHost* host, u64 elapsed) {
                              host->cpu.pc);
         }
         ++g_idle_lever.taken_prints;
+        g_idle_lever.total_leap_cycles += turn_cycles;
+        g_idle_lever.total_leap_wall_us += wall_us;
     } else {
-        if (fprintf(stderr,
-                    "[idle-turn] turn=%llu src=%u budget=%llu elapsed=%llu cycles=%llu wall_us=%llu cycles_per_us=%llu\n",
-                    (unsigned long long)g_idle_lever.pending_turn,
-                    g_idle_lever.pending_src,
-                    (unsigned long long)g_idle_lever.pending_budget,
-                    (unsigned long long)elapsed,
-                    (unsigned long long)turn_cycles,
-                    (unsigned long long)wall_us,
-                    (unsigned long long)cycles_per_us) < 0)
-            ww_host_fail(host, "idle-turn write failed", 0x80307EF4u,
-                         host->cpu.pc);
+        if (g_idle_lever.turn_prints < 4u ||
+            (g_idle_lever.turn_prints % 256u) == 0u) {
+            if (fprintf(stderr,
+                        "[idle-turn] turn=%llu src=%u budget=%llu elapsed=%llu cycles=%llu wall_us=%llu cycles_per_us=%llu\n",
+                        (unsigned long long)g_idle_lever.pending_turn,
+                        g_idle_lever.pending_src,
+                        (unsigned long long)g_idle_lever.pending_budget,
+                        (unsigned long long)elapsed,
+                        (unsigned long long)turn_cycles,
+                        (unsigned long long)wall_us,
+                        (unsigned long long)cycles_per_us) < 0)
+                ww_host_fail(host, "idle-turn write failed", 0x80307EF4u,
+                             host->cpu.pc);
+        }
+        ++g_idle_lever.turn_prints;
     }
+}
+
+u64 ww_host_idle_leap_cycles(void) {
+    return g_idle_lever.total_leap_cycles;
+}
+
+u64 ww_host_idle_leap_wall_us(void) {
+    return g_idle_lever.total_leap_wall_us;
 }
 
 // Trial 13 lost the loop's host pointer across ww_host_dispatch: the post-call

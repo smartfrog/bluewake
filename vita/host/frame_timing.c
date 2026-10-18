@@ -48,7 +48,52 @@ static const char* stamp(WwFrameStamp* series, u64 index, const char* format) {
 const char* ww_host_frame_present(WwHost* host, u64 presented) {
     if (host == NULL)
         return "frame present marker requires a host";
-    return stamp(&host->frame_timing.present, presented, "[frame-present] frame=%llu us=%llu\n");
+    const u64 previous_us = host->frame_timing.present.us;
+    const char* error = stamp(&host->frame_timing.present, presented, "[frame-present] frame=%llu us=%llu\n");
+    if (error != NULL)
+        return error;
+    const u64 now_us = host->frame_timing.present.us;
+    WwFrameTiming* timing = &host->frame_timing;
+    const u64 leap_cycles = ww_host_idle_leap_cycles();
+    const u64 leap_wall_us = ww_host_idle_leap_wall_us();
+    WwRendererStats stats = {0};
+    if (host->renderer != NULL)
+        ww_renderer_stats(host->renderer, &stats);
+    if (previous_us != 0u && now_us > previous_us) {
+        const u64 wall_us = now_us - previous_us;
+        const u64 cycles = host->cycles.absolute_cycles - timing->work_cycles;
+        const u64 leap_delta = leap_cycles - timing->work_leap_cycles;
+        const u64 leap_wall_delta = leap_wall_us - timing->work_leap_wall_us;
+        const u64 post_leap_cycles = cycles > leap_delta ? cycles - leap_delta : 0u;
+        const u64 draws = stats.draws - timing->work_draws;
+        const u64 gpu_finish = host->gpu_finish_calls - timing->work_gpu_finish_calls;
+        const u64 present_us = host->renderer_present_us - timing->work_present_us;
+        const u64 finish_us = host->renderer_finish_us - timing->work_finish_us;
+        if (fprintf(stderr,
+                    "[frame-work] frame=%llu wall_us=%llu cycles=%llu turns=%llu leap_cycles=%llu leap_wall_us=%llu post_leap_cycles=%llu draws=%llu gpu_finish=%llu present_us=%llu finish_us=%llu\n",
+                    (unsigned long long)timing->present.index,
+                    (unsigned long long)wall_us,
+                    (unsigned long long)cycles,
+                    (unsigned long long)(host->turns - timing->work_turns),
+                    (unsigned long long)leap_delta,
+                    (unsigned long long)leap_wall_delta,
+                    (unsigned long long)post_leap_cycles,
+                    (unsigned long long)draws,
+                    (unsigned long long)gpu_finish,
+                    (unsigned long long)present_us,
+                    (unsigned long long)finish_us) < 0)
+            return "frame work trace write failed";
+    }
+    timing->work_us = now_us;
+    timing->work_cycles = host->cycles.absolute_cycles;
+    timing->work_turns = host->turns;
+    timing->work_leap_cycles = leap_cycles;
+    timing->work_leap_wall_us = leap_wall_us;
+    timing->work_draws = stats.draws;
+    timing->work_gpu_finish_calls = host->gpu_finish_calls;
+    timing->work_present_us = host->renderer_present_us;
+    timing->work_finish_us = host->renderer_finish_us;
+    return NULL;
 }
 
 const char* ww_host_frame_retrace(WwHost* host) {

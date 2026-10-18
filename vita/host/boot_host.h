@@ -148,6 +148,9 @@ typedef struct WwHost {
     bool vi_clock_enabled;
     bool gpu_finish_committed;
     u64 gpu_finish_index;
+    u64 gpu_finish_calls;
+    u64 renderer_present_us;
+    u64 renderer_finish_us;
     WwFrameTiming frame_timing;
     WwFrameStamp frame_capture;
     WwMem1Capture mem1_capture;
@@ -228,6 +231,8 @@ void ww_gx_remember_command(WwGxStream* stream, const WwGxCheckpoint* command);
 const char* ww_gx_observe_first_draw(WwHost* host);
 const char* ww_host_finish_gpu(WwHost* host);
 const char* ww_host_frame_present(WwHost* host, u64 presented);
+u64 ww_host_idle_leap_cycles(void);
+u64 ww_host_idle_leap_wall_us(void);
 const char* ww_host_frame_retrace(WwHost* host);
 const char* ww_host_capture_mem1(WwHost* host);
 const char* ww_host_enable_frame_capture(WwHost* host);

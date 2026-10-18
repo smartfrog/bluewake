@@ -79,7 +79,12 @@ const char* ww_gx_stream_write(WwHost* host, u8 byte, const WwFifoOrigin* origin
         const char* renderer_error = ww_renderer_write(host->renderer, command->bytes, command->size);
         if (renderer_error == NULL) {
             bool presented = false;
+            u64 present_start = 0u, present_end = 0u;
+            (void)ww_host_wall_us(&present_start);
             renderer_error = ww_renderer_present(host->renderer, &presented);
+            (void)ww_host_wall_us(&present_end);
+            if (present_end >= present_start)
+                host->renderer_present_us += present_end - present_start;
             if (presented) {
                 if (renderer_error != NULL &&
                     fprintf(stderr, "[renderer-after-present] error=%s\n", renderer_error) < 0)

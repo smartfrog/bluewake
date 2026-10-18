@@ -76,6 +76,9 @@ int main(void) {
     host->dsp.audio_deferred = true;
     host->dsp.deferred_task_started = true;
     assert(ww_host_idle_poll_ready(host));
+    host->dsp.deferred_task_started = false;
+    assert(!ww_host_idle_poll_ready(host));
+    host->dsp.deferred_task_started = true;
     host->dvd_callback_active = true;
     assert(!ww_host_idle_poll_ready(host));
     host->dvd_callback_active = false;

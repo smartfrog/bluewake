@@ -11,6 +11,15 @@ typedef struct WwFrameStamp {
 typedef struct WwFrameTiming {
     WwFrameStamp retrace;
     WwFrameStamp present;
+    u64 work_us;
+    u64 work_cycles;
+    u64 work_turns;
+    u64 work_leap_cycles;
+    u64 work_leap_wall_us;
+    u64 work_present_us;
+    u64 work_finish_us;
+    u64 work_gpu_finish_calls;
+    u64 work_draws;
 } WwFrameTiming;
 
 const char* ww_host_wall_us(u64* us);

@@ -50,7 +50,12 @@ const char* ww_host_finish_gpu(WwHost* host) {
     }
     if (!consumed)
         return "GX draw-done requires all captured FIFO work to be consumed";
+    u64 finish_start = 0u, finish_end = 0u;
+    (void)ww_host_wall_us(&finish_start);
     error = ww_renderer_finish(host->renderer);
+    (void)ww_host_wall_us(&finish_end);
+    if (finish_end >= finish_start)
+        host->renderer_finish_us += finish_end - finish_start;
     if (error != NULL)
         return error;
     if (fprintf(stderr, "[gx-gpu-finish] decoded=%llu pc=%08X lr=%08X queue=%08X backend=confirmed-finish\n",
@@ -60,5 +65,6 @@ const char* ww_host_finish_gpu(WwHost* host) {
     dol_interrupts_commit_pe_finish(&host->interrupts);
     host->gpu_finish_index = host->stream.decoded;
     host->gpu_finish_committed = true;
+    ++host->gpu_finish_calls;
     return NULL;
 }
