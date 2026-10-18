@@ -122,8 +122,9 @@ list(TRANSFORM _cos_profile_slice_names PREPEND "${COS_ROOT}/src/d/actor/"
 list(TRANSFORM COS_VITA_PROFILE_SLICE_UNITS APPEND ".cpp")
 
 # The remaining 50 profiles are the non-actor REL units of the list: scenes, msg, overlap,
-# camera, kankyo. Same reduction; their unit-specific base pointers stay zero (only the actor base
-# tables and the callable g_fpcLf_Method chain are linked).
+# camera, kankyo. Same reduction; the overlap profiles are wired to the real g_fopOvlp_Method
+# below, the other non-actor base pointers stay zero (only the actor base tables and the callable
+# g_fpcLf_Method/g_fopOvlp_Method chain are linked).
 set(_cos_profile_slice_d_units
         d/d_ovlp_fade.cpp d/d_s_logo.cpp d/d_s_menu.cpp d/d_s_play.cpp
         d/d_s_title.cpp d/d_s_name.cpp d/d_s_open.cpp d/d_ovlp_fade2.cpp
@@ -145,30 +146,32 @@ target_link_libraries(cos_vita_profile_slice_units PRIVATE cos_game_headers)
 target_compile_options(cos_vita_profile_slice_units PRIVATE -ffunction-sections -fdata-sections -g0)
 set_property(TARGET cos_vita_profile_slice_units PROPERTY FOLDER "cos_native")
 
-# The actor/msg/overlap base method tables every profile points at. The profile data keeps real
-# pointers to them (vita_profile_list.cpp wires the slots); these three tables are reduced to data,
-# so their method functions stay in the actor/API code the slice does not link yet.
+# The actor/msg base method tables every profile points at. The profile data keeps real pointers to
+# them (vita_profile_list.cpp wires the slots); these two tables are reduced to data, so their
+# method functions stay in the actor/API code the slice does not link yet. The overlap table is
+# real below, with its method functions.
 set(COS_VITA_BASE_TABLE_SYMBOLS
-        g_fopAc_Method g_fopMsg_Method g_fopOvlp_Method)
+        g_fopAc_Method g_fopMsg_Method)
 string(JOIN "," COS_VITA_BASE_TABLE_SYMBOLS_ARG ${COS_VITA_BASE_TABLE_SYMBOLS})
 set(_cos_base_table_units
         "${COS_ROOT}/src/f_op/f_op_actor.cpp"
-        "${COS_ROOT}/src/f_op/f_op_msg.cpp"
-        "${COS_ROOT}/src/f_op/f_op_overlap.cpp")
+        "${COS_ROOT}/src/f_op/f_op_msg.cpp")
 add_library(cos_vita_base_table_units OBJECT EXCLUDE_FROM_ALL ${_cos_base_table_units})
 target_link_libraries(cos_vita_base_table_units PRIVATE cos_game_headers)
 target_compile_options(cos_vita_base_table_units PRIVATE -ffunction-sections -fdata-sections -g0)
 set_property(TARGET cos_vita_base_table_units PROPERTY FOLDER "cos_native")
 
-# g_fpcLf_Method is the one base table with real function pointers: the minimal f_pc chain
-# fpcLf_* -> fpcMtd_* / fpcDwPi_* / fpcBs_MakeOfType, with everything else localized and dropped
-# by --callable. Its 260 bytes of text are the bounded path; fpcBs_Create and the layer/priority
-# machinery stay out.
+# g_fpcLf_Method and g_fopOvlp_Method have real function pointers: the minimal f_pc chain
+# fpcLf_* -> fpcMtd_* / fpcDwPi_* / fpcBs_MakeOfType plus the five fopOvlp_* wrappers and the
+# four cReq_* helpers they call. Everything else is localized and dropped by --callable.
+# fpcBs_Create, the layer/priority machinery and the other base tables stay out.
 set(_cos_fpc_chain_units
         "${COS_ROOT}/src/f_pc/f_pc_leaf.cpp"
         "${COS_ROOT}/src/f_pc/f_pc_method.cpp"
         "${COS_ROOT}/src/f_pc/f_pc_draw_priority.cpp"
-        "${COS_ROOT}/src/f_pc/f_pc_base.cpp")
+        "${COS_ROOT}/src/f_pc/f_pc_base.cpp"
+        "${COS_ROOT}/src/f_op/f_op_overlap.cpp"
+        "${COS_ROOT}/src/SSystem/SComponent/c_request.cpp")
 add_library(cos_vita_fpc_chain_units OBJECT EXCLUDE_FROM_ALL ${_cos_fpc_chain_units})
 target_link_libraries(cos_vita_fpc_chain_units PRIVATE cos_game_headers)
 target_compile_options(cos_vita_fpc_chain_units PRIVATE -ffunction-sections -fdata-sections -g0)
@@ -212,7 +215,8 @@ add_custom_command(OUTPUT "${COS_VITA_FPC_CHAIN_OBJECT}"
             --nm "${CMAKE_NM}" --objcopy "${CMAKE_OBJCOPY}" --objdump "${CMAKE_OBJDUMP}"
             --readelf "${CMAKE_READELF}" --ld "${CMAKE_LINKER}"
             --output "${COS_VITA_FPC_CHAIN_OBJECT}"
-            --callable g_fpcLf_Method --keep _Z13fpcMtd_MethodPFiPvES_
+            --callable g_fpcLf_Method
+            --keep "g_fopOvlp_Method,_Z13fpcMtd_MethodPFiPvES_"
             $<TARGET_OBJECTS:cos_vita_fpc_chain_units>
         DEPENDS cos_vita_fpc_chain_units "${COS_NATIVE_ROOT}/vita/reduce_profile_slice.py"
         COMMAND_EXPAND_LISTS
@@ -222,5 +226,5 @@ add_custom_target(cos_vita_fpc_chain DEPENDS "${COS_VITA_FPC_CHAIN_OBJECT}")
 set(COS_VITA_FPC_CHAIN_OBJECT "${COS_VITA_FPC_CHAIN_OBJECT}" CACHE INTERNAL
         "The callable g_fpcLf_Method chain for the Vita boot path")
 message(STATUS "cos_native: cos_vita_profile_slice (${_cos_profile_slice_unit_count} units, "
-        "reduced to their g_profile_* data, plus the callable g_fpcLf_Method chain and three "
-        "data-only base tables)")
+        "reduced to their g_profile_* data, plus the callable g_fpcLf_Method/g_fopOvlp_Method "
+        "chain and two data-only base tables)")
