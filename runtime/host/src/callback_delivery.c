@@ -1,5 +1,7 @@
 #include "callback_delivery.h"
 
+#include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
 
 #define OS_RESCHEDULE 0x803F7A38u
@@ -74,6 +76,43 @@ static void restore_registers(CPUState* cpu,
     cpu->program_exception = image->program_exception;
 }
 
+/* Off unless the host asks for it: the loop below hands the CPUState to
+ * translated code, so a clobbered callee-saved register shows up as a changed
+ * pointer after the call. The first sample proves the probe runs; later ones
+ * are printed only when the pointer moved. */
+static bool callback_cpu_probe_enabled(void) {
+    static int enabled = -1;
+    if (enabled < 0) {
+        const char* const value = getenv("WW05_CALLBACK_CPU_PROBE");
+        enabled = value != NULL && value[0] != '\0' && strcmp(value, "0") != 0;
+    }
+    return enabled != 0;
+}
+
+static void report_callback_cpu(const char* where, const void* before,
+                                u32 before_pc, const void* after, u32 after_pc,
+                                const void* caller) {
+    static unsigned reported;
+    static u64 suppressed;
+    static bool seen;
+    const bool moved = before != after;
+    if (seen && !moved)
+        return;
+    seen = true;
+    if (reported < 8u) {
+        reported++;
+        fprintf(stderr,
+                "[callback-cpu] where=%s before=%p pc=%08X after=%p pc=%08X "
+                "lr=%p hits=%u\n",
+                where, before, before_pc, after, after_pc, caller, reported);
+        return;
+    }
+    suppressed++;
+    if ((suppressed & (suppressed - 1u)) == 0u)
+        fprintf(stderr, "[callback-cpu] hits=%u suppressed=%llu\n", reported,
+                (unsigned long long)suppressed);
+}
+
 BluewakeCallbackDeliveryResult bluewake_deliver_guest_callback(
     CPUState* cpu, const StaticRecompModuleDesc* module, u32 callback,
     u32 arg0, u32 arg1, unsigned max_dispatches,
@@ -99,9 +138,23 @@ BluewakeCallbackDeliveryResult bluewake_deliver_guest_callback(
 
     while (cpu->pc != BLUEWAKE_CALLBACK_RETURN_SENTINEL &&
            result.dispatches < max_dispatches) {
-        if (prepare_dispatch != NULL)
+        if (prepare_dispatch != NULL) {
+            const CPUState* const entered = cpu;
+            const u32 entered_pc = cpu->pc;
             prepare_dispatch(cpu, prepare_user);
-        if (module->dispatch(cpu, cpu->pc) != 1)
+            if (callback_cpu_probe_enabled())
+                report_callback_cpu("prepare", entered, entered_pc, cpu,
+                                    cpu == entered ? cpu->pc : 0xFFFFFFFFu,
+                                    __builtin_return_address(0));
+        }
+        const CPUState* const entered = cpu;
+        const u32 entered_pc = cpu->pc;
+        const int dispatched = module->dispatch(cpu, entered_pc);
+        if (callback_cpu_probe_enabled())
+            report_callback_cpu("dispatch", entered, entered_pc, cpu,
+                                cpu == entered ? cpu->pc : 0xFFFFFFFFu,
+                                __builtin_return_address(0));
+        if (dispatched != 1)
             break;
         result.dispatches++;
         if (cpu->exception != 0u)
