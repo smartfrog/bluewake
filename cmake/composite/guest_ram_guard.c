@@ -12,6 +12,13 @@ CPUState* g_bw_guest_cpu;
 
 static BwGuestRamGuardStats g_bw_guest_ram_guard;
 
+#if defined(BW_GUEST_GLOBAL_CTX)
+/* The scoped chunks' authoritative state (guest_ram_guard.h). The host sets
+ * this and g_bw_guest_cpu together in bw_guest_ram_guard_adopt. */
+CPUState* bw_guest_cpu_ptr;
+static BwGuestGlobalCtxStats g_bw_guest_global_ctx;
+#endif
+
 /* A corrupted CPUState would otherwise flood the log: #22's aftermath was
  * 36,341 invalid accesses at PC 0. The first reports carry the evidence; the
  * counters and the shutdown line carry the rest. */
@@ -39,12 +46,18 @@ void bw_guest_ram_guard_adopt(CPUState* cpu) {
     g_bw_guest_cpu = cpu;
     g_bw_guest_ram = cpu->ram;
     g_bw_guest_ram_size = cpu->ram_size;
+#if defined(BW_GUEST_GLOBAL_CTX)
+    bw_guest_cpu_ptr = cpu;
+#endif
 }
 
 void bw_guest_ram_guard_forget(void) {
     g_bw_guest_cpu = NULL;
     g_bw_guest_ram = NULL;
     g_bw_guest_ram_size = 0u;
+#if defined(BW_GUEST_GLOBAL_CTX)
+    bw_guest_cpu_ptr = NULL;
+#endif
 }
 
 BwGuestRamGuardStats bw_guest_ram_guard_stats(void) {
@@ -57,6 +70,10 @@ void bw_guest_ram_guard_report(FILE* out) {
     fprintf(out, "[ram-guard] repairs=%lu redirects=%lu canons=%lu reports=%lu\n",
             g_bw_guest_ram_guard.ram_repairs, g_bw_guest_ram_guard.cpu_redirects,
             g_bw_guest_ram_guard.ctx_canons, g_bw_guest_ram_guard.reports);
+#if defined(BW_GUEST_GLOBAL_CTX)
+    fprintf(out, "[global-ctx] entries=%lu mismatches=%lu\n",
+            g_bw_guest_global_ctx.entries, g_bw_guest_global_ctx.mismatches);
+#endif
 }
 
 CPUState* bw_guest_ctx_canon(CPUState* cpu, u32 address) {
@@ -74,6 +91,32 @@ CPUState* bw_guest_ctx_canon(CPUState* cpu, u32 address) {
                 __builtin_return_address(0));
     return good;
 }
+
+#if defined(BW_GUEST_GLOBAL_CTX)
+BwGuestGlobalCtxStats bw_guest_global_ctx_stats(void) {
+    return g_bw_guest_global_ctx;
+}
+
+void bw_guest_global_ctx_adopt(CPUState* cpu) {
+    bw_guest_cpu_ptr = cpu;
+}
+
+void bw_guest_global_ctx_entry(CPUState* entry) {
+    CPUState* const adopted = g_bw_guest_cpu;
+    if (bw_guest_cpu_ptr == NULL || bw_guest_cpu_ptr != adopted) {
+        fprintf(stderr, "[global-ctx] not adopted slot=%p guard=%p\n",
+                (void*)bw_guest_cpu_ptr, (void*)adopted);
+        abort();
+    }
+    g_bw_guest_global_ctx.entries++;
+    if (entry != adopted) {
+        g_bw_guest_global_ctx.mismatches++;
+        if (g_bw_guest_global_ctx.mismatches == 1u)
+            fprintf(stderr, "[global-ctx] entry pc=%08X entry=%p adopted=%p\n",
+                    adopted->pc, (void*)entry, (void*)adopted);
+    }
+}
+#endif
 
 CPUState* bw_guest_ram_guard_slow(CPUState* cpu) {
     if (cpu != g_bw_guest_cpu) {
