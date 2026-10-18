@@ -45,6 +45,12 @@ static void window_line_holds_sixteen_words(void) {
     assert(strstr(line, "words= CCCCCCCC CCCCCCCC") != NULL);
 }
 
+static void mem1_window_address_is_recognised(void) {
+    assert(ww_sp_balance_mem1(0x80170C80u));
+    assert(!ww_sp_balance_mem1(0x80200000u));
+    assert(!ww_sp_balance_mem1(0x8040CF78u));
+}
+
 int main(void) {
     matching_stack_pointer_is_not_a_mismatch();
     restored_stack_pointer_difference_is_a_mismatch();
@@ -52,5 +58,6 @@ int main(void) {
     record_line_rejects_a_short_buffer();
     window_line_names_span_and_words();
     window_line_holds_sixteen_words();
+    mem1_window_address_is_recognised();
     return 0;
 }
