@@ -95,3 +95,12 @@ if (COS_VITA_PROFILE_SLICE_OBJECT AND COS_VITA_FPC_CHAIN_OBJECT)
 else ()
     message(WARNING "cos_native: the actor profile slice is unavailable; cos_vita_boot is skipped")
 endif ()
+
+# ILP32 runtime/ABI test: the compile-time profile is cos_ilp32_check, the runtime checks are
+# check/ilp32_runtime.cpp (sizes/atomics/heap/memcpy/boot smoke). Not packaged.
+add_executable(cos_vita_ilp32_test EXCLUDE_FROM_ALL
+        "${COS_NATIVE_ROOT}/check/ilp32_runtime.cpp"
+        $<TARGET_OBJECTS:cos_ilp32_check>)
+target_link_libraries(cos_vita_ilp32_test PRIVATE cos_game_headers cos_sdk)
+target_sources(cos_vita_ilp32_test PRIVATE "${COS_NATIVE_ROOT}/vita/stubs_libc.cpp")
+cos_vita_configure_executable(cos_vita_ilp32_test)

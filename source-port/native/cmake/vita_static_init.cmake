@@ -105,6 +105,16 @@ elseif (NOT CMAKE_CROSSCOMPILING)
                 RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}")
     endif ()
 
+    # The ILP32 runtime test on the host: LP64 sizes/layout, atomics, heap, memcpy and the Aurora
+    # OS/VI boot smoke. The ARM/ILP32 run needs Vita3K or hardware.
+    #   ninja cos_ilp32_runtime_test && build/native-mac/cos_ilp32_runtime_test
+    add_executable(cos_ilp32_runtime_test EXCLUDE_FROM_ALL
+            "${COS_NATIVE_ROOT}/check/ilp32_runtime.cpp")
+    target_link_libraries(cos_ilp32_runtime_test PRIVATE cos_game_headers cos_sdk
+            "-Wl,--start-group" ${COS_AURORA_LIBS} "-Wl,--end-group")
+    set_target_properties(cos_ilp32_runtime_test PROPERTIES
+            RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}")
+
     # The callable g_fpcLf_Method chain on its own: the five pointers are real and the
     # fpcLf_* -> fpcMtd_* path runs on a zeroed leaf (check/fpc_chain_test.cpp).
     #   ninja cos_vita_fpc_chain_test && build/native-mac/cos_vita_fpc_chain_test
