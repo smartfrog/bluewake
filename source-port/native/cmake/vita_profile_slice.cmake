@@ -171,6 +171,7 @@ set(_cos_fpc_chain_units
         "${COS_ROOT}/src/f_op/f_op_camera.cpp"
         "${COS_ROOT}/src/f_op/f_op_view.cpp"
         "${COS_ROOT}/src/d/d_com_inf_game.cpp"
+        "${COS_ROOT}/src/d/d_kankyo.cpp"
         "${COS_ROOT}/src/SSystem/SComponent/c_tag.cpp"
         "${COS_ROOT}/src/SSystem/SComponent/c_list.cpp"
         "${COS_ROOT}/src/SSystem/SComponent/c_tree.cpp"
