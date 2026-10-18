@@ -76,7 +76,8 @@ def fault_match(lines, repeats=FAULT_REPEATS):
             return None
         found = _SIGNATURE.search(lines)
         if found is not None:
-            start = lines.rfind('\n', 0, found.start()) + 1
+            line_start = max(0, found.start() - 512)
+            start = lines.rfind('\n', line_start, found.start()) + 1
             end = lines.find('\n', found.end())
             return lines[start:] if end < 0 else lines[start:end]
         lines = lines.splitlines()
