@@ -3,26 +3,27 @@
 // The list has all 502 g_profile_* definitions of game/src/f_pc/f_pc_profile_lst.cpp: 437
 // profile-bearing actor units plus 38 non-actor REL units (scenes, msg, overlap, camera,
 // kankyo). The slice reduction keeps each profile's real identity (mProcName, list IDs, size,
-// flags). The 453 actor-typed, 9 overlap and 16 msg profiles are wired to their base tables;
-// the 24 scene/camera/kankyo base pointers stay zero because their tables are not linked.
-// The check reports 502 of 502.
+// flags). The 453 actor-typed, 9 overlap, 16 msg, 10 kankyo and 2 camera profiles are wired to
+// their real base tables; the 12 scene base pointers stay zero because g_fpcNd_Method/
+// g_fopScn_Method are not linked yet. The check reports 502 of 502.
 //
 // The slots and the base method-table pointers are set by a static initialiser, before main.
 // pc::staticInitCheck verifies every mProcName against its slot, the list pointer and the
 // terminator. Keep this list in step with vita_profile_slice.cmake; a missing profile fails the
 // link, a wrong slot fails the check.
 //
-// g_fpcLf_Method, g_fopOvlp_Method, g_fopMsg_Method and g_fopAc_Method are real: the fpcLf_* ->
-// fpcMtd_* / fpcDwPi_* / fpcBs_MakeOfType chain, the fopOvlp_* wrappers with cReq_*, the fopMsg_*
-// wrappers with fopMsgM_GetAppend / fopDwTg_* / cTg/cTr/cLs/cNd, and the fopAc_* wrappers with
-// fopAcTg_*. The actor services are bounded stubs (vita/actor_services.cpp), so the table is real
-// but not every service call is. The actor method table at 0x24 stays NULL.
+// g_fpcLf_Method, g_fopOvlp_Method, g_fopMsg_Method, g_fopAc_Method, g_fopKy_Method,
+// g_fopCam_Method and g_fopVw_Method are real. The actor services behind fopAc_* are bounded
+// stubs (vita/actor_services.cpp); the actor/overlap/msg/camera method tables at 0x24 stay NULL.
 #include "f_pc/f_pc_name.h"
 #include "f_pc/f_pc_profile_lst.h"
 #include "f_pc/f_pc_leaf.h"
 #include "f_op/f_op_actor.h"
 #include "f_op/f_op_overlap.h"
 #include "f_op/f_op_msg.h"
+#include "f_op/f_op_kankyo.h"
+#include "f_op/f_op_camera.h"
+#include "f_op/f_op_view.h"
 
 process_profile_definition* g_fpcPfLst_ProfileList[fpcNm_MAX_NUM_e + 1] = {};
 
@@ -41,6 +42,17 @@ void wireOverlap(overlap_process_profile_definition& profile) {
 void wireMsg(msg_process_profile_definition& profile) {
     profile.base.base.sub_method = &g_fpcLf_Method.base;
     profile.base.sub_method = &g_fopMsg_Method;
+}
+
+void wireKankyo(kankyo_process_profile_definition& profile) {
+    profile.base.base.sub_method = &g_fpcLf_Method.base;
+    profile.base.sub_method = &g_fopKy_Method;
+}
+
+void wireCamera(camera_process_profile_definition& profile) {
+    profile.base.base.base.sub_method = &g_fpcLf_Method.base;
+    profile.base.base.sub_method = &g_fopVw_Method;
+    profile.base.sub_method = &g_fopCam_Method;
 }
 
 struct SliceProfileList {
@@ -76,12 +88,17 @@ struct SliceProfileList {
         wireOverlap(g_profile_OVERLAP5);
         g_fpcPfLst_ProfileList[fpcNm_ROOM_SCENE_e] = &g_profile_ROOM_SCENE.base.base;
         g_fpcPfLst_ProfileList[fpcNm_KANKYO_e] = &g_profile_KANKYO.base.base;
+        wireKankyo(g_profile_KANKYO);
         g_fpcPfLst_ProfileList[fpcNm_ALLDIE_e] = &g_profile_ALLDIE.base.base;
         wireActor(g_profile_ALLDIE);
         g_fpcPfLst_ProfileList[fpcNm_ENVSE_e] = &g_profile_ENVSE.base.base;
+        wireKankyo(g_profile_ENVSE);
         g_fpcPfLst_ProfileList[fpcNm_WIND_ARROW_e] = &g_profile_WIND_ARROW.base.base;
+        wireKankyo(g_profile_WIND_ARROW);
         g_fpcPfLst_ProfileList[fpcNm_WPOT_WATER_e] = &g_profile_WPOT_WATER.base.base;
+        wireKankyo(g_profile_WPOT_WATER);
         g_fpcPfLst_ProfileList[fpcNm_LEVEL_SE_e] = &g_profile_LEVEL_SE.base.base;
+        wireKankyo(g_profile_LEVEL_SE);
         g_fpcPfLst_ProfileList[fpcNm_THROWSTONE_e] = &g_profile_THROWSTONE.base.base;
         wireActor(g_profile_THROWSTONE);
         g_fpcPfLst_ProfileList[fpcNm_TAG_EVSW_e] = &g_profile_TAG_EVSW.base.base;
@@ -911,6 +928,7 @@ struct SliceProfileList {
         g_fpcPfLst_ProfileList[fpcNm_GRASS_e] = &g_profile_GRASS.base.base;
         wireActor(g_profile_GRASS);
         g_fpcPfLst_ProfileList[fpcNm_KY_THUNDER_e] = &g_profile_KY_THUNDER.base.base;
+        wireKankyo(g_profile_KY_THUNDER);
         g_fpcPfLst_ProfileList[fpcNm_VRBOX_e] = &g_profile_VRBOX.base.base;
         wireActor(g_profile_VRBOX);
         g_fpcPfLst_ProfileList[fpcNm_VRBOX2_e] = &g_profile_VRBOX2.base.base;
@@ -938,6 +956,7 @@ struct SliceProfileList {
         g_fpcPfLst_ProfileList[fpcNm_ATT_e] = &g_profile_ATT.base.base;
         wireActor(g_profile_ATT);
         g_fpcPfLst_ProfileList[fpcNm_WPILLAR_e] = &g_profile_WPILLAR.base.base;
+        wireKankyo(g_profile_WPILLAR);
         g_fpcPfLst_ProfileList[fpcNm_Hys_e] = &g_profile_Hys.base.base;
         wireActor(g_profile_Hys);
         g_fpcPfLst_ProfileList[fpcNm_SWHIT0_e] = &g_profile_SWHIT0.base.base;
@@ -975,6 +994,7 @@ struct SliceProfileList {
         g_fpcPfLst_ProfileList[fpcNm_Obj_Eff_e] = &g_profile_Obj_Eff.base.base;
         wireActor(g_profile_Obj_Eff);
         g_fpcPfLst_ProfileList[fpcNm_WATER_MARK_e] = &g_profile_WATER_MARK.base.base;
+        wireKankyo(g_profile_WATER_MARK);
         g_fpcPfLst_ProfileList[fpcNm_Tag_Light_e] = &g_profile_Tag_Light.base.base;
         wireActor(g_profile_Tag_Light);
         g_fpcPfLst_ProfileList[fpcNm_Tag_Attention_e] = &g_profile_Tag_Attention.base.base;
@@ -990,9 +1010,13 @@ struct SliceProfileList {
         g_fpcPfLst_ProfileList[fpcNm_Obj_Timer_e] = &g_profile_Obj_Timer.base.base;
         wireActor(g_profile_Obj_Timer);
         g_fpcPfLst_ProfileList[fpcNm_CAMERA_e] = &g_profile_CAMERA.base.base.base;
+        wireCamera(g_profile_CAMERA);
         g_fpcPfLst_ProfileList[fpcNm_CAMERA2_e] = &g_profile_CAMERA2.base.base.base;
+        wireCamera(g_profile_CAMERA2);
         g_fpcPfLst_ProfileList[fpcNm_KYEFF_e] = &g_profile_KYEFF.base.base;
+        wireKankyo(g_profile_KYEFF);
         g_fpcPfLst_ProfileList[fpcNm_KYEFF2_e] = &g_profile_KYEFF2.base.base;
+        wireKankyo(g_profile_KYEFF2);
         g_fpcPfLst_ProfileList[fpcNm_MESG_e] = &g_profile_MESG.base.base;
         wireMsg(g_profile_MESG);
         g_fpcPfLst_ProfileList[fpcNm_MSG_e] = &g_profile_MSG.base.base;

@@ -5,8 +5,8 @@
 # stub assets; d_a_gy_ctrl, d_a_npc_bj1 (9), d_a_npc_bm1 (5), d_a_npc_ko1 (2) and d_a_npc_ym1 (2)
 # define several actor profiles each, while d_a_itembase, d_a_kamome2, d_a_player and
 # d_a_player_npc define none at VERSION=2 (kamome2 is demo-only). d_a_npc_zl1 is back in the slice
-# after fixing its Vec-array cast. The overlap and msg base tables are real; the scene, camera and
-# kankyo profiles keep their identity data with zero base pointers.
+# after fixing its Vec-array cast. The overlap, msg, kankyo and camera base tables are real; the
+# 12 scene profiles keep their identity data with zero base pointers.
 #
 # The units are compiled with -ffunction-sections -fdata-sections, then reduced by
 # vita/reduce_profile_slice.py to their g_profile_* data: the profile's identity (mProcName, list
@@ -122,10 +122,9 @@ list(TRANSFORM _cos_profile_slice_names PREPEND "${COS_ROOT}/src/d/actor/"
 list(TRANSFORM COS_VITA_PROFILE_SLICE_UNITS APPEND ".cpp")
 
 # The remaining 50 profiles are the non-actor REL units of the list: scenes, msg, overlap,
-# camera, kankyo. Same reduction; the overlap and msg profiles are wired to the real
-# g_fopOvlp_Method/g_fopMsg_Method below, the scene/camera/kankyo base pointers stay zero (only
-# the actor base table and the callable g_fpcLf_Method/g_fopOvlp_Method/g_fopMsg_Method chain are
-# linked).
+# camera, kankyo. Same reduction; the overlap, msg, kankyo and camera profiles are wired to their
+# real base tables below, the 12 scene base pointers stay zero (g_fpcNd_Method/g_fopScn_Method pull
+# f_pc_node/layer, hostIO and the harness trace hook).
 set(_cos_profile_slice_d_units
         d/d_ovlp_fade.cpp d/d_s_logo.cpp d/d_s_menu.cpp d/d_s_play.cpp
         d/d_s_title.cpp d/d_s_name.cpp d/d_s_open.cpp d/d_ovlp_fade2.cpp
@@ -149,11 +148,13 @@ set_property(TARGET cos_vita_profile_slice_units PROPERTY FOLDER "cos_native")
 
 # g_fpcLf_Method, g_fopOvlp_Method, g_fopMsg_Method and g_fopAc_Method have real function
 # pointers: the minimal f_pc chain, the fopOvlp_* wrappers with cReq_*, the fopMsg_* wrappers with
-# fopMsgM_GetAppend/fopDwTg_*/cTg/cTr/cLs/cNd, and the fopAc_* wrappers with fopAcTg_*. The actor
-# services the wrappers call are bounded stubs (vita/actor_services.cpp), except g_dComIfG_gameInfo,
-# whose real zeroed .bss object comes from d_com_inf_game.cpp. Everything else is localized and
-# dropped by --callable. fpcBs_Create and the layer/priority machinery stay out; d_s_play is
-# avoided by the two pause flags in vita/msg_pause.cpp.
+# fopMsgM_GetAppend/fopDwTg_*/cTg/cTr/cLs/cNd, the fopAc_* wrappers with fopAcTg_*, and the
+# fopKy_*/fopCam_*/fopVw_* wrappers (the kankyo and camera profiles). The actor services the
+# wrappers call are bounded stubs (vita/actor_services.cpp), except g_dComIfG_gameInfo, whose real
+# zeroed .bss object comes from d_com_inf_game.cpp. Everything else is localized and dropped by
+# --callable. fpcBs_Create and the layer/priority machinery stay out; d_s_play is avoided by the
+# two pause flags in vita/msg_pause.cpp. The scene group waits for f_pc_node/layer and the hostIO
+# and harness trace hooks.
 set(_cos_fpc_chain_units
         "${COS_ROOT}/src/f_pc/f_pc_leaf.cpp"
         "${COS_ROOT}/src/f_pc/f_pc_method.cpp"
@@ -166,6 +167,9 @@ set(_cos_fpc_chain_units
         "${COS_ROOT}/src/f_op/f_op_msg_mng.cpp"
         "${COS_ROOT}/src/f_op/f_op_actor.cpp"
         "${COS_ROOT}/src/f_op/f_op_actor_tag.cpp"
+        "${COS_ROOT}/src/f_op/f_op_kankyo.cpp"
+        "${COS_ROOT}/src/f_op/f_op_camera.cpp"
+        "${COS_ROOT}/src/f_op/f_op_view.cpp"
         "${COS_ROOT}/src/d/d_com_inf_game.cpp"
         "${COS_ROOT}/src/SSystem/SComponent/c_tag.cpp"
         "${COS_ROOT}/src/SSystem/SComponent/c_list.cpp"
@@ -201,7 +205,7 @@ add_custom_command(OUTPUT "${COS_VITA_FPC_CHAIN_OBJECT}"
             --readelf "${CMAKE_READELF}" --ld "${CMAKE_LINKER}"
             --output "${COS_VITA_FPC_CHAIN_OBJECT}"
             --callable g_fpcLf_Method
-            --keep "g_fopAc_Method,g_fopOvlp_Method,g_fopMsg_Method,_Z13fpcMtd_MethodPFiPvES_"
+            --keep "g_fopAc_Method,g_fopOvlp_Method,g_fopMsg_Method,g_fopKy_Method,g_fopCam_Method,g_fopVw_Method,_Z13fpcMtd_MethodPFiPvES_"
             --allow "OSPanic,_impure_ptr,abort,fprintf,memset,stderr"
             $<TARGET_OBJECTS:cos_vita_fpc_chain_units>
         DEPENDS cos_vita_fpc_chain_units "${COS_NATIVE_ROOT}/vita/reduce_profile_slice.py"
@@ -213,4 +217,4 @@ set(COS_VITA_FPC_CHAIN_OBJECT "${COS_VITA_FPC_CHAIN_OBJECT}" CACHE INTERNAL
         "The callable g_fpcLf_Method chain for the Vita boot path")
 message(STATUS "cos_native: cos_vita_profile_slice (${_cos_profile_slice_unit_count} units, "
         "reduced to their g_profile_* data, plus the callable g_fpcLf_Method/g_fopOvlp_Method/"
-        "g_fopMsg_Method/g_fopAc_Method chain)")
+        "g_fopMsg_Method/g_fopAc_Method/g_fopKy_Method/g_fopCam_Method/g_fopVw_Method chain)")
