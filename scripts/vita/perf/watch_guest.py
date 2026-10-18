@@ -38,6 +38,9 @@ PRESENT = '[frame-present]'
 SAMPLE_SECONDS = 0.5
 DEADLINE_SECONDS = 240
 HANG_SECONDS = 30
+# Shader pre-compilation blocks in the driver and logs nothing between programs,
+# so a low-CPU silent stretch there is normal: give it far longer than a spin.
+IDLE_SILENT_SECONDS = 120
 STALE_SCAN_BYTES = 4 * 1024 * 1024
 IDLE_CPU = 0.05
 BUSY_CPU = 0.5
@@ -101,7 +104,7 @@ def verdict(cpu, silent_s, idle_s, since_present_s):
         return None
     if cpu > BUSY_CPU and since_present_s > HANG_SECONDS:
         return 'hung-no-present'
-    if cpu < IDLE_CPU and silent_s > HANG_SECONDS and idle_s > HANG_SECONDS:
+    if cpu < IDLE_CPU and silent_s > IDLE_SILENT_SECONDS and idle_s > IDLE_SILENT_SECONDS:
         return 'hung-low-cpu-silent'
     return None
 

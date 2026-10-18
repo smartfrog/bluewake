@@ -25,14 +25,19 @@ class VerdictTests(unittest.TestCase):
 
     def test_low_cpu_and_a_silent_log_is_hung(self):
         self.assertEqual(
-            watch_guest.verdict(cpu=0.01, silent_s=watch_guest.HANG_SECONDS + 1,
-                                idle_s=watch_guest.HANG_SECONDS + 1, since_present_s=0),
+            watch_guest.verdict(cpu=0.01, silent_s=watch_guest.IDLE_SILENT_SECONDS + 1,
+                                idle_s=watch_guest.IDLE_SILENT_SECONDS + 1, since_present_s=0),
             'hung-low-cpu-silent')
+
+    def test_low_cpu_during_shader_pre_compilation_is_not_judged(self):
+        self.assertIsNone(
+            watch_guest.verdict(cpu=0.00, silent_s=watch_guest.HANG_SECONDS + 1,
+                                idle_s=watch_guest.HANG_SECONDS + 1, since_present_s=0))
 
     def test_low_cpu_while_the_log_grows_is_healthy(self):
         self.assertIsNone(
             watch_guest.verdict(cpu=0.01, silent_s=2,
-                                idle_s=watch_guest.HANG_SECONDS + 1, since_present_s=0))
+                                idle_s=watch_guest.IDLE_SILENT_SECONDS + 1, since_present_s=0))
 
     def test_mid_cpu_without_a_present_is_not_judged(self):
         self.assertIsNone(
