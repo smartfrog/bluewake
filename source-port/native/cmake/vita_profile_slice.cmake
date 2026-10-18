@@ -1,7 +1,7 @@
 # P-A follow-up: the bounded slice of REL actor units whose profiles the Vita boot path links.
-# The full profile list needs all 502 g_profile_* definitions; this slice takes 297 units of the
+# The full profile list needs all 502 g_profile_* definitions; this slice takes 345 units of the
 # sorted src/d/actor list, which compile for ARMv7/ILP32 against the generated stub assets. It
-# fills 312 profiles: d_a_gy_ctrl, d_a_npc_bj1 (9), d_a_npc_bm1 (5), d_a_npc_ko1 (2) and
+# fills 360 profiles: d_a_gy_ctrl, d_a_npc_bj1 (9), d_a_npc_bm1 (5), d_a_npc_ko1 (2) and
 # d_a_npc_ym1 (2) define several each, while d_a_itembase and d_a_kamome2 define none at VERSION=2
 # (the latter is demo-only). d_a_npc_zl1 is back in the slice after fixing its Vec-array cast.
 #
@@ -85,7 +85,18 @@ set(_cos_profile_slice_names
         d_a_obj_majyuu_door d_a_obj_mkie d_a_obj_mkiek d_a_obj_mknjd
         d_a_obj_mmrr d_a_obj_monument d_a_obj_movebox d_a_obj_msdan
         d_a_obj_msdan2 d_a_obj_msdan_sub d_a_obj_msdan_sub2 d_a_obj_mshokki
-        d_a_obj_mtest d_a_obj_nest d_a_obj_ohatch d_a_obj_ojtree d_a_obj_ospbox)
+        d_a_obj_mtest d_a_obj_nest d_a_obj_ohatch d_a_obj_ojtree d_a_obj_ospbox
+        d_a_obj_otble d_a_obj_paper d_a_obj_pbco d_a_obj_pbka d_a_obj_pfall
+        d_a_obj_pirateship d_a_obj_plant d_a_obj_quake d_a_obj_rcloud
+        d_a_obj_rflw d_a_obj_rforce d_a_obj_roten d_a_obj_search d_a_obj_shelf
+        d_a_obj_shmrgrd d_a_obj_smplbg d_a_obj_stair d_a_obj_swflat
+        d_a_obj_swhammer d_a_obj_swheavy d_a_obj_swlight d_a_obj_swpush
+        d_a_obj_table d_a_obj_tapestry d_a_obj_tenmado d_a_obj_tide
+        d_a_obj_timer d_a_obj_tntrap d_a_obj_toripost d_a_obj_tousekiki
+        d_a_obj_tower d_a_obj_trap d_a_obj_tribox d_a_obj_try d_a_obj_usovmc
+        d_a_obj_vfan d_a_obj_vgnfd d_a_obj_vmc d_a_obj_vmsdz d_a_obj_vmsms
+        d_a_obj_volcano d_a_obj_vtil d_a_obj_vyasi d_a_obj_warpt d_a_obj_wood
+        d_a_obj_xfuta d_a_obj_zouK d_a_oq)
 list(TRANSFORM _cos_profile_slice_names PREPEND "${COS_ROOT}/src/d/actor/"
         OUTPUT_VARIABLE COS_VITA_PROFILE_SLICE_UNITS)
 list(TRANSFORM COS_VITA_PROFILE_SLICE_UNITS APPEND ".cpp")
