@@ -1,0 +1,15 @@
+--- a/absl/debugging/internal/elf_mem_image.h
++++ b/absl/debugging/internal/elf_mem_image.h
+@@ -35,7 +35,11 @@
+ #if defined(__ELF__) && !defined(__OpenBSD__) && !defined(__QNX__) && \
+     !defined(__native_client__) && !defined(__asmjs__) &&             \
+     !defined(__wasm__) && !defined(__HAIKU__) && !defined(__sun) &&   \
+-    !defined(__VXWORKS__) && !defined(__hexagon__)
++    !defined(__VXWORKS__) && !defined(__hexagon__) &&                 \
++    !defined(__NEWLIB__)
++// Newlib (the Vita's libc) has no <link.h>/ElfW and no VDSO: the in-memory ELF support compiles
++// out (vdso_support.h keys off ABSL_HAVE_ELF_MEM_IMAGE too). See
++// native/patches/abseil/0002-newlib-no-elf-mem-image.patch.
+ #define ABSL_HAVE_ELF_MEM_IMAGE 1
+ #endif
+ 

@@ -1,0 +1,12 @@
+--- a/lib/window.cpp
++++ b/lib/window.cpp
+@@ -33,7 +33,9 @@
+ #include <string>
+ #include <vector>
+ 
++#ifdef AURORA_ENABLE_RMLUI
+ #include "rmlui.hpp"
++#endif
+ #include "time_internal.hpp"
+ #include "dolphin/vi/vi_internal.hpp"
+ 

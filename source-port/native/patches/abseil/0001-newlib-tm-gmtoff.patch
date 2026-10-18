@@ -1,0 +1,15 @@
+--- a/absl/time/internal/cctz/src/time_zone_libc.cc
++++ b/absl/time/internal/cctz/src/time_zone_libc.cc
+@@ -81,6 +81,12 @@
+   const bool is_dst = tm.tm_isdst > 0;
+   return tzname[is_dst];
+ }
++#elif defined(__NEWLIB__) || defined(_NEWLIB_VERSION)
++// Newlib's struct tm has neither tm_gmtoff nor tm_zone (the Vita's libc). These accessors are
++// only reached through absl::time, which this port does not use: the offset is 0 and the zone
++// name empty. See native/patches/abseil/0001-newlib-tm-gmtoff.patch.
++auto tm_gmtoff(const std::tm&) -> long { return 0; }
++auto tm_zone(const std::tm&) -> const char* { return nullptr; }
+ #else
+ // Adapt to different spellings of the struct std::tm extension fields.
+ #if defined(tm_gmtoff)
