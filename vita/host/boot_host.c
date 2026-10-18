@@ -1097,6 +1097,24 @@ bool ww_host_idle_poll_ready(WwHost* host) {
 
 bool ww_host_edge(void* user, CPUState* cpu, u32 address) {
     WwHost* host = user;
+    if (address == 0x802CD580u) {
+        static bool lr_slot_probe_done = false;
+        if (!lr_slot_probe_done) {
+            lr_slot_probe_done = true;
+            const u32 slot_ea = cpu->gpr[1] + 84u;
+            if (fprintf(stderr,
+                        "[lr-slot-probe] host=%p cycles=%p interrupts=%p cycles_off=%u interrupts_off=%u sizeof=%u pc=%08X gpr1=%08X slot_ea=%08X slot=%08X lr=%08X r0=%08X\n",
+                        (void*)host, (void*)&host->cycles, (void*)&host->interrupts,
+                        (unsigned)((const char*)&host->cycles - (const char*)host),
+                        (unsigned)((const char*)&host->interrupts - (const char*)host),
+                        (unsigned)sizeof(WwHost), cpu->pc, cpu->gpr[1], slot_ea,
+                        mem_read32(cpu, slot_ea), cpu->lr, cpu->gpr[0]) < 0) {
+                ww_host_fail(host, "lr slot probe write failed", address, cpu->pc);
+                host->edge_stopped = true;
+                return true;
+            }
+        }
+    }
     host->edges++;
     if (host->dispatch_trace_remaining != 0u) {
         --host->dispatch_trace_remaining;
