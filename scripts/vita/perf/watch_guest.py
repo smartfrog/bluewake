@@ -1,0 +1,180 @@
+#!/usr/bin/env python3
+"""Watch one perf guest: sample CPU, stop a faulted or hung run, keep the log.
+
+Usage: watch_guest.py RUNDIR
+
+RUNDIR holds `guest.pid` and the guest log under `profile/`. The watcher appends
+`cpu-samples.jsonl`, stops the guest on the first fault line (see
+`scripts/vita/watch_faults.py`) or on a hang, and writes `live-end.txt` with the
+reason and the matched line. It never deletes or truncates the guest log.
+"""
+
+import argparse
+import json
+import os
+import signal
+import sys
+import time
+from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+
+from watch_faults import fault_match  # noqa: E402
+
+GUEST_LOG = 'profile/data/Vita3K/Vita3K/ux0/data/bluewake-ww-fixture/ww05.log'
+PRESENT = '[frame-present]'
+SAMPLE_SECONDS = 0.5
+DEADLINE_SECONDS = 240
+HANG_SECONDS = 30
+IDLE_CPU = 0.05
+BUSY_CPU = 0.5
+TERM_GRACE_SECONDS = 1.0
+CLOCK_TICKS = os.sysconf('SC_CLK_TCK')
+
+
+def stat(pid):
+    try:
+        raw = Path(f'/proc/{pid}/stat').read_text()
+    except OSError:
+        return None
+    fields = raw.rsplit(')', 1)[1].split()
+    return {'state': fields[0], 'ticks': int(fields[11]) + int(fields[12]),
+            'rss_pages': int(fields[21]), 'threads': int(fields[17])}
+
+
+def alive(pid):
+    current = stat(pid)
+    return current is not None and current['state'] != 'Z'
+
+
+def stop_guest(pid, grace=TERM_GRACE_SECONDS):
+    """SIGTERM the guest, then SIGKILL it if it is still there after `grace`."""
+    try:
+        os.kill(pid, signal.SIGTERM)
+    except ProcessLookupError:
+        return
+    deadline = time.monotonic() + grace
+    while time.monotonic() < deadline:
+        if not alive(pid):
+            return
+        time.sleep(0.05)
+    try:
+        os.kill(pid, signal.SIGKILL)
+    except ProcessLookupError:
+        pass
+
+
+def read_new(path, offset, pending=''):
+    """Return the complete new lines since `offset`, the new offset and the tail."""
+    if not path.exists():
+        return [], offset, pending
+    with path.open('rb') as stream:
+        stream.seek(offset)
+        raw = stream.read()
+    complete, _, pending = (pending + raw.decode(errors='replace')).rpartition('\n')
+    return complete.splitlines(), offset + len(raw), pending
+
+
+def has_present(lines):
+    return any(PRESENT in line for line in lines)
+
+
+def verdict(cpu, silent_s, idle_s, since_present_s):
+    """Name the hang the samples show, or None while the guest is healthy."""
+    if cpu is None:
+        return None
+    if cpu > BUSY_CPU and since_present_s > HANG_SECONDS:
+        return 'hung-no-present'
+    if cpu < IDLE_CPU and silent_s > HANG_SECONDS and idle_s > HANG_SECONDS:
+        return 'hung-low-cpu-silent'
+    return None
+
+
+def write_end(root, reason, detail=None):
+    path = root / 'live-end.txt'
+    text = f'reason={reason}\n'
+    if detail:
+        text += f'detail={detail.strip()}\n'
+    path.write_text(text)
+    return path
+
+
+def wait_guest(pidfile, deadline):
+    while time.monotonic() < deadline:
+        try:
+            return int(pidfile.read_text().strip())
+        except (OSError, ValueError):
+            time.sleep(SAMPLE_SECONDS)
+    return None
+
+
+def watch(root, deadline_seconds=DEADLINE_SECONDS):
+    log = root / GUEST_LOG
+    started = time.monotonic()
+    deadline = started + deadline_seconds
+    pid = wait_guest(root / 'guest.pid', deadline)
+    if pid is None:
+        write_end(root, 'no-guest')
+        return 1
+    samples = (root / 'cpu-samples.jsonl').open('a', buffering=1)
+    offset, pending = 0, ''
+    previous, last_size = None, 0
+    last_growth, idle_since, last_present = started, None, started
+    reason, detail = 'exited', None
+    try:
+        while time.monotonic() < deadline:
+            current = stat(pid)
+            if current is None:
+                break
+            now = time.monotonic()
+            lines, offset, pending = read_new(log, offset, pending)
+            size = log.stat().st_size if log.exists() else 0
+            if size != last_size:
+                last_size, last_growth = size, now
+            if has_present(lines):
+                last_present = now
+            match = fault_match(lines + ([pending] if pending else []))
+            if match is not None:
+                reason, detail = 'guest-fault', match
+                stop_guest(pid)
+                break
+            cpu = None if previous is None else (
+                (current['ticks'] - previous[1]) / CLOCK_TICKS / (now - previous[0]))
+            previous = (now, current['ticks'])
+            if cpu is not None and cpu < IDLE_CPU:
+                idle_since = idle_since if idle_since is not None else now
+            else:
+                idle_since = None
+            silent_s, idle_s = now - last_growth, now - (idle_since or now)
+            since_present_s = now - last_present
+            samples.write(json.dumps({
+                't': round(now, 3), 'pid': pid,
+                'cpu_fraction': None if cpu is None else round(cpu, 4),
+                'rss_mb': round(current['rss_pages'] * 4096 / 2**20, 1),
+                'threads': current['threads'], 'log_bytes': size,
+                'log_silent_s': round(silent_s, 1),
+                'since_present_s': round(since_present_s, 1)}) + '\n')
+            hang = verdict(cpu, silent_s, idle_s, since_present_s)
+            if hang is not None:
+                reason = hang
+                detail = (f'cpu={cpu:.2f} silent_s={silent_s:.1f} '
+                          f'since_present_s={since_present_s:.1f}')
+                stop_guest(pid)
+                break
+            time.sleep(SAMPLE_SECONDS)
+        else:
+            reason = 'ceiling'
+    finally:
+        samples.close()
+        write_end(root, reason, detail)
+    return 0
+
+
+def main():
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument('run', type=Path, help='perf run directory holding guest.pid and profile/')
+    return watch(parser.parse_args().run)
+
+
+if __name__ == '__main__':
+    raise SystemExit(main())

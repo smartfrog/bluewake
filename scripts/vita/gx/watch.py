@@ -5,10 +5,15 @@ import os
 from pathlib import Path
 import signal
 import subprocess
+import sys
 import time
 import zipfile
 
 import launch
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+
+from watch_faults import fault_match  # noqa: E402
 
 
 def descendants(parent):
@@ -70,8 +75,8 @@ def run_phase(root, stack, name, arguments, timeout, wayland_socket):
             with log.open('rb') as recent_log:
                 recent_log.seek(max(0, log.stat().st_size - 65536))
                 recent = recent_log.read().decode(errors='replace')
-            if 'PC is 0x0' in recent or '|E| [MemoryWrite]: Invalid write' in recent:
-                reason = 'emulator-memory-fault'
+            if fault_match(recent) is not None:
+                reason = 'guest-fault'
                 status = stop(process)
                 break
             if report.exists() and 'demo done' in report.read_text(errors='replace'):
