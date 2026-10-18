@@ -1488,6 +1488,7 @@ int ww_host_dispatch(WwHost* host, u32 address) {
     const int result = ww_abi_gate(&host->cpu, linked, (void*)host->module->dispatch);
 #if WW05_SP_BALANCE
     ww_sp_balance_observe(linked, sp_in, cpu->gpr[1], cpu->ram, cpu->ram_size);
+    ww_sp_balance_band_observe(linked, sp_in, cpu->gpr[1], cpu->lr, cpu->ram, cpu->ram_size);
 #endif
     if (ww_abi_state == 2u || ww_abi_state == 4u) {
         ww_host_fail(host, ww_abi_stop_reason(ww_abi_dump.failure, ww_abi_dump.io_error), address, cpu->pc);
@@ -1498,6 +1499,7 @@ int ww_host_dispatch(WwHost* host, u32 address) {
     const int result = host->module->dispatch(&host->cpu, linked);
 #if WW05_SP_BALANCE
     ww_sp_balance_observe(linked, sp_in, cpu->gpr[1], cpu->ram, cpu->ram_size);
+    ww_sp_balance_band_observe(linked, sp_in, cpu->gpr[1], cpu->lr, cpu->ram, cpu->ram_size);
 #endif
     return result;
 #endif

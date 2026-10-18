@@ -51,6 +51,19 @@ static void mem1_window_address_is_recognised(void) {
     assert(!ww_sp_balance_mem1(0x8040CF78u));
 }
 
+static void crash_band_address_is_recognised(void) {
+    assert(ww_sp_balance_band(0x80170C80u));
+    assert(!ww_sp_balance_band(0x80170BFFu));
+    assert(!ww_sp_balance_band(0x80170D00u));
+}
+
+static void band_line_names_block_stack_and_link_register(void) {
+    char line[WW_SP_BALANCE_LINE_BYTES];
+    assert(ww_sp_balance_format_band(line, sizeof(line), 0x8015EA5Cu, 0x80170C80u,
+                                     0x80170C78u, 0xCCCCCCCCu) > 0);
+    assert(strcmp(line, "[sp-band] pc=8015EA5C sp_in=80170C80 sp_out=80170C78 lr=CCCCCCCC") == 0);
+}
+
 int main(void) {
     matching_stack_pointer_is_not_a_mismatch();
     restored_stack_pointer_difference_is_a_mismatch();
@@ -59,5 +72,7 @@ int main(void) {
     window_line_names_span_and_words();
     window_line_holds_sixteen_words();
     mem1_window_address_is_recognised();
+    crash_band_address_is_recognised();
+    band_line_names_block_stack_and_link_register();
     return 0;
 }

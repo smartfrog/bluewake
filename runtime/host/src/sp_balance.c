@@ -16,6 +16,20 @@ bool ww_sp_balance_mem1(uint32_t sp) {
     return sp >= GC_RAM_BASE && sp < WW_SP_BALANCE_MEM1_LIMIT;
 }
 
+bool ww_sp_balance_band(uint32_t sp) {
+    return sp >= WW_SP_BALANCE_BAND_BASE && sp < WW_SP_BALANCE_BAND_LIMIT;
+}
+
+int ww_sp_balance_format_band(char* out, size_t size, uint32_t pc, uint32_t sp_in,
+                              uint32_t sp_out, uint32_t lr) {
+    if (out == NULL || size == 0u)
+        return -1;
+    const int written = snprintf(out, size,
+                                 "[sp-band] pc=%08X sp_in=%08X sp_out=%08X lr=%08X",
+                                 pc, sp_in, sp_out, lr);
+    return written < 0 || (size_t)written >= size ? -1 : written;
+}
+
 int ww_sp_balance_format_record(char* out, size_t size, const WwSpBalanceRecord* record) {
     if (out == NULL || size == 0u || record == NULL)
         return -1;
@@ -99,4 +113,25 @@ void ww_sp_balance_observe(uint32_t pc, uint32_t sp_in, uint32_t sp_out,
 
 uint64_t ww_sp_balance_mismatches(void) {
     return mismatch_count;
+}
+
+void ww_sp_balance_band_observe(uint32_t pc, uint32_t sp_in, uint32_t sp_out, uint32_t lr,
+                                const uint8_t* ram, uint32_t ram_size) {
+    if (!ww_sp_balance_band(sp_in) && !ww_sp_balance_band(sp_out))
+        return;
+    static uint32_t seen[WW_SP_BALANCE_BAND_PCS];
+    static uint32_t seen_count;
+    for (uint32_t index = 0u; index < seen_count; ++index) {
+        if (seen[index] == pc)
+            return;
+    }
+    if (seen_count == WW_SP_BALANCE_BAND_PCS)
+        return;
+    seen[seen_count++] = pc;
+    char line[WW_SP_BALANCE_LINE_BYTES];
+    if (ww_sp_balance_format_band(line, sizeof(line), pc, sp_in, sp_out, lr) > 0)
+        (void)fprintf(stderr, "%s\n", line);
+    dump_window(sp_out, ram, ram_size);
+    if (sp_in != sp_out)
+        dump_window(sp_in, ram, ram_size);
 }
