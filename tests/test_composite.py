@@ -1094,6 +1094,91 @@ def test_scoped_global_ctx_transform_touches_only_selected_chunks():
         assert rejected.returncode != 0 and 'no generated.h include' in rejected.stderr
 
 
+def test_global_ctx_dol_scope_rewrites_every_dol_chunk():
+    """Trial #26 faulted in chunk_0173 (host PC 0x94150000, inside
+    0x940D9932..0x9416FDE6), a DOL block that the three-chunk scope did not
+    cover. The DOL scope must rewrite every DOL chunk, including 0173, and
+    leave every REL chunk byte-identical, repeatably.
+    """
+    chunk_body = (
+        '// DolRecomp output\n'
+        '#include "../generated.h"\n'
+        '\n'
+        'static void loop_%s(CPUState* ctx) {\n'
+        '    ctx->gpr[4] = 0x1111u;\n'
+        '}\n'
+        '\n'
+        'void func_%s(CPUState* ctx) {\n'
+        '    loop_%s(ctx);\n'
+        '    ctx->gpr[5] = 0x2222u;\n'
+        '}\n')
+    script = SCRIPTS_DIR.parent / 'scripts/windows/global_guest_cpu_scope.py'
+    with tempfile.TemporaryDirectory() as td:
+        root = Path(td) / 'composite'
+        (root / 'chunks_dol').mkdir(parents=True)
+        (root / 'chunks_d_a_title_400').mkdir()
+        (root / 'generated.h').write_text('/* synthetic */\n')
+        dol = {
+            'chunk_0040_text1_800A16E0.c': '800A16E0',
+            'chunk_0173_text1_802B56E0.c': '802B56E0',
+            'chunk_0175_text1_802BD6E0.c': '802BD6E0',
+        }
+        rel = {
+            'chunk_0000_rel1_C1E000DC.c': 'C1E000DC',
+            'chunk_0001_rel1_C1E040DC.c': 'C1E040DC',
+        }
+        for name, address in dol.items():
+            (root / 'chunks_dol' / name).write_text(chunk_body % (address, address, address))
+        for name, address in rel.items():
+            (root / 'chunks_d_a_title_400' / name).write_text(
+                chunk_body % (address, address, address))
+        untouched = {name: (root / 'chunks_d_a_title_400' / name).read_bytes()
+                     for name in rel}
+        command = [sys.executable, str(script), str(root), '--dol']
+        first = subprocess.run(command, check=True, capture_output=True, text=True)
+        assert '3 of 3 selected chunks rewritten' in first.stdout
+        for name in dol:
+            text = (root / 'chunks_dol' / name).read_text()
+            assert '#define ctx (&bw_guest_cpu)' in text
+            assert '#define bw_guest_cpu (*bw_guest_cpu_ptr)' in text
+            assert 'void func_' in text and '(CPUState* ctx_param)' in text
+            assert 'bw_guest_global_ctx_entry(ctx_param);' in text
+        for name, original in untouched.items():
+            assert (root / 'chunks_d_a_title_400' / name).read_bytes() == original
+        second = subprocess.run(command, check=True, capture_output=True, text=True)
+        assert '0 of 3 selected chunks rewritten' in second.stdout
+        check = subprocess.run(command + ['--check'], check=True, capture_output=True, text=True)
+        assert '0 of 3 selected chunks need the transform' in check.stdout
+
+
+def test_global_ctx_dol_scope_rejects_unprepared_chunk_without_writing():
+    """A DOL scope over a tree with one unprepared chunk must stop before it
+    rewrites any file: a half-transformed composite is not a runnable one."""
+    chunk_body = (
+        '// DolRecomp output\n'
+        '#include "../generated.h"\n'
+        'void func_%s(CPUState* ctx) {\n'
+        '    ctx->gpr[4] = 0x1111u;\n'
+        '}\n')
+    script = SCRIPTS_DIR.parent / 'scripts/windows/global_guest_cpu_scope.py'
+    with tempfile.TemporaryDirectory() as td:
+        root = Path(td) / 'composite'
+        (root / 'chunks_dol').mkdir(parents=True)
+        (root / 'generated.h').write_text('/* synthetic */\n')
+        good = ['chunk_0040_text1_800A16E0.c', 'chunk_0041_text1_800A56E0.c']
+        for index, name in enumerate(good):
+            (root / 'chunks_dol' / name).write_text(chunk_body % f'800A{index}6E0')
+        bad = root / 'chunks_dol' / 'chunk_0173_text1_802B56E0.c'
+        bad.write_text('int not_a_chunk;\n')
+        before = {path: path.read_bytes() for path in (root / 'chunks_dol').glob('*.c')}
+        rejected = subprocess.run([sys.executable, str(script), str(root), '--dol'],
+                                  check=False, capture_output=True, text=True)
+        assert rejected.returncode != 0
+        assert 'no generated.h include' in rejected.stderr
+        for path, original in before.items():
+            assert path.read_bytes() == original
+
+
 def test_scoped_global_ctx_chunk_uses_the_adopted_state():
     """A synthetic transformed chunk called with trial #24/#25's bogus pointer
     (0x800A29C4, a guest stack address) writes through the adopted CPU, and the
@@ -1296,6 +1381,8 @@ def main():
         test_generated_contract_compiles_with_existing_export_abi,
         test_dispatch_runs_a_foreign_cpu_on_the_adopted_state,
         test_scoped_global_ctx_transform_touches_only_selected_chunks,
+        test_global_ctx_dol_scope_rewrites_every_dol_chunk,
+        test_global_ctx_dol_scope_rejects_unprepared_chunk_without_writing,
         test_scoped_global_ctx_chunk_uses_the_adopted_state,
         test_ship_identity_uses_disc_member_not_processed_member,
         test_ship_sources_reject_differences_outside_alignment_word,

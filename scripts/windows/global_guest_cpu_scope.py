@@ -2,6 +2,7 @@
 """Point selected translated chunks at the guest CPU the host adopted.
 
   global_guest_cpu_scope.py COMPOSITE_SRC --chunk 0040 [--chunk 0145 ...] [--check]
+  global_guest_cpu_scope.py COMPOSITE_SRC --dol [--check]
 
 scripts/windows/global_guest_cpu.py rewrites every chunk for the Windows
 fixed-CPU module, whose guest CPU is a by-value object at a fixed address. Trial
@@ -9,18 +10,27 @@ fixed-CPU module, whose guest CPU is a by-value object at a fixed address. Trial
 preparation: the dispatcher-level canon emitted nothing, and the first fault
 was still PC 0, so the block's own ctx (host r4) was clobbered inside the block.
 
-This scoped form rewrites only the chunk files named on the command line. Each
-function takes the guest CPU state as `CPUState* ctx` and reaches every register
-through it; the transform renames the parameter to `ctx_param` and defines
-`ctx` as the fixed slot the host adopts (`bw_guest_cpu`), so a clobbered r4
-cannot move the body to a guest address. `bw_guest_global_ctx_entry(ctx_param)`
-runs first and fails closed if the adopted slot is not the RAM guard's CPU; an
-entry pointer that differs from the adopted state is the inside-block
-corruption being survived, so it is counted and reported, not followed.
+Trial #26 faulted in DOL chunk_0173 (host PC 0x94150000, inside its linked
+range 0x940D9932..0x9416FDE6) after the normal title path had presented 297
+frames, so the three-chunk scope was not enough. `--dol` rewrites every DOL
+chunk and leaves the REL chunks byte-identical: the DOL text is the game's own
+code and this path does not leave it, and an unscoped DOL block is the failure
+being fixed.
 
-The change is repeatable and keeps LF line ends. The marker is the CMake
-verification line (cmake/composite/CMakeLists.txt, BLUEWAKE_GLOBAL_CTX), so a
-tree prepared by the module-wide script is rejected rather than half-converted.
+Each function takes the guest CPU state as `CPUState* ctx` and reaches every
+register through it; the transform renames the parameter to `ctx_param` and
+defines `ctx` as the fixed slot the host adopts (`bw_guest_cpu`), so a clobbered
+r4 cannot move the body to a guest address.
+`bw_guest_global_ctx_entry(ctx_param)` runs first and fails closed if the
+adopted slot is not the RAM guard's CPU; an entry pointer that differs from the
+adopted state is the inside-block corruption being survived, so it is counted
+and reported, not followed.
+
+The change is repeatable and keeps LF line ends. A selection is converted in
+memory first and written only when every selected chunk is prepared, so a bad
+chunk leaves the tree untouched. The marker is the CMake verification line
+(cmake/composite/CMakeLists.txt, BLUEWAKE_GLOBAL_CTX), so a tree prepared by
+the module-wide script is rejected rather than half-converted.
 """
 import argparse
 import re
@@ -56,49 +66,61 @@ def transform(text, path):
     return text.replace(INCLUDE, INCLUDE + DEFINE, 1)
 
 
-def select(root, names):
+def select(root, names, dol):
     chunks = sorted(root.glob("chunks_*/*.c"))
     if not chunks:
         sys.exit(f"no chunks under {root}")
+    selected = []
+    if dol:
+        dol_chunks = sorted((root / "chunks_dol").glob("*.c"))
+        if not dol_chunks:
+            sys.exit(f"no DOL chunks under {root}")
+        selected.extend(dol_chunks)
     selectors = [name if name.startswith("chunk_") else f"chunk_{name}" for name in names]
-    selected = [path for path in chunks
-                if any(selector in path.name for selector in selectors)]
+    selected.extend(path for path in chunks
+                    if any(selector in path.name for selector in selectors))
     missing = [selector for selector in selectors
                if not any(selector in path.name for path in chunks)]
     if missing:
         sys.exit(f"no chunk matches: {', '.join(missing)}")
-    return selected
+    return list(dict.fromkeys(selected))
 
 
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("composite")
-    parser.add_argument("--chunk", action="append", required=True,
+    parser.add_argument("--chunk", action="append", default=[],
                         help="chunk number (0040) or file prefix (chunk_0040); repeatable")
+    parser.add_argument("--dol", action="store_true",
+                        help="rewrite every DOL chunk, including the trial #26 high block")
     parser.add_argument("--check", action="store_true",
                         help="report unprepared selected chunks and do not write")
     args = parser.parse_args()
+    if not args.chunk and not args.dol:
+        parser.error("select chunks with --chunk or --dol")
     root = Path(args.composite)
-    selected = select(root, args.chunk)
-    changed = 0
+    selected = select(root, args.chunk, args.dol)
+    changed = []
     for path in selected:
         with open(path, encoding="utf-8", newline="") as file:
             original = file.read()
-        converted = transform(original, path)
-        if converted == original:
-            continue
-        changed += 1
-        if args.check:
+        try:
+            converted = transform(original, path)
+        except ValueError as error:
+            sys.exit(str(error))
+        if converted != original:
+            changed.append((path, converted))
+    if args.check:
+        for path, _ in changed:
             print(f"needs global ctx: {path}")
-            continue
+        print(f"global ctx: {len(changed)} of {len(selected)} selected chunks need the transform")
+        return 1 if changed else 0
+    for path, converted in changed:
         temporary = path.with_suffix(".c.tmp")
         with open(temporary, "w", encoding="utf-8", newline="") as file:
             file.write(converted)
         temporary.replace(path)
-    if args.check:
-        print(f"global ctx: {changed} of {len(selected)} selected chunks need the transform")
-        return 1 if changed else 0
-    print(f"global ctx: {changed} of {len(selected)} selected chunks rewritten")
+    print(f"global ctx: {len(changed)} of {len(selected)} selected chunks rewritten")
     return 0
 
 
