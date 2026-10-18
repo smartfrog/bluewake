@@ -4,10 +4,11 @@
 // Vita source build has none of them (AURORA_ENABLE_DVD=OFF). M0 needs less than the harness, so
 // this main brings up only what the check and its milestone line read:
 //
-// 1. Aurora's OS: OSInit, with the game's memory map (MEM1 256 MiB, ARAM 16 MiB, decision H5) set
-//    on AuroraConfig as native/sdk/tests/sdk_devices.cpp does. OSInit does not depend on
-//    aurora_initialize, and this path does not call it: the AURORA_ENABLE_GX=OFF Vita build has no
-//    renderer or window, and M0 needs neither.
+// 1. Aurora's OS: OSInit, with a 24 MiB MEM1 arena and 16 MiB ARAM set on AuroraConfig, as
+//    native/sdk/tests/sdk_devices.cpp does. The VitaSDK newlib heap is 128 MiB by default, so the
+//    PC harness's 256 MiB MEM1 calloc fails here and leaves no arena; staticInitCheck needs only
+//    an arena. OSInit does not depend on aurora_initialize, and this path does not call it: the
+//    AURORA_ENABLE_GX=OFF Vita build has no renderer or window, and M0 needs neither.
 // 2. VI: VIInit and one VIWaitForRetrace (cos_sdk's VI), so VIGetRetraceCount - the one VI value
 //    pc_milestone.cpp reads - is up.
 // 3. pc::staticInitCheck, the M0 check split out of pc_smoke.cpp by the previous commit.
@@ -44,8 +45,10 @@ extern AuroraConfig g_config;
 
 namespace {
 
-constexpr uint32_t kMem1Size = 256u * 1024 * 1024; // decision H5, as pc_aurora_init
-constexpr uint32_t kMem2Size = 16u * 1024 * 1024;  // ARAM, as pc_aurora_init
+// The Vita boot only needs an arena, not the PC game's 256 MiB MEM1: a 256 MiB calloc exceeds the
+// VitaSDK newlib heap (128 MiB by default) and OSInit then leaves OSGetArenaLo() null.
+constexpr uint32_t kMem1Size = 24u * 1024 * 1024;
+constexpr uint32_t kMem2Size = 16u * 1024 * 1024; // ARAM
 
 int fail(const char* what) {
     std::fprintf(stderr, "[cos] vita-boot: FAIL %s\n", what);
