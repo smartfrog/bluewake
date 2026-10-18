@@ -124,14 +124,23 @@ def program_cache_configure_option(enabled):
     return ['-DWW_PROGRAM_CACHE=ON'] if enabled else []
 
 
+def rejection_capsule_configure_option(enabled):
+    return [f'-DWW05_REJECTION_CAPSULE={"ON" if enabled else "OFF"}']
+
+
 def skip_title_logo_configure_option(enabled):
     return [f'-DWW_SKIP_TITLE_LOGO={"ON" if enabled else "OFF"}']
+
+
+def experimental_configure_options():
+    return ['-DWW05_DISPATCH_ABI_SENTINEL=OFF', '-DWW05_OBSERVE_NATIVE_CTX=OFF',
+            '-DWW05_QUIET_LOGGING=OFF', '-DWW05_GLOBAL_CTX=OFF']
 
 
 def vita_configure_arguments(cmake, ninja, source, output, toolchain, recompcore, composite, identity, dol,
                              vitagl, renderer_sdk, opt_level, vi_clock, pad_input, dst_alpha_admit,
                              edge_observation_admit, idle_deadline_advance, turn_cap, program_cache,
-                             skip_title_logo):
+                             rejection_capsule, skip_title_logo):
     return [
         cmake, '-S', source, '-B', output, '-G', 'Ninja',
         f'-DCMAKE_TOOLCHAIN_FILE={toolchain}',
@@ -147,7 +156,9 @@ def vita_configure_arguments(cmake, ninja, source, output, toolchain, recompcore
         *idle_deadline_advance_configure_option(idle_deadline_advance),
         *turn_cap_configure_option(turn_cap),
         *program_cache_configure_option(program_cache),
+        *rejection_capsule_configure_option(rejection_capsule),
         *skip_title_logo_configure_option(skip_title_logo),
+        *experimental_configure_options(),
     ]
 
 
@@ -156,18 +167,21 @@ def build_parser():
     parser.add_argument('--disc', type=Path, required=True)
     parser.add_argument('--out', type=Path, default=OUTPUT)
     parser.add_argument('--prepare-only', action='store_true')
-    parser.add_argument('--vi-clock', action='store_true', help='enable the experimental guest-cycle VI clock (off by default)')
+    parser.add_argument('--vi-clock', action=argparse.BooleanOptionalAction, default=True,
+                        help='guest-cycle VI clock (on by default; --no-vi-clock disables it)')
     parser.add_argument('--pad-input', action='store_true', help='enable experimental Vita controls through guest SI (off by default)')
-    parser.add_argument('--dst-alpha-admit', action='store_true',
-                        help='admit the non-conflict destination-alpha mono-pass (off by default)')
-    parser.add_argument('--edge-observation-admit', action='store_true',
-                        help='admit the module-owned GroundCross caller-return observation edge (off by default)')
-    parser.add_argument('--idle-deadline-advance', action='store_true',
-                        help='let a recognised scheduler-idle turn run to the next device deadline (needs --vi-clock; off by default)')
-    parser.add_argument('--turn-cap', type=int, default=0,
-                        help='cap scheduler turns per host frame (zero keeps the package default)')
-    parser.add_argument('--program-cache', action='store_true',
-                        help='enable the translated-program cache (off by default)')
+    parser.add_argument('--dst-alpha-admit', action=argparse.BooleanOptionalAction, default=True,
+                        help='admit the non-conflict destination-alpha mono-pass (on by default)')
+    parser.add_argument('--edge-observation-admit', action=argparse.BooleanOptionalAction, default=True,
+                        help='admit the module-owned GroundCross caller-return observation edge (on by default)')
+    parser.add_argument('--idle-deadline-advance', action=argparse.BooleanOptionalAction, default=True,
+                        help='let a recognised scheduler-idle turn run to the next device deadline (needs the VI clock; on by default)')
+    parser.add_argument('--turn-cap', type=int, default=4096,
+                        help='cap scheduler turns per host frame (default 4096; zero keeps the CMake default)')
+    parser.add_argument('--program-cache', action=argparse.BooleanOptionalAction, default=True,
+                        help='translated-program cache (on by default)')
+    parser.add_argument('--rejection-capsule', action=argparse.BooleanOptionalAction, default=True,
+                        help='bounded admission-rejection capsule (on by default)')
     parser.add_argument('--skip-title-logo', action='store_true',
                         help='diagnostic: open the file-select menu instead of the title logo and movie (off by default)')
     parser.add_argument('--jobs', type=int, default=2)
@@ -203,6 +217,9 @@ def evidence_config(args):
             'edge_observation_admit': args.edge_observation_admit,
             'idle_deadline_advance': args.idle_deadline_advance,
             'turn_cap': args.turn_cap, 'program_cache': args.program_cache,
+            'rejection_capsule': args.rejection_capsule,
+            'dispatch_abi_sentinel': False, 'observe_native_ctx': False,
+            'quiet_logging': False, 'global_ctx': False,
             'skip_title_logo': args.skip_title_logo}
 
 
@@ -291,7 +308,8 @@ def main():
         cmake, ninja, ROOT / 'vita/host', vita, f'{STACK}/vitasdk/share/vita.toolchain.cmake',
         sources['RecompCore'], composite, identity, f'{private}/main.dol', vitagl, renderer_sdk,
         args.opt_level, args.vi_clock, args.pad_input, args.dst_alpha_admit, args.edge_observation_admit,
-        args.idle_deadline_advance, args.turn_cap, args.program_cache, args.skip_title_logo))
+        args.idle_deadline_advance, args.turn_cap, args.program_cache, args.rejection_capsule,
+        args.skip_title_logo))
     build.run('vita-build', [cmake, '--build', vita, '-j', args.jobs])
     from inspect_build import inspect
     inspect(vita)

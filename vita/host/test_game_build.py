@@ -85,16 +85,19 @@ class EdgeObservationAdmitOptionTest(unittest.TestCase):
                 '-DWW05_MODULE_OPT_LEVEL=1', '-DWW05_ENABLE_VI_CLOCK=OFF',
                 '-DWW05_ENABLE_PAD_INPUT=OFF']
 
+        experimental = ['-DWW05_DISPATCH_ABI_SENTINEL=OFF', '-DWW05_OBSERVE_NATIVE_CTX=OFF',
+                        '-DWW05_QUIET_LOGGING=OFF', '-DWW05_GLOBAL_CTX=OFF']
+
         def arguments(enabled, idle=False, skip_title_logo=False):
             return [str(value) for value in module.vita_configure_arguments(
                 'cmake', 'ninja', 'source', 'output', 'toolchain', 'recompcore', 'composite',
                 'identity', 'dol', 'vitagl', 'sdk', '1', False, False, False, enabled, idle,
-                0, False, skip_title_logo)]
+                0, False, False, skip_title_logo)]
 
         expected = {'ON': ['-DWW_EDGE_OBSERVATION_ADMIT=ON', '-DWW_IDLE_DEADLINE_ADVANCE=OFF',
-                           '-DWW_SKIP_TITLE_LOGO=OFF'],
+                           '-DWW05_REJECTION_CAPSULE=OFF', '-DWW_SKIP_TITLE_LOGO=OFF', *experimental],
                     'OFF': ['-DWW_EDGE_OBSERVATION_ADMIT=OFF', '-DWW_IDLE_DEADLINE_ADVANCE=OFF',
-                            '-DWW_SKIP_TITLE_LOGO=OFF']}
+                            '-DWW05_REJECTION_CAPSULE=OFF', '-DWW_SKIP_TITLE_LOGO=OFF', *experimental]}
         for state, option in expected.items():
             with self.subTest(state=state):
                 self.assertEqual(arguments(state == 'ON'), base + option)
@@ -103,7 +106,7 @@ class EdgeObservationAdmitOptionTest(unittest.TestCase):
         module = load_module()
         arguments = [str(value) for value in module.vita_configure_arguments(
             'cmake', 'ninja', 'source', 'output', 'toolchain', 'recompcore', 'composite',
-            'identity', 'dol', 'vitagl', 'sdk', '1', True, False, True, True, True, 8, True, False)]
+            'identity', 'dol', 'vitagl', 'sdk', '1', True, False, True, True, True, 8, True, True, False)]
         self.assertEqual(arguments, [
             'cmake', '-S', 'source', '-B', 'output', '-G', 'Ninja',
             '-DCMAKE_TOOLCHAIN_FILE=toolchain', '-DCMAKE_MAKE_PROGRAM=ninja',
@@ -113,7 +116,9 @@ class EdgeObservationAdmitOptionTest(unittest.TestCase):
             '-DWW05_MODULE_OPT_LEVEL=1', '-DWW05_ENABLE_VI_CLOCK=ON',
             '-DWW05_ENABLE_PAD_INPUT=OFF', '-DWW_RENDERER_DST_ALPHA_ADMIT=ON',
             '-DWW_EDGE_OBSERVATION_ADMIT=ON', '-DWW_IDLE_DEADLINE_ADVANCE=ON',
-            '-DWW_TURN_CAP=8', '-DWW_PROGRAM_CACHE=ON', '-DWW_SKIP_TITLE_LOGO=OFF'])
+            '-DWW_TURN_CAP=8', '-DWW_PROGRAM_CACHE=ON', '-DWW05_REJECTION_CAPSULE=ON',
+            '-DWW_SKIP_TITLE_LOGO=OFF', '-DWW05_DISPATCH_ABI_SENTINEL=OFF',
+            '-DWW05_OBSERVE_NATIVE_CTX=OFF', '-DWW05_QUIET_LOGGING=OFF', '-DWW05_GLOBAL_CTX=OFF'])
 
 
 class TurnCapOptionTest(unittest.TestCase):
@@ -143,6 +148,44 @@ class ProgramCacheOptionTest(unittest.TestCase):
         self.assertEqual(module.program_cache_configure_option(False), [])
 
 
+class RejectionCapsuleOptionTest(unittest.TestCase):
+    def test_configure_option_is_always_explicit(self):
+        module = load_module()
+        self.assertEqual(module.rejection_capsule_configure_option(True),
+                         ['-DWW05_REJECTION_CAPSULE=ON'])
+        self.assertEqual(module.rejection_capsule_configure_option(False),
+                         ['-DWW05_REJECTION_CAPSULE=OFF'])
+
+
+class ParserDefaultsTest(unittest.TestCase):
+    def test_the_perf_profile_is_the_default(self):
+        module = load_module()
+        args = module.parse_arguments(['--disc', 'disc.iso'])
+        self.assertTrue(args.vi_clock)
+        self.assertTrue(args.dst_alpha_admit)
+        self.assertTrue(args.edge_observation_admit)
+        self.assertTrue(args.idle_deadline_advance)
+        self.assertTrue(args.program_cache)
+        self.assertTrue(args.rejection_capsule)
+        self.assertEqual(args.turn_cap, 4096)
+        self.assertFalse(args.skip_title_logo)
+        self.assertFalse(args.pad_input)
+
+    def test_each_perf_lever_can_be_disabled(self):
+        module = load_module()
+        args = module.parse_arguments([
+            '--disc', 'disc.iso', '--no-vi-clock', '--no-dst-alpha-admit',
+            '--no-edge-observation-admit', '--no-idle-deadline-advance',
+            '--no-program-cache', '--no-rejection-capsule', '--turn-cap', '0'])
+        self.assertFalse(args.vi_clock)
+        self.assertFalse(args.dst_alpha_admit)
+        self.assertFalse(args.edge_observation_admit)
+        self.assertFalse(args.idle_deadline_advance)
+        self.assertFalse(args.program_cache)
+        self.assertFalse(args.rejection_capsule)
+        self.assertEqual(args.turn_cap, 0)
+
+
 class BuildEvidenceConfigTest(unittest.TestCase):
     def test_config_records_the_perf_options(self):
         module = load_module()
@@ -154,17 +197,25 @@ class BuildEvidenceConfigTest(unittest.TestCase):
     def test_config_records_the_defaults(self):
         module = load_module()
         config = module.evidence_config(module.parse_arguments(['--disc', 'disc.iso']))
-        self.assertEqual(config['turn_cap'], 0)
-        self.assertFalse(config['program_cache'])
+        self.assertEqual(config['turn_cap'], 4096)
+        self.assertTrue(config['program_cache'])
+        self.assertTrue(config['vi_clock'])
+        self.assertTrue(config['dst_alpha_admit'])
+        self.assertTrue(config['edge_observation_admit'])
+        self.assertTrue(config['idle_deadline_advance'])
+        self.assertTrue(config['rejection_capsule'])
+        self.assertFalse(config['skip_title_logo'])
+        self.assertFalse(config['dispatch_abi_sentinel'])
+        self.assertFalse(config['observe_native_ctx'])
+        self.assertFalse(config['quiet_logging'])
+        self.assertFalse(config['global_ctx'])
 
     def test_vita_configure_arguments_carry_the_title_logo_skip_when_requested(self):
-        spec = importlib.util.spec_from_file_location('ww05_game_build',
-                                                      ROOT / 'scripts/vita/ww05/game_build.py')
-        module = importlib.util.module_from_spec(spec)
-        spec.loader.exec_module(module)
+        module = load_module()
         arguments = [str(value) for value in module.vita_configure_arguments(
             'cmake', 'ninja', 'source', 'output', 'toolchain', 'recompcore', 'composite',
-            'identity', 'dol', 'vitagl', 'sdk', '1', False, False, False, False, False, 0, False, True)]
+            'identity', 'dol', 'vitagl', 'sdk', '1', False, False, False, False, False, 0, False,
+            False, True)]
         self.assertIn('-DWW_SKIP_TITLE_LOGO=ON', arguments)
 
 
