@@ -14,6 +14,7 @@
 #include "m_Do/m_Do_machine.h"
 #include "m_Do/m_Do_mtx.h"
 #include "SSystem/SComponent/c_bg_s.h"
+#include "SSystem/SComponent/c_bg_s_gnd_chk.h"
 
 #include <cstdio>
 #include <new>
@@ -27,16 +28,17 @@ void dMap_c::draw(f32 x, f32 z, int roomNo, f32 y) { dMap_c::mapDrawAll(x, z, ro
 
 JAIZelBasic* JAIZelBasic::zel_basic = reinterpret_cast<JAIZelBasic*>(1);
 
+static int g_camera_mapinfo_calls;
+static int g_camera_group_calls;
+static int g_camera_polygon_calls;
 void JAIZelBasic::getCameraInfo(Vec*, MtxP, u32) {}
-void JAIZelBasic::getCameraMapInfo(u32) {}
-void JAIZelBasic::setCameraPolygonPos(Vec*) {}
-void JAIZelBasic::setCameraGroupInfo(u8) {}
+void JAIZelBasic::getCameraMapInfo(u32) { g_camera_mapinfo_calls++; }
+void JAIZelBasic::setCameraPolygonPos(Vec*) { g_camera_polygon_calls++; }
+void JAIZelBasic::setCameraGroupInfo(u8) { g_camera_group_calls++; }
 void cM_rnd_c::init(int, int, int) {}
 u32 fopCamM_GetParam(camera_class*) { return 0; }
 s16 fpcLf_GetPriority(leafdraw_class*) { return 0; }
 void dDlst_window_c::setScissor(f32, f32, f32, f32) {}
-u32 dBgS::GetMtrlSndId(cBgS_PolyInfo&) { return 0; }
-s32 dBgS::GetGrpSoundId(cBgS_PolyInfo&) { return 0; }
 s8 dStage_roomControl_c::mStayNo = 0;
 void dStage_roomControl_c::setStayNo(int n) { mStayNo = n; }
 void dDlst_window_c::setViewPort(f32, f32, f32, f32, f32, f32) {}
@@ -44,9 +46,14 @@ const cXyz cXyz::Zero = cXyz(0.0f, 0.0f, 0.0f);
 void dDlst_effectLine_c::update(cXyz&, GXColor&, u16, u16, u16, u16, f32, f32, f32, f32) {}
 void dDlst_effectLine_c::draw() {}
 
-f32 cBgS::GroundCross(cBgS_GndChk*) {
-    return -G_CM3D_F_INF;
+f32 cBgS::GroundCross(cBgS_GndChk* chk) {
+    chk->SetActorInfo(0, nullptr, 0);
+    chk->SetNowY(0.0f);
+    return 0.0f;
 }
+
+s32 cBgS::GetTriGrp(int, int) const { return -1; }
+s32 cBgS::GetGrpInf(cBgS_PolyInfo&, int) const { return 0; }
 
 void C_MTXPerspective(Mtx44, f32, f32, f32, f32) {}
 void C_MTXCopy(const Mtx, Mtx) {}
@@ -143,13 +150,16 @@ int main() {
     map->dMap_2DT2_c::draw();
 
     std::printf("camera-draw: camera_ok=%d enqueued=%d map_pre_draw=%d map_begin=%d "
-                "total_begin=%d ind=%d tevdirect=%d pos2f=%d\n",
+                "total_begin=%d ind=%d tevdirect=%d pos2f=%d mtrl=%d group=%d poly=%d\n",
                 camera_ok, enqueued, map_no_draw, map_draw_begin, g_gx.begin,
-                g_gx.set_num_ind_stages, g_gx.set_tev_direct, g_gx.pos2f);
+                g_gx.set_num_ind_stages, g_gx.set_tev_direct, g_gx.pos2f,
+                g_camera_mapinfo_calls, g_camera_group_calls, g_camera_polygon_calls);
 
     const bool ok = camera_ok && enqueued == 10 && map_no_draw && map_draw_begin >= 10 &&
                     g_gx.begin > map_draw_begin && g_gx.set_num_ind_stages >= 1 &&
-                    g_gx.set_tev_direct >= 8 && g_gx.pos2f >= 4;
+                    g_gx.set_tev_direct >= 8 && g_gx.pos2f >= 4 &&
+                    g_camera_mapinfo_calls >= 1 && g_camera_group_calls >= 1 &&
+                    g_camera_polygon_calls >= 1;
     std::printf("camera-draw: %s\n", ok ? "ok" : "FAIL");
     return ok ? 0 : 1;
 }

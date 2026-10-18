@@ -494,6 +494,30 @@ add_custom_command(OUTPUT "${COS_VITA_CAMERA_DRAW_OBJECT}"
 add_custom_target(cos_vita_camera_draw DEPENDS "${COS_VITA_CAMERA_DRAW_OBJECT}")
 set(COS_VITA_CAMERA_DRAW_OBJECT "${COS_VITA_CAMERA_DRAW_OBJECT}" CACHE INTERNAL
         "The R3b camera_draw wrapper object")
+
+add_library(cos_vita_dbg_s_units OBJECT EXCLUDE_FROM_ALL
+        "${COS_ROOT}/src/d/d_bg_s.cpp")
+target_link_libraries(cos_vita_dbg_s_units PRIVATE cos_game_headers)
+target_compile_options(cos_vita_dbg_s_units PRIVATE -ffunction-sections -fdata-sections -g0)
+set_property(TARGET cos_vita_dbg_s_units PROPERTY FOLDER "cos_native")
+
+set(COS_VITA_DBG_S_OBJECT "${CMAKE_BINARY_DIR}/vita_dbg_s.o")
+add_custom_command(OUTPUT "${COS_VITA_DBG_S_OBJECT}"
+        COMMAND "${Python3_EXECUTABLE}" "${COS_NATIVE_ROOT}/vita/reduce_profile_slice.py"
+            --nm "${CMAKE_NM}" --objcopy "${CMAKE_OBJCOPY}" --objdump "${CMAKE_OBJDUMP}"
+            --readelf "${CMAKE_READELF}" --ld "${CMAKE_LINKER}"
+            --output "${COS_VITA_DBG_S_OBJECT}"
+            --callable _ZN4dBgS12GetMtrlSndIdER13cBgS_PolyInfo
+            --keep "_ZN4dBgS13GetGrpSoundIdER13cBgS_PolyInfo"
+            --allow "OSPanic,_ZN12JUTAssertion10getSDeviceEv,_ZN12JUTAssertion10showAssertEjPKciS1_,_ZNK4cBgS9GetTriGrpEii,_ZNK4cBgS9GetGrpInfER13cBgS_PolyInfoi"
+            $<TARGET_OBJECTS:cos_vita_dbg_s_units>
+        DEPENDS cos_vita_dbg_s_units "${COS_NATIVE_ROOT}/vita/reduce_profile_slice.py"
+        COMMAND_EXPAND_LISTS
+        COMMENT "Reducing dBgS material-sound lookups"
+        VERBATIM)
+add_custom_target(cos_vita_dbg_s DEPENDS "${COS_VITA_DBG_S_OBJECT}")
+set(COS_VITA_DBG_S_OBJECT "${COS_VITA_DBG_S_OBJECT}" CACHE INTERNAL
+        "The R3b material-sound dBgS object")
 message(STATUS "cos_native: cos_vita_profile_slice (${_cos_profile_slice_unit_count} units, "
         "reduced to their g_profile_* data, plus the callable g_fpcLf_Method/g_fopOvlp_Method/"
         "g_fopMsg_Method/g_fopAc_Method/g_fopKy_Method/g_fopCam_Method/g_fopVw_Method/"
