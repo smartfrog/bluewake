@@ -27,7 +27,7 @@ _SIGNATURE = re.compile('|'.join((
     r'pc is 0x[0-9a-f]+',
     r'\[memoryread\]: invalid read',
     r'\[memorywrite\]: invalid write',
-    r'\bassert',
+    r'\bassert(?!-to-no-op)',
     r'\bpanic',
     r'std::terminate',
 )), re.IGNORECASE)
@@ -37,10 +37,9 @@ _FLOOD = re.compile('|'.join((
     r'sigsegv',
     r'segfault',
     r'fault',
-    r'\bassert',
+    r'\bassert(?!-to-no-op)',
     r'\bpanic',
     r'terminate',
-    r'exception',
     r'abort',
     r'crash',
 )), re.IGNORECASE)
@@ -48,6 +47,8 @@ _FLOOD = re.compile('|'.join((
 
 def fault_line(line):
     """True when one log line already reports a guest failure."""
+    if 'assert-to-no-op' in line.lower():
+        return False
     return _SIGNATURE.search(line) is not None
 
 
@@ -63,7 +64,7 @@ def fault_match(lines, repeats=FAULT_REPEATS):
         if fault_line(line):
             return line
         text = line.strip()
-        if not text or not _FLOOD.search(text):
+        if not text or 'assert-to-no-op' in text.lower() or not _FLOOD.search(text):
             continue
         counts[text] = counts.get(text, 0) + 1
         if counts[text] >= repeats:

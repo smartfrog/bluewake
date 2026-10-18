@@ -22,6 +22,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from watch_faults import fault_match  # noqa: E402
 
 GUEST_LOG = 'profile/data/Vita3K/Vita3K/ux0/data/bluewake-ww-fixture/ww05.log'
+CONSOLE_LOG = 'profile/cache/Vita3K/vita3k.log'
 PRESENT = '[frame-present]'
 SAMPLE_SECONDS = 0.5
 DEADLINE_SECONDS = 240
@@ -110,6 +111,7 @@ def wait_guest(pidfile, deadline):
 
 def watch(root, deadline_seconds=DEADLINE_SECONDS):
     log = root / GUEST_LOG
+    console = root / CONSOLE_LOG
     started = time.monotonic()
     deadline = started + deadline_seconds
     pid = wait_guest(root / 'guest.pid', deadline)
@@ -118,6 +120,7 @@ def watch(root, deadline_seconds=DEADLINE_SECONDS):
         return 1
     samples = (root / 'cpu-samples.jsonl').open('a', buffering=1)
     offset, pending = 0, ''
+    console_offset, console_pending = 0, ''
     previous, last_size = None, 0
     last_growth, idle_since, last_present = started, None, started
     reason, detail = 'exited', None
@@ -128,12 +131,15 @@ def watch(root, deadline_seconds=DEADLINE_SECONDS):
                 break
             now = time.monotonic()
             lines, offset, pending = read_new(log, offset, pending)
-            size = log.stat().st_size if log.exists() else 0
+            console_lines, console_offset, console_pending = read_new(
+                console, console_offset, console_pending)
+            size = (log.stat().st_size if log.exists() else 0) + (
+                console.stat().st_size if console.exists() else 0)
             if size != last_size:
                 last_size, last_growth = size, now
             if has_present(lines):
                 last_present = now
-            match = fault_match(lines + ([pending] if pending else []))
+            match = fault_match(lines + console_lines + [pending, console_pending])
             if match is not None:
                 reason, detail = 'guest-fault', match
                 stop_guest(pid)

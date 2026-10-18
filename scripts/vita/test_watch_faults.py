@@ -35,7 +35,7 @@ class FaultLineTests(unittest.TestCase):
                 self.assertIsNone(watch_faults.fault_match([line]))
 
     def test_repeated_fault_wording_is_a_flood(self):
-        line = '[E|MEM] exception: read outside MEM1 at 0x00000008'
+        line = '[E|MEM] invalid access outside MEM1 at 0x00000008'
         self.assertEqual(watch_faults.fault_match([line] * watch_faults.FAULT_REPEATS),
                          line)
 
@@ -49,6 +49,16 @@ class FaultLineTests(unittest.TestCase):
 
     def test_clean_log_has_no_match(self):
         self.assertIsNone(watch_faults.fault_match(NORMAL_LINES))
+
+    def test_boot_audio_assert_to_no_op_is_not_a_fault(self):
+        line = ('[audio-deferred] event=assert-to-no-op control=0952 pc=803190E0 '
+                'action=ignored reply=none cpu_irq=none pcm_output=none')
+        self.assertIsNone(watch_faults.fault_match([line]))
+        self.assertIsNone(watch_faults.fault_match([line] * 200))
+
+    def test_identical_progress_lines_are_not_a_flood(self):
+        line = '[progress] turns=148871 edges=13162849 exception=00000000 resume=9403 us'
+        self.assertIsNone(watch_faults.fault_match([line] * 200))
 
 
 if __name__ == '__main__':
