@@ -1,6 +1,7 @@
 #define _POSIX_C_SOURCE 200809L
 #include "boot_host.h"
 #include "gxruntime/aram.h"
+#include "guest_ram_guard.h"
 #include "ww05_identity.h"
 #include "diagnostic_io.h"
 #include "fixture.h"
@@ -132,6 +133,12 @@ int fixture_run(int argc, char** argv) {
     const BlueWakeRelData* data = staticrecomp_get_rel_data(&count);
     error |= fprintf(stderr, "[host] stage=initialize\n") < 0;
     bool initialized = !error && ww_host_init(host);
+#if defined(WW05_RAM_GUARD)
+    /* Keep the guest MEM1 base the module's memory helpers check against
+     * (guest_ram_guard.h); the host needs it after cpu_init. */
+    if (initialized)
+        bw_guest_ram_guard_adopt(&host->cpu);
+#endif
 #if WW05_ENABLE_TITLE_CONTRACT
     if (initialized) {
         host->module = module;
@@ -361,6 +368,10 @@ int fixture_run(int argc, char** argv) {
         error |= log_handler_boundary(host, "checked");
     }
     bluewake_set_edge_service(NULL, NULL);
+#if defined(WW05_RAM_GUARD)
+    /* The report's record set is strict; the guard's counters go to the log. */
+    bw_guest_ram_guard_report(stderr);
+#endif
     error |= fprintf(report, "STATE entry=%08X pc=%08X sp=%08X edges=%llu exception=%08X cycles=%llu\n",
                      module->entry_point, host->cpu.pc, host->cpu.gpr[1],
                      (unsigned long long)host->edges, host->cpu.exception,
