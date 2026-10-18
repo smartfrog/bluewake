@@ -20,6 +20,9 @@ typedef struct WwFrameTiming {
     u64 work_finish_us;
     u64 work_gpu_finish_calls;
     u64 work_draws;
+    u64 work_irq500;
+    u64 work_irq900;
+    u64 present_turns;
 } WwFrameTiming;
 
 const char* ww_host_wall_us(u64* us);

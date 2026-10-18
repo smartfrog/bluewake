@@ -151,6 +151,9 @@ typedef struct WwHost {
     u64 gpu_finish_calls;
     u64 renderer_present_us;
     u64 renderer_finish_us;
+    u32 dev_write_addr[8];
+    u32 dev_write_value[8];
+    u32 dev_write_count;
     WwFrameTiming frame_timing;
     WwFrameStamp frame_capture;
     WwMem1Capture mem1_capture;
@@ -233,6 +236,8 @@ const char* ww_host_finish_gpu(WwHost* host);
 const char* ww_host_frame_present(WwHost* host, u64 presented);
 u64 ww_host_idle_leap_cycles(void);
 u64 ww_host_idle_leap_wall_us(void);
+u64 ww_host_irq500_count(void);
+u64 ww_host_irq900_count(void);
 const char* ww_host_frame_retrace(WwHost* host);
 const char* ww_host_capture_mem1(WwHost* host);
 const char* ww_host_enable_frame_capture(WwHost* host);

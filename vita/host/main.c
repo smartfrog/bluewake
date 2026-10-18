@@ -342,6 +342,26 @@ int fixture_run(int argc, char** argv) {
                                       host->cpu.pc, host->cpu.msr, host->cpu.srr0, host->cpu.exception,
                                       (unsigned long long)host->syscall_resumes,
                                       (unsigned long long)wall_us) < 0;
+                if (!error && host->cpu.pc == 0x00000C00u && host->cpu.exception == 0x00000008u) {
+                    static u64 last_hang_us;
+                    const u64 present_us = host->frame_timing.present.us;
+                    if (present_us != 0u && wall_us > present_us + 5000000u &&
+                        (last_hang_us == 0u || wall_us - last_hang_us >= 5000000u)) {
+                        last_hang_us = wall_us;
+                        const u64 loop_turns = host->turns >= host->frame_timing.present_turns
+                                                   ? host->turns - host->frame_timing.present_turns : 0u;
+                        error |= fprintf(stderr,
+                                         "[hang-syscall] pc=%08X exception=%08X r0=%08X r3=%08X lr=%08X srr0=%08X present=%llu silent_us=%llu turns=%llu present_turns=%llu loop_turns=%llu\n",
+                                         host->cpu.pc, host->cpu.exception,
+                                         host->cpu.gpr[0], host->cpu.gpr[3], host->cpu.lr,
+                                         host->cpu.srr0,
+                                         (unsigned long long)host->frame_timing.present.index,
+                                         (unsigned long long)(wall_us - present_us),
+                                         (unsigned long long)turns,
+                                         (unsigned long long)host->frame_timing.present_turns,
+                                         (unsigned long long)loop_turns) < 0;
+                    }
+                }
             }
             next_progress = host->cycles.absolute_cycles + 65536u;
         }

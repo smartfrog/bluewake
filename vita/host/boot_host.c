@@ -687,6 +687,11 @@ static void fail_mmio_write(WwHost* host, const char* error, u32 address, u64 va
 
 static void mmio_write(CPUState* cpu, u32 address, u64 value, u8 size) {
     WwHost* host = owner(cpu);
+    if (address >= 0xCC002000u && address < 0xCC007000u && size <= 4u) {
+        const u32 index = host->dev_write_count++ & 7u;
+        host->dev_write_addr[index] = address;
+        host->dev_write_value[index] = (u32)value;
+    }
     const char* panic = ww_host_panic_marker(host, address, value, size);
     if (panic != NULL) {
         fail_mmio_write(host, panic, address, value, size);
@@ -930,6 +935,13 @@ typedef struct {
 
 static WwIdleLeverRecord g_idle_lever;
 
+static u64 g_irq500_count;
+static u64 g_irq900_count;
+static u64 g_last_irq500_us;
+static u32 g_external_cause;
+static u32 g_external_mask;
+static u64 g_external_raise_us;
+
 static void idle_lever_reset(void) {
     memset(&g_idle_lever, 0, sizeof(g_idle_lever));
     g_idle_lever.next_cycles = 2000000u;
@@ -1077,6 +1089,14 @@ u64 ww_host_idle_leap_cycles(void) {
 
 u64 ww_host_idle_leap_wall_us(void) {
     return g_idle_lever.total_leap_wall_us;
+}
+
+u64 ww_host_irq500_count(void) {
+    return g_irq500_count;
+}
+
+u64 ww_host_irq900_count(void) {
+    return g_irq900_count;
 }
 
 // Trial 13 lost the loop's host pointer across ww_host_dispatch: the post-call
@@ -1238,6 +1258,12 @@ bool ww_host_edge(void* user, CPUState* cpu, u32 address) {
         if (external || host->decrementer_pending) {
             const u32 exception = external ? PPC_EXC_EXTERNAL : PPC_EXC_DECREMENTER;
             const u32 vector = external ? PPC_VECTOR_EXTERNAL : PPC_VECTOR_DECREMENTER;
+            if (external) {
+                g_external_cause = dol_interrupts_pi_cause(&host->interrupts);
+                g_external_mask = dol_interrupts_pi_mask(&host->interrupts);
+                g_external_raise_us = 0u;
+                (void)ww_host_wall_us(&g_external_raise_us);
+            }
             const char* error = ww_host_rel_suspend_return(host, address, exception, vector);
             if (error != NULL) {
                 ww_host_fail(host, error, address, cpu->pc);
@@ -1561,7 +1587,41 @@ int ww_host_dispatch(WwHost* host, u32 address) {
         }
         if (cpu->cycle_budget <= 0 || cpu->downcount <= -cpu->cycle_budget)
             return 1;
+        u64 irq_entry_us = 0u, irq_return_us = 0u;
+        (void)ww_host_wall_us(&irq_entry_us);
         vector->dispatch(cpu);
+        (void)ww_host_wall_us(&irq_return_us);
+        const u64 irq_dispatch_us = irq_return_us >= irq_entry_us ? irq_return_us - irq_entry_us : 0u;
+        if (vector->address == WW05_EXTERNAL_VECTOR) {
+            const u64 gap_us = g_last_irq500_us != 0u && irq_entry_us >= g_last_irq500_us
+                                   ? irq_entry_us - g_last_irq500_us : 0u;
+            const u64 raise_to_entry_us = g_external_raise_us != 0u && irq_entry_us >= g_external_raise_us
+                                              ? irq_entry_us - g_external_raise_us : 0u;
+            g_last_irq500_us = irq_entry_us;
+            ++g_irq500_count;
+            const u32 cause_after = dol_interrupts_pi_cause(&host->interrupts);
+            const bool external_after = dol_interrupts_external_pending(&host->interrupts);
+            const u32 writes = host->dev_write_count;
+            const u32 i0 = (writes - 1u) & 7u, i1 = (writes - 2u) & 7u;
+            const u32 i2 = (writes - 3u) & 7u, i3 = (writes - 4u) & 7u;
+            if (fprintf(stderr,
+                        "[irq500] entry_us=%llu dispatch_us=%llu gap_us=%llu raise_to_entry_us=%llu cause=%08X mask=%08X cause_after=%08X external_after=%u refire=%u w0=%08X:%08X w1=%08X:%08X w2=%08X:%08X w3=%08X:%08X\n",
+                        (unsigned long long)irq_entry_us,
+                        (unsigned long long)irq_dispatch_us,
+                        (unsigned long long)gap_us,
+                        (unsigned long long)raise_to_entry_us,
+                        g_external_cause, g_external_mask, cause_after, external_after ? 1u : 0u,
+                        (cause_after & g_external_mask) != 0u || (gap_us != 0u && gap_us < 50u) ? 1u : 0u,
+                        host->dev_write_addr[i0], host->dev_write_value[i0],
+                        host->dev_write_addr[i1], host->dev_write_value[i1],
+                        host->dev_write_addr[i2], host->dev_write_value[i2],
+                        host->dev_write_addr[i3], host->dev_write_value[i3]) < 0) {
+                ww_host_fail(host, "irq500 timing log write failed", address, cpu->pc);
+                return -1;
+            }
+        } else if (vector->address == WW05_DECREMENTER_VECTOR) {
+            ++g_irq900_count;
+        }
         if ((!WW05_QUIET_LOGGING || host->error != NULL || cpu->exception != 0u) &&
             fprintf(stderr, "[exception-vector-return] input=%08X pc=%08X srr0=%08X srr1=%08X msr=%08X downcount=%lld\n",
                     address, cpu->pc, cpu->srr0, cpu->srr1, cpu->msr, (long long)cpu->downcount) < 0) {

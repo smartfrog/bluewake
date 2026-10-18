@@ -56,6 +56,8 @@ const char* ww_host_frame_present(WwHost* host, u64 presented) {
     WwFrameTiming* timing = &host->frame_timing;
     const u64 leap_cycles = ww_host_idle_leap_cycles();
     const u64 leap_wall_us = ww_host_idle_leap_wall_us();
+    const u64 irq500 = ww_host_irq500_count();
+    const u64 irq900 = ww_host_irq900_count();
     WwRendererStats stats = {0};
     if (host->renderer != NULL)
         ww_renderer_stats(host->renderer, &stats);
@@ -69,8 +71,10 @@ const char* ww_host_frame_present(WwHost* host, u64 presented) {
         const u64 gpu_finish = host->gpu_finish_calls - timing->work_gpu_finish_calls;
         const u64 present_us = host->renderer_present_us - timing->work_present_us;
         const u64 finish_us = host->renderer_finish_us - timing->work_finish_us;
+        const u64 irq500_delta = irq500 - timing->work_irq500;
+        const u64 irq900_delta = irq900 - timing->work_irq900;
         if (fprintf(stderr,
-                    "[frame-work] frame=%llu wall_us=%llu cycles=%llu turns=%llu leap_cycles=%llu leap_wall_us=%llu post_leap_cycles=%llu draws=%llu gpu_finish=%llu present_us=%llu finish_us=%llu\n",
+                    "[frame-work] frame=%llu wall_us=%llu cycles=%llu turns=%llu leap_cycles=%llu leap_wall_us=%llu post_leap_cycles=%llu draws=%llu gpu_finish=%llu present_us=%llu finish_us=%llu irq500=%llu irq900=%llu\n",
                     (unsigned long long)timing->present.index,
                     (unsigned long long)wall_us,
                     (unsigned long long)cycles,
@@ -81,7 +85,9 @@ const char* ww_host_frame_present(WwHost* host, u64 presented) {
                     (unsigned long long)draws,
                     (unsigned long long)gpu_finish,
                     (unsigned long long)present_us,
-                    (unsigned long long)finish_us) < 0)
+                    (unsigned long long)finish_us,
+                    (unsigned long long)irq500_delta,
+                    (unsigned long long)irq900_delta) < 0)
             return "frame work trace write failed";
     }
     timing->work_us = now_us;
@@ -93,6 +99,9 @@ const char* ww_host_frame_present(WwHost* host, u64 presented) {
     timing->work_gpu_finish_calls = host->gpu_finish_calls;
     timing->work_present_us = host->renderer_present_us;
     timing->work_finish_us = host->renderer_finish_us;
+    timing->work_irq500 = irq500;
+    timing->work_irq900 = irq900;
+    timing->present_turns = host->turns;
     return NULL;
 }
 
