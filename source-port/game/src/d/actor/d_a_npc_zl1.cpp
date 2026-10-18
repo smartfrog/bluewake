@@ -1072,7 +1072,7 @@ void daNpc_Zl1_c::checkOrder() {
                     field_0x7D3 = true;
                     break;
                 case 2:
-                    dComIfGs_setRestartRoom(*static_cast<const cXyz*>(a_start_pos), 0x4000, 0);
+                    dComIfGs_setRestartRoom(*static_cast<const cXyz*>(&a_start_pos[0]), 0x4000, 0);
                     field_0x7C9 = true;
                     break;
                 case 3:

@@ -1,10 +1,9 @@
 # P-A follow-up: the bounded slice of REL actor units whose profiles the Vita boot path links.
-# The full profile list needs all 502 g_profile_* definitions; this slice takes 249 units of the
+# The full profile list needs all 502 g_profile_* definitions; this slice takes 297 units of the
 # sorted src/d/actor list, which compile for ARMv7/ILP32 against the generated stub assets. It
-# fills 264 profiles: d_a_gy_ctrl, d_a_npc_bj1 (9), d_a_npc_bm1 (5), d_a_npc_ko1 (2) and
+# fills 312 profiles: d_a_gy_ctrl, d_a_npc_bj1 (9), d_a_npc_bm1 (5), d_a_npc_ko1 (2) and
 # d_a_npc_ym1 (2) define several each, while d_a_itembase and d_a_kamome2 define none at VERSION=2
-# (the latter is demo-only). d_a_npc_zl1 is skipped: its static_cast of a Vec array to cXyz*
-# is rejected by GCC.
+# (the latter is demo-only). d_a_npc_zl1 is back in the slice after fixing its Vec-array cast.
 #
 # The units are compiled with -ffunction-sections -fdata-sections, then reduced by
 # vita/reduce_profile_slice.py to their g_profile_* data: the profile's identity (mProcName, list
@@ -64,7 +63,7 @@ set(_cos_profile_slice_names
         d_a_npc_ob1 d_a_npc_os d_a_npc_p1 d_a_npc_p2 d_a_npc_people
         d_a_npc_pf1 d_a_npc_photo d_a_npc_pm1 d_a_npc_roten d_a_npc_rsh1
         d_a_npc_sarace d_a_npc_so d_a_npc_sv d_a_npc_tc d_a_npc_tt d_a_npc_uk
-        d_a_npc_ym1 d_a_npc_yw1 d_a_npc_zk1
+        d_a_npc_ym1 d_a_npc_yw1 d_a_npc_zk1 d_a_npc_zl1
         d_a_nz d_a_nzg d_a_obj_AjavW d_a_obj_Itnak d_a_obj_Vds
         d_a_obj_Vteng d_a_obj_YLzou d_a_obj_Yboil d_a_obj_Ygush00
         d_a_obj_adnno d_a_obj_ajav d_a_obj_akabe d_a_obj_apzl d_a_obj_ashut
@@ -76,7 +75,17 @@ set(_cos_profile_slice_names
         d_a_obj_eayogn d_a_obj_ebomzo d_a_obj_eff d_a_obj_ekskz d_a_obj_eskban
         d_a_obj_ferris d_a_obj_figure d_a_obj_firewall d_a_obj_flame
         d_a_obj_ftree d_a_obj_ganonbed d_a_obj_gaship d_a_obj_gaship2
-        d_a_obj_gnnbtltaki)
+        d_a_obj_gnnbtltaki d_a_obj_gnndemotakie d_a_obj_gnndemotakis
+        d_a_obj_gong d_a_obj_gryw00 d_a_obj_gtaki d_a_obj_hami2 d_a_obj_hami3
+        d_a_obj_hami4 d_a_obj_hat d_a_obj_hbrf1 d_a_obj_hcbh d_a_obj_hfuck1
+        d_a_obj_hha d_a_obj_hlift d_a_obj_hole d_a_obj_homen d_a_obj_homensmoke
+        d_a_obj_hsehi1 d_a_obj_htetu1 d_a_obj_ice d_a_obj_iceisland
+        d_a_obj_ikada d_a_obj_jump d_a_obj_kanat d_a_obj_kanoke d_a_obj_ladder
+        d_a_obj_leaves d_a_obj_light d_a_obj_lpalm d_a_obj_magmarock
+        d_a_obj_majyuu_door d_a_obj_mkie d_a_obj_mkiek d_a_obj_mknjd
+        d_a_obj_mmrr d_a_obj_monument d_a_obj_movebox d_a_obj_msdan
+        d_a_obj_msdan2 d_a_obj_msdan_sub d_a_obj_msdan_sub2 d_a_obj_mshokki
+        d_a_obj_mtest d_a_obj_nest d_a_obj_ohatch d_a_obj_ojtree d_a_obj_ospbox)
 list(TRANSFORM _cos_profile_slice_names PREPEND "${COS_ROOT}/src/d/actor/"
         OUTPUT_VARIABLE COS_VITA_PROFILE_SLICE_UNITS)
 list(TRANSFORM COS_VITA_PROFILE_SLICE_UNITS APPEND ".cpp")
