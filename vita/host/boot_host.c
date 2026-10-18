@@ -396,7 +396,7 @@ static bool rel_execution_blocked(WwHost* host, u32 address, u32* linked) {
     return false;
 }
 
-static bool host_call(CPUState* cpu, u32 service) {
+static bool __attribute__((noinline)) host_call(CPUState* cpu, u32 service) {
     WwHost* host = owner(cpu);
     const u32 address = canonical_dispatch_address(cpu, service);
     u32 linked = address;
@@ -412,6 +412,31 @@ static bool host_call(CPUState* cpu, u32 service) {
         return false;
     ww_host_fail(host, "unsupported host call", service, cpu->pc);
     return true;
+}
+
+/* The module calls cpu->host_call with a Thumb return address in the chunk.
+ * The failure path reaches ww_host_rel_lifecycle_revoke, whose memset clobbers
+ * LR and whose epilogue restores PC, not LR. Save the chunk return here and
+ * put it back before returning, so the chunk cannot resume with a host LR. */
+static bool __attribute__((noinline)) host_call_lr_preserving(CPUState* cpu, u32 service) {
+    uintptr_t entry_lr;
+    __asm__ volatile("mov %0, lr" : "=r"(entry_lr));
+    if (!ww_host_module_return((const void*)entry_lr)) {
+        fprintf(stderr, "[host-call-lr] entry=%p not a module return service=%08X pc=%08X\n",
+                (void*)entry_lr, service, cpu->pc);
+        ww_host_fail(owner(cpu), "host call entered without a module return address", service, cpu->pc);
+        return true;
+    }
+    const bool result = host_call(cpu, service);
+    uintptr_t exit_lr;
+    __asm__ volatile("mov %0, lr" : "=r"(exit_lr));
+    if (exit_lr != entry_lr) {
+        fprintf(stderr, "[host-call-lr] entry=%p exit=%p service=%08X pc=%08X\n",
+                (void*)entry_lr, (void*)exit_lr, service, cpu->pc);
+        ww_host_fail(owner(cpu), "host call lost the module return address", service, cpu->pc);
+    }
+    __asm__ volatile("mov lr, %0" :: "r"(entry_lr));
+    return result;
 }
 
 static DolDiCommandResult di_command(void* user, DolDiCommand* command) {
@@ -1530,7 +1555,7 @@ bool ww_host_init(WwHost* host) {
     host->cpu.spr_write = spr_write;
     host->cpu.cache_control = cache_control;
     host->cpu.instruction_fallback = fallback;
-    host->cpu.host_call = host_call;
+    host->cpu.host_call = host_call_lr_preserving;
 #if WW05_OBSERVE_NATIVE_CTX
     ww_native_install(host, &host->cpu);
 #endif
