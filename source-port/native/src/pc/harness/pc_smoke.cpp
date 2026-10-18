@@ -61,8 +61,7 @@
 // runs after some of the boot is started by the boot code at that point, not by runEarlySmoke.
 #include "pc_internal.h"
 
-#include "f_pc/f_pc_name.h"
-#include "f_pc/f_pc_profile.h"
+#include "pc/pc_static_init.h"
 
 #include <aurora/dvd.h>
 #include <dolphin/dvd.h>
@@ -75,44 +74,6 @@
 namespace pc {
 
 namespace {
-
-// Checks of step 3.9: g_fpcPf_ProfileList_p points at g_fpcPfLst_ProfileList, the list has
-// fpcNm_MAX_NUM_e entries and a NULL terminator, each non-NULL entry i has mProcName == i, and
-// fpcPf_Get(i) returns entry i. Returns the number of errors.
-int smokeStaticInit() {
-    int errors = 0;
-    int profiles = 0;
-
-    if (g_fpcPf_ProfileList_p != g_fpcPfLst_ProfileList) {
-        fprintf(stderr, "static-init: g_fpcPf_ProfileList_p %p is not g_fpcPfLst_ProfileList %p\n",
-                (void*)g_fpcPf_ProfileList_p, (void*)g_fpcPfLst_ProfileList);
-        errors++;
-    }
-    if (g_fpcPfLst_ProfileList[fpcNm_MAX_NUM_e] != NULL) {
-        fprintf(stderr, "static-init: the profile list has no NULL at index %d\n", (int)fpcNm_MAX_NUM_e);
-        errors++;
-    }
-    for (int i = 0; i < fpcNm_MAX_NUM_e; i++) {
-        process_profile_definition* profile = g_fpcPfLst_ProfileList[i];
-        if (fpcPf_Get(i) != profile) {
-            fprintf(stderr, "static-init: fpcPf_Get(%d) = %p, list entry %p\n", i, (void*)fpcPf_Get(i),
-                    (void*)profile);
-            errors++;
-        }
-        if (profile == NULL) {
-            continue;
-        }
-        profiles++;
-        if (profile->mProcName != i) {
-            fprintf(stderr, "static-init: profile list entry %d has mProcName %d\n", i, profile->mProcName);
-            errors++;
-        }
-    }
-
-    fprintf(stderr, "static-init: %d of %d profile slots filled, %d error(s)\n", profiles,
-            (int)fpcNm_MAX_NUM_e, errors);
-    return errors;
-}
 
 // A null pointer the compiler cannot see through, so the write really executes and faults
 // (a visible null dereference may be compiled to a trap instruction instead).
@@ -212,7 +173,7 @@ void requireWatchdog(const char* test, double seconds, const char* var) {
 
 [[noreturn]] void runSmoke(const char* name) {
     if (strcmp(name, "static-init") == 0) {
-        int errors = smokeStaticInit();
+        int errors = staticInitCheck(STDERR_FILENO);
         if (errors == 0) {
             pc_milestone("static-init");
         }
