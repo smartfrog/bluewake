@@ -582,6 +582,24 @@ static bool fifo_has_input(const WwHost* host) {
     return host->frontier.size != 0u || host->gather.size != 0u || host->gather.transfers != 0u;
 }
 
+// GXPeekZ reads 0xC8400000 + (y << 12) + (x << 2). The Vita renderer has no
+// depth snapshot, so the opt-in answer is the certified headless value (0: the
+// sun counts as covered) instead of fabricating a visible depth. The colour
+// aperture, odd widths and every other address still stop as unclaimed.
+static bool efb_depth_peek_address(u32 address, u8 size) {
+    return size == 4u && (address & 0xFF000000u) == 0xC8000000u &&
+           (address & 0x00C00000u) == 0x00400000u;
+}
+
+static bool efb_depth_peek_enabled(void) {
+    static int enabled = -1;
+    if (enabled < 0) {
+        const char* value = getenv("WW05_EFB_PEEK");
+        enabled = value != NULL && strcmp(value, "1") == 0;
+    }
+    return enabled != 0;
+}
+
 static bool audio_dma_config_register(u32 address, u8 size) {
     return size == 2u && (address == 0xCC005030u || address == 0xCC005032u || address == 0xCC005036u);
 }
@@ -627,6 +645,19 @@ static u64 mmio_read(CPUState* cpu, u32 address, u8 size) {
     if (bluewake_external_memory_read(cpu, memory_address, size, &value) ||
         dol_guest_memory_read(&host->memory, address, size, &value))
         return value;
+    if (efb_depth_peek_address(address, size) && efb_depth_peek_enabled()) {
+        static bool reported;
+        host->efb_peeks++;
+        if (!reported) {
+            reported = true;
+            if (fprintf(stderr, "[efb-peek] x=%u y=%u value=0 pc=%08X\n",
+                        (address >> 2) & 0x3FFu, (address >> 12) & 0x3FFu, cpu->pc) < 0) {
+                ww_host_fail(host, "EFB depth peek trace write failed", address, cpu->pc);
+                return 0u;
+            }
+        }
+        return 0u;
+    }
     observe(cpu);
     if (host->dsp_task_boot_observed && address == 0xCC005004u && size == 2u) {
         const bool supported_work = (host->dsp.control & WW_DSP_HALT_BIT) == 0u &&
@@ -689,6 +720,10 @@ static u64 mmio_read(CPUState* cpu, u32 address, u8 size) {
     else if (size == 4u && (address & 3u) == 0u && in_range(address, size, DOL_SI_BASE, DOL_SI_REGISTER_BYTES))
         value = dol_si_mmio_read(&host->si, address, size);
     else {
+        if (host->error == NULL) {
+            host->error_width = size;
+            host->error_value = 0u;
+        }
         ww_host_fail(host, "unsupported MMIO read", address, cpu->pc);
         return 0u;
     }
