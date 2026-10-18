@@ -3123,10 +3123,12 @@ block entry (`pc == key`) and deliberately has **no** LR check. The host does no
 PC, LR, registers or MSR; the guest executes its own compiled block from either key.
 `0x8022F9FC` is d_s_name's scene-create block observed by the NAME_SCENE boot milestone.
 
-The check is a **shape check**. The production call site passes `cpu->pc` as the address, so
-the discriminating term is `lr == key`; the address must also match that `pc`. It does not
-prove the caller, does not verify `r29` or `f1`, does not exclude a corrupted `pc`/`lr` pair
-that both land on the key, and does not exclude a corrupted code page.
+For `0x80120188` the check is a **shape check**. The production call site passes `cpu->pc`
+as the address, so the discriminating term is `lr == key`; the address must also match that
+`pc`. It does not prove the caller, does not verify `r29` or `f1`, does not exclude a
+corrupted `pc`/`lr` pair that both land on the key, and does not exclude a corrupted code
+page. `0x8022F9FC` is the separate block-entry case: it requires `pc == key` and has no
+`lr` term at all.
 
 The option is a diagnostic waiver, not an emulation of the desktop observation: the Vita
 host does **not** perform the desktop GroundCross `f1`/lava-constant check at this boundary.
@@ -3134,8 +3136,8 @@ The refusal capsule retains `r3/r13/r31` (plus `sp`/`msr`/`srr0`/`srr1`) but not
 `r2`, so a faithful re-check would need more retained state. The explicit consequence is
 that an incoherent `r29`/`f1` reaches the guest `stfs` unvalidated, so a later lava or
 collision anomaly could be a downstream symptom rather than a new fault. Unowned keys,
-non-caller-return shapes, other observation-only keys, alias-shadowed keys and every key
-that requires a host service are still refused. The admission is reported once per run as
+shapes other than the two named above, other observation-only keys, alias-shadowed keys and
+every key that requires a host service are still refused. The admission is reported once per run as
 `[edge-admit] address=<80120188|8022F9FC> module_owned=1 reason=observation-only` so the
 next trial can tell which key fired.
 
