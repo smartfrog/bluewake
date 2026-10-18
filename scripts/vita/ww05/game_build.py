@@ -150,8 +150,9 @@ def skip_title_logo_configure_option(enabled):
     return [f'-DWW_SKIP_TITLE_LOGO={"ON" if enabled else "OFF"}']
 
 
-def experimental_configure_options():
+def experimental_configure_options(sp_balance=False):
     return ['-DWW05_DISPATCH_ABI_SENTINEL=OFF', '-DWW05_OBSERVE_NATIVE_CTX=OFF',
+            f'-DWW05_SP_BALANCE={"ON" if sp_balance else "OFF"}',
             '-DWW05_QUIET_LOGGING=OFF', '-DWW05_GLOBAL_CTX=OFF',
             '-DWW05_ENABLE_SHIP_PROLOG=OFF', '-DWW05_ENABLE_TITLE_CONTRACT=OFF',
             '-DWW05_ENABLE_IKADA_CONTRACT=OFF', '-DWW05_ENABLE_ACTOR_BATCH_CONTRACTS=OFF']
@@ -160,7 +161,7 @@ def experimental_configure_options():
 def vita_configure_arguments(cmake, ninja, source, output, toolchain, recompcore, composite, identity, dol,
                              vitagl, renderer_sdk, opt_level, vi_clock, pad_input, dst_alpha_admit,
                              edge_observation_admit, idle_deadline_advance, turn_cap, program_cache,
-                             ram_guard, rejection_capsule, skip_title_logo):
+                             ram_guard, rejection_capsule, skip_title_logo, sp_balance):
     return [
         cmake, '-S', source, '-B', output, '-G', 'Ninja',
         f'-DCMAKE_TOOLCHAIN_FILE={toolchain}',
@@ -179,7 +180,7 @@ def vita_configure_arguments(cmake, ninja, source, output, toolchain, recompcore
         *ram_guard_configure_option(ram_guard),
         *rejection_capsule_configure_option(rejection_capsule),
         *skip_title_logo_configure_option(skip_title_logo),
-        *experimental_configure_options(),
+        *experimental_configure_options(sp_balance),
     ]
 
 
@@ -209,6 +210,8 @@ def build_parser():
                         help='bounded admission-rejection capsule (on by default)')
     parser.add_argument('--skip-title-logo', action='store_true',
                         help='diagnostic: open the file-select menu instead of the title logo and movie (off by default)')
+    parser.add_argument('--sp-balance', action='store_true',
+                        help='diagnostic: log guest stack-pointer changes per dispatched block (off by default)')
     parser.add_argument('--jobs', type=int, default=2)
     parser.add_argument('--opt-level', choices=('1', '2', '3'), default='1',
                         help='translated module optimization level (default matches the verified private module)')
@@ -245,6 +248,7 @@ def evidence_config(args):
             'ram_guard': args.ram_guard,
             'rejection_capsule': args.rejection_capsule,
             'dispatch_abi_sentinel': False, 'observe_native_ctx': False,
+            'sp_balance': args.sp_balance,
             'quiet_logging': False, 'global_ctx': False,
             'ship_prolog': False, 'title_contract': False, 'ikada_contract': False,
             'actor_batch_contracts': False,
@@ -263,6 +267,7 @@ CACHE_FLAGS = (
     ('WW_SKIP_TITLE_LOGO', 'skip_title_logo'),
     ('WW05_DISPATCH_ABI_SENTINEL', 'dispatch_abi_sentinel'),
     ('WW05_OBSERVE_NATIVE_CTX', 'observe_native_ctx'),
+    ('WW05_SP_BALANCE', 'sp_balance'),
     ('WW05_QUIET_LOGGING', 'quiet_logging'),
     ('WW05_GLOBAL_CTX', 'global_ctx'),
     ('WW05_ENABLE_SHIP_PROLOG', 'ship_prolog'),
@@ -385,7 +390,7 @@ def main():
         sources['RecompCore'], composite, identity, f'{private}/main.dol', vitagl, renderer_sdk,
         args.opt_level, args.vi_clock, args.pad_input, args.dst_alpha_admit, args.edge_observation_admit,
         args.idle_deadline_advance, args.turn_cap, args.program_cache, args.ram_guard,
-        args.rejection_capsule, args.skip_title_logo))
+        args.rejection_capsule, args.skip_title_logo, args.sp_balance))
     checked_cache((vita / 'CMakeCache.txt').read_text(), config)
     build.run('vita-build', [cmake, '--build', vita, '-j', args.jobs])
     from inspect_build import inspect
