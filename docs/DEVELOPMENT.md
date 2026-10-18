@@ -46,7 +46,7 @@ behind a flag, but a package must opt in explicitly.
 | --- | --- | --- |
 | `60dcac7a` | `poc/perf-combined` `715f3065` | turn-cap and program-cache options, the program cache, cycle-domain work |
 | `511ff6d4` | `poc/global-ctx` `76ef2921` | scoped global-ctx transform, guest MEM1/RAM guard, their tests |
-| `a26bf4bd` | `poc/skip-logo` `e41ee920` | host and composite title-logo skip, behind `WW_SKIP_TITLE_LOGO` |
+| `a26bf4bd` | `poc/skip-logo` `e41ee920` | host title-logo skip, behind `WW_SKIP_TITLE_LOGO` |
 | `53a8b731` | `poc/pa-assets` `87f23cd1` | the source-port track under `source-port/` (M0/M1), no recomp default changes |
 
 Conflict resolutions:
@@ -79,7 +79,7 @@ Deliberately OFF by default, and still available behind their own switches:
 
 | Setting | Default | Where |
 | --- | --- | --- |
-| `WW_SKIP_TITLE_LOGO` (composite scene skip) | OFF | `--skip-title-logo` |
+| `WW_SKIP_TITLE_LOGO` (host scene skip) | OFF | `--skip-title-logo` |
 | `WW05_GLOBAL_CTX` | OFF | passed off by the builder; CMake option remains |
 | `WW05_DISPATCH_ABI_SENTINEL` | OFF | CMake option; not forwarded on |
 | `WW05_OBSERVE_NATIVE_CTX` | OFF | CMake option; not forwarded on |
