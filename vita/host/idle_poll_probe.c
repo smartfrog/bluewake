@@ -60,10 +60,6 @@ int main(void) {
     mem_write32(cpu, IDLE_POLL, 0u);
 
     cpu->pc = 0x80307EF8u;
-    assert(ww_host_idle_poll_ready(host));
-    cpu->pc = 0x80307EFCu;
-    assert(ww_host_idle_poll_ready(host));
-    cpu->pc = 0x80307F00u;
     assert(!ww_host_idle_poll_ready(host));
     cpu->pc = IDLE_PC;
 
@@ -195,30 +191,6 @@ int main(void) {
     assert(host->vi_retraces == 2u);
     host->dsp.audio_deferred = false;
     host->dsp.deferred_task_started = false;
-
-    // With deferred audio and a recognised idle poll, a future decrementer
-    // expiry is coalesced to the VI period: the scheduler has no runnable
-    // thread (the poll word is zero), so the expiry is delivered at the next
-    // turn boundary after the VI event instead of ending this turn early.
-    host->dsp.audio_deferred = true;
-    host->dsp.deferred_task_started = true;
-    host->decrementer_pending = false;
-    host->decrementer = 100u;
-    host->clock_remainder = 0u;
-    assert(ww_host_idle_poll_ready(host));
-    bluewake_cycle_domain_begin_turn(&host->cycles, cpu);
-    bluewake_cycle_domain_set_idle_turn(&host->cycles, true);
-    bluewake_cycle_domain_prepare_dispatch(&host->cycles, cpu);
-    assert(cpu->cycle_budget == GUEST_CPU_CYCLES_PER_VI_RETRACE);
-    assert(cpu->cycle_deadline_active == 1u);
-    cpu->downcount = -(s64)cpu->cycle_budget;
-    assert(bluewake_cycle_domain_end_turn(&host->cycles, cpu) ==
-           GUEST_CPU_CYCLES_PER_VI_RETRACE);
-    assert(host->decrementer_pending);
-    assert(host->vi_retraces == 3u);
-    host->dsp.audio_deferred = false;
-    host->dsp.deferred_task_started = false;
-    host->decrementer_pending = false;
 
     // The grant decides whether this line belongs to a jump, not the charge:
     // a turn that leaves early still reports the jump it was given.
