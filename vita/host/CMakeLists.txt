@@ -35,6 +35,8 @@ if(WW05_DISPATCH_ABI_SENTINEL AND WW05_OBSERVE_NATIVE_CTX)
 endif()
 option(WW05_REJECTION_CAPSULE "Diagnostic bounded admission-rejection capsule for refused desktop edges" OFF)
 option(WW_EDGE_OBSERVATION_ADMIT "Admit the module-owned GroundCross caller-return observation edge (off by default; see docs/vita/VITA-WW-05.md)" OFF)
+option(WW05_RAM_GUARD "Keep guest MEM1 on the base adopted after cpu_init so a corrupted CPUState cannot redirect stores" ON)
+option(WW05_GLOBAL_CTX "Run the scoped global-ctx chunks on the adopted CPU (POC)" OFF)
 file(GENERATE OUTPUT "${CMAKE_CURRENT_BINARY_DIR}/ww05_pad_input.json"
     CONTENT "{\"option\":\"WW05_ENABLE_PAD_INPUT\",\"enabled\":$<IF:$<BOOL:${WW05_ENABLE_PAD_INPUT}>,true,false>,\"source\":\"$<IF:$<BOOL:${WW05_ENABLE_PAD_INPUT}>,sceCtrlPeekBufferPositive,empty-legacy>\",\"sampling\":\"guest-SI-only\"}\n")
 get_filename_component(BLUEWAKE_ROOT "../.." ABSOLUTE BASE_DIR "${CMAKE_CURRENT_SOURCE_DIR}")
@@ -346,6 +348,15 @@ else()
                                        "${WW05_IDENTITY_DIR}/ww05_fp_vector.c"
                                        "${WW05_IDENTITY_DIR}/ww05_decrementer_vector.c")
     set(BLUEWAKE_STATIC_MODULE ON CACHE BOOL "" FORCE)
+    # Trials #16/#22 lost the guest CPU's MEM1 base (and, in #16, the CPU
+    # pointer) at the title boundary; the module keeps the base the host adopts
+    # after ww_host_init and repairs a corrupted field instead of writing to it.
+    # A timing trial may turn it off with -DWW05_RAM_GUARD=OFF.
+    set(BLUEWAKE_RAM_GUARD ${WW05_RAM_GUARD} CACHE BOOL "" FORCE)
+    if(WW05_GLOBAL_CTX AND NOT WW05_RAM_GUARD)
+        message(FATAL_ERROR "WW05_GLOBAL_CTX needs WW05_RAM_GUARD: the chunks read the state the guard adopts")
+    endif()
+    set(BLUEWAKE_GLOBAL_CTX ${WW05_GLOBAL_CTX} CACHE BOOL "" FORCE)
     set(WW05_MODULE_OPT_LEVEL 1 CACHE STRING "Translated module optimization level (1, 2, or 3)")
     set(COMPOSITE_OPTIMIZATION_LEVEL ${WW05_MODULE_OPT_LEVEL} CACHE STRING "" FORCE)
     add_subdirectory("${BLUEWAKE_ROOT}/cmake/composite" composite)
@@ -358,6 +369,9 @@ else()
         "${BLUEWAKE_ROOT}/vita/feasibility/armv7/abi.c")
     target_include_directories(ww05_host PRIVATE "${WW05_IDENTITY_DIR}"
         "${BLUEWAKE_ROOT}/vita/feasibility/armv7")
+    if(WW05_RAM_GUARD)
+        target_compile_definitions(ww05_host PRIVATE WW05_RAM_GUARD=1)
+    endif()
     set(WW05_VITAGL_LIBRARY vitaGL CACHE STRING "No-splash vitaGL archive")
     set(WW05_RENDERER_SDK "" CACHE PATH "SDK target directory supplying vitaGL headers and support libraries")
     if(WW05_RENDERER_SDK)
