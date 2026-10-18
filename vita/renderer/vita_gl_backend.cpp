@@ -25,6 +25,7 @@
 
 #include <vitaGL.h>
 
+#include <chrono>
 #include <cstdint>
 #include <cstdio>
 #include <string>
@@ -41,6 +42,19 @@ namespace {
 
 constexpr int kScreenWidth = 960;
 constexpr int kScreenHeight = 544;
+
+using Clock = std::chrono::steady_clock;
+
+void trace_slow(const char* call, Clock::time_point start, unsigned long long first,
+                unsigned long long second, double floor_ms) {
+  const double ms =
+      std::chrono::duration<double, std::milli>(Clock::now() - start).count();
+  if (ms < floor_ms)
+    return;
+  std::fprintf(stderr,
+               "[renderer-timing] call=%s ms=%.3f first=%llu second=%llu\n",
+               call, ms, first, second);
+}
 #if defined(WW_PROGRAM_CACHE)
 constexpr const char* kDefaultProgramCacheDirectory =
     "ux0:data/bluewake/program-cache";
@@ -80,6 +94,7 @@ public:
 
   const char* submit_draw(const gx_vita::TranslatedDraw& draw,
                           const gx_vita::CgProgram& program) override {
+    const auto started = Clock::now();
     const GLuint gl_program = program_for(draw, program);
     if (gl_program == 0u)
       return error_;
@@ -176,12 +191,18 @@ public:
     glDrawElements(draw.pipeline.topology,
                    static_cast<GLsizei>(draw.geometry.indices.size()),
                    GL_UNSIGNED_SHORT, nullptr);
-    return check_gl("draw");
+    const char* error = check_gl("draw");
+    trace_slow("draw", started, draw.geometry.vertex_count,
+               draw.geometry.indices.size(), 2.0);
+    return error;
   }
 
   const char* finish() override {
+    const auto started = Clock::now();
     glFinish();
-    return check_gl("GPU finish");
+    const char* error = check_gl("GPU finish");
+    trace_slow("finish", started, 0u, 0u, 2.0);
+    return error;
   }
 
   const char* submit_copy(const gx_vita::TranslatedCopy&) override {
@@ -193,8 +214,11 @@ public:
   }
 
   const char* present() override {
+    const auto started = Clock::now();
     vglSwapBuffers(GL_FALSE);
-    return check_gl("present");
+    const char* error = check_gl("present");
+    trace_slow("present", started, 0u, 0u, 2.0);
+    return error;
   }
 
   const char* readback(WwRendererFramePixels& frame) override {
@@ -274,12 +298,18 @@ private:
     const auto found = programs_.find(draw.pipeline.program_key);
     if (found != programs_.end())
       return found->second;
+    const auto started = Clock::now();
 #if defined(WW_PROGRAM_CACHE)
     const gx_vita::ProgramCacheKey cache_key =
         gx_vita::make_program_cache_key(draw.pipeline.program_key,
                                         program.vertex, program.fragment);
     std::vector<std::uint8_t> binary;
-    if (program_cache_ != nullptr && program_cache_->load(cache_key, &binary)) {
+    const auto cache_load = Clock::now();
+    const bool cached =
+        program_cache_ != nullptr && program_cache_->load(cache_key, &binary);
+    trace_slow("program-cache-load", cache_load, draw.pipeline.program_key,
+               binary.size(), 1.0);
+    if (cached) {
       const GLuint restored = glCreateProgram();
       glProgramBinary(restored, 0u, binary.data(),
                       static_cast<GLsizei>(binary.size()));
@@ -287,6 +317,8 @@ private:
       glGetProgramiv(restored, GL_LINK_STATUS, &restored_status);
       if (restored_status != 0) {
         programs_.emplace(draw.pipeline.program_key, restored);
+        trace_slow("program-restore", started, draw.pipeline.program_key,
+                   binary.size(), 1.0);
         return restored;
       }
       glDeleteProgram(restored);
@@ -298,12 +330,16 @@ private:
 #endif
     const GLuint vertex =
         compile_shader(GL_CG_VERTEX_SHADER_EXT, program.vertex, "vertex");
-    if (vertex == 0u)
+    if (vertex == 0u) {
+      trace_slow("program-vertex", started, draw.pipeline.program_key, 0u, 1.0);
       return 0u;
+    }
     const GLuint fragment =
         compile_shader(GL_CG_FRAGMENT_SHADER_EXT, program.fragment, "fragment");
     if (fragment == 0u) {
       glDeleteShader(vertex);
+      trace_slow("program-fragment", started, draw.pipeline.program_key, 0u,
+                 1.0);
       return 0u;
     }
     const GLuint linked = glCreateProgram();
@@ -353,6 +389,7 @@ private:
       }
     }
 #endif
+    trace_slow("program-compile", started, draw.pipeline.program_key, 0u, 1.0);
     programs_.emplace(draw.pipeline.program_key, linked);
     return linked;
   }
@@ -361,6 +398,7 @@ private:
                     GLuint gl_program) {
     if (!texture.valid || texmap >= 8u)
       return;
+    const auto started = Clock::now();
     glActiveTexture(GL_TEXTURE0 + static_cast<GLenum>(texmap));
     glBindTexture(GL_TEXTURE_2D, texture_slots_[texmap]);
     glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, static_cast<GLsizei>(texture.width),
@@ -374,6 +412,7 @@ private:
     std::snprintf(uniform, sizeof uniform, "tex%u", texmap);
     glUniform1i(glGetUniformLocation(gl_program, uniform),
                 static_cast<GLint>(texmap));
+    trace_slow("texture-upload", started, texture.width, texture.height, 2.0);
   }
 
   char error_[512] = {0};
