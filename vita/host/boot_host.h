@@ -156,7 +156,11 @@ typedef struct WwHost {
 enum { WW_DVD_CALLBACK_DELAY_CYCLES = 486000u };
 
 static inline bool ww_host_trace_syscall(u64 resume) {
-    return resume <= 1u || resume == 9404u || resume % 1000u == 0u;
+#if defined(BW_DISPATCH_TRACE)
+    if (resume == 9404u)
+        return true;
+#endif
+    return resume <= 1u || resume % 1000u == 0u;
 }
 
 bool ww_host_init(WwHost* host);
