@@ -18,6 +18,10 @@
  * report the first occurrences, keeping the ordinary inline fast path for an
  * intact CPU. A corrupted CPU pointer (a stale or garbage CPUState) is
  * redirected to the adopted CPUState, which is the only guest CPU in this host.
+ * Redirecting one access is not enough for the pointer itself: the chunk keeps
+ * its CPUState in a register for the whole block and reaches pc, lr and every
+ * register through it, so bw_guest_ctx_canonical runs the whole block on the
+ * adopted state, once per dispatch.
  *
  * Compiled into the module only with BW_GUEST_RAM_GUARD_WRAP, which
  * cmake/composite/CMakeLists.txt adds as a forced include; the host includes
@@ -47,6 +51,7 @@ extern CPUState* g_bw_guest_cpu;
 typedef struct BwGuestRamGuardStats {
     unsigned long ram_repairs;
     unsigned long cpu_redirects;
+    unsigned long ctx_canons;
     unsigned long reports;
 } BwGuestRamGuardStats;
 
@@ -64,7 +69,24 @@ void bw_guest_ram_guard_report(FILE* out);
 /* Out of line: the CPU pointer or the MEM1 base is not the adopted one. */
 CPUState* bw_guest_ram_guard_slow(CPUState* cpu);
 
+/* Out of line: the dispatcher was handed a CPUState that is not the adopted
+ * one. Returns the adopted state, so the block, not just its memory accesses,
+ * runs on the real CPU. */
+CPUState* bw_guest_ctx_canon(CPUState* cpu, u32 address);
+
 #if defined(BW_GUEST_RAM_GUARD_WRAP)
+
+/* Trial #24 (build-f5/trial24-pc0-diag-72c50764): redirecting the mem_* argument
+ * left the chunk's own CPUState in its callee-saved register, so pc, lr, the
+ * gprs and the entry switch still read the bogus state and the run ended at
+ * PC 0. The dispatcher therefore checks the pointer once, before it writes pc,
+ * and runs the block on the adopted state when they differ. */
+static inline __attribute__((always_inline)) CPUState* bw_guest_ctx_canonical(CPUState* cpu,
+                                                                             u32 address) {
+    if (__builtin_expect(g_bw_guest_cpu == NULL || g_bw_guest_cpu == cpu, 1))
+        return cpu;
+    return bw_guest_ctx_canon(cpu, address);
+}
 
 static inline __attribute__((always_inline)) CPUState* bw_guest_ram_guard_access(CPUState* cpu) {
     const bool intact = g_bw_guest_cpu == NULL ||

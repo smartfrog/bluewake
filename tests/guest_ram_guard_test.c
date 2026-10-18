@@ -13,6 +13,10 @@
 /* Covers the #22 store offset 0xA2C50 and a spare block above it. */
 #define RAM_BYTES 0x100000u
 
+/* The dispatcher's report is read back from here; stderr is redirected last so
+ * that nothing else in this test writes into it. */
+static const char* const kCtxLogPath = "bluewake-ctx-canon.log";
+
 static unsigned external_writes;
 static unsigned journal_calls;
 static u32 journal_offset;
@@ -73,6 +77,11 @@ int main(void) {
     assert(external_writes == 1);
     BwGuestRamGuardStats stats = bw_guest_ram_guard_stats();
     assert(stats.ram_repairs == 0u && stats.cpu_redirects == 0u && stats.reports == 0u);
+    /* ... and the dispatcher keeps the pointer it is given while no guest has
+     * been adopted, so the module still works as a plain library. */
+    CPUState* const stranger = (CPUState*)(uintptr_t)0x800A29C4u;
+    assert(bw_guest_ctx_canonical(stranger, 0x800A16E0u) == stranger);
+    assert(bw_guest_ram_guard_stats().ctx_canons == 0u);
 
     /* An intact CPU keeps the ordinary path: big-endian bytes, journal offset,
      * read-back, and nothing reported. */
@@ -170,6 +179,43 @@ int main(void) {
         assert(apply(&reference, &accesses[i]) == guarded_values[i]);
     assert(external_writes - writes_before == guarded_writes);
     assert(memcmp(ram, reference_ram, RAM_BYTES) == 0);
+
+    /* The dispatcher's fast path: the adopted CPU is returned untouched and
+     * nothing is counted or logged. Nothing may be adopted beyond this point:
+     * the last block redirects stderr and reads the report back. */
+    bw_guest_ram_guard_adopt(&cpu);
+    cpu.pc = 0x800A16E0u;
+    cpu.lr = 0x800A29C4u;
+    const unsigned canons_before = bw_guest_ram_guard_stats().ctx_canons;
+    const unsigned reports_before = bw_guest_ram_guard_stats().reports;
+    const unsigned redirects_before_canon = bw_guest_ram_guard_stats().cpu_redirects;
+    assert(bw_guest_ctx_canonical(&cpu, 0x800A16E0u) == &cpu);
+    assert(bw_guest_ram_guard_stats().ctx_canons == canons_before);
+
+    /* Trial #24's pointer: the block must run on the adopted state, so that the
+     * dispatch writes pc, the gprs and the return address to the real CPU. The
+     * first substitution is reported once, with both pointers, the guest pc it
+     * was asked to run and the module return address. */
+    assert(freopen(kCtxLogPath, "w", stderr) != NULL);
+    CPUState* const bogus = (CPUState*)(uintptr_t)0x800A29C4u;
+    assert(bw_guest_ctx_canonical(bogus, 0x800A16E0u) == &cpu);
+    assert(bw_guest_ctx_canonical(bogus, 0x800A16E4u) == &cpu);
+    fflush(stderr);
+    FILE* log = fopen(kCtxLogPath, "r");
+    assert(log != NULL);
+    static char text[4096];
+    const size_t size = fread(text, 1, sizeof text - 1, log);
+    text[size] = '\0';
+    fclose(log);
+    remove(kCtxLogPath);
+    const char* const report = strstr(text, "[ctx-canon]");
+    assert(report != NULL && strstr(report + 1, "[ctx-canon]") == NULL);
+    assert(strstr(report, "address=800A16E0 bad=") != NULL);
+    assert(strstr(report, " good=") != NULL);
+    assert(strstr(report, " pc=800A16E0 lr=800A29C4 caller=") != NULL);
+    stats = bw_guest_ram_guard_stats();
+    assert(stats.ctx_canons == canons_before + 2u);
+    assert(stats.reports == reports_before && stats.cpu_redirects == redirects_before_canon);
 
     bw_guest_ram_guard_forget();
     free(ram);
