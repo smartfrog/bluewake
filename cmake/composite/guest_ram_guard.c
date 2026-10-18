@@ -54,9 +54,25 @@ BwGuestRamGuardStats bw_guest_ram_guard_stats(void) {
 void bw_guest_ram_guard_report(FILE* out) {
     if (out == NULL)
         return;
-    fprintf(out, "[ram-guard] repairs=%lu redirects=%lu reports=%lu\n",
+    fprintf(out, "[ram-guard] repairs=%lu redirects=%lu canons=%lu reports=%lu\n",
             g_bw_guest_ram_guard.ram_repairs, g_bw_guest_ram_guard.cpu_redirects,
-            g_bw_guest_ram_guard.reports);
+            g_bw_guest_ram_guard.ctx_canons, g_bw_guest_ram_guard.reports);
+}
+
+CPUState* bw_guest_ctx_canon(CPUState* cpu, u32 address) {
+    CPUState* const good = g_bw_guest_cpu;
+    if (good == NULL || good == cpu)
+        return cpu;
+    g_bw_guest_ram_guard.ctx_canons++;
+    if (g_bw_guest_ram_guard.ctx_canons == 1u)
+        /* The bogus state's own fields are not read: they are what the run
+         * cannot use, and on a host where that pointer is unmapped the read
+         * would trade the evidence for a fault. address is the guest pc the
+         * dispatcher was asked to run. */
+        fprintf(stderr, "[ctx-canon] address=%08X bad=%p good=%p pc=%08X lr=%08X caller=%p\n",
+                address, (void*)cpu, (void*)good, good->pc, good->lr,
+                __builtin_return_address(0));
+    return good;
 }
 
 CPUState* bw_guest_ram_guard_slow(CPUState* cpu) {

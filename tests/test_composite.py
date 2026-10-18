@@ -875,6 +875,120 @@ def test_generated_contract_compiles_with_existing_export_abi():
         subprocess.run([str(td / 'contract_probe')], check=True, capture_output=True, text=True)
 
 
+def test_dispatch_runs_a_foreign_cpu_on_the_adopted_state():
+    """Trial #24: a bogus CPUState must not reach a block at all.
+
+    build-f5/trial24-pc0-diag-72c50764 showed the ram guard redirecting only the
+    mem_* argument (r6) while the chunk kept its own pointer in r4, wrote pc, lr
+    and the gprs through it, and ended at PC 0 / LR 1. The dispatcher now
+    canonicalises the pointer before it writes pc, behind the same
+    BW_GUEST_RAM_GUARD_WRAP guard as the accessors, and the block is entered on
+    the adopted state. The emitted text is compiled and run here, not grepped.
+    """
+    with tempfile.TemporaryDirectory() as td:
+        td = setup_fixture(td)
+        run_generator(td)
+        (td / 'core').mkdir()
+        (td / 'core' / 'cpu.h').write_text(
+            '#ifndef BW_TEST_CPU_H\n#define BW_TEST_CPU_H\n'
+            '#include <stdbool.h>\n#include <stdint.h>\n#include <stdio.h>\n'
+            'typedef uint8_t u8; typedef uint16_t u16; typedef uint32_t u32;\n'
+            'typedef uint64_t u64; typedef int64_t s64;\n'
+            '/* Only what generated.h mentions, including its unused inline helpers. */\n'
+            '#define GC_RAM_BASE 0x80000000u\n'
+            '#define PPC_MSR_FP 0x2000u\n'
+            '#define PPC_HID2_LSQE 0x100u\n'
+            'typedef struct CPUState {\n'
+            '    u32 gpr[32]; u64 fpr[32]; u64 ps1[32]; u32 gqr[8];\n'
+            '    u32 pc, lr, ctr, msr, hid2;\n'
+            '    s64 downcount, cycle_budget, cycle_deadline_budget, cycle_observation_suffix;\n'
+            '    u32 ram_size;\n'
+            '    u8* ram;\n'
+            '    int host_call;\n'
+            '    u32 exception;\n'
+            '} CPUState;\n'
+            'u8 mem_read8(CPUState*, u32); u16 mem_read16(CPUState*, u32);\n'
+            'u32 mem_read32(CPUState*, u32); u64 mem_read64(CPUState*, u32);\n'
+            'void mem_write8(CPUState*, u32, u8); void mem_write16(CPUState*, u32, u16);\n'
+            'void mem_write32(CPUState*, u32, u32); void mem_write64(CPUState*, u32, u64);\n'
+            'u8* get_ram_ptr(CPUState*, u32, u32, u32*);\n'
+            'int ppc_host_call(CPUState*, u32);\n'
+            'bool ppc_fp_available(CPUState*, u32);\n'
+            'bool ppc_psq_load(CPUState*, u8, u32, bool, u8, bool, u32);\n'
+            'bool ppc_psq_store(CPUState*, u8, u32, bool, u8, bool, u32);\n'
+            'double f64_value(u64); u64 f64_bits(double);\n'
+            'double convert_to_double(u32); u32 convert_to_single_ftz(double);\n'
+            '#endif\n')
+        probe = td / 'dispatch_canon_probe.c'
+        probe.write_text('''#include <assert.h>
+#include <stdio.h>
+#include "generated.h"
+
+static CPUState adopted, decoy;
+static CPUState* entered;
+static int repoint_ctx;
+
+void func_80003100(CPUState* ctx) {
+    entered = ctx;
+    if (repoint_ctx) {
+        CPUState* local = ctx;
+        local = &decoy;
+        local->pc = 0xDEADBEEFu;
+    }
+    ctx->lr = 0x80003100u;
+}
+
+void func_80003140(CPUState* ctx) { entered = ctx; }
+
+/* The fixture's ship REL chunk, referenced by the same dispatch table. */
+void func_C1B100F4(CPUState* ctx) { entered = ctx; }
+
+int ppc_host_call(CPUState* ctx, u32 address) { (void)ctx; (void)address; return 0; }
+
+int main(void) {
+    static u8 ram[0x1000];
+    adopted.ram = ram;
+    adopted.ram_size = sizeof ram;
+    adopted.pc = 0x80003100u;
+    adopted.lr = 0x80003100u;
+    bw_guest_ram_guard_adopt(&adopted);
+
+    /* The adopted CPU keeps the fast path: no substitution, no counter. */
+    assert(dolrecomp_call(&adopted, 0x80003100u) == 1);
+    assert(entered == &adopted && adopted.pc == 0x80003100u && adopted.lr == 0x80003100u);
+    assert(bw_guest_ram_guard_stats().ctx_canons == 0u);
+
+    /* Trial #24's pointer (a guest text address in chunk_0040) is replaced
+     * before the pc write, and the block runs on the adopted state. */
+    CPUState* const bogus = (CPUState*)(uintptr_t)0x800A29C4u;
+    assert(dolrecomp_call(bogus, 0x80003140u) == 1);
+    assert(entered == &adopted && adopted.pc == 0x80003140u);
+    assert(bw_guest_ram_guard_stats().ctx_canons == 1u);
+    assert(bw_guest_ram_guard_stats().cpu_redirects == 0u);
+
+    /* The fix is entry-only by construction: a block that re-points its own
+     * copy of ctx is not followed, so this passes only because the adopted
+     * state is what the block writes through. Falsifier: PC 0 with the adopted
+     * state at entry means the corruption happens inside the block. */
+    repoint_ctx = 1;
+    assert(dolrecomp_call(&adopted, 0x80003100u) == 1);
+    assert(adopted.pc == 0x80003100u && decoy.pc == 0xDEADBEEFu);
+    assert(bw_guest_ram_guard_stats().ctx_canons == 1u);
+    printf("dispatch ctx canonicalisation: adopted state kept, foreign state replaced\\n");
+    return 0;
+}
+''')
+        subprocess.run(
+            ['cc', '-std=c11', '-Wall', '-Wextra', '-DBW_GUEST_RAM_GUARD_WRAP=1',
+             '-include', str(SCRIPTS_DIR.parent / 'cmake/composite/guest_ram_guard.h'),
+             '-I', str(td), '-I', str(td / 'composite'),
+             '-I', str(SCRIPTS_DIR.parent / 'cmake/composite'),
+             str(probe), str(SCRIPTS_DIR.parent / 'cmake/composite/guest_ram_guard.c'),
+             '-o', str(td / 'dispatch_canon_probe')],
+            check=True, capture_output=True, text=True)
+        subprocess.run([str(td / 'dispatch_canon_probe')], check=True, capture_output=True, text=True)
+
+
 def test_ship_identity_uses_disc_member_not_processed_member():
     with tempfile.TemporaryDirectory() as td:
         td = setup_fixture(td)
@@ -994,6 +1108,7 @@ def main():
         test_ship_contract_additive_abi_and_chunk_include_set,
         test_failed_regeneration_invalidates_success_receipt,
         test_generated_contract_compiles_with_existing_export_abi,
+        test_dispatch_runs_a_foreign_cpu_on_the_adopted_state,
         test_ship_identity_uses_disc_member_not_processed_member,
         test_ship_sources_reject_differences_outside_alignment_word,
         test_ship_disc_section_table_is_checked_directly,
