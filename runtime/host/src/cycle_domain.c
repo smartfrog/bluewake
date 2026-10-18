@@ -1,5 +1,7 @@
 #include "cycle_domain.h"
 
+#include <stdint.h>
+#include <stdio.h>
 #include <string.h>
 // BLUEWAKE_CREDIT_CENSUS. The emitted body's residual cost is the CPUState traffic
 // its yield discipline forces, and the design that removes it - the prepaid twin - is
@@ -18,10 +20,44 @@ s64 bluewake_cycle_domain_select_cap(s64 requested) {
     return requested > 0 ? requested : BLUEWAKE_CYCLE_DOMAIN_DEFAULT_CAP;
 }
 
+// A domain that a corrupt CPUState or host field hands us can be non-NULL and
+// still unusable. Below the first page it cannot be a real object; misaligned it
+// cannot be this one. Both are refused before the first dereference.
+static bool domain_is_usable(const BluewakeCycleDomain* domain) {
+    const uintptr_t address = (uintptr_t)domain;
+    return address >= (uintptr_t)0x10000u &&
+           address % _Alignof(BluewakeCycleDomain) == 0u;
+}
+
+static void report_invalid_domain(const void* domain, const void* cpu,
+                                  const void* caller) {
+    static unsigned reported;
+    static u64 suppressed;
+    if (reported < 8u) {
+        reported++;
+        fprintf(stderr,
+                "[cycle-domain-invalid] domain=%p cpu=%p lr=%p hits=%u\n",
+                domain, cpu, caller, reported);
+        return;
+    }
+    suppressed++;
+    if ((suppressed & (suppressed - 1u)) == 0u)
+        fprintf(stderr, "[cycle-domain-invalid] hits=%u suppressed=%llu\n",
+                reported, (unsigned long long)suppressed);
+}
+
 static s64 bounded_budget(const BluewakeCycleDomain* domain,
                           const CPUState* cpu, u32* deadline_active,
                           s64* deadline_budget, u32* source,
                           u64* distance_out) {
+    if (!domain_is_usable(domain)) {
+        report_invalid_domain(domain, cpu, __builtin_return_address(0));
+        if (deadline_active != NULL)
+            *deadline_active = 1u;
+        if (deadline_budget != NULL)
+            *deadline_budget = 1;
+        return 1;
+    }
     const s64 base_cap = bluewake_cycle_domain_select_cap(domain->cap);
     s64 budget = base_cap;
     bool bounded_by_deadline = false;
@@ -73,6 +109,8 @@ static s64 bounded_budget(const BluewakeCycleDomain* domain,
 
 // Record what the caller granted, for the host's [idle-jump] diagnostic.
 static void record_grant(BluewakeCycleDomain* domain, s64 budget) {
+    if (!domain_is_usable(domain))
+        return;
     domain->last_budget = budget > 0 ? (u64)budget : 0u;
     domain->last_idle_grant = domain->idle_turn && budget > domain->cap;
 }

@@ -4,6 +4,7 @@
 #include "cycle_domain.h"
 
 #include <assert.h>
+#include <stdint.h>
 #include <string.h>
 
 typedef struct Fixture {
@@ -311,6 +312,68 @@ static void test_idle_turn_does_not_leak_into_the_next_turn(void) {
     assert(cpu.cycle_deadline_active == 0u);
 }
 
+// A NULL domain is inert: the public entries return before any dereference.
+static void test_invalid_domain_null_is_inert(void) {
+    CPUState cpu;
+    memset(&cpu, 0, sizeof(cpu));
+    cpu.cycle_budget = 7;
+    cpu.cycle_deadline_active = 4u;
+    cpu.cycle_deadline_budget = 5;
+
+    bluewake_cycle_domain_begin_turn(NULL, &cpu);
+    bluewake_cycle_domain_prepare_dispatch(NULL, &cpu);
+    bluewake_cycle_domain_rebudget(NULL, &cpu);
+
+    assert(cpu.cycle_budget == 7);
+    assert(cpu.cycle_deadline_active == 4u);
+    assert(cpu.cycle_deadline_budget == 5);
+}
+
+// A pointer below the first page cannot be a domain: refuse it and grant the
+// safe single-cycle budget.
+static void test_invalid_domain_low_pointer_fails_closed(void) {
+    CPUState cpu;
+    memset(&cpu, 0, sizeof(cpu));
+    BluewakeCycleDomain* const domain =
+        (BluewakeCycleDomain*)(uintptr_t)0x40u;
+
+    bluewake_cycle_domain_rebudget(domain, &cpu);
+
+    assert(cpu.cycle_budget == 1);
+    assert(cpu.cycle_deadline_active == 1u);
+    assert(cpu.cycle_deadline_budget == 1);
+}
+
+// A misaligned pointer cannot be this struct either, and is refused the same way.
+static void test_invalid_domain_misaligned_pointer_fails_closed(void) {
+    CPUState cpu;
+    memset(&cpu, 0, sizeof(cpu));
+    BluewakeCycleDomain* const domain =
+        (BluewakeCycleDomain*)(uintptr_t)(0x10000u + 1u);
+
+    bluewake_cycle_domain_rebudget(domain, &cpu);
+
+    assert(cpu.cycle_budget == 1);
+    assert(cpu.cycle_deadline_active == 1u);
+    assert(cpu.cycle_deadline_budget == 1);
+}
+
+// A usable domain still returns the budget it was configured with.
+static void test_valid_domain_returns_the_configured_budget(void) {
+    CPUState cpu;
+    memset(&cpu, 0, sizeof(cpu));
+    Fixture fixture = {.deadline = 100000u};
+    BluewakeCycleDomain domain;
+    bluewake_cycle_domain_init(&domain, 256, advance, deadline, &fixture);
+
+    bluewake_cycle_domain_rebudget(&domain, &cpu);
+
+    assert(cpu.cycle_budget == 256);
+    assert(cpu.cycle_deadline_active == 0u);
+    assert(cpu.cycle_deadline_budget == 100000);
+    assert(domain.last_budget == 256u);
+}
+
 int main(void) {
     test_idle_advance_reaches_the_deadline_in_one_turn();
     test_idle_advance_clamps_at_the_event();
@@ -325,6 +388,10 @@ int main(void) {
     test_poc_turn_cap_bounds_a_turn_without_a_nearer_event();
     test_poc_turn_cap_is_bounded_and_repeatable();
     test_idle_turn_does_not_leak_into_the_next_turn();
+    test_invalid_domain_null_is_inert();
+    test_invalid_domain_low_pointer_fails_closed();
+    test_invalid_domain_misaligned_pointer_fails_closed();
+    test_valid_domain_returns_the_configured_budget();
 
     CPUState cpu;
     Fixture fixture = {.deadline = 900u};
