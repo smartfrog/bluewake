@@ -170,6 +170,28 @@ int main(void) {
     assert(host->dsp.aram_cycles_remaining == 0u);
     assert(host->vi_retraces == 1u);
 
+    // With deferred audio the in-flight ARAM transfer belongs to the same
+    // no-op audio path, so it must not clamp the idle span: the turn covers
+    // the full VI period and the transfer completes inside it.
+    host->dsp.audio_deferred = true;
+    host->dsp.deferred_task_started = true;
+    host->dsp.aram_cycles_remaining = ARAM_CYCLES;
+    assert(ww_dsp_interface_deadline(&host->dsp) == ARAM_CYCLES);
+    assert(ww_dsp_interface_deadline_excluding_aram(&host->dsp) == UINT64_MAX);
+    assert(ww_host_idle_poll_ready(host));
+    bluewake_cycle_domain_begin_turn(&host->cycles, cpu);
+    bluewake_cycle_domain_set_idle_turn(&host->cycles, true);
+    bluewake_cycle_domain_prepare_dispatch(&host->cycles, cpu);
+    const u64 to_vi = GUEST_CPU_CYCLES_PER_VI_RETRACE - DECREMENTER_CYCLES - ARAM_CYCLES;
+    assert(cpu->cycle_budget == to_vi);
+    assert(cpu->cycle_deadline_active == 1u);
+    cpu->downcount = -(s64)cpu->cycle_budget;
+    assert(bluewake_cycle_domain_end_turn(&host->cycles, cpu) == to_vi);
+    assert(host->dsp.aram_cycles_remaining == 0u);
+    assert(host->vi_retraces == 2u);
+    host->dsp.audio_deferred = false;
+    host->dsp.deferred_task_started = false;
+
     // The grant decides whether this line belongs to a jump, not the charge:
     // a turn that leaves early still reports the jump it was given.
     host->decrementer_pending = false;

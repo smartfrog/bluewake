@@ -115,14 +115,26 @@ static u64 deadline(const CPUState* cpu, u32* source, void* user) {
     u64 expiry = decrementer_expiry;
     if (decrementer_expiry != UINT64_MAX)
         src = BLUEWAKE_DEADLINE_DEC_EXPIRY;
-    const u64 dsp_expiry = ww_dsp_interface_deadline(&host->dsp);
+    // When audio is deferred and the guest is in the recognised idle poll, an
+    // in-flight ARAM transfer belongs to the same no-op audio path. It must not
+    // clamp the idle span: the turn reaches the VI retrace and advance()
+    // completes the transfer (and its completion trace) inside that turn. The
+    // completion interrupt is then delivered at the turn boundary after the VI
+    // event, not at its exact ARAM cycle.
+    const bool deferred_audio_idle = host->cycles.idle_turn &&
+                                     host->dsp.audio_deferred &&
+                                     host->dsp.deferred_task_started;
+    const u64 dsp_expiry = deferred_audio_idle ?
+        ww_dsp_interface_deadline_excluding_aram(&host->dsp) :
+        ww_dsp_interface_deadline(&host->dsp);
     if (dsp_expiry < expiry) {
         const u64 aram_expiry = host->dsp.aram_cycles_remaining != 0u
                                     ? host->dsp.aram_cycles_remaining
                                     : UINT64_MAX;
         expiry = dsp_expiry;
-        src = dsp_expiry == aram_expiry ? BLUEWAKE_DEADLINE_DSP_ARAM
-                                        : BLUEWAKE_DEADLINE_DSP_INIT;
+        src = (!deferred_audio_idle && dsp_expiry == aram_expiry)
+                  ? BLUEWAKE_DEADLINE_DSP_ARAM
+                  : BLUEWAKE_DEADLINE_DSP_INIT;
     }
     if (host->vi_clock_enabled) {
         u64 next;

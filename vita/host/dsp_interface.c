@@ -208,6 +208,17 @@ u64 ww_dsp_interface_deadline(const WwDspInterface* dsp) {
     return expiry;
 }
 
+u64 ww_dsp_interface_deadline_excluding_aram(const WwDspInterface* dsp) {
+    u64 expiry = UINT64_MAX;
+    if (!(dsp->control & DSP_HALT) && !dsp->rom_selected && dsp->init_cycles_remaining != 0u) {
+        const u64 init_expiry = dsp->init_cycles_remaining > 2u * DSP_CORE_CYCLES_PER_STEP ?
+            dsp->init_cycles_remaining - 2u * DSP_CORE_CYCLES_PER_STEP : dsp->init_cycles_remaining;
+        if (init_expiry < expiry)
+            expiry = init_expiry;
+    }
+    return expiry;
+}
+
 bool ww_dsp_interface_interrupt_pending(const WwDspInterface* dsp) {
     return (dsp->audio_deferred && dsp->deferred_task_interrupt && (dsp->control & 0x0100u)) ||
            (dsp->aram_cycles_remaining == 0u && (dsp->control & (DSP_ARAM_INTERRUPT << 1u)) &&

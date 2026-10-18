@@ -61,6 +61,7 @@ const char* ww_dsp_deferred_mail(WwDspInterface* dsp, u32 mail, u32 pc);
 bool ww_dsp_interface_write(WwDspInterface* dsp, CPUState* cpu, u32 address, u8 size, u64 value);
 bool ww_dsp_interface_advance(WwDspInterface* dsp, u64 cycles, u64 ticks);
 u64 ww_dsp_interface_deadline(const WwDspInterface* dsp);
+u64 ww_dsp_interface_deadline_excluding_aram(const WwDspInterface* dsp);
 bool ww_dsp_interface_interrupt_pending(const WwDspInterface* dsp);
 
 #endif
