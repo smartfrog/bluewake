@@ -77,23 +77,17 @@ def symbol_section(readelf, path, symbol):
     raise SystemExit(f"profile-slice: FAIL {path}: no section for {symbol} (index {index})")
 
 
-def reduce_unit(args, obj, index, out, symbol=None):
+def reduce_unit(args, obj, slot, out, symbol):
     names = globals_defined(args.nm, obj)
-    if symbol is None:
-        profiles = [name for name in names if name.startswith("g_profile_")]
-        if len(profiles) != 1:
-            raise SystemExit(f"profile-slice: FAIL {obj}: {len(profiles)} g_profile_* definitions, "
-                             f"expected 1")
-        symbol = profiles[0]
-    elif symbol not in names:
+    if symbol not in names:
         raise SystemExit(f"profile-slice: FAIL {obj}: {symbol} is not a global definition")
     # -fdata-sections names the symbol's section after it, but the toolchain picks the variant:
     # .data.<symbol> on ARM/ILP32, .data.rel.<symbol> on AArch64 LP64 (it holds pointers).
     section = symbol_section(args.readelf, obj, symbol)
-    stripped = out.with_name(f"{out.stem}.{index}.stripped.o")
-    localized = out.with_name(f"{out.stem}.{index}.localized.o")
-    reduced = out.with_name(f"{out.stem}.{index}.o")
-    localize_list = out.with_name(f"{out.stem}.{index}.locals")
+    stripped = out.with_name(f"{out.stem}.{slot}.stripped.o")
+    localized = out.with_name(f"{out.stem}.{slot}.localized.o")
+    reduced = out.with_name(f"{out.stem}.{slot}.o")
+    localize_list = out.with_name(f"{out.stem}.{slot}.locals")
     run([args.objcopy, "--remove-section=.init_array", "--remove-section=.fini_array",
          f"--remove-relocations={section}", str(obj), str(stripped)])
     localize_list.write_text("\n".join(name for name in names if name != symbol) + "\n")
@@ -156,7 +150,7 @@ def main():
     parser.add_argument("--ld", required=True)
     parser.add_argument("--output", required=True)
     parser.add_argument("--symbols", help="comma list, one symbol per object (method tables); "
-                        "without it each object must define exactly one g_profile_*")
+                        "without it every g_profile_* in each object is reduced")
     parser.add_argument("--callable", help="keep one symbol callable: its own relocations and the "
                         "code they reach stay real, everything else is localized and dropped")
     parser.add_argument("--keep", help="comma list of further globals to keep beside the callable "
@@ -175,10 +169,20 @@ def main():
         raise SystemExit(f"profile-slice: FAIL {len(symbols)} symbols for {len(args.objects)} objects")
     reduced = []
     kept = []
-    for index, (obj, symbol) in enumerate(zip((pathlib.Path(path) for path in args.objects), symbols)):
-        part, name = reduce_unit(args, obj, index, out, symbol)
-        reduced.append(part)
-        kept.append(name)
+    slot = 0
+    for obj, symbol in zip((pathlib.Path(path) for path in args.objects), symbols):
+        if symbol is None:
+            names = globals_defined(args.nm, obj)
+            found = [name for name in names if name.startswith("g_profile_")]
+            if not found:
+                raise SystemExit(f"profile-slice: FAIL {obj}: no g_profile_* definitions")
+        else:
+            found = [symbol]
+        for name in found:
+            part, kept_name = reduce_unit(args, obj, slot, out, name)
+            slot += 1
+            reduced.append(part)
+            kept.append(kept_name)
     run([args.ld, "-r", "-o", str(out)] + [str(part) for part in reduced])
     remaining = relocations(args.objdump, out)
     if remaining:
@@ -188,7 +192,7 @@ def main():
         raise SystemExit(f"profile-slice: FAIL {out}: globals {defined}, expected the {len(kept)} "
                          f"symbols")
     kind = "method tables" if args.symbols else "g_profile_* definitions"
-    print(f"profile-slice: {len(reduced)} units, {len(kept)} {kind}, "
+    print(f"profile-slice: {len(args.objects)} units, {len(kept)} {kind}, "
           f"{out.stat().st_size} bytes, 0 relocations")
     return 0
 

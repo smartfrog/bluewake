@@ -1,7 +1,8 @@
 # P-A follow-up: the bounded slice of REL actor units whose profiles the Vita boot path links.
-# The full profile list needs all 502 g_profile_* definitions; this slice takes the first 72 units
-# of the sorted src/d/actor list (the first 24 plus the next 48), which compile for ARMv7/ILP32
-# against the generated stub assets.
+# The full profile list needs all 502 g_profile_* definitions; this slice takes 119 units of the
+# sorted src/d/actor list, which compile for ARMv7/ILP32 against the generated stub assets. It
+# fills 120 profiles: d_a_gy_ctrl defines two, while d_a_itembase and d_a_kamome2 define none at
+# VERSION=2 (the latter is demo-only), so d_a_kytag05 makes the 48th new profile.
 #
 # The units are compiled with -ffunction-sections -fdata-sections, then reduced by
 # vita/reduce_profile_slice.py to their g_profile_* data: the profile's identity (mProcName, list
@@ -38,10 +39,18 @@ set(_cos_profile_slice_names
         d_a_daiocta d_a_daiocta_eye d_a_deku_item d_a_demo00 d_a_demo_dk
         d_a_demo_item d_a_demo_kmm d_a_disappear d_a_dk d_a_door10 d_a_door12
         d_a_dr d_a_dr2 d_a_dummy d_a_ep d_a_esa d_a_fallrock d_a_fallrock_tag
-        d_a_fan d_a_ff d_a_fganon)
+        d_a_fan d_a_ff d_a_fganon
+        d_a_fgmahou d_a_fire d_a_floor d_a_fm d_a_ghostship d_a_gm d_a_gnd
+        d_a_goal_flag d_a_grass d_a_grid d_a_gy d_a_gy_ctrl d_a_himo2 d_a_himo3
+        d_a_hitobj d_a_hmlif d_a_hookshot d_a_hot_floor d_a_hys d_a_ib
+        d_a_icelift d_a_ikari d_a_item d_a_jbo d_a_kaji d_a_kamome d_a_kanban
+        d_a_kantera d_a_kb d_a_kddoor d_a_ki d_a_kita d_a_klft d_a_kmon d_a_kn
+        d_a_knob00 d_a_kokiie d_a_komore d_a_ks d_a_kt d_a_kui d_a_kytag00
+        d_a_kytag01 d_a_kytag02 d_a_kytag03 d_a_kytag04 d_a_kytag05)
 list(TRANSFORM _cos_profile_slice_names PREPEND "${COS_ROOT}/src/d/actor/"
         OUTPUT_VARIABLE COS_VITA_PROFILE_SLICE_UNITS)
 list(TRANSFORM COS_VITA_PROFILE_SLICE_UNITS APPEND ".cpp")
+list(LENGTH COS_VITA_PROFILE_SLICE_UNITS _cos_profile_slice_unit_count)
 
 add_library(cos_vita_profile_slice_units OBJECT EXCLUDE_FROM_ALL ${COS_VITA_PROFILE_SLICE_UNITS})
 target_link_libraries(cos_vita_profile_slice_units PRIVATE cos_game_headers)
@@ -124,5 +133,6 @@ add_custom_command(OUTPUT "${COS_VITA_FPC_CHAIN_OBJECT}"
 add_custom_target(cos_vita_fpc_chain DEPENDS "${COS_VITA_FPC_CHAIN_OBJECT}")
 set(COS_VITA_FPC_CHAIN_OBJECT "${COS_VITA_FPC_CHAIN_OBJECT}" CACHE INTERNAL
         "The callable g_fpcLf_Method chain for the Vita boot path")
-message(STATUS "cos_native: cos_vita_profile_slice (72 actor units, reduced to their g_profile_* "
-        "data, plus the callable g_fpcLf_Method chain and three data-only base tables)")
+message(STATUS "cos_native: cos_vita_profile_slice (${_cos_profile_slice_unit_count} actor units, "
+        "reduced to their g_profile_* data, plus the callable g_fpcLf_Method chain and three "
+        "data-only base tables)")
