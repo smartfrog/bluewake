@@ -176,4 +176,13 @@ static inline __attribute__((always_inline)) u8* bw_guest_get_ram_ptr(CPUState* 
 
 #endif
 
+#if defined(BW_DISPATCH_TRACE)
+#include "dispatch_trace.h"
+static inline bool bw_traced_ppc_host_call(CPUState* cpu, u32 address) {
+    bw_trace_call(cpu, address);
+    return ppc_host_call(cpu, address);
+}
+#define ppc_host_call bw_traced_ppc_host_call
+#endif
+
 #endif

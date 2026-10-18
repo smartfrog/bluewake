@@ -15,6 +15,9 @@
 #include "gxruntime/dvd.h"
 #include "ww05_dsp_init.h"
 #include "guest_timing.h"
+#if defined(BW_DISPATCH_TRACE)
+#include "dispatch_trace.h"
+#endif
 #if WW05_OBSERVE_NATIVE_CTX || WW05_DISPATCH_ABI_SENTINEL
 #include "native_ctx.h"
 #endif
@@ -45,6 +48,9 @@ void ww_host_fail(WwHost* host, const char* error, u32 address, u32 pc) {
         host->error_pc = pc;
     }
     host->cpu.exception |= PPC_EXC_PROGRAM;
+#if defined(BW_DISPATCH_TRACE)
+    bw_trace_dump("host-fail");
+#endif
 }
 
 static WwHost* owner(CPUState* cpu) {
@@ -1359,6 +1365,10 @@ bool ww_host_resume_exception(WwHost* host) {
         host->module == NULL)
         return false;
     const bool trace = ww_host_trace_syscall(host->syscall_resumes + 1u);
+#if defined(BW_DISPATCH_TRACE)
+    if (host->syscall_resumes + 1u == 9404u)
+        bw_trace_dump("resume-9404");
+#endif
     if (trace && fprintf(stderr, "[exception-handoff] stage=guard vector=%08X source=%08X srr0=%08X\n",
                 cpu->pc, source, cpu->srr0) < 0) {
         ww_host_fail(host, "exception handoff log write failed", source, cpu->pc);
@@ -1462,6 +1472,9 @@ int ww_host_dispatch(WwHost* host, u32 address) {
         return -1;
     }
 #endif
+#if defined(BW_DISPATCH_TRACE)
+    bw_trace_dispatch(host, host->module, (const void*)host->module->dispatch);
+#endif
 #if WW05_DISPATCH_ABI_SENTINEL
     const int result = ww_abi_gate(&host->cpu, linked, (void*)host->module->dispatch);
     if (ww_abi_state == 2u || ww_abi_state == 4u) {
@@ -1548,6 +1561,9 @@ bool ww_host_init(WwHost* host) {
 }
 
 void ww_host_shutdown(WwHost* host) {
+#if defined(BW_DISPATCH_TRACE)
+    bw_trace_dump("shutdown");
+#endif
     if (g_idle_lever.armed != 0u || g_idle_lever.first_false != 0u)
         idle_lever_report(host);
 #if WW05_OBSERVE_NATIVE_CTX

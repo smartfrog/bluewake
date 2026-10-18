@@ -1179,6 +1179,54 @@ def test_global_ctx_dol_scope_rejects_unprepared_chunk_without_writing():
             assert path.read_bytes() == original
 
 
+def test_dispatch_trace_ring_wraps_and_formats():
+    """The private dispatch probe keeps the last eight dolrecomp_call entries
+    and the last eight ww_host_dispatch tails, and dumps both in order."""
+    with tempfile.TemporaryDirectory() as td:
+        td = Path(td)
+        (td / 'core').mkdir()
+        (td / 'core' / 'cpu.h').write_text(
+            '#ifndef BW_TEST_TRACE_CPU_H\n#define BW_TEST_TRACE_CPU_H\n'
+            '#include <stdint.h>\n'
+            'typedef uint8_t u8; typedef uint16_t u16; typedef uint32_t u32;\n'
+            'typedef uint64_t u64; typedef int64_t s64;\n'
+            'typedef struct CPUState { u32 pc, lr, srr0, exception; void* host_call; } CPUState;\n'
+            '#endif\n')
+        main = td / 'main.c'
+        main.write_text(
+            '#include <assert.h>\n#include <stdint.h>\n'
+            '#include "dispatch_trace.h"\n'
+            'int main(void) {\n'
+            '    CPUState cpu = {0};\n'
+            '    for (u32 i = 0; i < 10u; ++i) {\n'
+            '        cpu.pc = 0x80000000u + i; cpu.lr = 0x80010000u + i;\n'
+            '        cpu.srr0 = 0x80020000u + i; cpu.exception = i;\n'
+            '        bw_trace_call(&cpu, 0x81000000u + i);\n'
+            '        bw_trace_dispatch((void*)(uintptr_t)i, (void*)(uintptr_t)(100u + i),\n'
+            '                          (void*)(uintptr_t)(200u + i));\n'
+            '    }\n'
+            '    BwCallTrace calls[BW_TRACE_RING];\n'
+            '    BwTailTrace tails[BW_TRACE_RING];\n'
+            '    assert(bw_trace_call_snapshot(calls, BW_TRACE_RING) == 8u);\n'
+            '    assert(bw_trace_tail_snapshot(tails, BW_TRACE_RING) == 8u);\n'
+            '    assert(calls[0].address == 0x81000002u && calls[7].address == 0x81000009u);\n'
+            '    assert(calls[0].pc == 0x80000002u && calls[7].exception == 9u);\n'
+            '    assert(tails[0].host == 2u && tails[7].dispatch == 209u);\n'
+            '    bw_trace_dump("probe");\n'
+            '    return 0;\n'
+            '}\n')
+        probe = td / 'probe'
+        subprocess.run(['cc', '-std=c11', '-Wall', '-Wextra', '-Werror',
+                        '-I', str(td), '-I', str(SCRIPTS_DIR.parent / 'cmake/composite'),
+                        str(main), str(SCRIPTS_DIR.parent / 'cmake/composite/dispatch_trace.c'),
+                        '-o', str(probe)], check=True, capture_output=True, text=True)
+        result = subprocess.run([str(probe)], check=True, capture_output=True, text=True)
+        assert '[dispatch-trace] why=probe calls=10 tails=10' in result.stderr
+        assert 'call[2] ctx=' in result.stderr and 'call[9] ctx=' in result.stderr
+        assert 'tail[2] host=0x2 ' in result.stderr or 'tail[2] host=0x2' in result.stderr
+        assert 'dispatch=0xd1' in result.stderr
+
+
 def test_ram_guard_repairs_a_corrupted_ram_size():
     """Trial #26's first wild store is a guest address turned into a host
     pointer because cpu->ram_size was corrupted while cpu->ram still matched
@@ -1453,6 +1501,7 @@ def main():
         test_scoped_global_ctx_transform_touches_only_selected_chunks,
         test_global_ctx_dol_scope_rewrites_every_dol_chunk,
         test_global_ctx_dol_scope_rejects_unprepared_chunk_without_writing,
+        test_dispatch_trace_ring_wraps_and_formats,
         test_ram_guard_repairs_a_corrupted_ram_size,
         test_scoped_global_ctx_chunk_uses_the_adopted_state,
         test_ship_identity_uses_disc_member_not_processed_member,
