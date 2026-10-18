@@ -63,7 +63,11 @@ typedef struct WwRelPendingUnlink {
     u32 guest;
     u32 bytes;
     u32 capacity;
+    u32 r1;
+    u32 r2;
+    u32 r13;
     u32 r31;
+    u32 lr;
     bool destructor_open;
     bool destructor_observation_open;
     bool destructor_completed;
@@ -72,6 +76,16 @@ typedef struct WwRelPendingUnlink {
     u32 destructor_size;
     const u8* destructor_bytes;
 } WwRelPendingUnlink;
+
+/* The unlink caller's guest registers must survive the epilog/dtor walk. The
+ * load path already snapshots r1/r2/r13/r31; the SDK-unlink entry at
+ * 0x803056BC uses r1 as its stack. */
+static inline bool ww_rel_unlink_caller_matches(const WwRelPendingUnlink* pending,
+                                                const CPUState* cpu) {
+    return pending != NULL && cpu != NULL &&
+        cpu->gpr[1] == pending->r1 && cpu->gpr[2] == pending->r2 &&
+        cpu->gpr[13] == pending->r13 && cpu->gpr[31] == pending->r31;
+}
 
 struct WwHost;
 void ww_host_rel_lifecycle_revoke(struct WwHost* host);

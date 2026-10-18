@@ -179,6 +179,13 @@ static const char* unlink_epilog_return(WwHost* host, u32 address) {
     if (fprintf(stderr, "[rel-unlink] module=%u stage=epilog-returned pc=%08X owner=%08X\n",
                 pending->module_id, address, pending->owner) < 0)
         return "REL unlink epilog return trace failed";
+    /* do_unlink's frame is the caller the SDK-unlink entry will use. Save it
+     * before the guest runs 0x803056BC, whose prologue writes through r1. */
+    pending->r1 = cpu->gpr[1];
+    pending->r2 = cpu->gpr[2];
+    pending->r13 = cpu->gpr[13];
+    pending->r31 = cpu->gpr[31];
+    pending->lr = cpu->lr;
     pending->phase = WW_REL_UNLINK_EPILOG_RETURNED;
     return NULL;
 }

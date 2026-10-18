@@ -703,6 +703,14 @@ static const char* unlink_sdk(WwHost* host, u32 address) {
             return "REL SDK unlink requires its translated do_unlink successor";
         if (cpu->gpr[3] != pending->guest)
             return "REL SDK unlink requires its owned module header";
+        if (!ww_rel_unlink_caller_matches(pending, cpu)) {
+            if (fprintf(stderr,
+                        "[rel-unlink] module=%u stage=sdk-state r1=%08X expected=%08X r2=%08X/%08X r13=%08X/%08X r31=%08X/%08X lr=%08X\n",
+                        pending->module_id, cpu->gpr[1], pending->r1, cpu->gpr[2], pending->r2,
+                        cpu->gpr[13], pending->r13, cpu->gpr[31], pending->r31, cpu->lr) < 0)
+                return "REL SDK unlink state trace failed";
+            return "REL SDK unlink lost its caller state";
+        }
         if (!ww_host_rel_unlink_identity(host, pending))
             return "REL SDK unlink lost its exact live owner";
         if (fprintf(stderr, "[rel-unlink] module=%u stage=sdk-unlink pc=%08X owner=%08X\n",
