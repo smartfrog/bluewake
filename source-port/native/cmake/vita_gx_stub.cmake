@@ -5,11 +5,14 @@
 # references of representative game units.
 #
 # What is proven here (32-bit Vita builds only):
-# - cos_vita_gx_stub_probe compiles seven game units that draw through GX (JSystem 2D, JParticle,
-#   JFWDisplay, JUTResFont) for ARMv7/ILP32; the check merges cos_sdk whole, so it also covers the
-#   GF objects cos_sdk already builds.
+# - cos_vita_gx_stub_probe compiles game units that draw through GX (twenty-three units under
+#   src/ call GXBegin directly) for ARMv7/ILP32; the check merges cos_sdk whole, so it also covers
+#   the GF objects cos_sdk already builds.
 # - cos_vita_gx_stub_check resolves every GX/GD symbol those objects reference against
 #   libcos_vita_gx_stub.a with ld -r, so the link has nothing left to guess.
+# - Sixteen of the twenty-three reach a generated header (eleven res/ enum headers, four assets/
+#   stub headers, and m_Do_graphic through res/Object/Always.h), so they join the probe only under
+#   COS_RUNTIME_ASSETS (docs/RUNTIME_ASSETS.md, `gen_assets.sh --stubs`, no disc).
 #
 # Not here yet: wiring the stub into a game executable. The reduced Vita harness (pc_smoke split,
 # blocker 2 of the P-A report) does not exist, so there is no Vita executable to link it into.
@@ -29,16 +32,12 @@ if (CMAKE_SIZEOF_VOID_P EQUAL 4 AND NOT TARGET aurora::gx)
     message(STATUS "cos_native: cos_vita_gx_stub (the Vita source link has no aurora_gx/aurora_gd)")
 
     # Representative GXBegin callers, picked for the GX surface they use and because they include
-    # no assets/ headers (the stub asset headers are a separate P-A item):
+    # no assets/ or res/ headers (no generated headers, no disc):
     # - J2DGrafContext/J2DScreen/J2DPicture/J2DWindow: J2D's viewport, scissor, TEV and
     #   texture-object path;
     # - JPADrawVisitor: particles, vertex descriptors and the GS/PE state;
     # - JFWDisplay: the frame copy path (GXCopyDisp, GXGetGPStatus, GXGetYScaleFactor);
     # - JUTResFont: GXBegin for glyph quads plus texture initialization.
-    # m_Do_ext.cpp, d_drawlist.cpp, d_cloth_packet.cpp and d_menu_cloth.cpp are the four GXBegin
-    # callers that include assets/ headers generated from the disc, so they wait for the --stubs
-    # item; the other twelve (d_map.cpp, d_gameover.cpp, ...) include res/ headers and join once
-    # the res-only headers are generated for this build.
     set(COS_VITA_GX_STUB_PROBE_UNITS
             "${COS_ROOT}/src/JSystem/J2DGraph/J2DGrafContext.cpp"
             "${COS_ROOT}/src/JSystem/J2DGraph/J2DScreen.cpp"
@@ -49,6 +48,39 @@ if (CMAKE_SIZEOF_VOID_P EQUAL 4 AND NOT TARGET aurora::gx)
             "${COS_ROOT}/src/JSystem/JUtility/JUTResFont.cpp")
     add_library(cos_vita_gx_stub_probe OBJECT ${COS_VITA_GX_STUB_PROBE_UNITS})
     target_link_libraries(cos_vita_gx_stub_probe PRIVATE cos_game_headers)
+
+    # The other sixteen GXBegin callers reach a generated header, directly or through the headers
+    # they include: eleven res/ enum headers, four assets/ stub headers (m_Do_ext, d_drawlist,
+    # d_cloth_packet, d_menu_cloth) and m_Do_graphic (res/Object/Always.h through
+    # d/d_com_inf_game.h; its own assets/ includes sit in the VERSION_DEMO branch). Under
+    # COS_RUNTIME_ASSETS the build compiles against the --stubs headers, which hold both (the tool
+    # copies the res/ enums next to the stub assets/), so they join the probe; a build with no
+    # headers keeps the seven above and says so.
+    if (COS_RUNTIME_ASSETS)
+        set(COS_VITA_GX_STUB_ASSET_UNITS
+                "${COS_ROOT}/src/d/actor/d_a_movie_player.cpp"
+                "${COS_ROOT}/src/d/actor/d_a_salvage_tbox.cpp"
+                "${COS_ROOT}/src/d/actor/d_a_sea.cpp"
+                "${COS_ROOT}/src/d/d_cloth_packet.cpp"
+                "${COS_ROOT}/src/d/d_drawlist.cpp"
+                "${COS_ROOT}/src/d/d_gameover.cpp"
+                "${COS_ROOT}/src/d/d_kankyo_rain.cpp"
+                "${COS_ROOT}/src/d/d_map.cpp"
+                "${COS_ROOT}/src/d/d_menu_cloth.cpp"
+                "${COS_ROOT}/src/d/d_ovlp_fade2.cpp"
+                "${COS_ROOT}/src/d/d_ovlp_fade4.cpp"
+                "${COS_ROOT}/src/d/d_particle.cpp"
+                "${COS_ROOT}/src/d/d_picture_box.cpp"
+                "${COS_ROOT}/src/d/d_snap.cpp"
+                "${COS_ROOT}/src/m_Do/m_Do_ext.cpp"
+                "${COS_ROOT}/src/m_Do/m_Do_graphic.cpp")
+        target_sources(cos_vita_gx_stub_probe PRIVATE ${COS_VITA_GX_STUB_ASSET_UNITS})
+        message(STATUS "cos_native: cos_vita_gx_stub_probe: all 23 GXBegin callers "
+                "(COS_RUNTIME_ASSETS: stub asset headers present)")
+    else ()
+        message(STATUS "cos_native: cos_vita_gx_stub_probe: the 7 GXBegin callers with no generated "
+                "headers; sixteen more need `gen_assets.sh --stubs` and COS_RUNTIME_ASSETS")
+    endif ()
 
     find_package(Python3 COMPONENTS Interpreter REQUIRED)
     # cos_sdk carries the GF objects (cmake/sdk_gf.cmake adds them to it), so the whole SDK archive
