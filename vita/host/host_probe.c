@@ -291,7 +291,32 @@ int main(int argc, char** argv) {
         assert(host->error != NULL);
         assert(host->error_address == 0xCC007000u);
         assert(host->error_pc == 0x80001000u);
+        assert(host->error_width == 4u && host->error_value == 0u);
         assert(ww_host_edge(host, &host->cpu, host->cpu.pc));
+    } else if (strcmp(argv[1], "efb-peek") == 0) {
+        host->cpu.pc = 0x80322E04u;
+        assert(host->cpu.external_read(&host->cpu, 0xC84F0500u, 4u) == 0u);
+#if WW05_EFB_PEEK
+        assert(host->error == NULL);
+        assert(host->cpu.external_read(&host->cpu, 0xC8400000u, 4u) == 0u);
+        assert(host->error == NULL);
+#else
+        assert(host->error != NULL);
+        assert(host->error_address == 0xC84F0500u);
+        assert(host->error_width == 4u && host->error_value == 0u);
+#endif
+    } else if (strcmp(argv[1], "efb-peek-color") == 0) {
+        host->cpu.pc = 0x80322E04u;
+        host->cpu.external_read(&host->cpu, 0xC8000000u, 4u);
+        assert(host->error != NULL);
+        assert(host->error_address == 0xC8000000u);
+        assert(host->error_width == 4u && host->error_value == 0u);
+    } else if (strcmp(argv[1], "efb-peek-width") == 0) {
+        host->cpu.pc = 0x80322E04u;
+        host->cpu.external_read(&host->cpu, 0xC84F0500u, 2u);
+        assert(host->error != NULL);
+        assert(host->error_address == 0xC84F0500u);
+        assert(host->error_width == 2u && host->error_value == 0u);
     } else if (strcmp(argv[1], "pvr") == 0) {
         assert(ppc_mfspr(&host->cpu, 287u, 0x80001000u) == 0x00083214u);
         assert(host->error == NULL);
