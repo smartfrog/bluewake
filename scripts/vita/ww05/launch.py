@@ -24,8 +24,9 @@ from direct_launch import RENDERER, direct_phases
 from fp_libraries import directory_fd, file_identity, library_identity
 from fp_profile import FIRMWARE_DIRECTORY, config_identity, read_profile_file, verify_firmware
 from activity import ProcessIdleObserver, available_memory_bytes
-from memory_capture import MAX_CAPTURES, publish_replay_manifests, snapshot_outputs, validate_memory_captures, verify_snapshots
-from frame_capture import collect_frames, frame_outputs
+from memory_capture import (MAX_CAPTURES, publish_replay_manifests, snapshot_outputs, validate_frame_window,
+                            validate_memory_captures, verify_snapshots)
+from frame_capture import MAX_FRAMES, collect_frames, frame_outputs
 
 PHASE_LOG_LIMIT = 64 * 1024 * 1024
 
@@ -118,9 +119,10 @@ def request_content(token, source, package, count=None):
 
 
 def fresh_request(root, source, package, continue_gx=0, mem1_snapshots=0, defer_audio=False, mem1_command_window=None,
-                  *, token=None):
+                  frame_window=None, *, token=None):
     validate_continuation(continue_gx)
     validate_memory_captures(mem1_snapshots, continue_gx, mem1_command_window)
+    validate_frame_window(frame_window, mem1_snapshots)
     if type(defer_audio) is not bool or (defer_audio and not continue_gx):
         raise ValueError('audio deferral requires the explicit continuation profile')
     if token is not None and not is_full_hex_identity(token, 32):
@@ -138,7 +140,7 @@ def fresh_request(root, source, package, continue_gx=0, mem1_snapshots=0, defer_
         if os.fstat(parent).st_uid != os.getuid():
             raise ValueError('report directory must be privately owned')
         existing = set(os.listdir(parent))
-        if ('frames' in existing or existing & {'ww05' + suffix for suffix in ('.request', '.partial', '.report', '.log', '.dispatch', '.continue', '.mem1', '.mem1-start', '.mem1-end', '.audio')} or
+        if ('frames' in existing or existing & {'ww05' + suffix for suffix in ('.request', '.partial', '.report', '.log', '.dispatch', '.continue', '.mem1', '.mem1-start', '.mem1-end', '.frame-start', '.frame-limit', '.audio')} or
             any(name.startswith('ww05.mem1-') for name in existing)):
             raise ValueError('preexisting WW05 request/output; refusing to delete or reuse it')
         descriptor = os.open('ww05.request', os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW | os.O_CLOEXEC,
@@ -168,6 +170,13 @@ def fresh_request(root, source, package, continue_gx=0, mem1_snapshots=0, defer_
                                      0o600, dir_fd=parent)
             with os.fdopen(descriptor, 'w') as stream:
                 stream.write(request_content(token, source, package, value))
+    if frame_window is not None:
+        for suffix, value in zip(('start', 'limit'), frame_window):
+            with directory_fd(directory) as parent:
+                descriptor = os.open('ww05.frame-' + suffix, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW | os.O_CLOEXEC,
+                                     0o600, dir_fd=parent)
+            with os.fdopen(descriptor, 'w') as stream:
+                stream.write(request_content(token, source, package, value))
     if defer_audio:
         with directory_fd(directory) as parent:
             descriptor = os.open('ww05.audio', os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW | os.O_CLOEXEC,
@@ -182,7 +191,8 @@ def activity_observer(root, plan, phase, extra_outputs=()):
                *(root / REPORT_DIRECTORY / ('ww05' + suffix)
                   for suffix in ('.log', '.partial', '.report', '.dispatch')),
                *snapshot_outputs(root / REPORT_DIRECTORY),
-               *frame_outputs(root / 'evidence/frames'),
+               *frame_outputs(root / 'evidence/frames', plan.get('frame_capture_start', 1),
+                              plan.get('frame_capture_limit', MAX_FRAMES)),
                *extra_outputs)
     return ProcessIdleObserver(plan.get('idle_timeout_seconds', 30), plan.get('cpu_threshold', 0.05), outputs,
                               plan.get('minimum_available_memory_bytes', 0))
@@ -232,6 +242,8 @@ def execute_run(root, plan):
                'audio': 'deferred' if plan.get('defer_audio', False) else 'strict',
                'extended_scene_capture': plan.get('extended_scene_capture', False),
                'minimum_available_memory_bytes': plan.get('minimum_available_memory_bytes', 0),
+              'frame_capture_start': plan.get('frame_capture_start', 1),
+              'frame_capture_limit': plan.get('frame_capture_limit', MAX_FRAMES),
               'completion': 'INCOMPLETE', 'reported_frontier': 'UNAVAILABLE',
               'frontier_verified': False, 'rendered': False}
     with evidence_file(root, 'execution.json') as stream:
@@ -268,8 +280,11 @@ def execute_run(root, plan):
         payload = verify_installed(root, plan)
         restore_config(root, canonical, surface_sync=surface_sync, pref_path=root / FIRMWARE_DIRECTORY)
         memory_preflight(root, plan, 'guest')
+        frame_window = (plan.get('frame_capture_start', 1), plan.get('frame_capture_limit', MAX_FRAMES))
+        frame_window = frame_window if plan.get('live_frame_capture') and frame_window != (1, MAX_FRAMES) else None
         token = fresh_request(root, plan['source'], plan['vpk_sha256'], plan.get('continue_gx', 0),
-                              plan.get('mem1_snapshots', 0), plan.get('defer_audio', False), plan.get('mem1_command_window'))
+                              plan.get('mem1_snapshots', 0), plan.get('defer_audio', False),
+                              plan.get('mem1_command_window'), frame_window)
         with evidence_file(phase, 'preparation.json') as stream:
             json.dump({'readiness': 'VERIFIED', 'payload': payload, 'guest_token': token, 'audio': record['audio']}, stream, indent=2)
             stream.write('\n')
@@ -279,6 +294,8 @@ def execute_run(root, plan):
             json.dump({'token': token, 'source': plan['source'], 'vpk_sha256': plan['vpk_sha256'],
                         'audio': record['audio'],
                          'mem1_command_window': plan.get('mem1_command_window'),
+                        'frame_capture_start': plan.get('frame_capture_start', 1),
+                        'frame_capture_limit': plan.get('frame_capture_limit', MAX_FRAMES),
                         'continue_gx': plan.get('continue_gx', 0), 'mem1_snapshots': plan.get('mem1_snapshots', 0)}, stream)
             stream.write('\n')
         print(f"RUN phase=guest evidence={phase}/evidence", flush=True)
@@ -322,7 +339,9 @@ def execute_run(root, plan):
         record.update(memory_captures_verified=manifest['captured'])
         images = collect_frames(root / 'evidence/frames', root / 'evidence/frames',
                                 enabled=surface_sync, presented=int(presented), token=token,
-                                source=plan['source'], package=plan['vpk_sha256'], audio=record['audio'])
+                                source=plan['source'], package=plan['vpk_sha256'], audio=record['audio'],
+                                start=plan.get('frame_capture_start', 1),
+                                limit=plan.get('frame_capture_limit', MAX_FRAMES))
         with evidence_file(root, 'live-images.json') as stream:
             json.dump(images, stream, indent=2)
             stream.write('\n')
@@ -354,6 +373,8 @@ def main():
                          help=f'capture raw 24 MiB MEM1 before logged draws, at most {MAX_CAPTURES}; off for FPS baselines')
     parser.add_argument('--mem1-command-window', type=int, nargs=2, metavar=('START', 'END'),
                          help='snapshot every draw within this inclusive command window; retain all earlier FIFO state')
+    parser.add_argument('--frame-window', type=int, nargs=2, metavar=('START', 'END'),
+                         help='capture live frame PNGs from present START through present END; requires --mem1-snapshots')
     parser.add_argument('--defer-audio', action='store_true',
                         help='explicit no-op DSP bootstrap with declared synthetic mails/IRQ; reports audio=deferred; no PCM output')
     parser.add_argument('--disc', type=Path, help='link the verified image into the private profile; guest disc I/O is readonly, not OS-confined')

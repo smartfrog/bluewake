@@ -44,8 +44,14 @@ static const char* capture_frame(const WwRendererFrame* frame, void* user) try {
     auto* host = static_cast<WwHost*>(user);
     WwRendererStats stats{};
     ww_renderer_stats(host->renderer, &stats);
-    if (stats.presented == 0u || stats.presented != host->frame_capture.index + 1u || stats.presented > 128u)
-        return "live frame evidence requires consecutive actual presentations, at most 128 per diagnostic run";
+    if (stats.presented == 0u)
+        return "live frame evidence requires a completed presentation";
+    if (stats.presented < host->frame_capture.start)
+        return nullptr;
+    if (stats.presented > host->frame_capture.limit)
+        return "live frame evidence exhausted its requested present window";
+    if (host->frame_capture.index != 0u && stats.presented != host->frame_capture.index + 1u)
+        return "live frame evidence requires consecutive actual presentations within the requested window";
     if (frame == nullptr || !gx_capture::valid(*frame) || frame->size > 960u * 544u * 4u)
         return "live frame evidence exceeds the Vita framebuffer extent";
     u64 us;
@@ -120,6 +126,12 @@ extern "C" const char* ww_host_enable_frame_capture(WwHost* host) {
     const WwMem1Capture* identity = &host->mem1_capture;
     if (identity->limit == 0u)
         return nullptr;
+    if (host->frame_capture.start == 0u)
+        host->frame_capture.start = 1u;
+    if (host->frame_capture.limit == 0u)
+        host->frame_capture.limit = WW_FRAME_CAPTURE_DEFAULT_LIMIT;
+    if (host->frame_capture.start > host->frame_capture.limit || host->frame_capture.limit > WW_FRAME_CAPTURE_MAX)
+        return "live frame capture requires a bounded present window";
     if (identity->limit > WW_MEM1_MAX_CAPTURES || host->renderer == nullptr || identity->token == nullptr || identity->source == nullptr ||
         identity->package == nullptr || !diagnostic_hex(identity->token, 32u) ||
         !diagnostic_hex(identity->source, 40u) || !diagnostic_hex(identity->package, 64u))

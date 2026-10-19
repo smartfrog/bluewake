@@ -48,6 +48,14 @@ class LiveFramesTest(unittest.TestCase):
                         self.assertEqual(raw[channel::4], visible[channel::4])
                     self.assertEqual(visible[3::4], bytes([255] * 4))
 
+    def test_late_window_skips_presents_before_the_requested_start(self):
+        with tempfile.TemporaryDirectory(dir='/tmp/opencode', prefix='ww16-live-') as directory:
+            root = Path(directory)
+            self.probe(root, 'image-window')
+            self.assertFalse((root / 'frames/frame-1.png').exists())
+            for suffix in ('-rgba.png', '.png', '.json'):
+                self.assertTrue((root / 'frames' / f'frame-2{suffix}').exists())
+
     def test_no_dump_profile_does_not_read_back_or_create_images(self):
         with tempfile.TemporaryDirectory(dir='/tmp/opencode', prefix='ww16-live-') as directory:
             root = Path(directory)

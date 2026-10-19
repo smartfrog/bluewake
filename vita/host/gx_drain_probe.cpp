@@ -241,6 +241,8 @@ int main(int argc, char** argv) {
                     .source = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
                     .package = "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"};
             }
+            if (std::strcmp(scenario, "image-window") == 0)
+                host->frame_capture = {.start = 2u, .limit = 2u};
             const char* enabled = ww_host_enable_frame_capture(host);
             if (std::strcmp(scenario, "image-preexisting") == 0) {
                 assert(enabled != nullptr && backend.readbacks == 0u && backend.presents == 0u);
