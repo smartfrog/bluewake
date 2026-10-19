@@ -56,7 +56,7 @@ class LiveFramesTest(unittest.TestCase):
             for suffix in ('-rgba.png', '.png', '.json'):
                 self.assertTrue((root / 'frames' / f'frame-2{suffix}').exists())
 
-    def test_late_window_collects_only_the_requested_presents_and_refuses_an_unreached_window(self):
+    def test_late_window_collects_only_the_requested_present(self):
         from frame_capture import collect_frames
         with tempfile.TemporaryDirectory(dir='/tmp/opencode', prefix='ww16-live-') as directory:
             root = Path(directory)
@@ -67,9 +67,33 @@ class LiveFramesTest(unittest.TestCase):
                                     token='c' * 32, source='a' * 40, package='b' * 64, start=2, limit=2)
             self.assertEqual(result['captures'], 1)
             self.assertEqual(result['frames'][0]['frame'], 2)
+
+    def test_late_window_that_was_not_reached_fails_loudly(self):
+        from frame_capture import collect_frames
+        with tempfile.TemporaryDirectory(dir='/tmp/opencode', prefix='ww16-live-') as directory:
+            root = Path(directory)
+            self.probe(root, 'image-two')
             with self.assertRaisesRegex(ValueError, 'was not reached'):
                 collect_frames(root / 'frames', root / 'frames', enabled=True, presented=2,
                                token='c' * 32, source='a' * 40, package='b' * 64, start=3, limit=3)
+
+    def test_window_accepts_the_present_after_the_limit(self):
+        from frame_capture import collect_frames
+        with tempfile.TemporaryDirectory(dir='/tmp/opencode', prefix='ww16-live-') as directory:
+            root = Path(directory)
+            self.probe(root, 'image-two')
+            result = collect_frames(root / 'frames', root / 'frames', enabled=True, presented=3,
+                                    token='c' * 32, source='a' * 40, package='b' * 64, start=1, limit=2)
+            self.assertEqual(result['captures'], 2)
+
+    def test_window_rejects_a_present_beyond_the_limit_plus_one(self):
+        from frame_capture import collect_frames
+        with tempfile.TemporaryDirectory(dir='/tmp/opencode', prefix='ww16-live-') as directory:
+            root = Path(directory)
+            self.probe(root, 'image-two')
+            with self.assertRaisesRegex(ValueError, 'presentation count'):
+                collect_frames(root / 'frames', root / 'frames', enabled=True, presented=4,
+                               token='c' * 32, source='a' * 40, package='b' * 64, start=1, limit=2)
 
     def test_no_dump_profile_does_not_read_back_or_create_images(self):
         with tempfile.TemporaryDirectory(dir='/tmp/opencode', prefix='ww16-live-') as directory:

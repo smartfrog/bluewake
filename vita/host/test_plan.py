@@ -120,6 +120,18 @@ class PlanTest(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, 'frame capture window'):
             stage_plan.make_plan(Path('/unused'), args, 'a' * 40, 'b' * 64, 'c' * 32)
 
+    def test_stage_refuses_invalid_frame_window_before_staging(self):
+        import stage_plan
+        args = SimpleNamespace(timeout=600, continue_gx=64, mem1_snapshots=1, frame_window=[20, 10])
+        with self.assertRaisesRegex(ValueError, 'frame capture window'):
+            stage_plan.stage(args)
+
+    def test_check_refuses_invalid_frame_window(self):
+        import stage_plan
+        args = SimpleNamespace(timeout=600, continue_gx=64, mem1_snapshots=1, frame_window=[20, 10])
+        with self.assertRaisesRegex(ValueError, 'frame capture window'):
+            stage_plan.check(args)
+
     def test_memory_window_cannot_select_unlogged_or_invalid_commands(self):
         import stage_plan
         for window in ([0, 10], [20, 10], [1, 133261], [True, 10], [1], [1, 2, 3]):
