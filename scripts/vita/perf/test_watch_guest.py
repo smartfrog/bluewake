@@ -15,9 +15,13 @@ from watch_faults import fault_match
 class VerdictTests(unittest.TestCase):
     def test_high_cpu_without_a_present_is_hung(self):
         self.assertEqual(
-            watch_guest.verdict(cpu=0.9, silent_s=1, idle_s=0,
-                                since_present_s=watch_guest.HANG_SECONDS + 1),
+            watch_guest.verdict(cpu=0.9, silent_s=watch_guest.HANG_SECONDS + 1, idle_s=0,
+                                since_present_s=watch_guest.IDLE_SILENT_SECONDS + 1),
             'hung-no-present')
+
+    def test_high_cpu_with_a_growing_log_is_not_hung(self):
+        self.assertIsNone(
+            watch_guest.verdict(cpu=1.29, silent_s=0.0, idle_s=0, since_present_s=40.0))
 
     def test_recent_present_at_high_cpu_is_healthy(self):
         self.assertIsNone(

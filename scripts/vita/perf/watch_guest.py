@@ -102,7 +102,7 @@ def verdict(cpu, silent_s, idle_s, since_present_s):
     """Name the hang the samples show, or None while the guest is healthy."""
     if cpu is None:
         return None
-    if cpu > BUSY_CPU and since_present_s > HANG_SECONDS:
+    if cpu > BUSY_CPU and since_present_s > IDLE_SILENT_SECONDS and silent_s > HANG_SECONDS:
         return 'hung-no-present'
     if cpu < IDLE_CPU and silent_s > IDLE_SILENT_SECONDS and idle_s > IDLE_SILENT_SECONDS:
         return 'hung-low-cpu-silent'
