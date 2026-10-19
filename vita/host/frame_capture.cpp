@@ -110,7 +110,8 @@ static const char* capture_frame(const WwRendererFrame* frame, void* user) try {
     }
     if (diagnostic_publish(stream, partial, metadata) != 0)
         return "live frame metadata publish failed";
-    host->frame_capture = {stats.presented, us};
+    host->frame_capture.index = stats.presented;
+    host->frame_capture.us = us;
     if (fprintf(stderr, "[frame-capture] frame=%llu command=%llu us=%llu width=%u height=%u raw=frames/frame-%llu-rgba.png display=frames/frame-%llu.png phase=after-gx-present-before-next-frame\n",
                 index, static_cast<unsigned long long>(host->stream.decoded), static_cast<unsigned long long>(us),
                 frame->width, frame->height, index, index) < 0)
