@@ -120,8 +120,7 @@ static inline __attribute__((always_inline)) CPUState* bw_guest_ctx_canonical(CP
 
 static inline __attribute__((always_inline)) CPUState* bw_guest_ram_guard_access(CPUState* cpu) {
     const bool intact = g_bw_guest_cpu == NULL ||
-                        (g_bw_guest_cpu == cpu && cpu->ram == g_bw_guest_ram &&
-                         cpu->ram_size == g_bw_guest_ram_size);
+                        (g_bw_guest_cpu == cpu && cpu->ram == g_bw_guest_ram);
     if (__builtin_expect(intact, 1))
         return cpu;
     return bw_guest_ram_guard_slow(cpu);
