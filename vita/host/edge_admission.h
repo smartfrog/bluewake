@@ -13,8 +13,10 @@
 // requires the caller-return LR. The draw family - 0x8015EA5C daVrbox2_Draw,
 // 0x8015E3F0 daVrbox_Draw, 0x8015D80C daSea_Draw and 0x800D8DB8 daBg_Draw -
 // is entered as a block, so the LR is whatever the scene graph caller left and
-// is deliberately not part of the admission. Their refusal capsules showed the
-// compiled block entered normally (pc == address, module-owned, no alias).
+// is deliberately not part of the admission. 0x800A0B60 is daBg's
+// GetAttributeCode block entry, observed the same way. Their refusal capsules
+// showed the compiled block entered normally (pc == address, module-owned, no
+// alias).
 static inline bool ww_edge_admit_observation(uint32_t address, uint32_t pc,
                                              uint32_t lr, bool module_owned,
                                              bool alias_overlap) {
@@ -24,7 +26,7 @@ static inline bool ww_edge_admit_observation(uint32_t address, uint32_t pc,
         return lr == address;
     return address == 0x8022F9FCu || address == 0x8015EA5Cu ||
            address == 0x8015E3F0u || address == 0x8015D80Cu ||
-           address == 0x800D8DB8u;
+           address == 0x800D8DB8u || address == 0x800A0B60u;
 }
 
 #endif

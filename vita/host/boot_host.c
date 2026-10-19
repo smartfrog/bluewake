@@ -1283,10 +1283,12 @@ bool ww_host_edge(void* user, CPUState* cpu, u32 address) {
     // 0x8015D80C daSea_Draw and 0x800D8DB8 daBg_Draw - takes the LR the scene graph
     // caller left; each refusal capsule showed pc == address, module-owned code, no
     // alias and a real MEM1 object, and none of the blocks needs a host service.
-    // None changes PC/LR/regs.
+    // None changes PC/LR/regs. 0x800A0B60 is daBg's GetAttributeCode block
+    // entry (the LR is the caller's), observed the same way.
     admitted_observation = (address == 0x80120188u || address == 0x8022F9FCu ||
                             address == 0x8015EA5Cu || address == 0x8015E3F0u ||
-                            address == 0x8015D80Cu || address == 0x800D8DB8u) &&
+                            address == 0x8015D80Cu || address == 0x800D8DB8u ||
+                            address == 0x800A0B60u) &&
         ww_edge_admit_observation(
             address, cpu->pc, cpu->lr,
             ww_host_module_contains_address(host->module, address),
