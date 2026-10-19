@@ -26,12 +26,14 @@ def collect_frames(directory, output, *, enabled, presented, token, source, pack
     from fp_libraries import directory_fd
     from fp_profile import read_profile_file
 
-    if type(presented) is not int or presented < 0 or (enabled and presented > MAX_PRESENT):
-        raise ValueError('live capture presentation count exceeds its diagnostic bound')
     if type(start) is not int or type(limit) is not int or not 1 <= start <= limit <= MAX_PRESENT:
         raise ValueError('live capture window exceeds its diagnostic bound')
+    if type(presented) is not int or presented < 0 or (enabled and presented > limit + 1):
+        raise ValueError('live capture presentation count exceeds its diagnostic bound')
     if audio not in ('strict', 'deferred'):
         raise ValueError('invalid declared audio policy')
+    if enabled and presented < start:
+        raise ValueError('live capture window was not reached by any presentation')
     last = min(limit, presented)
     expected = {f'frame-{frame}{suffix}' for frame in range(start, last + 1)
                 for suffix in ('-rgba.png', '.png', '.json')} if enabled else set()

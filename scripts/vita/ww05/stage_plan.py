@@ -301,6 +301,7 @@ def stage(args):
     validate_continuation(getattr(args, 'continue_gx', 0))
     validate_memory_captures(getattr(args, 'mem1_snapshots', 0), getattr(args, 'continue_gx', 0),
                              getattr(args, 'mem1_command_window', None))
+    validate_frame_window(getattr(args, 'frame_window', None), getattr(args, 'mem1_snapshots', 0))
     validate_timeout(args.timeout, scene_capture=getattr(args, 'mem1_command_window', None) is not None,
                      idle_timeout=getattr(args, 'idle_timeout', 30))
     args.libraries = STACK / 'vita3k-env'
@@ -383,6 +384,7 @@ def check(args):
     validate_continuation(getattr(args, 'continue_gx', 0))
     validate_memory_captures(getattr(args, 'mem1_snapshots', 0), getattr(args, 'continue_gx', 0),
                              getattr(args, 'mem1_command_window', None))
+    validate_frame_window(getattr(args, 'frame_window', None), getattr(args, 'mem1_snapshots', 0))
     validate_timeout(args.timeout, scene_capture=getattr(args, 'mem1_command_window', None) is not None,
                      idle_timeout=getattr(args, 'idle_timeout', 30))
     launcher_source = subprocess.check_output(['git', 'rev-parse', 'HEAD'], cwd=ROOT, text=True).strip()
@@ -420,7 +422,8 @@ def main():
     parser.add_argument('--mem1-snapshots', type=int, choices=range(MAX_CAPTURES + 1), default=0)
     parser.add_argument('--mem1-command-window', type=int, nargs=2, metavar=('START', 'END'))
     parser.add_argument('--frame-window', type=int, nargs=2, metavar=('START', 'END'),
-                         help='capture live frame PNGs from present START through present END; requires --mem1-snapshots')
+                         help='capture live frame PNGs from present START through present END; requires --mem1-snapshots; '
+                         'raw RGBA costs about 4 MiB per frame, so 1024 frames need about 4 GiB free')
     parser.add_argument('--defer-audio', action='store_true')
     parser.add_argument('--disc', type=Path)
     parser.add_argument('--candidate-build', type=Path,

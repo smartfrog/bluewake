@@ -374,7 +374,8 @@ def main():
     parser.add_argument('--mem1-command-window', type=int, nargs=2, metavar=('START', 'END'),
                          help='snapshot every draw within this inclusive command window; retain all earlier FIFO state')
     parser.add_argument('--frame-window', type=int, nargs=2, metavar=('START', 'END'),
-                         help='capture live frame PNGs from present START through present END; requires --mem1-snapshots')
+                         help='capture live frame PNGs from present START through present END; requires --mem1-snapshots; '
+                         'raw RGBA costs about 4 MiB per frame, so 1024 frames need about 4 GiB free')
     parser.add_argument('--defer-audio', action='store_true',
                         help='explicit no-op DSP bootstrap with declared synthetic mails/IRQ; reports audio=deferred; no PCM output')
     parser.add_argument('--disc', type=Path, help='link the verified image into the private profile; guest disc I/O is readonly, not OS-confined')
