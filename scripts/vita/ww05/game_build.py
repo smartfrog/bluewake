@@ -134,6 +134,17 @@ def turn_cap_configure_option(turn_cap):
     return [f'-DWW_TURN_CAP={checked_turn_cap(turn_cap)}']
 
 
+def checked_gx_max_command_bytes(gx_max_command_bytes):
+    if (isinstance(gx_max_command_bytes, bool) or not isinstance(gx_max_command_bytes, int)
+            or gx_max_command_bytes < 1025):
+        raise ValueError('GX max command bytes must be at least 1025')
+    return gx_max_command_bytes
+
+
+def gx_max_command_bytes_configure_option(gx_max_command_bytes):
+    return [f'-DWW05_GX_MAX_COMMAND_BYTES={checked_gx_max_command_bytes(gx_max_command_bytes)}']
+
+
 def program_cache_configure_option(enabled):
     return [f'-DWW_PROGRAM_CACHE={"ON" if enabled else "OFF"}']
 
@@ -160,7 +171,7 @@ def experimental_configure_options():
 def vita_configure_arguments(cmake, ninja, source, output, toolchain, recompcore, composite, identity, dol,
                              vitagl, renderer_sdk, opt_level, vi_clock, pad_input, dst_alpha_admit,
                              edge_observation_admit, idle_deadline_advance, turn_cap, program_cache,
-                             ram_guard, rejection_capsule, skip_title_logo):
+                             ram_guard, rejection_capsule, skip_title_logo, gx_max_command_bytes):
     return [
         cmake, '-S', source, '-B', output, '-G', 'Ninja',
         f'-DCMAKE_TOOLCHAIN_FILE={toolchain}',
@@ -175,6 +186,7 @@ def vita_configure_arguments(cmake, ninja, source, output, toolchain, recompcore
         *edge_observation_admit_configure_option(edge_observation_admit),
         *idle_deadline_advance_configure_option(idle_deadline_advance),
         *turn_cap_configure_option(turn_cap),
+        *gx_max_command_bytes_configure_option(gx_max_command_bytes),
         *program_cache_configure_option(program_cache),
         *ram_guard_configure_option(ram_guard),
         *rejection_capsule_configure_option(rejection_capsule),
@@ -200,6 +212,9 @@ def build_parser():
     parser.add_argument('--turn-cap', type=int, default=4096,
                         help='cap scheduler turns per host frame (default 4096; zero builds the '
                              'parent 256-cycle cap)')
+    parser.add_argument('--gx-max-command-bytes', type=int, default=1025,
+                        help='bounded GX command staging bytes (default 1025 holds the largest XF '
+                             'load; raise it to fit a larger inline draw)')
     parser.add_argument('--program-cache', action=argparse.BooleanOptionalAction, default=True,
                         help='translated-program cache (on by default)')
     parser.add_argument('--ram-guard', action=argparse.BooleanOptionalAction, default=True,
@@ -228,6 +243,7 @@ def parse_arguments(argv=None):
         parser.error('jobs must be between one and four')
     try:
         args.turn_cap = checked_turn_cap(args.turn_cap)
+        args.gx_max_command_bytes = checked_gx_max_command_bytes(args.gx_max_command_bytes)
     except ValueError as error:
         parser.error(str(error))
     return args
@@ -242,6 +258,7 @@ def evidence_config(args):
             'edge_observation_admit': args.edge_observation_admit,
             'idle_deadline_advance': args.idle_deadline_advance,
             'turn_cap': args.turn_cap, 'program_cache': args.program_cache,
+            'gx_max_command_bytes': args.gx_max_command_bytes,
             'ram_guard': args.ram_guard,
             'rejection_capsule': args.rejection_capsule,
             'dispatch_abi_sentinel': False, 'observe_native_ctx': False,
@@ -298,6 +315,10 @@ def checked_cache(text, config):
     if cap != str(config['turn_cap']):
         raise ValueError(f'CMake cache WW_TURN_CAP={cap} contradicts build evidence '
                          f'turn_cap={config["turn_cap"]}')
+    gx_max = entries.get('WW05_GX_MAX_COMMAND_BYTES')
+    if gx_max != str(config['gx_max_command_bytes']):
+        raise ValueError(f'CMake cache WW05_GX_MAX_COMMAND_BYTES={gx_max} contradicts build evidence '
+                         f'gx_max_command_bytes={config["gx_max_command_bytes"]}')
     return entries
 
 
@@ -385,7 +406,7 @@ def main():
         sources['RecompCore'], composite, identity, f'{private}/main.dol', vitagl, renderer_sdk,
         args.opt_level, args.vi_clock, args.pad_input, args.dst_alpha_admit, args.edge_observation_admit,
         args.idle_deadline_advance, args.turn_cap, args.program_cache, args.ram_guard,
-        args.rejection_capsule, args.skip_title_logo))
+        args.rejection_capsule, args.skip_title_logo, args.gx_max_command_bytes))
     checked_cache((vita / 'CMakeCache.txt').read_text(), config)
     build.run('vita-build', [cmake, '--build', vita, '-j', args.jobs])
     from inspect_build import inspect

@@ -95,10 +95,11 @@ class EdgeObservationAdmitOptionTest(unittest.TestCase):
             return [str(value) for value in module.vita_configure_arguments(
                 'cmake', 'ninja', 'source', 'output', 'toolchain', 'recompcore', 'composite',
                 'identity', 'dol', 'vitagl', 'sdk', '1', False, False, False, edge_observation, idle,
-                0, False, True, False, skip_title_logo)]
+                0, False, True, False, skip_title_logo, 1025)]
 
         prefix = base + ['-DWW_RENDERER_DST_ALPHA_ADMIT=OFF']
-        suffix = ['-DWW_IDLE_DEADLINE_ADVANCE=OFF', '-DWW_TURN_CAP=0', '-DWW_PROGRAM_CACHE=OFF',
+        suffix = ['-DWW_IDLE_DEADLINE_ADVANCE=OFF', '-DWW_TURN_CAP=0',
+                  '-DWW05_GX_MAX_COMMAND_BYTES=1025', '-DWW_PROGRAM_CACHE=OFF',
                   '-DWW05_RAM_GUARD=ON', '-DWW05_REJECTION_CAPSULE=OFF', '-DWW_SKIP_TITLE_LOGO=OFF',
                   *experimental]
         for state in ('ON', 'OFF'):
@@ -111,7 +112,7 @@ class EdgeObservationAdmitOptionTest(unittest.TestCase):
         arguments = [str(value) for value in module.vita_configure_arguments(
             'cmake', 'ninja', 'source', 'output', 'toolchain', 'recompcore', 'composite',
             'identity', 'dol', 'vitagl', 'sdk', '1', True, False, True, True, True, 8, True, True,
-            True, False)]
+            True, False, 8192)]
         self.assertEqual(arguments, [
             'cmake', '-S', 'source', '-B', 'output', '-G', 'Ninja',
             '-DCMAKE_TOOLCHAIN_FILE=toolchain', '-DCMAKE_MAKE_PROGRAM=ninja',
@@ -121,7 +122,8 @@ class EdgeObservationAdmitOptionTest(unittest.TestCase):
             '-DWW05_MODULE_OPT_LEVEL=1', '-DWW05_ENABLE_VI_CLOCK=ON',
             '-DWW05_ENABLE_PAD_INPUT=OFF', '-DWW_RENDERER_DST_ALPHA_ADMIT=ON',
             '-DWW_EDGE_OBSERVATION_ADMIT=ON', '-DWW_IDLE_DEADLINE_ADVANCE=ON',
-            '-DWW_TURN_CAP=8', '-DWW_PROGRAM_CACHE=ON', '-DWW05_RAM_GUARD=ON',
+            '-DWW_TURN_CAP=8', '-DWW05_GX_MAX_COMMAND_BYTES=8192', '-DWW_PROGRAM_CACHE=ON',
+            '-DWW05_RAM_GUARD=ON',
             '-DWW05_REJECTION_CAPSULE=ON', '-DWW_SKIP_TITLE_LOGO=OFF',
             '-DWW05_DISPATCH_ABI_SENTINEL=OFF', '-DWW05_OBSERVE_NATIVE_CTX=OFF',
             '-DWW05_QUIET_LOGGING=OFF', '-DWW05_GLOBAL_CTX=OFF',
@@ -147,6 +149,29 @@ class TurnCapOptionTest(unittest.TestCase):
     def test_parser_rejects_a_non_numeric_cap(self):
         with self.assertRaises(SystemExit), contextlib.redirect_stderr(io.StringIO()):
             load_module().parse_arguments(['--disc', 'disc.iso', '--turn-cap', 'many'])
+
+
+class GxMaxCommandBytesOptionTest(unittest.TestCase):
+    def test_configure_option_is_always_explicit(self):
+        module = load_module()
+        self.assertEqual(module.gx_max_command_bytes_configure_option(1025),
+                         ['-DWW05_GX_MAX_COMMAND_BYTES=1025'])
+
+    def test_configure_option_is_passed_when_raised(self):
+        self.assertEqual(load_module().gx_max_command_bytes_configure_option(8192),
+                         ['-DWW05_GX_MAX_COMMAND_BYTES=8192'])
+
+    def test_below_the_xf_load_is_rejected(self):
+        with self.assertRaisesRegex(ValueError, 'at least 1025'):
+            load_module().gx_max_command_bytes_configure_option(1024)
+
+    def test_parser_rejects_a_non_numeric_value(self):
+        with self.assertRaises(SystemExit), contextlib.redirect_stderr(io.StringIO()):
+            load_module().parse_arguments(['--disc', 'disc.iso', '--gx-max-command-bytes', 'many'])
+
+    def test_parser_rejects_a_value_below_the_xf_load(self):
+        with self.assertRaises(SystemExit), contextlib.redirect_stderr(io.StringIO()):
+            load_module().parse_arguments(['--disc', 'disc.iso', '--gx-max-command-bytes', '1024'])
 
 
 class ProgramCacheOptionTest(unittest.TestCase):
@@ -184,6 +209,7 @@ class ParserDefaultsTest(unittest.TestCase):
         self.assertTrue(args.ram_guard)
         self.assertTrue(args.rejection_capsule)
         self.assertEqual(args.turn_cap, 4096)
+        self.assertEqual(args.gx_max_command_bytes, 1025)
         self.assertFalse(args.skip_title_logo)
         self.assertFalse(args.pad_input)
 
@@ -215,6 +241,7 @@ class BuildEvidenceConfigTest(unittest.TestCase):
         module = load_module()
         config = module.evidence_config(module.parse_arguments(['--disc', 'disc.iso']))
         self.assertEqual(config['turn_cap'], 4096)
+        self.assertEqual(config['gx_max_command_bytes'], 1025)
         self.assertTrue(config['program_cache'])
         self.assertTrue(config['ram_guard'])
         self.assertTrue(config['vi_clock'])
@@ -237,7 +264,7 @@ class BuildEvidenceConfigTest(unittest.TestCase):
         arguments = [str(value) for value in module.vita_configure_arguments(
             'cmake', 'ninja', 'source', 'output', 'toolchain', 'recompcore', 'composite',
             'identity', 'dol', 'vitagl', 'sdk', '1', False, False, False, False, False, 0, False,
-            True, False, True)]
+            True, False, True, 1025)]
         self.assertIn('-DWW_SKIP_TITLE_LOGO=ON', arguments)
 
 
@@ -250,6 +277,7 @@ class CacheCheckTest(unittest.TestCase):
         lines = [f'{variable}:BOOL={"ON" if config[key] else "OFF"}'
                  for variable, key in module.CACHE_FLAGS]
         lines.append(f"WW_TURN_CAP:STRING={config['turn_cap']}")
+        lines.append(f"WW05_GX_MAX_COMMAND_BYTES:STRING={config['gx_max_command_bytes']}")
         return '// generated by cmake\n# a comment\n\n' + '\n'.join(lines) + '\n'
 
     def test_cache_matches_the_default_profile(self):
@@ -277,6 +305,13 @@ class CacheCheckTest(unittest.TestCase):
         module, config = self.config(['--turn-cap', '0'])
         text = self.cache(module, config).replace('WW_TURN_CAP:STRING=0', 'WW_TURN_CAP:STRING=4096')
         with self.assertRaisesRegex(ValueError, 'WW_TURN_CAP=4096 contradicts'):
+            module.checked_cache(text, config)
+
+    def test_stale_cached_gx_max_command_bytes_is_rejected(self):
+        module, config = self.config()
+        text = self.cache(module, config).replace('WW05_GX_MAX_COMMAND_BYTES:STRING=1025',
+                                                  'WW05_GX_MAX_COMMAND_BYTES:STRING=8192')
+        with self.assertRaisesRegex(ValueError, 'WW05_GX_MAX_COMMAND_BYTES=8192 contradicts'):
             module.checked_cache(text, config)
 
     def test_stale_cached_ram_guard_is_rejected(self):

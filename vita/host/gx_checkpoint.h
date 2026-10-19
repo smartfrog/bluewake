@@ -3,7 +3,18 @@
 
 #include "gxruntime/gx_recomp.h"
 
-enum { WW_GX_MAX_COMMAND_BYTES = 1025u };
+// The staging buffer holds one complete GX command before it is replayed. The
+// largest XF load is 5 + 255*4 = 1025 bytes, which is why the historical bound
+// fits it exactly. Inline draws are larger: the witnessed title draw at pc
+// 0x8015D0EC emits 3 + 65*20 = 1303 bytes, so 1025 fails closed on it. 8192
+// covers about six times that draw. It is a deliberate trial budget, not a
+// derived maximum: the parser's worst case is far larger (count up to 65535 and
+// stride up to roughly 96 from CP VAT/vcd), so a bigger draw still fails loud in
+// gx_checkpoint.c and gx_stream.c rather than overflowing. 1025 is the default;
+// a trial raises it (WW05_GX_MAX_COMMAND_BYTES).
+#ifndef WW_GX_MAX_COMMAND_BYTES
+#define WW_GX_MAX_COMMAND_BYTES 1025u
+#endif
 enum { WW_GX_MAX_JOURNAL_COMMANDS = 196608u, WW_GX_MAX_JOURNAL_BYTES = 8u * 1024u * 1024u };
 
 typedef struct WwGxCheckpoint {
