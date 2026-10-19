@@ -93,7 +93,7 @@ add_subdirectory(dvd)
 target_compile_options(gxruntime PRIVATE -ffp-contract=off -fno-fast-math -fstack-usage)
 
 add_library(ww05_services STATIC boot_host.c gx_checkpoint.c gx_stream.c fifo_gather.c fifo_consumer.c
-    code_guard.c dsp_interface.c bat_contract.c disc_service.c rel_provider.c rel_service.c rel_link.c rel_contract.c rel_sdk.c rel_lifecycle.c rel_profile_block.c ship_contract.c
+    code_guard.c cpu_identity_guard.c dsp_interface.c bat_contract.c disc_service.c rel_provider.c rel_service.c rel_link.c rel_contract.c rel_sdk.c rel_lifecycle.c rel_profile_block.c ship_contract.c
     scheduler_observation.c game_stop.c vi_clock.c gx_draw_observation.c gpu_finish.c frame_timing.c mem1_capture.c frame_capture.cpp
     dsp_rom_mail.c dsp_deferred.c pad_input.c scene_skip.c
     $<TARGET_OBJECTS:ww13_dvd_pin>
@@ -112,6 +112,16 @@ target_include_directories(ww05_services PUBLIC "${CMAKE_CURRENT_SOURCE_DIR}"
 target_include_directories(ww05_services PRIVATE "${BLUEWAKE_ROOT}/vita/feasibility/armv7")
 target_link_libraries(ww05_services PUBLIC ww13_dvd_io GXRuntime::runtime ww_renderer)
 target_link_options(ww05_services INTERFACE -Wl,--wrap=ppc_rfi)
+if(WW05_RAM_GUARD)
+    # The runtime's CPUState-field trampolines (ppc_host_call, ppc_mftb,
+    # ppc_fallback_instruction) load a function pointer through the caller's
+    # state and branch to it; cpu_identity_guard.c stops the run when that
+    # state is not the one the RAM guard adopted (g_bw_guest_cpu in the
+    # module's guest_ram_guard.c, or the tests-only stub). A timing trial
+    # with -DWW05_RAM_GUARD=OFF keeps the runtime's unwrapped calls.
+    target_link_options(ww05_services INTERFACE -Wl,--wrap=ppc_host_call
+        -Wl,--wrap=ppc_mftb -Wl,--wrap=ppc_fallback_instruction)
+endif()
 if(WW05_DISPATCH_ABI_SENTINEL)
     if(NOT VITA)
         message(FATAL_ERROR "Dispatch ABI sentinel requires ARM Vita; use the game-free QEMU fixture on hosts")
@@ -172,6 +182,10 @@ if(WW05_TESTS_ONLY)
     target_compile_options(game_stop_probe PRIVATE -UNDEBUG)
     target_link_libraries(game_stop_probe PRIVATE ww05_services)
     target_link_options(game_stop_probe PRIVATE -Wl,--wrap=fprintf)
+    target_sources(ww05_services PRIVATE cpu_identity_guard_stub.c)
+    add_executable(cpu_identity_guard_probe cpu_identity_guard_probe.c)
+    target_compile_options(cpu_identity_guard_probe PRIVATE -UNDEBUG)
+    target_link_libraries(cpu_identity_guard_probe PRIVATE ww05_services)
     add_executable(pad_input_probe pad_input_probe.c)
     target_compile_options(pad_input_probe PRIVATE -UNDEBUG)
     target_link_libraries(pad_input_probe PRIVATE ww05_services)
