@@ -12,6 +12,7 @@ from gx.capture import journal_commands
 from report import MAX_JOURNAL_COMMANDS
 
 MAX_CAPTURES = 16
+MAX_FRAME_PRESENT = 1024
 MEM1_BYTES = 24 * 1024 * 1024
 DRAW_FAMILIES = (0x80, 0x90, 0x98, 0xA0, 0xA8, 0xB0, 0xB8)
 
@@ -26,6 +27,16 @@ def validate_memory_captures(count, continue_gx, command_window=None):
                 any(type(value) is not int for value in command_window) or not count or
                 not 1 <= command_window[0] <= command_window[1] <= continue_gx):
             raise ValueError('MEM1 command window requires snapshots and a complete logged command prefix')
+
+
+def validate_frame_window(window, count):
+    if window is None:
+        return
+    if (not isinstance(window, (list, tuple)) or len(window) != 2 or
+            any(type(value) is not int for value in window) or not count or
+            not 1 <= window[0] <= window[1] <= MAX_FRAME_PRESENT):
+        raise ValueError('frame capture window requires MEM1 capture and 1 <= start <= limit <= '
+                         f'{MAX_FRAME_PRESENT}')
 
 
 def snapshot_outputs(directory):

@@ -10,25 +10,30 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from gx.image_metadata import png_metadata, verify_display_rgb
 
 MAX_FRAMES = 128
+MAX_PRESENT = 1024
 MAX_PNG_BYTES = 4 * 1024 * 1024
 RENDERER_COUNTERS = frozenset(('fifo_bytes', 'events', 'plans', 'plans_skipped', 'programs', 'programs_distinct',
                               'programs_refused', 'copies', 'copies_refused', 'display_copies', 'gaps'))
 
 
-def frame_outputs(directory):
-    return tuple(directory / f'frame-{frame}{suffix}{partial}' for frame in range(1, MAX_FRAMES + 1)
+def frame_outputs(directory, start=1, limit=MAX_FRAMES):
+    return tuple(directory / f'frame-{frame}{suffix}{partial}' for frame in range(start, limit + 1)
                  for suffix in ('-rgba.png', '.png', '.json') for partial in ('', '.partial'))
 
 
-def collect_frames(directory, output, *, enabled, presented, token, source, package, audio='strict'):
+def collect_frames(directory, output, *, enabled, presented, token, source, package, audio='strict',
+                   start=1, limit=MAX_FRAMES):
     from fp_libraries import directory_fd
     from fp_profile import read_profile_file
 
-    if type(presented) is not int or presented < 0 or (enabled and presented > MAX_FRAMES):
+    if type(presented) is not int or presented < 0 or (enabled and presented > MAX_PRESENT):
         raise ValueError('live capture presentation count exceeds its diagnostic bound')
+    if type(start) is not int or type(limit) is not int or not 1 <= start <= limit <= MAX_PRESENT:
+        raise ValueError('live capture window exceeds its diagnostic bound')
     if audio not in ('strict', 'deferred'):
         raise ValueError('invalid declared audio policy')
-    expected = {f'frame-{frame}{suffix}' for frame in range(1, presented + 1)
+    last = min(limit, presented)
+    expected = {f'frame-{frame}{suffix}' for frame in range(start, last + 1)
                 for suffix in ('-rgba.png', '.png', '.json')} if enabled else set()
     observed = set()
     if directory.exists():
@@ -40,7 +45,7 @@ def collect_frames(directory, output, *, enabled, presented, token, source, pack
     if enabled and output != directory:
         output.mkdir(mode=0o700, exist_ok=False)
     previous_us = -1
-    for index in range(1, presented + 1) if enabled else ():
+    for index in range(start, last + 1) if enabled else ():
         metadata_path = directory / f'frame-{index}.json'
         content = read_profile_file(metadata_path, 8192, owned=True)
         record = json.loads(content)
@@ -87,6 +92,7 @@ def collect_frames(directory, output, *, enabled, presented, token, source, pack
         verify_display_rgb(raw, display)
         frames.append(record)
     return dict(kind='ww05-live-images-v1', enabled=enabled, audio=audio, captures=len(frames), frames=frames,
+                window_start=start, window_limit=limit,
                 parity_verified=False, gameplay_verified=False, fps_baseline=not enabled,
                 capture_point='after-gx-present-before-next-frame',
                 policy='actual front-buffer readback only; preserve raw alpha, display alpha=255 with identical RGB; uniform pixels are not a game scene')

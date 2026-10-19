@@ -8,6 +8,13 @@ typedef struct WwFrameStamp {
     u64 us;
 } WwFrameStamp;
 
+typedef struct WwFrameCapture {
+    u64 index;
+    u64 us;
+    u64 start;
+    u64 limit;
+} WwFrameCapture;
+
 typedef struct WwFrameTiming {
     WwFrameStamp retrace;
     WwFrameStamp present;

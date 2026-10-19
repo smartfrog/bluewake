@@ -79,6 +79,8 @@ int fixture_run(int argc, char** argv) {
     u32 memory_capture_limit;
     u32 memory_start_command;
     u32 memory_end_command;
+    u32 frame_capture_start = 0u;
+    u32 frame_capture_limit = 0u;
     u32 deferred_audio;
     const char* partial = WW05_DIRECTORY "ww05.partial";
     const char* complete = WW05_DIRECTORY "ww05.report";
@@ -91,12 +93,18 @@ int fixture_run(int argc, char** argv) {
                          token, source, package, &memory_start_command) ||
         requested_limit(WW05_DIRECTORY "ww05.mem1-end", WW_GX_MAX_JOURNAL_COMMANDS,
                          token, source, package, &memory_end_command) ||
+        requested_limit(WW05_DIRECTORY "ww05.frame-start", WW_GX_MAX_JOURNAL_COMMANDS,
+                         token, source, package, &frame_capture_start) ||
+        requested_limit(WW05_DIRECTORY "ww05.frame-limit", WW_FRAME_CAPTURE_MAX,
+                         token, source, package, &frame_capture_limit) ||
         requested_limit(WW05_DIRECTORY "ww05.audio", 1u, token, source, package, &deferred_audio) ||
         (deferred_audio != 0u && command_log_limit == 0u) ||
         (memory_capture_limit != 0u && command_log_limit == 0u) ||
         ((memory_start_command == 0u) != (memory_end_command == 0u)) ||
         (memory_start_command != 0u && (memory_capture_limit == 0u || memory_start_command > memory_end_command ||
                                       memory_end_command > command_log_limit)) ||
+        ((frame_capture_start == 0u) != (frame_capture_limit == 0u)) ||
+        (frame_capture_start != 0u && (memory_capture_limit == 0u || frame_capture_start > frame_capture_limit)) ||
         !diagnostic_absent(partial) || !diagnostic_absent(complete) ||
         !diagnostic_absent(WW05_DIRECTORY "ww05.log") ||
         !diagnostic_absent(WW05_DIRECTORY "ww05.dispatch"))
@@ -206,6 +214,8 @@ int fixture_run(int argc, char** argv) {
     host->mem1_capture = (WwMem1Capture){.limit = memory_capture_limit,
                                         .start_command = memory_start_command, .end_command = memory_end_command, .token = token,
                                         .source = source, .package = package};
+    host->frame_capture.start = frame_capture_start;
+    host->frame_capture.limit = frame_capture_limit;
     if (initialized)
         error |= fprintf(stderr, "[vi-clock] enabled=%u period_cycles=%llu refresh_hz=%u\n",
                          host->vi_clock_enabled,

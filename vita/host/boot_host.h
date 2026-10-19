@@ -149,11 +149,11 @@ typedef struct WwHost {
     bool gpu_finish_committed;
     u64 gpu_finish_index;
     WwFrameTiming frame_timing;
-    WwFrameStamp frame_capture;
+    WwFrameCapture frame_capture;
     WwMem1Capture mem1_capture;
 } WwHost;
 
-enum { WW_DVD_CALLBACK_DELAY_CYCLES = 486000u };
+enum { WW_DVD_CALLBACK_DELAY_CYCLES = 486000u, WW_FRAME_CAPTURE_DEFAULT_LIMIT = 128u, WW_FRAME_CAPTURE_MAX = 1024u };
 
 static inline bool ww_host_trace_syscall(u64 resume) {
     return resume <= 1u || resume % 1000u == 0u;

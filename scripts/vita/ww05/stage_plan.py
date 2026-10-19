@@ -15,7 +15,7 @@ import zipfile
 
 from game_build import OUTPUT, ROOT, STACK, PINS, COMPOSITE_DIGEST, checked_sources, sha256
 from report import MAX_JOURNAL_COMMANDS, MAX_JOURNAL_BYTES
-from memory_capture import MAX_CAPTURES, validate_memory_captures
+from memory_capture import MAX_CAPTURES, validate_frame_window, validate_memory_captures
 
 sys.path.insert(0, str(ROOT / 'scripts/vita/armv7'))
 from fp_launch import create_run, evidence_file, reject_symlinks, stage_runtime
@@ -75,6 +75,7 @@ def make_plan(root, args, source, package, run):
     limit = getattr(args, 'continue_gx', 0)
     memory_captures = getattr(args, 'mem1_snapshots', 0)
     command_window = getattr(args, 'mem1_command_window', None)
+    frame_window = getattr(args, 'frame_window', None)
     defer_audio = getattr(args, 'defer_audio', False)
     if type(defer_audio) is not bool or (defer_audio and not limit):
         raise ValueError('audio deferral requires an explicit boolean and the continuation journal')
@@ -82,6 +83,7 @@ def make_plan(root, args, source, package, run):
     CpuIdleWindow(idle_timeout, 0.05)
     validate_continuation(limit)
     validate_memory_captures(memory_captures, limit, command_window)
+    validate_frame_window(frame_window, memory_captures)
     validate_timeout(args.timeout, scene_capture=command_window is not None, idle_timeout=idle_timeout)
     extended = args.timeout > 600
     phases = direct_phases(root, args.timeout, args.libraries, args.wayland_socket)
@@ -90,7 +92,8 @@ def make_plan(root, args, source, package, run):
             'continue_gx': limit, 'mem1_snapshots': memory_captures,
             'mem1_command_window': command_window, 'journal_byte_limit': MAX_JOURNAL_BYTES,
             'defer_audio': defer_audio, 'audio': 'deferred' if defer_audio else 'strict',
-            'live_frame_capture': bool(memory_captures), 'frame_capture_limit': 128,
+            'live_frame_capture': bool(memory_captures), 'frame_capture_start': frame_window[0] if frame_window else 1,
+            'frame_capture_limit': frame_window[1] if frame_window else 128,
             'idle_timeout_seconds': idle_timeout, 'cpu_threshold': 0.05,
             'extended_scene_capture': extended,
             'minimum_available_memory_bytes': MIN_EXTENDED_AVAILABLE_MEMORY_BYTES if extended else 0,
@@ -416,6 +419,8 @@ def main():
     parser.add_argument('--continue-gx', type=int, default=0)
     parser.add_argument('--mem1-snapshots', type=int, choices=range(MAX_CAPTURES + 1), default=0)
     parser.add_argument('--mem1-command-window', type=int, nargs=2, metavar=('START', 'END'))
+    parser.add_argument('--frame-window', type=int, nargs=2, metavar=('START', 'END'),
+                         help='capture live frame PNGs from present START through present END; requires --mem1-snapshots')
     parser.add_argument('--defer-audio', action='store_true')
     parser.add_argument('--disc', type=Path)
     parser.add_argument('--candidate-build', type=Path,
