@@ -1,0 +1,61 @@
+# Resuming this project on a new machine
+
+Date: 2026-10-20. State: trunk `development = ae82cff0`. No run in flight.
+
+## 1. What to copy
+
+| What | Path | Size | Notes |
+|---|---|---|---|
+| Repository | this checkout | `.git` 44 MB + code ~18 MB | branches + 40 `archive/*` tags travel with git |
+| Project memory | `.opencode/` | 1.7 MB | `memory/memory.db` (tasks + knowledge), `orchestrator.md` (model pools), `skills/` |
+| Evidence (optional but useful) | `build-f5/runtime-next/preserved-provenance-*` | ~160 MB | reports, hashes, RELEASE notes |
+| Run reports (optional) | `build-f5/runtime-next/*/REPORT.md`, `dispatch_disasm.txt`, dumps | tens of MB | each run dir's `profile/` was pruned; logs live at the run root |
+| OpenCode session history (optional) | `~/.local/share/opencode/opencode.db` | 2.6 GB | restores the conversation history |
+| **Private, never in git** | `GZLE01.iso`, Vita3K firmware partitions (`vs0`, `sa0`, `ur0`), keys/saves | — | copy out-of-band, same trust level as before |
+
+**Do not copy** `~/.local/share/opencode/auth.json` into the repository or any shared location: it holds credentials. Re-authenticate on the new machine instead.
+
+**Do not copy** build trees (`build-f5/ww05`, `build-f6`, `build-vita-private/*`): rebuildable, and they were the bulk of the old disk usage.
+
+## 2. Set up
+
+1. Clone/copy the repository and check the state:
+   ```sh
+   git log --oneline -3 development   # expect ae82cff0 at the top
+   git tag -l 'archive/*' | wc -l     # expect 40
+   ```
+2. Rebuild the tool stack (`build-vita-tools/local-stack`: native AArch64 GCC, CMake, Ninja, VitaSDK), or reinstall it per `AGENTS.md`.
+3. Put the disc at a stable path and symlink it into run profiles as before (`GZLE01.iso`).
+4. Vita3K + firmware: a working profile needs `vs0` (1473 files), `sa0` (20), `ur0` (1) under `profile/data/Vita3K/Vita3K/`. Staging seeds only `ux0`; copy the partitions from a known-good profile. A profile without them idles at ~0.1 % CPU and never creates `ww05.log`.
+
+## 3. Running the game (the configuration that works)
+
+- `cpu-opt: false` — **without it the guest dies at ~310 presents** (data-execution fault, only with the optimised Dynarmic path; `ClearCache` epochs = 0 during the fault).
+- `disable-surface-sync: false` — with it `true`, frames capture as **all zero** (surface writeback omitted; `glReadPixels` reads a stale buffer).
+- `texture-cache: true` (leave default; `false` exits at 307 presents for an unrelated reason).
+- Fixture: `ww05.request`, `ww05.continue` (64), `ww05.audio`, plus frame keys (`frame-start=300`, `ending-present=363`; `main.c:107` rejects an ending before the start).
+- Run through `/tmp/opencode/run_guest.sh` (patches `pref-path`, memory floor, guest lock, watcher). For longer windows, copy the watcher into the run dir and import the canonical one with `deadline_seconds=...`; never fork the canonical script.
+- Frames land in `.../bluewake-ww-fixture/frames/` (`frame-NNN.png`, `-rgba.png`, `.json`) — **not** at the run root.
+
+## 4. Where the work stands
+
+- **Crash**: worked around (`cpu-opt: false`). 368 presents, 24 M edges, no fault.
+- **Title background**: renders (night sky, clouds, moon; max RGB 255) from present ~312 on the builds that reach it.
+- **Logo**: **never observed**. Current wall: the run stops at **307 presents**.
+  - Desktop-edge gates for the sky family are solved on branch `task/draw-class-admission` (`4f57bce5`, **unmerged**, review pending): four members admitted (`daBg_Draw`, `daSea_Draw`, `daVrbox_Draw`, `daVrbox2_Draw`), invariants held, fail-closed preserved.
+  - Next stop after that admission: **`unsupported MMIO read address=C84F0500 pc=80322E04`** — investigate MMIO/address provenance, not more draw admissions.
+- **Draw census** is on the trunk (`ae82cff0`) with a builder flag `--draw-census` (default OFF); use it to answer "is a logo-sized textured draw submitted?" once the guest passes 307.
+- **CPU identity guard** is on the trunk (`21abc3fa`) as a permanent diagnostic (no false positives over a full run).
+
+## 5. Reading the memory
+
+The authoritative record is `.opencode/memory/memory.db` (tasks + knowledge). Start from the knowledge entry `rendering-title-sky-visible-20261020` (state of the title work) and `vita-desktop-edge-refusal-gate` (gate policy + MMIO wall). Task `GX-TITLE` tracks the title gate; `WILD-CTRL` the wild-control-transfer family (now worked around).
+
+## 6. Pitfalls learned the hard way
+
+- A guest/process check is **not** a session check: before removing a workspace, verify every session and worktree using it (this cost one worktree on 2026-10-20; the branch survived).
+- ARM addresses are **build-specific**: re-derive from the build's own `ww05.map`; the velf `nm` symtab is pre-relocation garbage.
+- `0x8e7f7908`-style raw dumps: `objdump --start-address` on a raw binary means **file offsets**, not VMAs.
+- Reading guest memory: host `0x400000000 + vaddr`.
+- Full-image pixel scans only; state the threshold. A strided sample once erased a 656-pixel cluster.
+- Never announce a run's verdict while the run is live (`live-end.txt`, `reason=`, fault count first).
