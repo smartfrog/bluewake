@@ -53,6 +53,11 @@ constexpr GLuint kAttributeUv0 = 3;
 class VitaGlBackend final : public WwRendererBackend {
 public:
   const char* init() override {
+#if defined(WW_RENDERER_DRAW_CENSUS)
+    census_ = {};
+    census_presented_ = 0;
+    census_pending_ = false;
+#endif
     // vitaGL's init return is not a success flag (Cloudpunk's pattern): verify
     // the context through glGetString and the pools instead.
     (void)vglInitExtended(1024 * 1024, kScreenWidth, kScreenHeight,
@@ -134,6 +139,12 @@ public:
                 draw.pipeline.alpha_write != 0u ? GL_TRUE : GL_FALSE);
     glFrontFace(draw.pipeline.front_face);
 
+#if defined(WW_RENDERER_DRAW_CENSUS)
+    if (const char* error = check_gl("pre-texture state"))
+      return error;
+    valid_texture_mask_ = skipped_texture_mask_ = 0;
+    texture_error_ = nullptr;
+#endif
     if (draw.texmap_mask != 0u) {
       for (std::uint32_t t = 0; t < 8u; ++t) {
         if ((draw.texmap_mask & (1u << t)) != 0u)
@@ -142,6 +153,10 @@ public:
     } else {
       bind_texture(draw.texture, 0u, gl_program);
     }
+#if defined(WW_RENDERER_DRAW_CENSUS)
+    if (texture_error_ != nullptr)
+      return texture_error_;
+#endif
 
     glBindBuffer(GL_ARRAY_BUFFER, vertex_buffer_);
     glBufferData(GL_ARRAY_BUFFER,
@@ -176,8 +191,23 @@ public:
     glDrawElements(draw.pipeline.topology,
                    static_cast<GLsizei>(draw.geometry.indices.size()),
                    GL_UNSIGNED_SHORT, nullptr);
+#if defined(WW_RENDERER_DRAW_CENSUS)
+    if (census_presented_ < gx_vita::census::kMaxPresentedFrames) {
+      gx_vita::census::count_draw(census_, draw.census, valid_texture_mask_, skipped_texture_mask_);
+      census_pending_ = true;
+    }
+#endif
     return check_gl("draw");
   }
+
+#if defined(WW_RENDERER_DRAW_CENSUS)
+  void census_refused() override {
+    if (census_presented_ < gx_vita::census::kMaxPresentedFrames) {
+      ++census_.refused;
+      census_pending_ = true;
+    }
+  }
+#endif
 
   const char* finish() override {
     glFinish();
@@ -194,7 +224,17 @@ public:
 
   const char* present() override {
     vglSwapBuffers(GL_FALSE);
+#if defined(WW_RENDERER_DRAW_CENSUS)
+    if (const char* error = check_gl("present"))
+      return error;
+    if (census_presented_ < gx_vita::census::kMaxPresentedFrames) {
+      ++census_presented_;
+      dump_census(false);
+    }
+    return nullptr;
+#else
     return check_gl("present");
+#endif
   }
 
   const char* readback(WwRendererFramePixels& frame) override {
@@ -210,6 +250,10 @@ public:
   }
 
   void shutdown() override {
+#if defined(WW_RENDERER_DRAW_CENSUS)
+    if (census_pending_)
+      dump_census(true);
+#endif
 #if defined(WW_PROGRAM_CACHE)
     if (program_cache_ != nullptr) {
       const gx_vita::ProgramCacheStats& stats = program_cache_->stats();
@@ -241,6 +285,38 @@ public:
   }
 
 private:
+#if defined(WW_RENDERER_DRAW_CENSUS)
+  void dump_census(bool partial) {
+    std::fprintf(stderr,
+        "[draw-census] present=%u partial=%u tq=%u uq=%u other=%u full=%u "
+        "no_valid=%u incomplete=%u decode_failed=%u bind_valid=%u bind_skipped=%u "
+        "required_skipped=%u bind_failed=%u upload_failed=%u logo=%u logo_valid=%u "
+        "logo_skipped=%u refused=%u\n",
+        census_presented_, partial ? 1u : 0u, census_.textured_quad, census_.untextured_quad,
+        census_.other, census_.fullscreen, census_.no_valid_texture, census_.incomplete_texture,
+        census_.decode_failed, census_.bind_valid, census_.bind_skipped, census_.required_skipped,
+        census_.bind_failed, census_.upload_failed, census_.logo, census_.logo_valid,
+        census_.logo_skipped, census_.refused);
+    std::fflush(stderr);
+    census_ = {};
+    census_pending_ = false;
+  }
+
+  void census_bind(gx_vita::census::BindStatus status) {
+    if (census_presented_ < gx_vita::census::kMaxPresentedFrames) {
+      gx_vita::census::count_bind(census_, status);
+      census_pending_ = true;
+    }
+  }
+
+  gx_vita::census::Counts census_;
+  std::uint32_t census_presented_ = 0;
+  std::uint32_t valid_texture_mask_ = 0;
+  std::uint32_t skipped_texture_mask_ = 0;
+  bool census_pending_ = false;
+  const char* texture_error_ = nullptr;
+#endif
+
   const char* check_gl(const char* what) {
     const GLenum error = glGetError();
     if (error == GL_NO_ERROR)
@@ -359,13 +435,37 @@ private:
 
   void bind_texture(const gx_vita::TextureUpload& texture, std::uint32_t texmap,
                     GLuint gl_program) {
-    if (!texture.valid || texmap >= 8u)
+#if defined(WW_RENDERER_DRAW_CENSUS)
+    if (texture_error_ != nullptr)
       return;
+#endif
+    if (!texture.valid || texmap >= 8u) {
+#if defined(WW_RENDERER_DRAW_CENSUS)
+      census_bind(gx_vita::census::BindStatus::Skipped);
+      if (texmap < 8u)
+        skipped_texture_mask_ |= 1u << texmap;
+#endif
+      return;
+    }
     glActiveTexture(GL_TEXTURE0 + static_cast<GLenum>(texmap));
     glBindTexture(GL_TEXTURE_2D, texture_slots_[texmap]);
+#if defined(WW_RENDERER_DRAW_CENSUS)
+    texture_error_ = check_gl("texture bind");
+    if (texture_error_ != nullptr) {
+      census_bind(gx_vita::census::BindStatus::BindFailed);
+      return;
+    }
+#endif
     glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, static_cast<GLsizei>(texture.width),
                  static_cast<GLsizei>(texture.height), 0, GL_RGBA,
                  GL_UNSIGNED_BYTE, texture.rgba.data());
+#if defined(WW_RENDERER_DRAW_CENSUS)
+    texture_error_ = check_gl("texture upload");
+    if (texture_error_ != nullptr) {
+      census_bind(gx_vita::census::BindStatus::UploadFailed);
+      return;
+    }
+#endif
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, texture.wrap_s);
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, texture.wrap_t);
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, texture.mag_filter);
@@ -374,6 +474,15 @@ private:
     std::snprintf(uniform, sizeof uniform, "tex%u", texmap);
     glUniform1i(glGetUniformLocation(gl_program, uniform),
                 static_cast<GLint>(texmap));
+#if defined(WW_RENDERER_DRAW_CENSUS)
+    texture_error_ = check_gl("texture sampler");
+    if (texture_error_ != nullptr) {
+      census_bind(gx_vita::census::BindStatus::BindFailed);
+      return;
+    }
+    census_bind(gx_vita::census::BindStatus::Valid);
+    valid_texture_mask_ |= 1u << texmap;
+#endif
   }
 
   char error_[512] = {0};

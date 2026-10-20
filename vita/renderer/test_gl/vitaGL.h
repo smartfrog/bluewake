@@ -38,6 +38,9 @@ inline GLuint next_name = 1;
 inline GLuint active_slot = 0;
 inline GLuint bound[8]{};
 inline GLenum error = GL_NO_ERROR;
+inline GLenum next_bind_error = GL_NO_ERROR;
+inline GLenum next_upload_error = GL_NO_ERROR;
+inline GLenum next_sampler_error = GL_NO_ERROR;
 inline unsigned generated_textures = 0;
 inline unsigned deleted_textures = 0;
 inline unsigned invalid_deletions = 0;
@@ -76,9 +79,20 @@ inline void glDeleteTextures(GLsizei count, const GLuint* names) {
   }
 }
 inline void glActiveTexture(GLenum slot) { test_gl::active_slot = slot - GL_TEXTURE0; }
-inline void glBindTexture(GLenum, GLuint name) { test_gl::bound[test_gl::active_slot] = name; }
+inline void glBindTexture(GLenum, GLuint name) {
+  test_gl::bound[test_gl::active_slot] = name;
+  if (test_gl::next_bind_error != GL_NO_ERROR) {
+    test_gl::error = test_gl::next_bind_error;
+    test_gl::next_bind_error = GL_NO_ERROR;
+  }
+}
 inline void glTexImage2D(GLenum, GLint, GLint, GLsizei width, GLsizei height,
                          GLint, GLenum, GLenum, const void* data) {
+  if (test_gl::next_upload_error != GL_NO_ERROR) {
+    test_gl::error = test_gl::next_upload_error;
+    test_gl::next_upload_error = GL_NO_ERROR;
+    return;
+  }
   if (width < 0 || height < 0) { test_gl::error = GL_INVALID_VALUE; return; }
   auto& texture = test_gl::textures.at(test_gl::bound[test_gl::active_slot]);
   texture.bytes = std::size_t(width) * height * 4;
@@ -177,7 +191,12 @@ TEST_GL_VOID(glBufferData, (GLenum, GLsizeiptr, const void*, GLenum))
 TEST_GL_VOID(glEnableVertexAttribArray, (GLuint))
 TEST_GL_VOID(glVertexAttribPointer, (GLuint, GLint, GLenum, GLboolean, GLsizei, const void*))
 TEST_GL_VOID(glFinish, ())
-TEST_GL_VOID(glTexParameteri, (GLenum, GLenum, GLint))
+inline void glTexParameteri(GLenum, GLenum, GLint) {
+  if (test_gl::next_sampler_error != GL_NO_ERROR) {
+    test_gl::error = test_gl::next_sampler_error;
+    test_gl::next_sampler_error = GL_NO_ERROR;
+  }
+}
 TEST_GL_VOID(glShaderSource, (GLuint, GLsizei, const char* const*, const GLint*))
 TEST_GL_VOID(glGetShaderInfoLog, (GLuint, GLsizei, GLsizei*, char*))
 TEST_GL_VOID(glDeleteShader, (GLuint))

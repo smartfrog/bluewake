@@ -128,6 +128,52 @@ int releases_owned_resources() {
   return 0;
 }
 
+#if defined(WW_RENDERER_DRAW_CENSUS)
+int draw_census(const std::string& scenario) {
+  auto* backend = ww_renderer_vita_backend();
+  CHECK(backend->init() == nullptr);
+  gx_vita::TranslatedDraw draw;
+  gx_vita::CgProgram program;
+  draw.census.required_mask = draw.census.logo_mask = 1;
+  draw.census.quad = draw.census.fullscreen = true;
+  draw.texture.valid = true;
+  draw.texture.width = draw.texture.height = 1;
+  draw.texture.rgba = {255, 255, 255, 255};
+  if (scenario == "skipped") {
+    draw.texture.valid = false;
+    draw.census.decode_failed_mask = 1;
+  }
+  if (scenario == "untextured") {
+    draw.texture.valid = false;
+    draw.census.required_mask = draw.census.logo_mask = 0;
+  }
+  if (scenario == "multimap") {
+    draw.texmap_mask = draw.census.required_mask = 9;
+    draw.census.logo_mask = draw.census.decode_failed_mask = 8;
+    draw.textures[0] = draw.texture;
+  }
+  if (scenario == "bind-failed") test_gl::next_bind_error = GL_INVALID_VALUE;
+  if (scenario == "upload-failed") test_gl::next_upload_error = GL_INVALID_VALUE;
+  if (scenario == "sampler-failed") test_gl::next_sampler_error = GL_INVALID_VALUE;
+  const char* error = backend->submit_draw(draw, program);
+  if (scenario.find("failed") != std::string::npos) {
+    CHECK(error != nullptr);
+    CHECK(test_gl::draws == 0);
+  } else {
+    CHECK(error == nullptr);
+    CHECK(test_gl::draws == 1);
+    CHECK(backend->present() == nullptr);
+    if (scenario == "reset") CHECK(backend->present() == nullptr);
+    if (scenario == "bound") {
+      for (unsigned i = 0; i < gx_vita::census::kMaxPresentedFrames + 1; ++i)
+        CHECK(backend->present() == nullptr);
+    }
+  }
+  backend->shutdown();
+  return 0;
+}
+#endif
+
 #if defined(WW_PROGRAM_CACHE)
 std::filesystem::path cache_directory(const char* name) {
   const auto path = std::filesystem::temp_directory_path() /
@@ -228,6 +274,9 @@ int main(int argc, char** argv) {
   if (scenario == "readback") return copy_preserves_readback();
   if (scenario == "error") return copy_reports_error();
   if (scenario == "shutdown") return releases_owned_resources();
+#if defined(WW_RENDERER_DRAW_CENSUS)
+  if (scenario.compare(0, 7, "census-") == 0) return draw_census(scenario.substr(7));
+#endif
 #if defined(WW_PROGRAM_CACHE)
   if (scenario == "cache") return cache_round_trip();
 #endif

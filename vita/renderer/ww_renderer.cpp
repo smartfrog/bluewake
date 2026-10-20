@@ -91,13 +91,19 @@ void observe_plan(const gxc::DrawPlan& plan, void* user) {
     return;
   ++renderer->stats.plans;
   if (!plan.ok) {
+#if defined(WW_RENDERER_DRAW_CENSUS)
+    renderer->backend->census_refused();
+#endif
     ++renderer->stats.plans_skipped;
     keep_reason(renderer->stats.skip_reasons, &renderer->stats.skip_count,
                 plan.skip_reason);
     return;
   }
-  const gx_vita::TranslatedDraw draw = gx_vita::translate(plan);
+  gx_vita::TranslatedDraw draw = gx_vita::translate(plan);
   if (!draw.ok) {
+#if defined(WW_RENDERER_DRAW_CENSUS)
+    renderer->backend->census_refused();
+#endif
     ++renderer->stats.plans_skipped;
     keep_reason(renderer->stats.skip_reasons, &renderer->stats.skip_count,
                 draw.skip_reason);
@@ -109,11 +115,17 @@ void observe_plan(const gxc::DrawPlan& plan, void* user) {
   const gx_vita::CgProgram program = gx_vita::generate_cg(plan.pipeline.shader);
 #endif
   if (!program.ok) {
+#if defined(WW_RENDERER_DRAW_CENSUS)
+    renderer->backend->census_refused();
+#endif
     ++renderer->stats.programs_refused;
     keep_reason(renderer->stats.refusal_reasons, &renderer->stats.refusal_count,
                 program.unsupported_reason);
     return;
   }
+#if defined(WW_RENDERER_DRAW_CENSUS)
+  draw.census = gx_vita::census::describe(plan, draw);
+#endif
   const char* error = renderer->backend->submit_draw(draw, program);
   if (error != nullptr) {
     fail(renderer, error);

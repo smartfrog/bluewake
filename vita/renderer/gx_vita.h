@@ -18,6 +18,9 @@
 #include "gxruntime/gxcore/gxcore.hpp"
 #include "gxruntime/gxcore/texture_decode.hpp"
 #include "gx_fog.h"
+#if defined(WW_RENDERER_DRAW_CENSUS)
+#include "gx_draw_census.h"
+#endif
 
 #include <cstdint>
 #include <vector>
@@ -134,6 +137,9 @@ struct TranslatedDraw {
   // only a single texmap-0 draw uses the flat texture field.
   std::uint32_t texmap_mask = 0;
   TextureUpload textures[8];
+#if defined(WW_RENDERER_DRAW_CENSUS)
+  census::DrawInfo census;
+#endif
 };
 
 // Translate one draw plan. ok == false means the plan itself was not usable
