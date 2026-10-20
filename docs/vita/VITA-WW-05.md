@@ -3114,7 +3114,7 @@ Private VPKs, game inputs and every attempt remain ignored and local. No network
 profile, protected `build-r1`/`build-f8`/`build-f9`/`build-f11` tree, other worktree or player
 data was changed. The final delivery does not publish or attach any personal game build.
 
-## Observation-only edge admission (GroundCross and NAME_SCENE create) is a diagnostic waiver, off by default
+## Observation-only edge admission (GroundCross, NAME_SCENE create and sky draw), off by default
 
 Trial #11 with the destination-alpha admission reached the title sequence: the title module
 returned through its translated caller at frame 296, module 400 at frame 297, `TlogoE.arc`
@@ -3131,17 +3131,29 @@ at this boundary. The Vita guard refused it because `vita/host/boot_host.c` test
 shared table and the address was not in its compiled-boundary list.
 
 With `-DWW_EDGE_OBSERVATION_ADMIT=ON` (off by default in CMake; the private perf builder
-enables it) the host admits exactly two keys, both module-owned and free of a linked alias:
+enables it) the host admits exactly three keys, all module-owned and free of a linked alias:
 `0x80120188`, which must be return-shaped (`pc == lr == key`), and `0x8022F9FC`, which is a
 block entry (`pc == key`) and deliberately has **no** LR check. The host does not change
-PC, LR, registers or MSR; the guest executes its own compiled block from either key.
+PC, LR, registers or MSR; the guest executes its own compiled block from each key.
 `0x8022F9FC` is d_s_name's scene-create block observed by the NAME_SCENE boot milestone.
+
+`0x8015EA5C` is the main-DOL `daVrbox2_Draw(vrbox2_class*)` entry in
+`source-port/game/src/d/actor/d_a_vrbox2.cpp:27-85`. It updates sky colours and submits
+the optional sea/haze models and the back-cloud model to the sky draw list, then returns
+`TRUE` (also returning `TRUE` when all sky colours are zero). The desktop hook only counts
+this scene-draw entry (`runtime/host/src/main.c:12944-12960`); the generator collects it
+from `bluewake_edge_observation_requires_host` (`runtime/host/src/edge_intercepts.c:84`,
+`scripts/gen_edge_intercept_table.py:34-51,71-95`), not from the host-service switch.
+Admission requires `pc == key`, module ownership and no overlapping linked alias, with no
+LR restriction on this function entry. The host supplies neither a return value nor a
+capsule: the existing translated body performs all guest work and supplies its own result.
+This is not a fabricated success or a draw skip. Unknown service edges still stop loudly.
 
 For `0x80120188` the check is a **shape check**. The production call site passes `cpu->pc`
 as the address, so the discriminating term is `lr == key`; the address must also match that
 `pc`. It does not prove the caller, does not verify `r29` or `f1`, does not exclude a
 corrupted `pc`/`lr` pair that both land on the key, and does not exclude a corrupted code
-page. `0x8022F9FC` is the separate block-entry case: it requires `pc == key` and has no
+page. `0x8022F9FC` and `0x8015EA5C` are block-entry cases: each requires `pc == key` and has no
 `lr` term at all.
 
 The option is a diagnostic waiver, not an emulation of the desktop observation: the Vita
@@ -3150,9 +3162,9 @@ The refusal capsule retains `r3/r13/r31` (plus `sp`/`msr`/`srr0`/`srr1`) but not
 `r2`, so a faithful re-check would need more retained state. The explicit consequence is
 that an incoherent `r29`/`f1` reaches the guest `stfs` unvalidated, so a later lava or
 collision anomaly could be a downstream symptom rather than a new fault. Unowned keys,
-shapes other than the two named above, other observation-only keys, alias-shadowed keys and
+shapes other than those named above, other observation-only keys, alias-shadowed keys and
 every key that requires a host service are still refused. The admission is reported once per run as
-`[edge-admit] address=<80120188|8022F9FC> module_owned=1 reason=observation-only` so the
+`[edge-admit] address=<80120188|8022F9FC|8015EA5C> module_owned=1 reason=observation-only` so the
 next trial can tell which key fired.
 
 A private ON build is requested with `scripts/vita/ww05/game_build.py --edge-observation-admit`.

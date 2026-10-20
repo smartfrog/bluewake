@@ -376,6 +376,43 @@ int main(int argc, char** argv) {
         host->cpu.instruction_fallback(&host->cpu, 0xFFFFFFFFu, host->cpu.pc);
         assert(host->cpu.pc == 0x80001000u);
         assert(host->error != NULL);
+    } else if (strncmp(argv[1], "vrbox2-edge-", 12u) == 0) {
+        const bool owned = strcmp(argv[1], "vrbox2-edge-owned") == 0;
+        const bool unowned = strcmp(argv[1], "vrbox2-edge-unowned") == 0;
+        const bool alias = strcmp(argv[1], "vrbox2-edge-alias") == 0;
+        const bool mismatch = strcmp(argv[1], "vrbox2-edge-mismatch") == 0;
+        const bool unsupported = strcmp(argv[1], "vrbox2-edge-unsupported") == 0;
+        assert(owned || unowned || alias || mismatch || unsupported);
+        const u32 address = unsupported ? 0x802305E0u : 0x8015EA5Cu;
+        StaticRecompRange range = {address, address + 4u};
+        StaticRecompModuleDesc module = {.dispatch = dispatch, .code_ranges = &range, .num_code_ranges = 1u};
+        host->module = unowned ? NULL : &module;
+        host->cpu.pc = mismatch ? address + 4u : address;
+        host->cpu.lr = 0x800190A0u;
+        host->cpu.gpr[3] = 0x80410000u;
+        host->cpu.srr0 = 0x802AE070u;
+        host->cpu.srr1 = 0x0000A032u;
+        if (alias)
+            assert(ppc_guest_alias_add(address, 4u, NULL));
+        bool admitted = false;
+#if WW_EDGE_OBSERVATION_ADMIT
+        admitted = owned;
+#endif
+        bluewake_cycle_domain_begin_turn(&host->cycles, &host->cpu);
+        bluewake_cycle_domain_prepare_dispatch(&host->cycles, &host->cpu);
+        CPUState before = host->cpu;
+        const DolInterrupts interrupts_before = host->interrupts;
+        assert(ww_host_edge(host, &host->cpu, address) == !admitted);
+        assert((host->error == NULL) == admitted && host->edge_stopped == !admitted);
+        if (!admitted)
+            before.exception |= PPC_EXC_PROGRAM;
+        assert(memcmp(&host->cpu, &before, sizeof before) == 0);
+        assert(host->cycles.absolute_cycles == 0u);
+        assert(memcmp(&host->interrupts, &interrupts_before, sizeof interrupts_before) == 0);
+        if (!admitted) {
+            assert(strcmp(host->error, "desktop interception unsupported; guest not skipped") == 0);
+            assert(host->error_address == address && host->error_pc == before.pc);
+        }
     } else if (strncmp(argv[1], "epilogue-edge-", 14u) == 0) {
         const bool retrace = strncmp(argv[1], "epilogue-edge-retrace", 21u) == 0;
         const bool receive = strncmp(argv[1], "epilogue-edge-receive", 21u) == 0;

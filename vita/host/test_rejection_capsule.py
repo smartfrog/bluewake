@@ -9,7 +9,7 @@ import test_host
 SCENARIOS = ('retrace-unowned', 'draw-done-mismatch', 'restore-unowned', 'no-writer', 'delta',
              'unmapped-queue', 'alias-queue', 'thread-valid', 'thread-unmapped',
              'failed-write', 'short-write', 'short-complete', 'second-call', 'compiled-no-record',
-             'bounded')
+             'bounded', 'vrbox2-no-record')
 REFUSAL_SCENARIOS = ('epilogue-edge-unowned', 'epilogue-edge-context-unowned', 'epilogue-edge-retrace-unowned',
                      'epilogue-edge-retrace-bad-caller', 'epilogue-edge-retrace-bad-queue',
                      'epilogue-edge-retrace-bad-sda', 'epilogue-edge-retrace-alias',
@@ -21,7 +21,8 @@ class RejectionCapsuleTest(unittest.TestCase):
     def setUpClass(cls):
         test_host.StartupHostTest.setUpClass()
         cls.output = test_host.OUT.parent / 'rejection-capsule-tests'
-        test_host.StartupHostTest.build(cls.output, ('-DWW05_REJECTION_CAPSULE=ON',),
+        test_host.StartupHostTest.build(cls.output, ('-DWW05_REJECTION_CAPSULE=ON',
+                                                   '-DWW_EDGE_OBSERVATION_ADMIT=ON'),
                                         ('rejection_capsule_probe', 'host_probe'))
 
     def test_bounded_capsule_scenarios(self):
@@ -33,6 +34,11 @@ class RejectionCapsuleTest(unittest.TestCase):
         for scenario in REFUSAL_SCENARIOS:
             with self.subTest(scenario=scenario):
                 subprocess.run([str(self.output / 'host_probe'), scenario], cwd=self.output, check=True)
+
+    def test_vrbox2_draw_boundary_contract_with_admission_enabled(self):
+        for shape in ('owned', 'unowned', 'alias', 'mismatch', 'unsupported'):
+            with self.subTest(shape=shape):
+                subprocess.run([str(self.output / 'host_probe'), f'vrbox2-edge-{shape}'], check=True)
 
     def test_default_build_contains_no_capsule_code(self):
         root = test_host.ROOT
