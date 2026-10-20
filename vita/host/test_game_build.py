@@ -89,7 +89,8 @@ class EdgeObservationAdmitOptionTest(unittest.TestCase):
         experimental = ['-DWW05_DISPATCH_ABI_SENTINEL=OFF', '-DWW05_OBSERVE_NATIVE_CTX=OFF',
                         '-DWW05_QUIET_LOGGING=OFF', '-DWW05_GLOBAL_CTX=OFF',
                         '-DWW05_ENABLE_SHIP_PROLOG=OFF', '-DWW05_ENABLE_TITLE_CONTRACT=OFF',
-                        '-DWW05_ENABLE_IKADA_CONTRACT=OFF', '-DWW05_ENABLE_ACTOR_BATCH_CONTRACTS=OFF']
+                        '-DWW05_ENABLE_IKADA_CONTRACT=OFF', '-DWW05_ENABLE_ACTOR_BATCH_CONTRACTS=OFF',
+                        '-DWW_RENDERER_DRAW_CENSUS=OFF']
 
         def arguments(edge_observation, idle=False, skip_title_logo=False):
             return [str(value) for value in module.vita_configure_arguments(
@@ -128,7 +129,8 @@ class EdgeObservationAdmitOptionTest(unittest.TestCase):
             '-DWW05_DISPATCH_ABI_SENTINEL=OFF', '-DWW05_OBSERVE_NATIVE_CTX=OFF',
             '-DWW05_QUIET_LOGGING=OFF', '-DWW05_GLOBAL_CTX=OFF',
             '-DWW05_ENABLE_SHIP_PROLOG=OFF', '-DWW05_ENABLE_TITLE_CONTRACT=OFF',
-            '-DWW05_ENABLE_IKADA_CONTRACT=OFF', '-DWW05_ENABLE_ACTOR_BATCH_CONTRACTS=OFF'])
+            '-DWW05_ENABLE_IKADA_CONTRACT=OFF', '-DWW05_ENABLE_ACTOR_BATCH_CONTRACTS=OFF',
+            '-DWW_RENDERER_DRAW_CENSUS=OFF'])
 
 
 class TurnCapOptionTest(unittest.TestCase):
@@ -269,6 +271,16 @@ class BuildEvidenceConfigTest(unittest.TestCase):
 
 
 class CacheCheckTest(unittest.TestCase):
+    def test_normal_builder_explicitly_disables_the_census(self):
+        self.assertIn('-DWW_RENDERER_DRAW_CENSUS=OFF', load_module().experimental_configure_options())
+
+    def test_stale_cached_census_is_rejected(self):
+        module, config = self.config()
+        text = self.cache(module, config).replace('WW_RENDERER_DRAW_CENSUS:BOOL=OFF',
+                                                 'WW_RENDERER_DRAW_CENSUS:BOOL=ON')
+        with self.assertRaisesRegex(ValueError, 'WW_RENDERER_DRAW_CENSUS=ON contradicts'):
+            module.checked_cache(text, config)
+
     def config(self, argv=()):
         module = load_module()
         return module, module.evidence_config(module.parse_arguments(['--disc', 'disc.iso', *argv]))

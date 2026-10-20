@@ -165,7 +165,8 @@ def experimental_configure_options():
     return ['-DWW05_DISPATCH_ABI_SENTINEL=OFF', '-DWW05_OBSERVE_NATIVE_CTX=OFF',
             '-DWW05_QUIET_LOGGING=OFF', '-DWW05_GLOBAL_CTX=OFF',
             '-DWW05_ENABLE_SHIP_PROLOG=OFF', '-DWW05_ENABLE_TITLE_CONTRACT=OFF',
-            '-DWW05_ENABLE_IKADA_CONTRACT=OFF', '-DWW05_ENABLE_ACTOR_BATCH_CONTRACTS=OFF']
+            '-DWW05_ENABLE_IKADA_CONTRACT=OFF', '-DWW05_ENABLE_ACTOR_BATCH_CONTRACTS=OFF',
+            '-DWW_RENDERER_DRAW_CENSUS=OFF']
 
 
 def vita_configure_arguments(cmake, ninja, source, output, toolchain, recompcore, composite, identity, dol,
@@ -264,11 +265,12 @@ def evidence_config(args):
             'dispatch_abi_sentinel': False, 'observe_native_ctx': False,
             'quiet_logging': False, 'global_ctx': False,
             'ship_prolog': False, 'title_contract': False, 'ikada_contract': False,
-            'actor_batch_contracts': False,
+            'actor_batch_contracts': False, 'draw_census': False,
             'skip_title_logo': args.skip_title_logo}
 
 
 CACHE_FLAGS = (
+    ('WW_RENDERER_DRAW_CENSUS', 'draw_census'),
     ('WW05_ENABLE_VI_CLOCK', 'vi_clock'),
     ('WW05_ENABLE_PAD_INPUT', 'pad_input'),
     ('WW_RENDERER_DST_ALPHA_ADMIT', 'dst_alpha_admit'),

@@ -32,6 +32,9 @@ public:
   // `program` are valid only for the call; a backend that keeps them copies.
   virtual const char* submit_draw(const gx_vita::TranslatedDraw& draw,
                                   const gx_vita::CgProgram& program) = 0;
+#if defined(WW_RENDERER_DRAW_CENSUS)
+  virtual void census_refused() {}
+#endif
 
   // Execute one translated EFB copy-to-texture. Display copies (format 0xF)
   // never arrive here: they are the frame boundary, not a texture copy.
