@@ -21,6 +21,26 @@ one, this one wins.
 - `docs/status/*_YYYY-MM-DD.md`: dated records of past work. They are evidence, not instructions.
 - `docs/archive/`: old plans, goal prompts and handoffs. Never act on them.
 
+## Respect the machine you work on
+
+This checkout usually lives on someone's own computer: the maintainer's laptop, desktop or build PC. You are a
+guest on it. Its files, accounts, other projects, settings and uptime are not yours to change.
+
+- **Ask before installing anything.** No system packages (`sudo`, `apt`, `dnf`, `pacman`, `snap`, `flatpak`),
+  no `pip install` outside a project-local virtual environment, no global `npm`, `cargo` or `gem` installs, no
+  SDKs, drivers, services, shells, fonts or AppImage desktop integration, and no edits to `PATH` or shell
+  profiles, unless the person whose machine it is has agreed to that exact step. Say what it is, where it goes,
+  how large it is, and how to remove it.
+- **Prefer project-local, reversible setups.** Keep tools and generated data under the checkout's ignored
+  directories (`build-*/`, `ref/`, `.opencode/`). Download and extract there, not into the home directory or
+  `/usr`. If a step really needs a system package, stop and ask first; do not assume it is fine.
+- **Do not touch anything outside the checkout.** Never delete, move or rewrite files in the user's home, other
+  repositories, saves or system directories. Do not kill processes you do not own.
+- **Leave the machine usable.** Bound build and test parallelism, keep disk space healthy, and do not saturate
+  the CPU or disk while the person is using the machine. Stop heavy work you started when it is no longer needed.
+- **Say what you changed on the machine.** If you installed, downloaded or generated something outside the
+  checkout, list it and how to undo it.
+
 ## Contributors and attribution
 
 - Commits, pull requests, issues and comments carry human names only. Never add an AI tool, model or bot
