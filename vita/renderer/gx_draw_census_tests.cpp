@@ -88,19 +88,19 @@ int fullscreen(const std::string& scenario) {
 int counts_draw(const std::string& scenario) {
   census::Counts counts;
   census::DrawInfo info;
-  info.quad = true;
+  info.is_quad = true;
   unsigned valid = 0, skipped = 0;
   if (scenario == "textured") { info.required_mask = valid = 1; }
-  if (scenario == "other") info.quad = false;
+  if (scenario == "other") info.is_quad = false;
   if (scenario == "fullscreen") info.fullscreen = true;
   if (scenario == "missing") { info.required_mask = info.decode_failed_mask = skipped = 1; }
   if (scenario == "partial-bind") { info.required_mask = 9; valid = 1; skipped = 8; }
   if (scenario == "logo-valid") { info.required_mask = info.logo_mask = valid = 1; }
   if (scenario == "logo-skipped") { info.required_mask = info.logo_mask = skipped = 1; }
   census::count_draw(counts, info, valid, skipped);
-  CHECK(counts.textured_quad == (info.quad && info.required_mask != 0));
-  CHECK(counts.untextured_quad == (info.quad && info.required_mask == 0));
-  CHECK(counts.other == !info.quad);
+  CHECK(counts.textured_quad == (info.is_quad && info.required_mask != 0));
+  CHECK(counts.untextured_quad == (info.is_quad && info.required_mask == 0));
+  CHECK(counts.other == !info.is_quad);
   CHECK(counts.fullscreen == info.fullscreen);
   CHECK(counts.no_valid_texture == (scenario == "missing" || scenario == "logo-skipped"));
   CHECK(counts.incomplete_texture == (skipped != 0));
