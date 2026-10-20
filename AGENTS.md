@@ -10,8 +10,8 @@ The goal is visible title/menu, verified controls and normal-speed gameplay in V
 - `development` is the local integration trunk. Code tasks branch as `task/<id>` from its verified HEAD and
   integrate only after independent review/checks. Leave `main` untouched; no push without explicit permission.
   Retrieve `development-branch-integration` for the full flow; do not switch/reset someone else's workspace.
-- The host may be any Linux machine (the current one is **x86-64**); never assume a host architecture in
-  scripts, paths, binaries or addresses. Rebuild or reinstall host tooling per machine instead of copying it.
+- The host may be any Linux machine; never assume a host architecture in scripts, paths, binaries or addresses.
+  Rebuild or reinstall host tooling per machine instead of copying it.
 - The Vita target is **ARMv7-A/Cortex-A9, NEON, hard-float, ELF32/ILP32** (4-byte pointers). Native host tests
   do not certify Vita structure layouts or ABI.
 - Symbolize host PCs with the matching ELF and `/proc/<pid>/maps` load bias, never as raw file offsets or as
@@ -85,10 +85,9 @@ bash scripts/audit_repo.sh
 ## Execution and private data
 
 - `scripts/vita/ww05/stage_plan.py` stages without launching; `launch.py` installs/runs in fresh private profiles.
-  **Status on this fork:** the staged runner is not usable on this host yet — its `RUNTIME_SHA256` pin is the
-  previous host's build and its config templates predate the verified run configuration. Until it is repaired or
-  replaced, a hand launch is allowed only from a brand-new private profile with `pref-path` re-pointed at that
-  profile, authenticated owned processes and both logs preserved. Record it as a hand launch, not runner evidence.
+  Runner readiness and its acceptance criteria live in task `RUNNER-X86-64`; do not encode its status here.
+  A hand launch is allowed only from a brand-new private profile with `pref-path` re-pointed at that profile,
+  authenticated owned processes and both logs preserved; record it as a hand launch, not runner evidence.
   Launch requires a clean source checkpoint, including no untracked files; report blockers rather than deleting user files.
 - Read `safety-run-envelope` before trials: scope-specific memory admission/cgroup limits, zero swap and OOM-stop
   are mandatory. No RAM/RSS poller or gate bypass. Serialize install+guest under
