@@ -6,7 +6,8 @@ Date: 2026-10-20. State: trunk `development = 5830a197` (class admission merged)
 
 | What | Path | Size | Notes |
 |---|---|---|---|
-| Repository | this checkout | `.git` 44 MB + code ~18 MB | branches + 40 `archive/*` tags travel with git |
+| Repository | this checkout | `.git` 44 MB + code ~18 MB | branches + 58 `archive/*` tags travel with git |
+| Single-file export (optional) | `build-vita-private/migration/refs-20261020.bundle` | 20 MB | every branch and tag; `git clone <file>` restores the full history without a network |
 | Project memory | `.opencode/` | 1.7 MB | `memory/memory.db` (tasks + knowledge), `orchestrator.md` (model pools), `skills/` |
 | Evidence (optional but useful) | `build-f5/runtime-next/preserved-provenance-*` | ~160 MB | reports, hashes, RELEASE notes |
 | Run reports (optional) | `build-f5/runtime-next/*/REPORT.md`, `dispatch_disasm.txt`, dumps | tens of MB | each run dir's `profile/` was pruned; logs live at the run root |
@@ -23,20 +24,22 @@ Trunk: **`development` = the last commit in this file's history** (`5830a197`, w
 
 | Branch | Ahead / behind `development` | State | On `origin`? |
 |---|---|---|---|
-| `task/HIGH-BLOCK-GLOBAL-CTX` @ `862b2ce1` | 0 / 39 | fully merged content (ancestor); the only branch kept as a pointer | no |
-| `task/cycdomain-transfer-probe` @ `613318ff` | 13 / 39 | superseded experiment (2026-10-18/19), results in memory | pushed |
-| `task/dispatch-target-guard-20261019` @ `4b3f3cf5` | 19 / 39 | superseded experiment, results in memory | pushed |
+| `task/cycdomain-transfer-probe` @ `613318ff` | 13 / 40 | superseded experiment; its worktree holds uncommitted diffs — kept, never forced | pushed |
+| `task/HIGH-BLOCK-GLOBAL-CTX` @ `862b2ce1` | 0 / 40 | merged content (ancestor); its `/tmp` worktree holds uncommitted diffs — kept, never forced | no |
+| `ram-guard-title-boundary` @ `547a7d0a` | 0 / 178 | branch checked out in the primary working copy (dirty `AGENTS.md`) | no |
 
 Merged and then deleted on 2026-10-20: `task/draw-class-admission` (now `7f2d45d4` + `5830a197` on the trunk), `task/admit-desktop-edge-8015ea5c`, `task/textured-draw-census`.
 
-Every branch deleted during the 2026-10-20 cleanup is preserved as a tag `archive/<name>-<date>` (40 tags, local only unless pushed). Push them with `git push origin --tags`.
+The repository went from **124 local branches to 5**: 103 were ancestors of `development` (deleted losslessly), 18 divergent ones were preserved as tags first.
+
+Every branch deleted during the cleanups is preserved as a tag `archive/<name>-<date>` (**58 tags**, local only unless pushed). Push them with `git push origin --tags`. A single-file safety net of every ref exists too: `build-vita-private/migration/refs-20261020.bundle` (20 MB, `git bundle verify` reports complete history).
 
 ## 2. Set up
 
 1. Clone/copy the repository and check the state:
    ```sh
    git log --oneline -3 development   # expect 5830a197 at the top
-   git tag -l 'archive/*' | wc -l     # expect 40
+   git tag -l 'archive/*' | wc -l     # expect 58
    ```
 2. Rebuild the tool stack (`build-vita-tools/local-stack`: native AArch64 GCC, CMake, Ninja, VitaSDK), or reinstall it per `AGENTS.md`.
 3. Put the disc at a stable path and symlink it into run profiles as before (`GZLE01.iso`).
