@@ -163,6 +163,16 @@ if(BLUEWAKE_GLOBAL_CTX)
   endif()
   message(STATUS "${GLOBAL_CTX_CHUNKS} global-ctx chunk(s)")
   target_compile_definitions(${MODULE_NAME} PRIVATE BW_GUEST_GLOBAL_CTX=1)
+  # The scoped rewrite lengthens four DOL chunks past Thumb's conditional
+  # branch range; ARM mode reaches +-32 MB. Chunk names belong to the sealed
+  # composite the digest check identifies, so a different tree cannot reach
+  # this block by accident: BLUEWAKE_GLOBAL_CTX requires its prepared chunks.
+  set(GLOBAL_CTX_ARM_SOURCES
+    "${COMPOSITE_DIR}/chunks_dol/chunk_0081_text1_801456E0.c"
+    "${COMPOSITE_DIR}/chunks_dol/chunk_0100_text1_801916E0.c"
+    "${COMPOSITE_DIR}/chunks_dol/chunk_0131_text1_8020D6E0.c"
+    "${COMPOSITE_DIR}/chunks_dol/chunk_0152_text1_802616E0.c")
+  set_source_files_properties(${GLOBAL_CTX_ARM_SOURCES} PROPERTIES COMPILE_OPTIONS "-marm")
 endif()
 
 if(BLUEWAKE_NATIVE_J3D)
