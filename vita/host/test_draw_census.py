@@ -10,7 +10,7 @@ class DrawCensusTest(unittest.TestCase):
         test_host.StartupHostTest.build(targets=('gx_draw_census_tests', 'vita_gl_census_tests'))
 
     def test_description_counting_and_formatting(self):
-        subprocess.run([str(test_host.STACK / 'bin/ctest'), '--test-dir', str(test_host.OUT),
+        subprocess.run([str(test_host.CTEST), '--test-dir', str(test_host.OUT),
                         '-R', '^draw-census-', '--output-on-failure'], check=True)
 
     def summary(self, scenario):

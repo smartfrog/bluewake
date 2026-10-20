@@ -9,7 +9,7 @@ import unittest
 
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT / 'scripts/vita'))
-from vita_workspace import STACK  # noqa: E402
+from vita_workspace import CMAKE, NINJA, STACK  # noqa: E402
 
 
 class StaticModeTest(unittest.TestCase):
@@ -39,10 +39,10 @@ class StaticModeTest(unittest.TestCase):
                 if vi_clock is not None:
                     options.append(f'-DWW05_ENABLE_VI_CLOCK={"ON" if vi_clock else "OFF"}')
             environment = {**os.environ, 'VITASDK': str(STACK / 'vitasdk')}
-            subprocess.run([str(STACK / 'bin/cmake'), '-S', str(ROOT / ('vita/host' if vita else 'cmake/composite')),
+            subprocess.run([str(CMAKE), '-S', str(ROOT / ('vita/host' if vita else 'cmake/composite')),
                             '-B', str(output / 'build'), '-G', 'Ninja',
                             *options,
-                            f'-DCMAKE_MAKE_PROGRAM={STACK}/bin/ninja',
+                            f'-DCMAKE_MAKE_PROGRAM={NINJA}',
                             '-DCMAKE_EXPORT_COMPILE_COMMANDS=ON',
                             f'-DCOMPOSITE_DIR={source}',
                             f'-DGXRUNTIME_DIR={ROOT}/ref/vita-ww-01/RecompCore/GXRuntime',
