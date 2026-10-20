@@ -28,7 +28,7 @@ class VitaWorkspaceTest(unittest.TestCase):
             self.assertEqual(vita_workspace.RENDERER_SDK, override / 'vitasdk/arm-vita-eabi')
             self.assertEqual(vita_workspace.VITA3K, override / 'vita3k/Vita3K')
             self.assertEqual(vita_workspace.FIRMWARE, override / 'firmware')
-            self.assertEqual(vita_workspace.VITAGL, override / 'vita3k/vitagl-source/libvitaGL.a')
+            self.assertEqual(vita_workspace.VITAGL, override / 'vitasdk/arm-vita-eabi/lib/libvitaGL.a')
             self.assertEqual(vita_workspace.SHADER_COMPILER,
                              override / 'firmware/ur0/data/libshacccg.suprx')
 

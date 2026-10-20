@@ -47,12 +47,14 @@ Every branch deleted during the cleanups is preserved as a tag `archive/<name>-<
    - install the official **VitaSDK for x86-64** (provides `arm-vita-eabi` plus `vita-elf-create`, `vita-make-fself`, `vita-pack-vpk`);
    - use the host's native **gcc** as the host compiler (`CC=... python3 -m unittest ...`), never the aarch64 conda one;
    - install **Vita3K x86-64**;
-   - copy the **prebuilt `libvitaGL.a`** (5.6 MB, ARM static library — host-independent) and `libshacccg.suprx` from a working machine;
+   - install the official **vitaGL** package with the SDK's own package manager:
+     `VITASDK=<stack>/vitasdk <stack>/vitasdk/bin/vdpm install vitaGL` (pulls `vitaShaRK`, `SceShaccCgExt`,
+     `libmathneon` and `taihen`); `libshacccg.suprx` comes from the firmware tree;
    - the scripts no longer carry absolute paths: `scripts/vita/vita_workspace.py` resolves the private stack to
      `<repo>/build-vita-tools/local-stack` (override with `BLUEWAKE_VITA_STACK`) and every build/test path is
      relative to the checkout. Expected layout: `<stack>/vitasdk` (official x86-64 VitaSDK),
-     `<stack>/bin/{cmake,ninja,gcc}` (host tools), `<stack>/vita3k/Vita3K` with its assets,
-     `<stack>/vita3k/vitagl-source/libvitaGL.a`, and `<stack>/firmware/{vs0,sa0,ur0}`;
+     `<stack>/vita3k/Vita3K` with its assets, and `<stack>/firmware/{vs0,sa0,ur0}`; vitaGL comes from the
+     official VitaSDK package (`vdpm install vitaGL`), not from a separate build.
      `libshacccg.suprx` comes from the firmware tree.
    - the delivery coverage check still needs a separate checkout at the recorded revision:
      set `BLUEWAKE_COVERAGE_SOURCE` when it is not the current checkout.
