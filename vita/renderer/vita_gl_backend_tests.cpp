@@ -139,6 +139,22 @@ int draw_census(const std::string& scenario) {
   draw.texture.valid = true;
   draw.texture.width = draw.texture.height = 1;
   draw.texture.rgba = {255, 255, 255, 255};
+  const bool state = scenario.compare(0,6,"state-") == 0;
+  if (state) {
+    for (unsigned p = 1; p < gx_vita::census::kFirstLogoStateFrame; ++p)
+      CHECK(backend->present() == nullptr);
+    draw.texture.width = draw.texture.height = 2;
+    draw.texture.rgba = {255,255,255,0,255,255,255,255,255,255,255,128,255,255,255,1};
+    draw.census.logo_texture = {0x1000,3,2,2};
+    draw.pipeline.color_write = draw.pipeline.alpha_write = 1;
+    draw.pipeline.blend_enable = 1;
+    draw.pipeline.blend_src = gx_vita::kGlSrcAlpha;
+    draw.pipeline.blend_dst = gx_vita::kGlOneMinusSrcAlpha;
+    if (scenario == "state-scissor") { glEnable(GL_SCISSOR_TEST); glScissor(2,3,0,10); }
+    if (scenario == "state-viewport") glViewport(7,9,0,544);
+    if (scenario == "state-mask") draw.pipeline.color_write = draw.pipeline.alpha_write = 0;
+    if (scenario == "state-query-failed") test_gl::next_query_error = GL_INVALID_VALUE;
+  }
   if (scenario == "skipped") {
     draw.texture.valid = false;
     draw.census.decode_failed_mask = 1;
@@ -163,6 +179,11 @@ int draw_census(const std::string& scenario) {
     CHECK(error == nullptr);
     CHECK(test_gl::draws == 1);
     CHECK(backend->present() == nullptr);
+    if (scenario == "state-cache") {
+      draw.texture.rgba[7] = 0;
+      CHECK(backend->submit_draw(draw,program) == nullptr);
+      CHECK(backend->present() == nullptr);
+    }
     if (scenario == "reset") CHECK(backend->present() == nullptr);
     if (scenario == "bound") {
       for (unsigned i = 0; i < gx_vita::census::kMaxPresentedFrames + 1; ++i)

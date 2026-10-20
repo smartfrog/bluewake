@@ -45,6 +45,39 @@ class DrawCensusTest(unittest.TestCase):
         self.assertEqual(len(lines), 1024)
         self.assertEqual(lines[-1]['present'], '1024')
 
+    def state_lines(self, scenario):
+        result = subprocess.run([str(test_host.OUT / 'vita_gl_census_tests'), 'census-state-' + scenario],
+                                check=True, capture_output=True, text=True)
+        return [dict(field.split('=') for field in line.split()[1:])
+                for line in result.stderr.splitlines() if line.startswith('[logo-state] ')]
+
+    def test_alpha_at_the_actual_upload_boundary(self):
+        lines = self.state_lines('alpha')
+        self.assertEqual(len(lines), 1)
+        self.assertEqual(lines[0]['p'], '300')
+        self.assertEqual(lines[0]['a'], '0,255,96.000')
+        self.assertEqual(lines[0]['nz'], '3/4')
+        self.assertEqual(lines[0]['sampled'], '300')
+
+    def test_actual_state_queries(self):
+        for scenario, field, expected in (
+                ('alpha','viewport','0,0,960,544'),
+                ('alpha','mask','1111'),
+                ('alpha','blend','1,32774,770,771,1,0'),
+                ('scissor','scissor','1,2,3,0,10'),
+                ('viewport','viewport','7,9,0,544'),
+                ('mask','mask','0000')):
+            with self.subTest(scenario=scenario, field=field):
+                self.assertEqual(self.state_lines(scenario)[0][field], expected)
+
+    def test_alpha_is_scanned_once_per_identity(self):
+        lines = self.state_lines('cache')
+        self.assertEqual([line['sampled'] for line in lines], ['300','300'])
+        self.assertEqual([line['a'] for line in lines], ['0,255,96.000','0,255,96.000'])
+
+    def test_state_query_error_refuses_the_draw(self):
+        self.assertEqual(self.state_lines('query-failed'), [])
+
 
 if __name__ == '__main__':
     unittest.main()

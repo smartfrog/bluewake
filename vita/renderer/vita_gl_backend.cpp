@@ -26,6 +26,7 @@
 #include <vitaGL.h>
 
 #include <cstdint>
+#include <algorithm>
 #include <cstdio>
 #include <string>
 #include <unordered_map>
@@ -57,6 +58,8 @@ public:
     census_ = {};
     census_presented_ = 0;
     census_pending_ = false;
+    alpha_cache_ = {};
+    logo_state_ = {};
 #endif
     // vitaGL's init return is not a success flag (Cloudpunk's pattern): verify
     // the context through glGetString and the pools instead.
@@ -188,6 +191,15 @@ public:
                             reinterpret_cast<const void*>(static_cast<std::uintptr_t>(12u * t)));
     }
 
+#if defined(WW_RENDERER_DRAW_CENSUS)
+    if (draw.census.logo_mask && census_presented_ + 1 >= gx_vita::census::kFirstLogoStateFrame &&
+        census_presented_ < gx_vita::census::kMaxPresentedFrames && !logo_state_.captured) {
+      if (const char* error = check_gl("pre-logo-query geometry upload"))
+        return error;
+      if (const char* error = capture_logo_state(draw))
+        return error;
+    }
+#endif
     glDrawElements(draw.pipeline.topology,
                    static_cast<GLsizei>(draw.geometry.indices.size()),
                    GL_UNSIGNED_SHORT, nullptr);
@@ -286,6 +298,100 @@ public:
 
 private:
 #if defined(WW_RENDERER_DRAW_CENSUS)
+  struct LogoState {
+    bool captured = false, cache_full = false;
+    gx_vita::census::DrawInfo info;
+    gx_vita::census::AlphaSample alpha;
+    std::uint32_t ordinal = 0;
+    GLboolean blend = 0, depth = 0, depth_write = 0, cull = 0, scissor = 0, mask[4]{};
+    GLint equation = 0, src = 0, dst = 0, src_alpha = 0, dst_alpha = 0;
+    GLint cull_face = 0, front_face = 0, box[4]{}, viewport[4]{};
+    float tev_alpha[4]{}, konst_alpha[4]{}, refs[2]{};
+    std::uint32_t use_dst_alpha = 0, output_dst_alpha = 0;
+  };
+
+  const char* capture_logo_state(const gx_vita::TranslatedDraw& draw) {
+    auto& state = logo_state_;
+    state.info = draw.census;
+    state.ordinal = census_.textured_quad + census_.untextured_quad + census_.other + 1;
+    state.blend = glIsEnabled(GL_BLEND);
+    state.depth = glIsEnabled(GL_DEPTH_TEST);
+    state.cull = glIsEnabled(GL_CULL_FACE);
+    state.scissor = glIsEnabled(GL_SCISSOR_TEST);
+    glGetBooleanv(GL_DEPTH_WRITEMASK, &state.depth_write);
+    glGetBooleanv(GL_COLOR_WRITEMASK, state.mask);
+    glGetIntegerv(GL_BLEND_EQUATION, &state.equation);
+    glGetIntegerv(GL_BLEND_SRC_RGB, &state.src);
+    glGetIntegerv(GL_BLEND_DST_RGB, &state.dst);
+    glGetIntegerv(GL_BLEND_SRC_ALPHA, &state.src_alpha);
+    glGetIntegerv(GL_BLEND_DST_ALPHA, &state.dst_alpha);
+    glGetIntegerv(GL_CULL_FACE_MODE, &state.cull_face);
+    glGetIntegerv(GL_FRONT_FACE, &state.front_face);
+    glGetIntegerv(GL_SCISSOR_BOX, state.box);
+    glGetIntegerv(GL_VIEWPORT, state.viewport);
+    if (const char* error = check_gl("logo state query"))
+      return error;
+    const auto slot = draw.census.logo_texmap;
+    if (slot >= 8)
+      return "logo census texture slot out of range";
+    const auto& texture = draw.texmap_mask ? draw.textures[slot] : draw.texture;
+    const auto* sample = alpha_cache_.observe(draw.census.logo_texture, texture, census_presented_ + 1);
+    state.cache_full = sample == nullptr;
+    if (sample != nullptr)
+      state.alpha = *sample;
+    for (unsigned i = 0; i < 4; ++i) {
+      state.tev_alpha[i] = draw.tev_colors[i][3];
+      state.konst_alpha[i] = draw.konst_colors[i][3];
+    }
+    state.refs[0] = draw.alpha_ref[0];
+    state.refs[1] = draw.alpha_ref[1];
+    state.use_dst_alpha = draw.pipeline.use_dst_alpha;
+    state.output_dst_alpha = draw.pipeline.dst_alpha;
+    state.captured = true;
+    return nullptr;
+  }
+
+  void dump_logo_state(bool partial) {
+    const auto& s = logo_state_;
+    const auto& a = s.alpha.stats;
+    const auto& g = s.info.geometry;
+    char stages[16 * 9 + 1] = "-";
+    constexpr const char* hex = "0123456789abcdef";
+    for (unsigned n = 0; n < s.info.alpha_stage_count; ++n) {
+      for (unsigned i = 0; i < 8; ++i)
+        stages[9*n+i] = hex[(s.info.alpha_stages[n] >> (28-4*i)) & 15];
+      stages[9*n+8] = n + 1 == s.info.alpha_stage_count ? '\0' : ',';
+    }
+    const auto* ras0 = s.info.raster_alpha[0];
+    const auto* ras1 = s.info.raster_alpha[1];
+    std::fprintf(stderr,
+        "[logo-state] p=%u partial=%u draw=%u tex=%08x,%u,%u,%u slot=%u sampled=%u "
+        "a_valid=%u cache_full=%u a=%u,%u,%.3f nz=%u/%u "
+        "blend=%u,%d,%d,%d,%d,%d depth=%u,%u cull=%u,%d,%d "
+        "scissor=%u,%d,%d,%d,%d viewport=%d,%d,%d,%d mask=%u%u%u%u "
+        "rasA=%.6g,%.6g/%.6g,%.6g tevA=%.6g,%.6g,%.6g,%.6g "
+        "kA=%.6g,%.6g,%.6g,%.6g atest=%u,%u,%u,%.6g,%.6g tev=%s "
+        "override=%u,%u geom=%u ndc=%.9g,%.9g,%.9g:%.9g,%.9g,%.9g "
+        "w=%.9g,%.9g area=%.9g,%.9g fragA=unobserved\n",
+        census_presented_, partial ? 1u : 0u, s.ordinal, s.info.logo_texture.address,
+        s.info.logo_texture.format, s.info.logo_texture.width, s.info.logo_texture.height,
+        s.info.logo_texmap, s.alpha.present, a.valid ? 1u : 0u, s.cache_full ? 1u : 0u,
+        a.minimum, a.maximum, a.mean(), a.nonzero, a.texels,
+        unsigned(s.blend), s.equation, s.src, s.dst, s.src_alpha, s.dst_alpha,
+        unsigned(s.depth), unsigned(s.depth_write), unsigned(s.cull), s.cull_face, s.front_face,
+        unsigned(s.scissor), s.box[0], s.box[1], s.box[2], s.box[3],
+        s.viewport[0], s.viewport[1], s.viewport[2], s.viewport[3],
+        unsigned(s.mask[0]), unsigned(s.mask[1]), unsigned(s.mask[2]), unsigned(s.mask[3]),
+        *std::min_element(ras0,ras0+4), *std::max_element(ras0,ras0+4),
+        *std::min_element(ras1,ras1+4), *std::max_element(ras1,ras1+4),
+        s.tev_alpha[0], s.tev_alpha[1], s.tev_alpha[2], s.tev_alpha[3],
+        s.konst_alpha[0], s.konst_alpha[1], s.konst_alpha[2], s.konst_alpha[3],
+        unsigned(s.info.alpha_test[0]), unsigned(s.info.alpha_test[1]), unsigned(s.info.alpha_test[2]),
+        s.refs[0], s.refs[1], stages, s.use_dst_alpha, s.output_dst_alpha, g.valid ? 1u : 0u,
+        g.minimum[0], g.minimum[1], g.minimum[2], g.maximum[0], g.maximum[1], g.maximum[2],
+        g.w_minimum, g.w_maximum, g.twice_area[0], g.twice_area[1]);
+  }
+
   void dump_census(bool partial) {
     std::fprintf(stderr,
         "[draw-census] present=%u partial=%u tq=%u uq=%u other=%u full=%u "
@@ -297,8 +403,11 @@ private:
         census_.decode_failed, census_.bind_valid, census_.bind_skipped, census_.required_skipped,
         census_.bind_failed, census_.upload_failed, census_.logo, census_.logo_valid,
         census_.logo_skipped, census_.refused);
+    if (logo_state_.captured)
+      dump_logo_state(partial);
     std::fflush(stderr);
     census_ = {};
+    logo_state_ = {};
     census_pending_ = false;
   }
 
@@ -315,6 +424,8 @@ private:
   std::uint32_t skipped_texture_mask_ = 0;
   bool census_pending_ = false;
   const char* texture_error_ = nullptr;
+  gx_vita::census::AlphaCache alpha_cache_;
+  LogoState logo_state_;
 #endif
 
   const char* check_gl(const char* what) {

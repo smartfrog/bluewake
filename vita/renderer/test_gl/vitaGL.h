@@ -23,6 +23,9 @@ enum : unsigned {
   GL_CG_VERTEX_SHADER_EXT, GL_CG_FRAGMENT_SHADER_EXT, GL_COMPILE_STATUS,
   GL_LINK_STATUS, GL_TEXTURE0, VGL_MEM_RAM, VGL_MEM_VRAM,
   SCE_GXM_MULTISAMPLE_NONE, GL_PROGRAM_BINARY_LENGTH,
+  GL_SCISSOR_TEST, GL_SCISSOR_BOX, GL_VIEWPORT, GL_COLOR_WRITEMASK, GL_DEPTH_WRITEMASK,
+  GL_BLEND_EQUATION, GL_BLEND_SRC_RGB, GL_BLEND_DST_RGB, GL_BLEND_SRC_ALPHA,
+  GL_BLEND_DST_ALPHA, GL_CULL_FACE_MODE, GL_FRONT_FACE,
 };
 constexpr GLenum GL_NO_ERROR = 0;
 constexpr GLenum GL_INVALID_VALUE = 0x501;
@@ -41,6 +44,12 @@ inline GLenum error = GL_NO_ERROR;
 inline GLenum next_bind_error = GL_NO_ERROR;
 inline GLenum next_upload_error = GL_NO_ERROR;
 inline GLenum next_sampler_error = GL_NO_ERROR;
+inline GLenum next_query_error = GL_NO_ERROR;
+inline std::map<GLenum, GLboolean> enabled;
+inline GLint viewport[4]{}, scissor[4]{};
+inline GLboolean color_mask[4]{1,1,1,1}, depth_mask = 1;
+inline GLint blend_equation = 0x8006, blend_src = 1, blend_dst = 0;
+inline GLint blend_src_alpha = 1, blend_dst_alpha = 0, cull_face = 0x405, front_face = 0x901;
 inline unsigned generated_textures = 0;
 inline unsigned deleted_textures = 0;
 inline unsigned invalid_deletions = 0;
@@ -166,26 +175,62 @@ inline void glProgramBinary(GLuint, GLenum, const void*, GLsizei length) {
 }
 inline GLint glGetUniformLocation(GLuint, const char*) { return 0; }
 
+inline GLboolean glIsEnabled(GLenum cap) { return test_gl::enabled[cap]; }
+inline void glGetIntegerv(GLenum name, GLint* data) {
+  if (test_gl::next_query_error != GL_NO_ERROR) {
+    test_gl::error = test_gl::next_query_error;
+    test_gl::next_query_error = GL_NO_ERROR;
+    return;
+  }
+  switch (name) {
+  case GL_VIEWPORT: std::copy_n(test_gl::viewport,4,data); break;
+  case GL_SCISSOR_BOX: std::copy_n(test_gl::scissor,4,data); break;
+  case GL_BLEND_EQUATION: *data = test_gl::blend_equation; break;
+  case GL_BLEND_SRC_RGB: *data = test_gl::blend_src; break;
+  case GL_BLEND_DST_RGB: *data = test_gl::blend_dst; break;
+  case GL_BLEND_SRC_ALPHA: *data = test_gl::blend_src_alpha; break;
+  case GL_BLEND_DST_ALPHA: *data = test_gl::blend_dst_alpha; break;
+  case GL_CULL_FACE_MODE: *data = test_gl::cull_face; break;
+  case GL_FRONT_FACE: *data = test_gl::front_face; break;
+  default: test_gl::error = GL_INVALID_VALUE;
+  }
+}
+inline void glGetBooleanv(GLenum name, GLboolean* data) {
+  if (name == GL_COLOR_WRITEMASK) std::copy_n(test_gl::color_mask,4,data);
+  else if (name == GL_DEPTH_WRITEMASK) *data = test_gl::depth_mask;
+  else test_gl::error = GL_INVALID_VALUE;
+}
+inline void glViewport(GLint x, GLint y, GLsizei w, GLsizei h) {
+  const GLint values[] = {x,y,w,h}; std::copy_n(values,4,test_gl::viewport);
+}
+inline void glScissor(GLint x, GLint y, GLsizei w, GLsizei h) {
+  const GLint values[] = {x,y,w,h}; std::copy_n(values,4,test_gl::scissor);
+}
+inline void glEnable(GLenum cap) { test_gl::enabled[cap] = 1; }
+inline void glDisable(GLenum cap) { test_gl::enabled[cap] = 0; }
+inline void glDepthMask(GLboolean value) { test_gl::depth_mask = value; }
+inline void glBlendEquation(GLenum value) { test_gl::blend_equation = value; }
+inline void glBlendFuncSeparate(GLenum src, GLenum dst, GLenum src_alpha, GLenum dst_alpha) {
+  test_gl::blend_src = src; test_gl::blend_dst = dst;
+  test_gl::blend_src_alpha = src_alpha; test_gl::blend_dst_alpha = dst_alpha;
+}
+inline void glCullFace(GLenum value) { test_gl::cull_face = value; }
+inline void glFrontFace(GLenum value) { test_gl::front_face = value; }
+inline void glColorMask(GLboolean r, GLboolean g, GLboolean b, GLboolean a) {
+  const GLboolean values[] = {r,g,b,a}; std::copy_n(values,4,test_gl::color_mask);
+}
+
 // Unobserved GL state calls keep their real signatures; resource calls above
 // model ownership and uploaded bytes without allocating copy-sized GPU storage.
 #define TEST_GL_VOID(name, signature) inline void name signature {}
 TEST_GL_VOID(vglWaitVblankStart, (GLboolean))
-TEST_GL_VOID(glViewport, (GLint, GLint, GLsizei, GLsizei))
 TEST_GL_VOID(glUseProgram, (GLuint))
 TEST_GL_VOID(glUniformMatrix4fv, (GLint, GLsizei, GLboolean, const float*))
 TEST_GL_VOID(glUniform4fv, (GLint, GLsizei, const float*))
 TEST_GL_VOID(glUniform2fv, (GLint, GLsizei, const float*))
 TEST_GL_VOID(glUniform1i, (GLint, GLint))
-TEST_GL_VOID(glEnable, (GLenum))
-TEST_GL_VOID(glDisable, (GLenum))
 TEST_GL_VOID(glDepthFunc, (GLenum))
 TEST_GL_VOID(glDepthRangef, (float, float))
-TEST_GL_VOID(glDepthMask, (GLboolean))
-TEST_GL_VOID(glBlendEquation, (GLenum))
-TEST_GL_VOID(glBlendFuncSeparate, (GLenum, GLenum, GLenum, GLenum))
-TEST_GL_VOID(glCullFace, (GLenum))
-TEST_GL_VOID(glColorMask, (GLboolean, GLboolean, GLboolean, GLboolean))
-TEST_GL_VOID(glFrontFace, (GLenum))
 TEST_GL_VOID(glBindBuffer, (GLenum, GLuint))
 TEST_GL_VOID(glBufferData, (GLenum, GLsizeiptr, const void*, GLenum))
 TEST_GL_VOID(glEnableVertexAttribArray, (GLuint))

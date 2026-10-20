@@ -124,6 +124,111 @@ int counts_bind(const std::string& scenario) {
   CHECK(counts.upload_failed == (scenario == "upload-failed"));
   return 0;
 }
+
+int texture_alpha(const std::string& scenario) {
+  gx_vita::TextureUpload texture;
+  texture.valid = true;
+  texture.width = texture.height = 2;
+  texture.rgba = {255,255,255,0, 255,255,255,255, 255,255,255,128, 255,255,255,1};
+  if (scenario == "zero") for (unsigned i = 3; i < texture.rgba.size(); i += 4) texture.rgba[i] = 0;
+  if (scenario == "opaque") for (unsigned i = 3; i < texture.rgba.size(); i += 4) texture.rgba[i] = 255;
+  if (scenario == "invalid") texture.valid = false;
+  if (scenario == "truncated") texture.rgba.pop_back();
+  if (scenario == "ia8") {
+    std::uint8_t source[32];
+    for (unsigned i = 0; i < 16; ++i) { source[2*i] = 17*i; source[2*i+1] = 18; }
+    texture.width = texture.height = 4;
+    texture.rgba = gxc::decode_texture(3,4,4,source,sizeof source);
+  }
+  if (scenario == "ci8") {
+    std::uint8_t source[32]{}, palette[512]{};
+    for (unsigned i = 16; i < 32; ++i) source[i] = 1;
+    palette[1] = 255; palette[2] = 255; palette[3] = 128;
+    texture.width = 8; texture.height = 4;
+    texture.rgba = gxc::decode_ci(9,8,4,source,sizeof source,0,256,palette,sizeof palette);
+  }
+  const auto stats = census::alpha_stats(texture);
+  CHECK(stats.valid == (scenario != "invalid" && scenario != "truncated"));
+  if (!stats.valid) return 0;
+  CHECK(stats.minimum == (scenario == "opaque" ? 255u : 0u));
+  CHECK(stats.maximum == (scenario == "zero" ? 0u : 255u));
+  if (scenario == "mixed") { CHECK(stats.nonzero == 3); CHECK(stats.mean() == 96); }
+  if (scenario == "zero") { CHECK(stats.nonzero == 0); CHECK(stats.mean() == 0); }
+  if (scenario == "opaque") { CHECK(stats.nonzero == 4); CHECK(stats.mean() == 255); }
+  if (scenario == "ia8") { CHECK(stats.nonzero == 15); CHECK(stats.mean() == 127.5); }
+  if (scenario == "ci8") { CHECK(stats.nonzero == 16); CHECK(stats.mean() == 127.5); }
+  return 0;
+}
+
+int alpha_cache(const std::string& scenario) {
+  census::AlphaCache cache;
+  gx_vita::TextureUpload texture;
+  texture.valid = true; texture.width = texture.height = 1;
+  texture.rgba = {255,255,255,128};
+  census::TextureIdentity identity{0x1000,3,1,1};
+  const auto* first = cache.observe(identity,texture,300);
+  CHECK(first != nullptr && first->stats.maximum == 128);
+  if (scenario == "once") {
+    texture.rgba[3] = 0;
+    const auto* again = cache.observe(identity,texture,301);
+    CHECK(again == first && again->present == 300 && again->stats.maximum == 128);
+  }
+  if (scenario == "distinct") {
+    identity.address += 32;
+    texture.rgba[3] = 0;
+    const auto* next = cache.observe(identity,texture,301);
+    CHECK(next != nullptr && next != first && next->stats.maximum == 0 && next->present == 301);
+  }
+  if (scenario == "bounded") {
+    for (unsigned i = 1; i < 8; ++i) {
+      identity.address += 32;
+      CHECK(cache.observe(identity,texture,300+i) != nullptr);
+    }
+    identity.address += 32;
+    CHECK(cache.observe(identity,texture,308) == nullptr);
+  }
+  return 0;
+}
+
+int transformed_bounds(const std::string& scenario) {
+  Fixture fixture;
+  if (scenario == "offscreen") fixture.draw.position_matrix[12] = 3;
+  if (scenario == "degenerate") fixture.draw.projection[0] = 0;
+  if (scenario == "bad-w") fixture.draw.projection[15] = 0;
+  auto stats = census::geometry_stats(fixture.draw);
+  CHECK(stats.valid == (scenario != "bad-w"));
+  if (!stats.valid) return 0;
+  CHECK(stats.minimum[0] == (scenario == "offscreen" ? 2.f : scenario == "degenerate" ? 0.f : -1.f));
+  CHECK(stats.maximum[0] == (scenario == "offscreen" ? 4.f : scenario == "degenerate" ? 0.f : 1.f));
+  CHECK(stats.twice_area[0] == (scenario == "degenerate" ? 0.f : 4.f));
+  CHECK(stats.minimum[2] == 1.f);
+  return 0;
+}
+
+int logo_inputs() {
+  Fixture fixture;
+  fixture.plan.tex_address = 0x123400;
+  fixture.plan.tex_width = 64;
+  fixture.plan.tex_height = 32;
+  auto& stage = fixture.plan.pipeline.shader.tev_stages[0];
+  stage.ac_a = 7; stage.ac_b = 4; stage.ac_c = 5; stage.ac_d = 7;
+  stage.ac_clamp = 1; stage.ksel_ka = 31;
+  stage.ras_swap[3] = stage.tex_swap[3] = 3;
+  for (unsigned v = 0; v < 4; ++v) {
+    const float alpha = v / 3.f;
+    std::memcpy(fixture.draw.geometry.vertices.data() + v * gxc::kVertexStrideBytes +
+                gxc::kVertexColor0Offset + 3*sizeof(float), &alpha, sizeof alpha);
+  }
+  const auto info = census::describe(fixture.plan,fixture.draw);
+  CHECK(info.logo_texture == (census::TextureIdentity{0x123400,3,64,32}));
+  CHECK(info.geometry.valid && info.geometry.minimum[2] == 1);
+  CHECK(info.raster_alpha[0][0] == 0 && info.raster_alpha[0][3] == 1);
+  CHECK(info.alpha_stage_count == 1);
+  CHECK((info.alpha_stages[0] & 7) == 7 && ((info.alpha_stages[0] >> 3) & 7) == 4);
+  CHECK(((info.alpha_stages[0] >> 6) & 7) == 5 && ((info.alpha_stages[0] >> 9) & 7) == 7);
+  CHECK((info.alpha_stages[0] >> 27) == 31);
+  return 0;
+}
 } // namespace
 
 int main(int argc, char** argv) {
@@ -133,5 +238,9 @@ int main(int argc, char** argv) {
   if (group == "fullscreen") return fullscreen(scenario);
   if (group == "draw") return counts_draw(scenario);
   if (group == "bind") return counts_bind(scenario);
+  if (group == "alpha") return texture_alpha(scenario);
+  if (group == "cache") return alpha_cache(scenario);
+  if (group == "bounds") return transformed_bounds(scenario);
+  if (group == "inputs") return logo_inputs();
   return 2;
 }
