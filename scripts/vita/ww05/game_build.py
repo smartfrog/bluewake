@@ -165,14 +165,13 @@ def experimental_configure_options():
     return ['-DWW05_DISPATCH_ABI_SENTINEL=OFF', '-DWW05_OBSERVE_NATIVE_CTX=OFF',
             '-DWW05_QUIET_LOGGING=OFF', '-DWW05_GLOBAL_CTX=OFF',
             '-DWW05_ENABLE_SHIP_PROLOG=OFF', '-DWW05_ENABLE_TITLE_CONTRACT=OFF',
-            '-DWW05_ENABLE_IKADA_CONTRACT=OFF', '-DWW05_ENABLE_ACTOR_BATCH_CONTRACTS=OFF',
-            '-DWW_RENDERER_DRAW_CENSUS=OFF']
+            '-DWW05_ENABLE_IKADA_CONTRACT=OFF', '-DWW05_ENABLE_ACTOR_BATCH_CONTRACTS=OFF']
 
 
 def vita_configure_arguments(cmake, ninja, source, output, toolchain, recompcore, composite, identity, dol,
                              vitagl, renderer_sdk, opt_level, vi_clock, pad_input, dst_alpha_admit,
                              edge_observation_admit, idle_deadline_advance, turn_cap, program_cache,
-                             ram_guard, rejection_capsule, skip_title_logo, gx_max_command_bytes):
+                             ram_guard, rejection_capsule, skip_title_logo, gx_max_command_bytes, draw_census):
     return [
         cmake, '-S', source, '-B', output, '-G', 'Ninja',
         f'-DCMAKE_TOOLCHAIN_FILE={toolchain}',
@@ -193,6 +192,7 @@ def vita_configure_arguments(cmake, ninja, source, output, toolchain, recompcore
         *rejection_capsule_configure_option(rejection_capsule),
         *skip_title_logo_configure_option(skip_title_logo),
         *experimental_configure_options(),
+        f'-DWW_RENDERER_DRAW_CENSUS={"ON" if draw_census else "OFF"}',
     ]
 
 
@@ -225,6 +225,8 @@ def build_parser():
                         help='bounded admission-rejection capsule (on by default)')
     parser.add_argument('--skip-title-logo', action='store_true',
                         help='diagnostic: open the file-select menu instead of the title logo and movie (off by default)')
+    parser.add_argument('--draw-census', action='store_true',
+                        help='diagnostic: inventory sampled draw textures per present (off by default)')
     parser.add_argument('--jobs', type=int, default=2)
     parser.add_argument('--opt-level', choices=('1', '2', '3'), default='1',
                         help='translated module optimization level (default matches the verified private module)')
@@ -265,7 +267,7 @@ def evidence_config(args):
             'dispatch_abi_sentinel': False, 'observe_native_ctx': False,
             'quiet_logging': False, 'global_ctx': False,
             'ship_prolog': False, 'title_contract': False, 'ikada_contract': False,
-            'actor_batch_contracts': False, 'draw_census': False,
+            'actor_batch_contracts': False, 'draw_census': args.draw_census,
             'skip_title_logo': args.skip_title_logo}
 
 
@@ -408,7 +410,7 @@ def main():
         sources['RecompCore'], composite, identity, f'{private}/main.dol', vitagl, renderer_sdk,
         args.opt_level, args.vi_clock, args.pad_input, args.dst_alpha_admit, args.edge_observation_admit,
         args.idle_deadline_advance, args.turn_cap, args.program_cache, args.ram_guard,
-        args.rejection_capsule, args.skip_title_logo, args.gx_max_command_bytes))
+        args.rejection_capsule, args.skip_title_logo, args.gx_max_command_bytes, args.draw_census))
     checked_cache((vita / 'CMakeCache.txt').read_text(), config)
     build.run('vita-build', [cmake, '--build', vita, '-j', args.jobs])
     from inspect_build import inspect

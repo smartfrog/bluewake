@@ -132,6 +132,14 @@ int releases_owned_resources() {
 int draw_census(const std::string& scenario) {
   auto* backend = ww_renderer_vita_backend();
   CHECK(backend->init() == nullptr);
+  if (scenario == "refused") {
+    backend->census_refused();
+    CHECK(test_gl::draws == 0);
+    CHECK(backend->present() == nullptr);
+    CHECK(backend->present() == nullptr);
+    backend->shutdown();
+    return 0;
+  }
   gx_vita::TranslatedDraw draw;
   gx_vita::CgProgram program;
   draw.census.required_mask = 1;

@@ -117,9 +117,11 @@ std::string format_frame(const Counts& c, std::uint32_t present, bool partial) {
   char prefix[512];
   std::snprintf(prefix, sizeof prefix,
       "[draw-census] present=%u partial=%u tq=%u uq=%u other=%u tx=%u rest=%u "
-      "refused=%u invalid=%u skip=%u bindfail=%u uploadfail=%u draws=",
+      "refused=%u no_valid=%u decode_failed=%u bind_valid=%u bind_skipped=%u "
+      "invalid=%u skip=%u bindfail=%u uploadfail=%u draws=",
       present, unsigned(partial), c.textured_quad, c.untextured_quad, c.other, c.textured,
-      c.omitted, c.refused, c.incomplete_texture, c.required_skipped, c.bind_failed, c.upload_failed);
+      c.omitted, c.refused, c.no_valid_texture, c.decode_failed, c.bind_valid, c.bind_skipped,
+      c.incomplete_texture, c.required_skipped, c.bind_failed, c.upload_failed);
   std::string line = prefix;
   if (!c.entry_count)
     line += '-';
@@ -128,7 +130,7 @@ std::string format_frame(const Counts& c, std::uint32_t present, bool partial) {
     const auto& d = entry.draw;
     const auto& t = d.texture;
     char record[128];
-    std::snprintf(record, sizeof record, "%s%08x@%u,%ux%u,%u,%u,%u,%u%u*%u",
+    std::snprintf(record, sizeof record, "%s%08x@%u,%ux%u,%u,%u,%u,%u,%u*%u",
         i ? "|" : "", t.address, d.slot, t.width, t.height, t.format,
         unsigned(d.four_vertices), unsigned(d.fullscreen), unsigned(d.depth_test),
         unsigned(d.depth_write), entry.count);

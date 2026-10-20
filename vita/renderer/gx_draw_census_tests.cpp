@@ -129,6 +129,7 @@ int formats_inventory(const std::string& scenario) {
   if (scenario == "empty") {
     CHECK(census::format_frame(counts, 313, false) ==
         "[draw-census] present=313 partial=0 tq=0 uq=0 other=0 tx=0 rest=0 refused=0 "
+        "no_valid=0 decode_failed=0 bind_valid=0 bind_skipped=0 "
         "invalid=0 skip=0 bindfail=0 uploadfail=0 draws=-");
     return 0;
   }
@@ -138,7 +139,8 @@ int formats_inventory(const std::string& scenario) {
     census::count_draw(counts, census::describe(fixture.plan, fixture.draw), 1, 0);
     CHECK(census::format_frame(counts, 314, true) ==
         "[draw-census] present=314 partial=1 tq=1 uq=0 other=0 tx=1 rest=0 refused=0 "
-        "invalid=0 skip=0 bindfail=0 uploadfail=0 draws=00123400@0,376x104,3,1,1,11*1");
+        "no_valid=0 decode_failed=0 bind_valid=0 bind_skipped=0 "
+        "invalid=0 skip=0 bindfail=0 uploadfail=0 draws=00123400@0,376x104,3,1,1,1,1*1");
     return 0;
   }
   if (scenario == "maximum-fields") {
@@ -151,7 +153,7 @@ int formats_inventory(const std::string& scenario) {
       census::count_draw(counts, info, 1, 0);
     }
     CHECK(census::format_frame(counts, UINT32_MAX, true).find(
-        "ffffffff@7,4294967295x4294967295,4294967295,0,0,00*1") != std::string::npos);
+        "ffffffff@7,4294967295x4294967295,4294967295,0,0,0,0*1") != std::string::npos);
     return 0;
   }
   for (unsigned i = 0; i < 12; ++i) {
@@ -164,7 +166,7 @@ int formats_inventory(const std::string& scenario) {
     census::count_draw(counts, census::describe(fixture.plan, fixture.draw), 1, 0);
     CHECK(counts.entries[0].count == 2 && counts.omitted == 4);
   }
-  CHECK(census::format_frame(counts, 315, false).find("|00000007@0,376x104,3,1,1,00*1") != std::string::npos);
+  CHECK(census::format_frame(counts, 315, false).find("|00000007@0,376x104,3,1,1,0,0*1") != std::string::npos);
   CHECK(census::format_frame(counts, 315, false).find("00000008@") == std::string::npos);
   return 0;
 }

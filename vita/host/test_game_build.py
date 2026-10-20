@@ -89,20 +89,19 @@ class EdgeObservationAdmitOptionTest(unittest.TestCase):
         experimental = ['-DWW05_DISPATCH_ABI_SENTINEL=OFF', '-DWW05_OBSERVE_NATIVE_CTX=OFF',
                         '-DWW05_QUIET_LOGGING=OFF', '-DWW05_GLOBAL_CTX=OFF',
                         '-DWW05_ENABLE_SHIP_PROLOG=OFF', '-DWW05_ENABLE_TITLE_CONTRACT=OFF',
-                        '-DWW05_ENABLE_IKADA_CONTRACT=OFF', '-DWW05_ENABLE_ACTOR_BATCH_CONTRACTS=OFF',
-                        '-DWW_RENDERER_DRAW_CENSUS=OFF']
+                        '-DWW05_ENABLE_IKADA_CONTRACT=OFF', '-DWW05_ENABLE_ACTOR_BATCH_CONTRACTS=OFF']
 
         def arguments(edge_observation, idle=False, skip_title_logo=False):
             return [str(value) for value in module.vita_configure_arguments(
                 'cmake', 'ninja', 'source', 'output', 'toolchain', 'recompcore', 'composite',
                 'identity', 'dol', 'vitagl', 'sdk', '1', False, False, False, edge_observation, idle,
-                0, False, True, False, skip_title_logo, 1025)]
+                0, False, True, False, skip_title_logo, 1025, False)]
 
         prefix = base + ['-DWW_RENDERER_DST_ALPHA_ADMIT=OFF']
         suffix = ['-DWW_IDLE_DEADLINE_ADVANCE=OFF', '-DWW_TURN_CAP=0',
                   '-DWW05_GX_MAX_COMMAND_BYTES=1025', '-DWW_PROGRAM_CACHE=OFF',
                   '-DWW05_RAM_GUARD=ON', '-DWW05_REJECTION_CAPSULE=OFF', '-DWW_SKIP_TITLE_LOGO=OFF',
-                  *experimental]
+                  *experimental, '-DWW_RENDERER_DRAW_CENSUS=OFF']
         for state in ('ON', 'OFF'):
             with self.subTest(state=state):
                 self.assertEqual(arguments(state == 'ON'),
@@ -113,7 +112,7 @@ class EdgeObservationAdmitOptionTest(unittest.TestCase):
         arguments = [str(value) for value in module.vita_configure_arguments(
             'cmake', 'ninja', 'source', 'output', 'toolchain', 'recompcore', 'composite',
             'identity', 'dol', 'vitagl', 'sdk', '1', True, False, True, True, True, 8, True, True,
-            True, False, 8192)]
+            True, False, 8192, False)]
         self.assertEqual(arguments, [
             'cmake', '-S', 'source', '-B', 'output', '-G', 'Ninja',
             '-DCMAKE_TOOLCHAIN_FILE=toolchain', '-DCMAKE_MAKE_PROGRAM=ninja',
@@ -199,6 +198,28 @@ class RejectionCapsuleOptionTest(unittest.TestCase):
                          ['-DWW05_REJECTION_CAPSULE=OFF'])
 
 
+class DrawCensusOptionTest(unittest.TestCase):
+    def test_requested_census_is_recorded(self):
+        module = load_module()
+        args = module.parse_arguments(['--disc', 'disc.iso', '--draw-census'])
+        self.assertTrue(args.draw_census)
+        self.assertTrue(module.evidence_config(args)['draw_census'])
+
+    def test_census_configure_option_matches_the_request(self):
+        module = load_module()
+        for enabled in (False, True):
+            with self.subTest(enabled=enabled):
+                args = module.parse_arguments(['--disc', 'disc.iso', *(['--draw-census'] if enabled else [])])
+                arguments = module.vita_configure_arguments(
+                    'cmake', 'ninja', 'source', 'output', 'toolchain', 'recompcore', 'composite',
+                    'identity', 'dol', 'vitagl', 'sdk', args.opt_level, args.vi_clock, args.pad_input,
+                    args.dst_alpha_admit, args.edge_observation_admit, args.idle_deadline_advance,
+                    args.turn_cap, args.program_cache, args.ram_guard, args.rejection_capsule,
+                    args.skip_title_logo, args.gx_max_command_bytes, args.draw_census)
+                self.assertEqual([value for value in arguments if 'WW_RENDERER_DRAW_CENSUS=' in str(value)],
+                                 [f'-DWW_RENDERER_DRAW_CENSUS={"ON" if enabled else "OFF"}'])
+
+
 class ParserDefaultsTest(unittest.TestCase):
     def test_the_perf_profile_is_the_default(self):
         module = load_module()
@@ -214,6 +235,7 @@ class ParserDefaultsTest(unittest.TestCase):
         self.assertEqual(args.gx_max_command_bytes, 1025)
         self.assertFalse(args.skip_title_logo)
         self.assertFalse(args.pad_input)
+        self.assertFalse(args.draw_census)
 
     def test_each_perf_lever_can_be_disabled(self):
         module = load_module()
@@ -260,19 +282,33 @@ class BuildEvidenceConfigTest(unittest.TestCase):
         self.assertFalse(config['title_contract'])
         self.assertFalse(config['ikada_contract'])
         self.assertFalse(config['actor_batch_contracts'])
+        self.assertFalse(config['draw_census'])
 
     def test_vita_configure_arguments_carry_the_title_logo_skip_when_requested(self):
         module = load_module()
         arguments = [str(value) for value in module.vita_configure_arguments(
             'cmake', 'ninja', 'source', 'output', 'toolchain', 'recompcore', 'composite',
             'identity', 'dol', 'vitagl', 'sdk', '1', False, False, False, False, False, 0, False,
-            True, False, True, 1025)]
+            True, False, True, 1025, False)]
         self.assertIn('-DWW_SKIP_TITLE_LOGO=ON', arguments)
 
 
 class CacheCheckTest(unittest.TestCase):
-    def test_normal_builder_explicitly_disables_the_census(self):
-        self.assertIn('-DWW_RENDERER_DRAW_CENSUS=OFF', load_module().experimental_configure_options())
+    def test_experimental_options_do_not_override_the_census_request(self):
+        self.assertFalse(any('WW_RENDERER_DRAW_CENSUS=' in value
+                             for value in load_module().experimental_configure_options()))
+
+    def test_cache_matches_the_requested_census(self):
+        module, config = self.config(['--draw-census'])
+        entries = module.checked_cache(self.cache(module, config), config)
+        self.assertEqual(entries['WW_RENDERER_DRAW_CENSUS'], 'ON')
+
+    def test_disabled_cache_is_rejected_when_census_was_requested(self):
+        module, config = self.config(['--draw-census'])
+        text = self.cache(module, config).replace('WW_RENDERER_DRAW_CENSUS:BOOL=ON',
+                                                 'WW_RENDERER_DRAW_CENSUS:BOOL=OFF')
+        with self.assertRaisesRegex(ValueError, 'WW_RENDERER_DRAW_CENSUS=OFF contradicts'):
+            module.checked_cache(text, config)
 
     def test_stale_cached_census_is_rejected(self):
         module, config = self.config()

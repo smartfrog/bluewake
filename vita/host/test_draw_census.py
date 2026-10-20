@@ -21,10 +21,14 @@ class DrawCensusTest(unittest.TestCase):
 
     def test_actual_backend_binding_outcomes(self):
         cases = {
-            'valid': {'tq': '1', 'tx': '1', 'invalid': '0', 'skip': '0'},
-            'skipped': {'tx': '1', 'invalid': '1', 'skip': '1'},
-            'untextured': {'uq': '1', 'tx': '0', 'skip': '0', 'draws': '-'},
-            'multimap': {'tx': '1', 'invalid': '1', 'skip': '1'},
+            'valid': {'tq': '1', 'tx': '1', 'invalid': '0', 'skip': '0',
+                      'no_valid': '0', 'decode_failed': '0', 'bind_valid': '1', 'bind_skipped': '0'},
+            'skipped': {'tx': '1', 'invalid': '1', 'skip': '1',
+                        'no_valid': '1', 'decode_failed': '1', 'bind_valid': '0', 'bind_skipped': '1'},
+            'untextured': {'uq': '1', 'tx': '0', 'skip': '0', 'draws': '-',
+                           'no_valid': '0', 'decode_failed': '0', 'bind_valid': '0', 'bind_skipped': '1'},
+            'multimap': {'tx': '1', 'invalid': '1', 'skip': '1',
+                         'no_valid': '0', 'decode_failed': '1', 'bind_valid': '1', 'bind_skipped': '1'},
             'bind-failed': {'present': '0', 'partial': '1', 'bindfail': '1', 'tx': '0'},
             'upload-failed': {'present': '0', 'partial': '1', 'uploadfail': '1', 'tx': '0'},
             'sampler-failed': {'present': '0', 'partial': '1', 'bindfail': '1', 'tx': '0'},
@@ -39,7 +43,12 @@ class DrawCensusTest(unittest.TestCase):
     def test_present_resets_frame_counts(self):
         lines = self.summary('reset')
         self.assertEqual([(line['present'], line['tx'], line['draws']) for line in lines],
-                         [('1', '1', '00000000@0,0x0,0,1,1,00*1'), ('2', '0', '-')])
+                         [('1', '1', '00000000@0,0x0,0,1,1,0,0*1'), ('2', '0', '-')])
+
+    def test_refused_plan_is_counted_without_a_draw_and_resets_at_present(self):
+        lines = self.summary('refused')
+        self.assertEqual([(line['present'], line['refused'], line['tx'], line['draws']) for line in lines],
+                         [('1', '1', '0', '-'), ('2', '0', '0', '-')])
 
     def test_output_is_bounded(self):
         lines = self.summary('bound')
@@ -48,13 +57,13 @@ class DrawCensusTest(unittest.TestCase):
 
     def test_inventory_format(self):
         line = self.summary('valid')[0]
-        self.assertEqual(line['draws'], '00000000@0,0x0,0,1,1,00*1')
+        self.assertEqual(line['draws'], '00000000@0,0x0,0,1,1,0,0*1')
 
     def test_inventory_aggregates_repeated_draws(self):
         line = self.summary('repeat')[0]
         self.assertEqual(line['tx'], '12')
         self.assertEqual(line['rest'], '0')
-        self.assertEqual(line['draws'], '00000000@0,0x0,0,1,1,00*12')
+        self.assertEqual(line['draws'], '00000000@0,0x0,0,1,1,0,0*12')
 
     def test_inventory_bounds_distinct_draws(self):
         line = self.summary('overflow')[0]
@@ -65,7 +74,7 @@ class DrawCensusTest(unittest.TestCase):
     def test_inventory_preserves_all_sampled_slots(self):
         line = self.summary('multimap')[0]
         self.assertEqual(line['draws'],
-                         '00000000@0,0x0,0,1,1,00*1|00000000@3,0x0,0,0,0,00*1')
+                         '00000000@0,0x0,0,1,1,0,0*1|00000000@3,0x0,0,0,0,0,0*1')
 
 
 if __name__ == '__main__':

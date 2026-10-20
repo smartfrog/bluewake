@@ -2,6 +2,8 @@
 
 Configure `vita/host` with `-DWW_RENDERER_DRAW_CENSUS=ON`. The normal renderer
 has no census fields, counters or additional GL checks. No decoder is changed.
+The canonical private builder accepts `--draw-census`; its default is OFF.
+Omitting the flag explicitly restores OFF even when reusing an ON build cache.
 
 One `[draw-census]` line follows each successful present, through present 1024.
 Every submitted textured draw is counted, independent of format, dimensions,
@@ -10,7 +12,7 @@ with the source guest texture address (not the reused GL texture object), slot,
 dimensions, GX format, four-vertex flag, fullscreen flag and depth-test/write
 flags. `draws` has this grammar:
 
-`address@slot,widthxheight,format,four_vertices,fullscreen,depth_testdepth_write*count`
+`address@slot,widthxheight,format,four_vertices,fullscreen,depth_test,depth_write*count`
 
 Entries are separated by `|`; `-` means none. Identical entries are aggregated
 within a frame, in first-seen order. At most eight distinct entries are retained.
@@ -26,6 +28,10 @@ Non-four-vertex draws are included too, so they cannot hide a textured overlay.
 0.02. Texture dimensions are source-image dimensions, not screen-space bounds.
 
 `invalid` counts draws missing any required successful bind/upload/sampler;
+`no_valid` counts draws with none of their required textures valid;
+`decode_failed` counts required slots whose translated texture is invalid.
+`bind_valid`/`bind_skipped` count all successful/skipped bind helper calls,
+including harmless skips on untextured draws.
 `skip` counts required slots silently skipped by the existing bind helper.
 `bindfail`/`uploadfail` count GL failures at those boundaries. `refused` counts
 plans refused by the frontend, translation or shader generation, not submitted
