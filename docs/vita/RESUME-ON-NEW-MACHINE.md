@@ -1,6 +1,6 @@
 # Resuming this project on a new machine
 
-Date: 2026-10-20. State: trunk `development = 5830a197` (class admission merged). No run in flight.
+Date: 2026-10-20. State: trunk `development` = the tip of this branch (this handover doc is the last commit). No run in flight.
 
 ## 1. What to copy
 
