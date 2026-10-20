@@ -12,6 +12,10 @@
 // milestone); 0x80120188 is checkLavaFace's GroundCross return, which also
 // requires the caller-return LR. 0x8015EA5C is daVrbox2_Draw's entry; the
 // desktop hook only counts it, and the guest still owns all sky draw work.
+static inline bool ww_edge_observation_address(uint32_t address) {
+    return address == 0x80120188u || address == 0x8022F9FCu || address == 0x8015EA5Cu;
+}
+
 static inline bool ww_edge_admit_observation(uint32_t address, uint32_t pc,
                                              uint32_t lr, bool module_owned,
                                              bool alias_overlap) {
@@ -19,7 +23,7 @@ static inline bool ww_edge_admit_observation(uint32_t address, uint32_t pc,
         return false;
     if (address == 0x80120188u)
         return lr == address;
-    return address == 0x8022F9FCu || address == 0x8015EA5Cu;
+    return ww_edge_observation_address(address);
 }
 
 #endif

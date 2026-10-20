@@ -1220,7 +1220,8 @@ bool ww_host_edge(void* user, CPUState* cpu, u32 address) {
     // d_s_name's scene-create block entry (no LR check), which the boot milestone
     // reports. daVrbox2_Draw (0x8015EA5C) is only a desktop scene-draw census
     // entry. None runs a host service; the translated guest owns the result.
-    admitted_observation = ww_edge_admit_observation(
+    admitted_observation = ww_edge_observation_address(address) &&
+        ww_edge_admit_observation(
             address, cpu->pc, cpu->lr,
             ww_host_module_contains_address(host->module, address),
             ww_host_linked_alias_overlaps(address, 4u));
