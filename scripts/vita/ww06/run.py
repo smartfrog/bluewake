@@ -24,7 +24,7 @@ from baseline import build_baseline, write_baseline  # noqa: E402
 from scenario import DEFAULT_DEADZONE, DEFAULT_MIN_FRAMES  # noqa: E402
 
 ROOT = Path(__file__).resolve().parents[3]
-DEFAULT_OUT = Path('/home/fred/projects/zeldaWWHDRecomp/build-f6/ww06')
+DEFAULT_OUT = ROOT / 'build-f6/ww06'
 
 
 def git_source() -> str:

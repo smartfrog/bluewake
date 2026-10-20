@@ -30,7 +30,7 @@ import capture
 import memory_snapshot
 
 ROOT = Path(__file__).resolve().parents[3]
-DEFAULT_BUILD = Path("/home/fred/projects/zeldaWWHDRecomp/build-f2/ww02")
+DEFAULT_BUILD = ROOT / 'build-f2/ww02'
 
 
 def find_binary():

@@ -11,6 +11,8 @@ from unittest.mock import patch
 import zipfile
 
 ROOT = Path(__file__).resolve().parents[2]
+
+(ROOT / 'build-f5').mkdir(parents=True, exist_ok=True)
 sys.path.insert(0, str(ROOT / 'scripts/vita/ww05'))
 sys.path.insert(0, str(ROOT / 'scripts/vita/armv7'))
 
@@ -43,7 +45,7 @@ class PlanTest(unittest.TestCase):
 
     def test_optional_disc_staging_keeps_a_verified_identity_without_a_writable_copy(self):
         import stage_plan
-        with tempfile.TemporaryDirectory(dir='/home/fred/projects/zeldaWWHDRecomp/build-f5', prefix='ww05-disc-') as directory:
+        with tempfile.TemporaryDirectory(dir=str(ROOT / 'build-f5'), prefix='ww05-disc-') as directory:
             root = Path(directory)
             image = root / 'private.iso'
             image.write_bytes(b'verified private fixture')
@@ -54,7 +56,7 @@ class PlanTest(unittest.TestCase):
 
     def test_optional_disc_rejects_a_different_image_before_creating_an_install_target(self):
         import stage_plan
-        with tempfile.TemporaryDirectory(dir='/home/fred/projects/zeldaWWHDRecomp/build-f5', prefix='ww05-disc-') as directory:
+        with tempfile.TemporaryDirectory(dir=str(ROOT / 'build-f5'), prefix='ww05-disc-') as directory:
             root = Path(directory)
             image = root / 'private.iso'
             image.write_bytes(b'different private fixture')
@@ -202,7 +204,7 @@ class PlanTest(unittest.TestCase):
             self.assertNotIn('--ro-bind', command)
     def test_deeper_startup_allows_a_bounded_three_minute_phase(self):
         import stage_plan
-        with tempfile.TemporaryDirectory(prefix='ww05-deadline-', dir='/home/fred/projects/zeldaWWHDRecomp/build-f5') as directory:
+        with tempfile.TemporaryDirectory(prefix='ww05-deadline-', dir=str(ROOT / 'build-f5')) as directory:
             args = SimpleNamespace(libraries=None, wayland_socket=None, timeout=180)
             plan = stage_plan.make_plan(Path(directory), args, 'a' * 40, 'b' * 64, 'c' * 32)
             self.assertEqual(plan['phases']['install']['timeout_seconds'], 180)
@@ -210,7 +212,7 @@ class PlanTest(unittest.TestCase):
 
     def test_coordinator_requested_ten_minute_phases_keep_owned_cleanup(self):
         import stage_plan
-        with tempfile.TemporaryDirectory(prefix='ww05-deadline-', dir='/home/fred/projects/zeldaWWHDRecomp/build-f5') as directory:
+        with tempfile.TemporaryDirectory(prefix='ww05-deadline-', dir=str(ROOT / 'build-f5')) as directory:
             args = SimpleNamespace(libraries=None, wayland_socket=None, timeout=600)
             plan = stage_plan.make_plan(Path(directory), args, 'a' * 40, 'b' * 64, 'c' * 32)
             self.assertEqual(plan['phases']['install']['timeout_seconds'], 600)
@@ -227,7 +229,7 @@ class PlanTest(unittest.TestCase):
 
     def test_changed_elf_is_rejected_before_staging(self):
         import stage_plan
-        with tempfile.TemporaryDirectory(prefix='ww05-package-', dir='/home/fred/projects/zeldaWWHDRecomp/build-f5') as directory:
+        with tempfile.TemporaryDirectory(prefix='ww05-package-', dir=str(ROOT / 'build-f5')) as directory:
             output = Path(directory)
             (output / 'private').mkdir()
             dol = output / 'private/main.dol'
@@ -251,7 +253,7 @@ class PlanTest(unittest.TestCase):
         spec = importlib.util.spec_from_file_location('ww05_stage', ROOT / 'scripts/vita/ww05/stage_plan.py')
         module = importlib.util.module_from_spec(spec)
         spec.loader.exec_module(module)
-        with tempfile.TemporaryDirectory(prefix='ww05-plan-', dir='/home/fred/projects/zeldaWWHDRecomp/build-f5') as directory:
+        with tempfile.TemporaryDirectory(prefix='ww05-plan-', dir=str(ROOT / 'build-f5')) as directory:
             root = Path(directory)
             args = SimpleNamespace(libraries=None, wayland_socket=None, timeout=60)
             with patch('subprocess.Popen', side_effect=AssertionError('preparation must not launch')):

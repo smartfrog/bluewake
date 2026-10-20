@@ -14,6 +14,8 @@ import subprocess
 import time
 import uuid
 
+ROOT = Path(__file__).resolve().parents[3]
+
 import capture
 import extract
 import image
@@ -21,7 +23,7 @@ import memory_snapshot
 import novelty
 
 FORMAT = 'gx-frame-gallery-v1'
-DEFAULT_SOURCE = Path('/home/fred/projects/zeldaWWHDRecomp/build-f5')
+DEFAULT_SOURCE = ROOT / 'build-f5'
 
 
 def run_id(report):

@@ -24,9 +24,10 @@ from fp_profile import FIRMWARE_DIRECTORY, config_identity, stage_firmware, read
 from fp_campaign import runtime_inputs
 from activity import CpuIdleWindow, MIN_EXTENDED_AVAILABLE_MEMORY_BYTES
 from direct_launch import RENDERER, direct_phases
+sys.path.insert(0, str(ROOT / 'scripts/vita'))
+from vita_workspace import SHADER_COMPILER  # noqa: E402
 
 RUNTIME_SHA256 = 'cea2b91f05d9d03bb577b9c414e0da54d3b234f97dc4b23537561e800b1fbf30'
-SHADER_COMPILER = Path('/home/fred/cloudpunk-vita/tools/vita3k/data/Vita3K/Vita3K/ur0/data/libshacccg.suprx')
 
 
 def stage_shader_compiler(root, source):

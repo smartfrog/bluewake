@@ -66,7 +66,7 @@ released, and no other application is touched.
 7. The runtime stack defaults hold: `build-vita-tools/local-stack/vita3k/
    Vita3K` at `cea2b91f...`, `local-stack/vita3k-env` libraries, `local-stack/
    firmware` (vs0/sa0), and the private shader compiler
-   `~/cloudpunk-vita/tools/vita3k/data/Vita3K/Vita3K/ur0/data/libshacccg.suprx`.
+   `local-stack/firmware/ur0/data/libshacccg.suprx`.
    Override any of them explicitly if the reviewed environment differs.
 8. The run id is fresh. The runroot `build-f5/ww56-<id>` and receipts
    `/tmp/opencode/ww56-<id>` must not exist; the script refuses to reuse them

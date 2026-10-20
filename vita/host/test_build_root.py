@@ -5,7 +5,7 @@ import unittest
 from unittest import mock
 
 ROOT = Path(__file__).resolve().parents[2]
-DEFAULT_OUTPUT = Path('/home/fred/projects/zeldaWWHDRecomp/build-f5/ww05')
+DEFAULT_OUTPUT = ROOT / 'build-f5/ww05'
 
 
 def load_game_build():
@@ -22,7 +22,7 @@ class BuildRootOverrideTest(unittest.TestCase):
             self.assertEqual(load_game_build().OUTPUT, DEFAULT_OUTPUT)
 
     def test_override_build_root_selects_the_named_tree(self):
-        override = Path('/home/fred/projects/zeldaWWHDRecomp/build-f6/ww12b')
+        override = ROOT / 'build-f6/ww12b'
         with mock.patch.dict(os.environ, {'WW05_BUILD_ROOT': str(override)}):
             module = load_game_build()
         self.assertEqual(module.OUTPUT, override)

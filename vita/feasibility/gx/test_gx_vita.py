@@ -15,8 +15,8 @@ import subprocess
 import unittest
 from pathlib import Path
 
-DEFAULT_BUILD = Path("/home/fred/projects/zeldaWWHDRecomp/build-f2/ww02")
 ROOT = Path(__file__).resolve().parents[3]
+DEFAULT_BUILD = ROOT / 'build-f2/ww02'
 SOURCES = [
     ROOT / "vita/feasibility/gx/gx_fixture.hpp",
     ROOT / "vita/renderer/gx_vita.h",

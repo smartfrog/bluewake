@@ -1,11 +1,13 @@
+import sys
 from pathlib import Path
 import subprocess
 import tempfile
 import unittest
 
 ROOT = Path(__file__).resolve().parents[2]
-SDK = Path('/home/fred/projects/zeldaWWHDRecomp/build-vita-tools/local-stack/vitasdk')
-RENDERER_SDK = Path('/home/fred/cloudpunk-vita/tools/vitasdk/arm-vita-eabi')
+sys.path.insert(0, str(ROOT / 'scripts/vita'))
+from vita_workspace import VITASDK, RENDERER_SDK  # noqa: E402
+SDK = VITASDK
 
 
 class VitaRendererAbiTest(unittest.TestCase):

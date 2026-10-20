@@ -18,7 +18,7 @@ import unittest
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[3]
-MAIN_CHECKOUT = Path("/home/fred/projects/zeldaWWHDRecomp")
+MAIN_CHECKOUT = ROOT
 DEFAULT_EVIDENCE = MAIN_CHECKOUT / "build-f5"
 
 HEADER = "WW05 {token} {source} {package} method=startup-gx-v1 phase=guest platform=VITA\n"

@@ -37,7 +37,7 @@ from rel_events import parse_rel_events  # noqa: E402
 from relset_baseline import build_baseline, write_baseline  # noqa: E402
 
 ROOT = Path(__file__).resolve().parents[3]
-DEFAULT_OUT = Path('/home/fred/projects/zeldaWWHDRecomp/build-f14/relset')
+DEFAULT_OUT = ROOT / 'build-f14/relset'
 
 
 def git_source() -> str:

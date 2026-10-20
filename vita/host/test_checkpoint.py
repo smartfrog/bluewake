@@ -4,7 +4,7 @@ import subprocess
 import unittest
 
 ROOT = Path(__file__).resolve().parents[2]
-OUT = Path('/home/fred/projects/zeldaWWHDRecomp/build-f5/host-tests')
+OUT = ROOT / 'build-f5/host-tests'
 RUNTIME = ROOT / 'ref/vita-ww-01/RecompCore/GXRuntime'
 
 

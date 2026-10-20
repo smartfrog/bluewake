@@ -15,8 +15,8 @@ import time
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[3]
-DEFAULT_PROBE = Path('/home/fred/projects/zeldaWWHDRecomp/build-f13/ww13-seam/dvd-probe-tests/dvd_probe')
-DEFAULT_OUT = Path('/home/fred/projects/zeldaWWHDRecomp/build-f13/ww13-seam/measure')
+DEFAULT_PROBE = ROOT / 'build-f13/ww13-seam/dvd-probe-tests/dvd_probe'
+DEFAULT_OUT = ROOT / 'build-f13/ww13-seam/measure'
 PIN_DVD = Path('ref/vita-ww-01/RecompCore/GXRuntime/src/dvd.c')
 
 PATTERNS = {

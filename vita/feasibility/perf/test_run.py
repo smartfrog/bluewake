@@ -15,7 +15,7 @@ import unittest
 
 ROOT = Path(__file__).resolve().parents[3]
 RUN = ROOT / "scripts/vita/perf/run.py"
-OUT = Path('/home/fred/projects/zeldaWWHDRecomp/build-f12/perf-tests')
+OUT = ROOT / 'build-f12/perf-tests'
 SOURCE = '0' * 40
 
 PASS_REPORT = f'''WW05 {'a' * 32} {'b' * 40} {'c' * 64} method=startup-gx-v1 phase=guest platform=VITA

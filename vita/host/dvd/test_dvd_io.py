@@ -6,12 +6,14 @@ No real file, no pinned runtime and no game data are involved.
 
 import os
 import subprocess
+import sys
 import unittest
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[3]
-STACK = Path('/home/fred/projects/zeldaWWHDRecomp/build-vita-tools/local-stack')
-OUT = Path('/home/fred/projects/zeldaWWHDRecomp/build-f13/ww13-seam/dvd-io-tests')
+sys.path.insert(0, str(ROOT / 'scripts/vita'))
+from vita_workspace import STACK  # noqa: E402
+OUT = ROOT / 'build-f13/ww13-seam/dvd-io-tests'
 
 CASES = (
     'open-close',

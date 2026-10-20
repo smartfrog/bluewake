@@ -7,7 +7,7 @@ checks draws, programs, copies and presentations as events. This wrapper runs
 it and checks the summary lines.
 
 Environment:
-  WW17_BUILD  build directory (default /home/fred/projects/zeldaWWHDRecomp/build-f17/ww17)
+  WW17_BUILD  build directory (default <repo>/build-f17/ww17)
 """
 
 import os
@@ -16,7 +16,7 @@ import unittest
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[3]
-DEFAULT_BUILD = Path("/home/fred/projects/zeldaWWHDRecomp/build-f17/ww17")
+DEFAULT_BUILD = ROOT / 'build-f17/ww17'
 SOURCES = [
     ROOT / "vita/renderer/ww_renderer.h",
     ROOT / "vita/renderer/ww_renderer_backend.h",

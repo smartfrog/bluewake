@@ -15,7 +15,7 @@ import unittest
 
 ROOT = Path(__file__).resolve().parents[3]
 RUN = ROOT / "scripts/vita/relset/run.py"
-OUT = Path("/home/fred/projects/zeldaWWHDRecomp/build-f14/relset-tests")
+OUT = ROOT / 'build-f14/relset-tests'
 
 SYNTHETIC_EVENTS = """\
 [aurora:info] renderer ready

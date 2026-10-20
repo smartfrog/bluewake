@@ -30,6 +30,7 @@ import hashlib
 import json
 import math
 import os
+import sys
 from pathlib import Path
 import pty
 import shutil
@@ -42,9 +43,11 @@ import uuid
 import zipfile
 
 ROOT = Path(__file__).resolve().parents[3]
-DEFAULT_STACK = Path("/home/fred/projects/zeldaWWHDRecomp/build-vita-tools/local-stack")
-DEFAULT_OUTPUT = Path("/home/fred/projects/zeldaWWHDRecomp/build-f2/e2-skeleton")
-CLOUDPUNK_STACK = Path("/home/fred/cloudpunk-vita/tools")
+sys.path.insert(0, str(ROOT / 'scripts/vita'))
+from vita_workspace import SHADER_COMPILER, STACK  # noqa: E402
+
+DEFAULT_STACK = STACK
+DEFAULT_OUTPUT = ROOT / 'build-f2/e2-skeleton'
 TITLE_ID = "BWWG00031"
 FIRMWARE = Path("data/Vita3K/Vita3K")
 UX0_APP = FIRMWARE / "ux0/app" / TITLE_ID
@@ -362,7 +365,7 @@ def main():
     for name in ("vs0", "sa0"):
         shutil.copytree(stack / "firmware" / name, root / FIRMWARE / name, symlinks=True)
     # The Cg runtime compiler, staged privately for the profile only.
-    shacccg_source = CLOUDPUNK_STACK / "vita3k/data/Vita3K/Vita3K/ur0/data/libshacccg.suprx"
+    shacccg_source = SHADER_COMPILER
     if not shacccg_source.is_file():
         raise SystemExit(f"missing libshacccg.suprx at {shacccg_source}")
     ur0_data = root / FIRMWARE / "ur0/data"

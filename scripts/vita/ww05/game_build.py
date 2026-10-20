@@ -14,8 +14,7 @@ import time
 import uuid
 
 ROOT = Path(__file__).resolve().parents[3]
-STACK = Path('/home/fred/projects/zeldaWWHDRecomp/build-vita-tools/local-stack')
-OUTPUT = Path(os.environ.get('WW05_BUILD_ROOT', '/home/fred/projects/zeldaWWHDRecomp/build-f5/ww05'))
+OUTPUT = Path(os.environ.get('WW05_BUILD_ROOT', str(ROOT / 'build-f5/ww05')))
 if not OUTPUT.is_absolute():
     raise ValueError('WW05_BUILD_ROOT must be an absolute path')
 PINS = {'RecompCore': 'ddd031b2a7f45fcbda37a49daac9b308b8d95da1',
@@ -25,6 +24,8 @@ COMPOSITE_CANON_MARKER = '#define DOLRECOMP_CANON_CTX'
 
 sys.path.insert(0, str(ROOT / 'scripts/vita/armv7'))
 from build import checked_sources as checked_pinned_sources
+sys.path.insert(0, str(ROOT / 'scripts/vita'))
+from vita_workspace import STACK, VITAGL, RENDERER_SDK  # noqa: E402
 
 
 def sha256(path):
@@ -331,7 +332,7 @@ def main():
     output = checked_output(args.out)
     sources = checked_sources()
     build = Build(output)
-    cc = STACK / 'bin/aarch64-conda-linux-gnu-gcc'
+    cc = Path(os.environ.get('CC', STACK / 'bin/gcc'))
     cmake = STACK / 'bin/cmake'
     ninja = STACK / 'bin/ninja'
     extractor = output / 'disc_extract'
@@ -401,8 +402,8 @@ def main():
                          'template_sha256': TEMPLATE_SHA256, 'private_source_sha256': sha256(vector_source)}
     os.environ['VITASDK'] = str(STACK / 'vitasdk')
     vita = output / 'vita'
-    vitagl = Path('/home/fred/cloudpunk-vita/tools/vita3k/vitagl-source/libvitaGL.a')
-    renderer_sdk = Path('/home/fred/cloudpunk-vita/tools/vitasdk/arm-vita-eabi')
+    vitagl = VITAGL
+    renderer_sdk = RENDERER_SDK
     vitagl_sha256 = sha256(vitagl)
     config = evidence_config(args)
     build.run('vita-configure', vita_configure_arguments(

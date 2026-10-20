@@ -22,7 +22,7 @@ from rel_footprint import (  # noqa: E402
     parse_chunk_sections,
 )
 
-EVIDENCE = Path("/home/fred/projects/zeldaWWHDRecomp/build-f5/ww05")
+EVIDENCE = ROOT / 'build-f5/ww05'
 
 TRANSLATE = (
     "  module 181: /rels/d_a_acorn_leaf.rel -> base 0xC0400000\n"
