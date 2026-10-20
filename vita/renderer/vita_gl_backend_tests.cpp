@@ -135,7 +135,7 @@ int draw_census(const std::string& scenario) {
   gx_vita::TranslatedDraw draw;
   gx_vita::CgProgram program;
   draw.census.required_mask = draw.census.logo_mask = 1;
-  draw.census.quad = draw.census.fullscreen = true;
+  draw.census.is_quad = draw.census.fullscreen = true;
   draw.texture.valid = true;
   draw.texture.width = draw.texture.height = 1;
   draw.texture.rgba = {255, 255, 255, 255};

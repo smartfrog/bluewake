@@ -71,9 +71,9 @@ DrawInfo describe(const gxc::DrawPlan& plan, const TranslatedDraw& draw) {
   DrawInfo info;
   const auto& key = plan.pipeline.shader;
   info.required_mask = gxc::used_texmap_mask(key);
-  info.quad = draw.geometry.vertex_count == 4 && draw.geometry.indices.size() == 6 &&
+  info.is_quad = draw.geometry.vertex_count == 4 && draw.geometry.indices.size() == 6 &&
               draw.pipeline.topology == kGlTriangles;
-  info.fullscreen = info.quad && fullscreen_quad(draw);
+  info.fullscreen = info.is_quad && fullscreen_quad(draw);
   for (unsigned t = 0; t < 8; ++t) {
     if ((info.required_mask & (1u << t)) == 0)
       continue;
@@ -81,7 +81,7 @@ DrawInfo describe(const gxc::DrawPlan& plan, const TranslatedDraw& draw) {
     if (!texture.valid)
       info.decode_failed_mask |= 1u << t;
     const unsigned format = plan.texmap_mask ? plan.textures[t].format : plan.tex_format;
-    if (!info.quad || !plan.has_texture || draw.pipeline.depth_test ||
+    if (!info.is_quad || !plan.has_texture || draw.pipeline.depth_test ||
         draw.pipeline.depth_write || (format != 3 && format != 9))
       continue;
     if (!key.tev_valid && t == 0 && unit_coordinates(draw, key, 0))
@@ -107,7 +107,7 @@ void count_bind(Counts& counts, BindStatus status) {
 
 void count_draw(Counts& counts, const DrawInfo& info,
                 std::uint32_t valid_mask, std::uint32_t skipped_mask) {
-  if (!info.quad) ++counts.other;
+  if (!info.is_quad) ++counts.other;
   else if (info.required_mask) ++counts.textured_quad;
   else ++counts.untextured_quad;
   counts.fullscreen += info.fullscreen;

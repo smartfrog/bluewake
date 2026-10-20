@@ -14,7 +14,7 @@ struct DrawInfo {
   std::uint32_t required_mask = 0;
   std::uint32_t logo_mask = 0;
   std::uint32_t decode_failed_mask = 0;
-  bool quad = false;
+  bool is_quad = false;
   bool fullscreen = false;
 };
 
