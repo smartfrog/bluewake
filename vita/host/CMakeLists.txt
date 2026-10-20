@@ -117,7 +117,8 @@ if(WW05_RAM_GUARD)
     # ppc_fallback_instruction) load a function pointer through the caller's
     # state and branch to it; cpu_identity_guard.c stops the run when that
     # state is not the one the RAM guard adopted (g_bw_guest_cpu in the
-    # module's guest_ram_guard.c, or the tests-only stub). A timing trial
+    # module's guest_ram_guard.c, or the tests-only stub). A SHARED composite
+    # module compiles cpu.c itself and bypasses these wraps. A timing trial
     # with -DWW05_RAM_GUARD=OFF keeps the runtime's unwrapped calls.
     target_link_options(ww05_services INTERFACE -Wl,--wrap=ppc_host_call
         -Wl,--wrap=ppc_mftb -Wl,--wrap=ppc_fallback_instruction)
