@@ -12,7 +12,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[3]
 sys.path.insert(0, str(ROOT / 'scripts/vita'))
-from vita_workspace import STACK  # noqa: E402
+from vita_workspace import CMAKE, NINJA  # noqa: E402
 OUT = ROOT / 'build-f13/ww13-seam/dvd-io-tests'
 
 CASES = (
@@ -33,11 +33,11 @@ class DvdSeamTest(unittest.TestCase):
     def setUpClass(cls):
         compiler = os.environ.get('CC', 'cc')
         subprocess.run(
-            [str(STACK / 'bin/cmake'), '-S', str(ROOT / 'vita/host/dvd'), '-B', str(OUT),
+            [str(CMAKE), '-S', str(ROOT / 'vita/host/dvd'), '-B', str(OUT),
              '-G', 'Ninja', f'-DCMAKE_C_COMPILER={compiler}',
-             f'-DCMAKE_MAKE_PROGRAM={STACK / "bin/ninja"}', '-DWW13_TESTS_ONLY=ON'],
+             f'-DCMAKE_MAKE_PROGRAM={NINJA}', '-DWW13_TESTS_ONLY=ON'],
             check=True, capture_output=True)
-        subprocess.run([str(STACK / 'bin/cmake'), '--build', str(OUT), '-j', '2'],
+        subprocess.run([str(CMAKE), '--build', str(OUT), '-j', '2'],
                        check=True, capture_output=True)
 
     def run_case(self, name):

@@ -9,7 +9,7 @@ from vector_fixture import external_vector_fixture
 
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT / 'scripts/vita'))
-from vita_workspace import STACK  # noqa: E402
+from vita_workspace import CMAKE, CTEST, NINJA  # noqa: E402
 OUT = ROOT / 'build-f5/services-tests'
 FIFO_REGISTERS = {'pi-fifo-base': 4, 'pi-fifo-end': 4, 'pi-fifo-wptr': 4,
                   'cp-fifo-base-low': 2, 'cp-fifo-end-low': 2, 'cp-fifo-wptr-low': 2,
@@ -72,13 +72,13 @@ class StartupHostTest(unittest.TestCase):
     def build(cls, output=None, cmake_options=(), targets=()):
         output = OUT if output is None else output
         generator = output / 'vector-generator'
-        subprocess.run([str(STACK / 'bin/cmake'), '-S', str(ROOT / 'vita/feasibility/armv7/generator'),
+        subprocess.run([str(CMAKE), '-S', str(ROOT / 'vita/feasibility/armv7/generator'),
                         '-B', str(generator), '-G', 'Ninja', f'-DCMAKE_C_COMPILER={os.environ["CC"]}',
-                        f'-DCMAKE_MAKE_PROGRAM={STACK}/bin/ninja',
+                        f'-DCMAKE_MAKE_PROGRAM={NINJA}',
                         f'-DDOLRECOMP_DIR={ROOT}/ref/vita-ww-01/DolRecomp',
                         '-DCMAKE_DISABLE_FIND_PACKAGE_ZLIB=ON'], check=True, capture_output=True)
         require_no_vita3k()
-        subprocess.run([str(STACK / 'bin/cmake'), '--build', str(generator),
+        subprocess.run([str(CMAKE), '--build', str(generator),
                         '--target', 'ww_vector_emit', 'ww_ship_fixture_emit', '-j', '1'], check=True, capture_output=True)
         binary = output / 'synthetic-external-vector.bin'
         binary.write_bytes(external_vector_fixture())
@@ -109,14 +109,14 @@ class StartupHostTest(unittest.TestCase):
         with (output / 'profile_translated.c').open('w') as stream:
             subprocess.run([str(generator / 'ww_ship_fixture_emit'), str(output / 'profile.instructions')],
                            check=True, stdout=stream)
-        subprocess.run([str(STACK / 'bin/cmake'), '-S', str(ROOT / 'vita/host'), '-B', str(output),
+        subprocess.run([str(CMAKE), '-S', str(ROOT / 'vita/host'), '-B', str(output),
                         '-G', 'Ninja', f'-DCMAKE_C_COMPILER={os.environ["CC"]}',
-                        f'-DCMAKE_MAKE_PROGRAM={STACK}/bin/ninja',
+                        f'-DCMAKE_MAKE_PROGRAM={NINJA}',
                         f'-DRECOMPCORE_DIR={ROOT}/ref/vita-ww-01/RecompCore',
                         '-DWW05_TESTS_ONLY=ON', *cmake_options], check=True, capture_output=True)
         require_no_vita3k()
         with (output / 'build.log').open('w') as log:
-            subprocess.run([str(STACK / 'bin/cmake'), '--build', str(output), '-j', '1',
+            subprocess.run([str(CMAKE), '--build', str(output), '-j', '1',
                             *(['--target', *targets] if targets else [])],
                            check=True, stdout=log, stderr=subprocess.STDOUT)
 
@@ -697,9 +697,9 @@ class IkadaConfigurationTest(unittest.TestCase):
         for ship, title in ((False, False), (True, False), (False, True)):
             with self.subTest(ship=ship, title=title):
                 output = OUT.parent / f'ikada-invalid-{int(ship)}-{int(title)}'
-                result = subprocess.run([str(STACK / 'bin/cmake'), '-S', str(ROOT / 'vita/host'),
+                result = subprocess.run([str(CMAKE), '-S', str(ROOT / 'vita/host'),
                     '-B', str(output), '-G', 'Ninja', f'-DCMAKE_C_COMPILER={os.environ["CC"]}',
-                    f'-DCMAKE_MAKE_PROGRAM={STACK}/bin/ninja',
+                    f'-DCMAKE_MAKE_PROGRAM={NINJA}',
                     f'-DRECOMPCORE_DIR={ROOT}/ref/vita-ww-01/RecompCore', '-DWW05_TESTS_ONLY=ON',
                     '-DWW05_ENABLE_IKADA_CONTRACT=ON', f'-DWW05_ENABLE_SHIP_PROLOG={"ON" if ship else "OFF"}',
                     f'-DWW05_ENABLE_TITLE_CONTRACT={"ON" if title else "OFF"}'], capture_output=True, text=True)

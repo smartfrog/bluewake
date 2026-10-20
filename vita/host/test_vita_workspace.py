@@ -1,6 +1,7 @@
 import importlib
 import os
 from pathlib import Path
+import shutil
 import sys
 import unittest
 from unittest.mock import patch
@@ -30,6 +31,16 @@ class VitaWorkspaceTest(unittest.TestCase):
             self.assertEqual(vita_workspace.VITAGL, override / 'vita3k/vitagl-source/libvitaGL.a')
             self.assertEqual(vita_workspace.SHADER_COMPILER,
                              override / 'firmware/ur0/data/libshacccg.suprx')
+
+    def test_host_tools_resolve_from_the_distribution(self):
+        with patch.dict(os.environ):
+            for name in ('CMAKE', 'NINJA', 'CTEST', 'CC'):
+                os.environ.pop(name, None)
+            importlib.reload(vita_workspace)
+            self.assertEqual(vita_workspace.CMAKE, Path(shutil.which('cmake')))
+            self.assertEqual(vita_workspace.NINJA, Path(shutil.which('ninja')))
+            self.assertEqual(vita_workspace.CTEST, Path(shutil.which('ctest')))
+            self.assertEqual(vita_workspace.HOST_CC, Path(shutil.which('gcc')))
 
     def test_relative_override_is_rejected(self):
         with patch.dict(os.environ, {'BLUEWAKE_VITA_STACK': 'relative/stack'}):

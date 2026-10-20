@@ -32,7 +32,7 @@ class NativeContextOffTest(unittest.TestCase):
             arguments[arguments.index('-o') + 1] = str(obj)
             subprocess.run([*arguments, '-DWW05_OBSERVE_NATIVE_CTX=1'], cwd=row['directory'], check=True)
             objects.append(str(obj))
-        link = subprocess.check_output([str(test_host.STACK / 'bin/ninja'), '-t', 'commands',
+        link = subprocess.check_output([str(test_host.NINJA), '-t', 'commands',
                                         'rel_lifecycle_probe'], cwd=test_host.OUT, text=True).splitlines()[-1]
         arguments = shlex.split(link.removeprefix(': && ').removesuffix(' && :'))
         arguments[arguments.index('-o') + 1] = str(output / 'rel_lifecycle_probe')

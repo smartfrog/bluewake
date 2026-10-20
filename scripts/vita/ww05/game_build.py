@@ -25,7 +25,7 @@ COMPOSITE_CANON_MARKER = '#define DOLRECOMP_CANON_CTX'
 sys.path.insert(0, str(ROOT / 'scripts/vita/armv7'))
 from build import checked_sources as checked_pinned_sources
 sys.path.insert(0, str(ROOT / 'scripts/vita'))
-from vita_workspace import STACK, VITAGL, RENDERER_SDK  # noqa: E402
+from vita_workspace import CMAKE, HOST_CC, NINJA, RENDERER_SDK, STACK, VITAGL  # noqa: E402
 
 
 def sha256(path):
@@ -332,9 +332,9 @@ def main():
     output = checked_output(args.out)
     sources = checked_sources()
     build = Build(output)
-    cc = Path(os.environ.get('CC', STACK / 'bin/gcc'))
-    cmake = STACK / 'bin/cmake'
-    ninja = STACK / 'bin/ninja'
+    cc = HOST_CC
+    cmake = CMAKE
+    ninja = NINJA
     extractor = output / 'disc_extract'
     build.run('extractor-build', [cc, '-O2', '-Iapple/ios/src', 'scripts/ios/disc_extract.c',
                                   'apple/ios/src/disc_import.c', '-o', extractor])

@@ -13,7 +13,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[3]
 sys.path.insert(0, str(ROOT / 'scripts/vita'))
-from vita_workspace import STACK  # noqa: E402
+from vita_workspace import CMAKE, NINJA  # noqa: E402
 RECOMPCORE = Path(os.environ.get('RECOMPCORE_DIR', str(ROOT / 'ref/vita-ww-01/RecompCore')))
 ISO = Path(os.environ.get(
     'WW13_ISO', str(ROOT / 'Legend of Zelda, The - The Wind Waker (USA).iso')))
@@ -23,12 +23,12 @@ OUT = ROOT / 'build-f13/ww13-seam/dvd-probe-tests'
 def build():
     compiler = os.environ.get('CC', 'cc')
     subprocess.run(
-        [str(STACK / 'bin/cmake'), '-S', str(ROOT / 'vita/host/dvd'), '-B', str(OUT),
+        [str(CMAKE), '-S', str(ROOT / 'vita/host/dvd'), '-B', str(OUT),
          '-G', 'Ninja', f'-DCMAKE_C_COMPILER={compiler}',
-         f'-DCMAKE_MAKE_PROGRAM={STACK / "bin/ninja"}',
+         f'-DCMAKE_MAKE_PROGRAM={NINJA}',
          f'-DRECOMPCORE_DIR={RECOMPCORE}', '-DWW13_TESTS_ONLY=ON'],
         check=True, capture_output=True)
-    subprocess.run([str(STACK / 'bin/cmake'), '--build', str(OUT), '-j', '2'],
+    subprocess.run([str(CMAKE), '--build', str(OUT), '-j', '2'],
                    check=True, capture_output=True)
 
 

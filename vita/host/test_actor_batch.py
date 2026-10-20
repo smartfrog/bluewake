@@ -86,7 +86,7 @@ class ActorBatchConfiguration(unittest.TestCase):
         for name in ('SHIP_PROLOG', 'TITLE_CONTRACT', 'IKADA_CONTRACT'):
             with self.subTest(name=name):
                 output = test_host.ROOT / 'build-f5' / ('batch-invalid-' + name.lower())
-                result = subprocess.run([str(test_host.STACK / 'bin/cmake'), '-S', str(test_host.ROOT / 'vita/host'),
+                result = subprocess.run([str(test_host.CMAKE), '-S', str(test_host.ROOT / 'vita/host'),
                     '-B', str(output), '-G', 'Ninja', '-DWW05_TESTS_ONLY=ON',
                     f'-DRECOMPCORE_DIR={test_host.ROOT}/ref/vita-ww-01/RecompCore',
                     *OPTIONS, f'-DWW05_ENABLE_{name}=OFF'], capture_output=True, text=True)
@@ -193,7 +193,7 @@ class ActorBatchAdmission(unittest.TestCase):
             ('identity', '0xecb7de83dc2b9e50ull', '0xecb7de83dc2b9e51ull'))
         commands = json.loads((self.output / 'compile_commands.json').read_text())
         row = next(row for row in commands if row['file'].endswith('/rel_contract.c'))
-        link = subprocess.check_output([str(test_host.STACK / 'bin/ninja'), '-t', 'commands', 'rel_lifecycle_probe'],
+        link = subprocess.check_output([str(test_host.NINJA), '-t', 'commands', 'rel_lifecycle_probe'],
                                        cwd=self.output, text=True).splitlines()[-1]
         for name, old, new in mutations:
             with self.subTest(name=name), tempfile.TemporaryDirectory(dir=self.output, prefix='policy-') as directory:
