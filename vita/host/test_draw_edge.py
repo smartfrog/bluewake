@@ -44,6 +44,15 @@ class DrawEdgeTest(unittest.TestCase):
         for address in (0x8015E3F0, 0x8015EA5C):
             self.assertTrue(any(f'address={address:08X} symbol={MEMBERS[address]} count=1' in line for line in lines))
 
+    def test_legacy_observations_log_their_symbols_once(self):
+        for address, symbol in ((0x80120188, 'checkLavaFace.GroundCross-return'),
+                                (0x8022F9FC, 'd_s_name.scene-create')):
+            with self.subTest(address=address):
+                result = self.run_probe('legacy', address)
+                lines = [line for line in result.stderr.splitlines() if line.startswith('[edge-admit]')]
+                self.assertEqual(lines, [f'[edge-admit] address={address:08X} symbol={symbol} '
+                                         'count=1 module_owned=1 reason=observation-only'])
+
     def test_log_failure_refuses_instead_of_silently_admitting(self):
         self.run_probe('log-failure', 0x8015E3F0)
 

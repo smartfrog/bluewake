@@ -2,6 +2,7 @@ import importlib.util
 import os
 from pathlib import Path
 import subprocess
+import sys
 import tempfile
 import unittest
 
@@ -44,6 +45,36 @@ class DrawEdgeMetadataTest(unittest.TestCase):
         self.assertEqual(generator.collect_draw_observations(observations, (), ROOT / 'source-port/game/src/d/actor'), expected)
         metadata = generator.draw_metadata(expected)
         self.assertIn('\n'.join(metadata), (ROOT / 'runtime/host/src/edge_intercept_table.h').read_text())
+
+    def test_malformed_observation_switch_exits_before_writing_files(self):
+        edge = (ROOT / generator.EDGE).read_text()
+        start = edge.index('bool bluewake_edge_observation_requires_host(')
+        end = edge.index('\n}', start) + 2
+        header_fallback = ('bool bluewake_edge_observation_requires_host(u32 address) {\n'
+                           '    switch (address) { case 0x8015E3F0u: return true; }\n}\n')
+        for observation in ('', 'bool bluewake_edge_observation_requires_host(u32 address) {\n    return false;\n}'):
+            with self.subTest(observation=observation), tempfile.TemporaryDirectory() as directory:
+                root = Path(directory)
+                inputs = {
+                    generator.EDGE: edge[:start] + observation + edge[end:],
+                    generator.EDGE_HEADER: header_fallback + (ROOT / generator.EDGE_HEADER).read_text(),
+                    generator.CARD: (ROOT / generator.CARD).read_text(),
+                    generator.ACTORS / 'd_a_fixture.cpp': '/* 8015E3F0-8015E530 .text daVrbox_Draw__FPv */',
+                    'runtime/host/src/edge_intercept_table.h': 'preserve this header unchanged\n',
+                }
+                for name, content in inputs.items():
+                    path = root / name
+                    path.parent.mkdir(parents=True, exist_ok=True)
+                    path.write_text(content)
+                before = {name: ((root / name).read_bytes(), (root / name).stat().st_mtime_ns) for name in inputs}
+                result = subprocess.run([sys.executable, '-B', str(ROOT / 'scripts/gen_edge_intercept_table.py')],
+                                        cwd=root, capture_output=True, text=True)
+                after = {path.relative_to(root): (path.read_bytes(), path.stat().st_mtime_ns)
+                         for path in root.rglob('*') if path.is_file()}
+                self.assertEqual({Path(name): value for name, value in before.items()}, after)
+                self.assertNotEqual(result.returncode, 0)
+                self.assertIn('bluewake_edge_observation_requires_host has no case list', result.stderr)
+                self.assertNotIn('Traceback', result.stderr)
 
     def test_empty_class_preserves_legacy_admissions_and_refuses_all_other_keys(self):
         with tempfile.TemporaryDirectory() as directory:

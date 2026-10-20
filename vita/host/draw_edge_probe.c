@@ -40,6 +40,7 @@ static void unchanged(const CPUState* cpu, const CPUState* before) {
 int main(int argc, char** argv) {
     assert(argc == 3);
     const char* scenario = argv[1];
+    const bool legacy = strcmp(scenario, "legacy") == 0;
     const u32 address = (u32)strtoul(argv[2], NULL, 16);
     WwHost* host = calloc(1u, sizeof(*host));
     assert(host != NULL && ww_host_init(host));
@@ -48,7 +49,7 @@ int main(int argc, char** argv) {
     host->module = strcmp(scenario, "unowned") == 0 ? NULL : &module;
     CPUState* cpu = &host->cpu;
     cpu->pc = address + (strcmp(scenario, "pc-mismatch") == 0 ? 4u : 0u);
-    cpu->lr = 0x80002004u;
+    cpu->lr = legacy ? address : 0x80002004u;
     cpu->srr0 = 0x80003000u;
     cpu->srr1 = 0x0000A032u;
     for (u32 reg = 0u; reg < 32u; ++reg)
@@ -59,9 +60,10 @@ int main(int argc, char** argv) {
     fail_log = strcmp(scenario, "log-failure") == 0;
     const CPUState before = *cpu;
     const bool member = address == 0x800D8DB8u || address == 0x8015D80Cu ||
-                        address == 0x8015E3F0u || address == 0x8015EA5Cu;
+                        address == 0x8015E3F0u || address == 0x8015EA5Cu ||
+                        (legacy && (address == 0x80120188u || address == 0x8022F9FCu));
     const bool admitted = WW_EDGE_OBSERVATION_ADMIT && member &&
-        (strcmp(scenario, "admit") == 0 || strcmp(scenario, "log-once") == 0);
+        (legacy || strcmp(scenario, "admit") == 0 || strcmp(scenario, "log-once") == 0);
     assert(ww_host_edge(host, cpu, address) == !admitted);
     unchanged(cpu, &before);
     assert(host->cycles.absolute_cycles == 0u && host->gx.fifo.size == 0u);

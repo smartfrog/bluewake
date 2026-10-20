@@ -184,14 +184,20 @@ def build(keys, multiplier, shift):
 
 
 def main() -> int:
-    keys = collect()
     edge = Path(EDGE).read_text(encoding="utf-8")
+    observation_keys = cases(edge, "bluewake_edge_observation_requires_host")
+    if not observation_keys:
+        sys.exit(
+            "gen_edge_intercept_table: bluewake_edge_observation_requires_host "
+            "has no case list in %s" % EDGE
+        )
+    keys = collect()
     service_keys = set(cases(edge, "bluewake_edge_address_requires_host"))
     service_keys.update(cases(Path(EDGE_HEADER).read_text(encoding="utf-8"), "bluewake_edge_requires_host"))
     card = Path(CARD).read_text(encoding="utf-8")
     for function in CARD_FUNCS:
         service_keys.update(cases(card, function))
-    draws = collect_draw_observations(cases(edge, "bluewake_edge_observation_requires_host"), service_keys)
+    draws = collect_draw_observations(observation_keys, service_keys)
     masked = [k for k in keys if (k & 0x40000000) != 0]
     if masked:
         sys.exit(
