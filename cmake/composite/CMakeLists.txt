@@ -102,6 +102,16 @@ else()
     module_export.c dispatch_loop.c ${COMPOSITE_CPU_SOURCES} ${CHUNK_INPUTS})
 endif()
 
+if(WW05_DISPATCH_RING AND WW05_DISPATCH_RING_SOURCE)
+  # Scoped to the two files that use it: the chunk translation units must keep
+  # their command lines so a reused sealed composite is not rebuilt.
+  get_filename_component(DISPATCH_RING_DIR "${WW05_DISPATCH_RING_SOURCE}" DIRECTORY)
+  set_source_files_properties(module_export.c "${WW05_DISPATCH_RING_SOURCE}" PROPERTIES
+    COMPILE_DEFINITIONS "WW05_DISPATCH_RING=1"
+    INCLUDE_DIRECTORIES "${DISPATCH_RING_DIR}")
+  target_sources(${MODULE_NAME} PRIVATE "${WW05_DISPATCH_RING_SOURCE}")
+endif()
+
 if(BLUEWAKE_INLINE_FP)
   foreach(CHUNK_SOURCE IN LISTS CHUNK_INPUTS)
     if(NOT CHUNK_SOURCE MATCHES "\\.c$")

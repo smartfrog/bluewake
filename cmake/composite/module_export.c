@@ -6,6 +6,9 @@
 #include "module_cpu_contract.h"
 #include "dispatch_loop.h"
 #include "module_exports.h"
+#if defined(WW05_DISPATCH_RING)
+#include "dispatch_ring.h"
+#endif
 
 extern void ppc_set_mem_write_journal(PPCMemWriteJournal fn, void* user);
 
@@ -93,11 +96,25 @@ static int host_has_x86_64_v3(void)
 
 static int selected_dispatch(CPUState* ctx, u32 address)
 {
+#if defined(WW05_DISPATCH_RING)
+    const bool ringed = ctx != NULL;
+    if (ringed)
+        bw_dispatch_ring_record(address, ctx->gpr[1], ctx->lr);
+#endif
+    int dispatched;
 #if BLUEWAKE_X86_64_V3_DISPATCH
     if (host_has_x86_64_v3())
-        return dolrecomp_call__x86_64_v3(ctx, address);
+        dispatched = dolrecomp_call__x86_64_v3(ctx, address);
+    else
+        dispatched = dolrecomp_call(ctx, address);
+#else
+    dispatched = dolrecomp_call(ctx, address);
 #endif
-    return dolrecomp_call(ctx, address);
+#if defined(WW05_DISPATCH_RING)
+    if (ringed)
+        bw_dispatch_ring_settle(dispatched != 0);
+#endif
+    return dispatched;
 }
 
 void dolrecomp_indirect_dispatch(CPUState* ctx, u32 address)
