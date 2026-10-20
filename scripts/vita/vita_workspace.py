@@ -17,7 +17,7 @@ VITASDK = STACK / 'vitasdk'
 RENDERER_SDK = VITASDK / 'arm-vita-eabi'
 VITA3K = STACK / 'vita3k/Vita3K'
 FIRMWARE = STACK / 'firmware'
-VITAGL = STACK / 'vita3k/vitagl-source/libvitaGL.a'
+VITAGL = RENDERER_SDK / 'lib/libvitaGL.a'
 SHADER_COMPILER = FIRMWARE / 'ur0/data/libshacccg.suprx'
 
 CMAKE = Path(os.environ.get('CMAKE', shutil.which('cmake') or 'cmake'))
