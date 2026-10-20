@@ -32,7 +32,7 @@ Merged and then deleted on 2026-10-20: `task/draw-class-admission` (now `7f2d45d
 
 The repository went from **124 local branches to 5**: 103 were ancestors of `development` (deleted losslessly), 18 divergent ones were preserved as tags first.
 
-On 2026-10-20 the trunk and all 63 tags were pushed to `origin` (`origin/development` follows local `development`); a new machine needs `git clone` + `git checkout development`, **plus a copy of `.opencode/`** for the project memory (the live store is not tracked: it changes on every memory write and would keep the tree dirty).
+On 2026-10-20 the trunk and all 63 tags were pushed to `origin` (`origin/development` follows local `development`); a new machine needs `git clone` + `git checkout development`, and the project memory plus `.opencode/orchestrator.md` come with the clone because they are tracked. Because the memory store is live, it shows as modified as soon as a task or knowledge entry changes — checkpoint the WAL, then commit it before a handover.
 
 Every branch deleted during the cleanups is preserved as a tag `archive/<name>-<date>` (**58 tags**, local only unless pushed). Push them with `git push origin --tags`. A single-file safety net of every ref exists too: `build-vita-private/migration/refs-20261020.bundle` (20 MB, `git bundle verify` reports complete history).
 
