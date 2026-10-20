@@ -39,20 +39,23 @@ The goal is visible title/menu, verified controls and normal-speed gameplay in V
 ## Recompilation build
 
 - Use Python 3.11+ and the GameCube USA `GZLE01` revision 0 disc, not Wii U WWHD.
-- `scripts/vita/ww05/game_build.py` uses existing tools without downloading them. It hardcodes paths to
-  `build-vita-tools/local-stack` (native GCC, CMake, Ninja, VitaSDK) and vitaGL/renderer SDK files
-  under `/home/fred/cloudpunk-vita/tools/`. Check these paths before building; setting `VITASDK` alone does not relocate them.
-  On a new host these paths and the vendored toolchain must be replaced, not copied.
-- Output defaults to `/home/fred/projects/zeldaWWHDRecomp/build-f5/ww05`. To isolate a build, set absolute
-  `WW05_BUILD_ROOT="$PWD/build-vita-private/ww05"` for build and launch commands; `--out` alone cannot change it.
-- Full builds also require verified private external, FP-unavailable and decrementer vector captures.
-  Their default paths and override flags are in `game_build.py`; `--prepare-only` does not create these captures.
+- `scripts/vita/ww05/game_build.py` uses existing tools without downloading them. Paths come from
+  `scripts/vita/vita_workspace.py`: the private stack is `<repo>/build-vita-tools/local-stack` (override
+  `BLUEWAKE_VITA_STACK`), and the renderer archive is the official VitaSDK package at
+  `<stack>/vitasdk/arm-vita-eabi/lib/libvitaGL.a`. CMake, Ninja and the host compiler come from the distribution
+  (`CMAKE`, `NINJA`, `CC`). On a new host, reinstall these components for that host; do not copy a foreign toolchain.
+- Output defaults to `<repo>/build-f5/ww05`. To isolate a build, set absolute
+  `WW05_BUILD_ROOT="$PWD/build-vita-private/ww05"` for build, stage and launch commands; `--out` must equal it.
+- Full builds also require the three private vectors (`private/{external,fp,decrementer}-vector.bin`), and
+  `--prepare-only` does not create them. They can be reconstructed exactly from `main.dol`: take the 152-byte
+  template at `0x80301D8C` and replace bytes 104-107 with `0x38600000 | exception` for exception numbers 4
+  (external), 7 (FP) and 8 (decrementer). The code verifies the resulting sha256; never substitute a constant
+  or a different lineage.
 
 Run from the repository root, after checking the prerequisites:
 
 ```sh
-STACK="$PWD/build-vita-tools/local-stack"
-PATH="$STACK/bin:$PATH" python3 -B scripts/vita/ww05/game_build.py --disc "/absolute/path/GZLE01.iso" --jobs 2
+CC=gcc python3 -B scripts/vita/ww05/game_build.py --disc "/absolute/path/GZLE01.iso" --jobs 2
 ```
 
 - Add `--prepare-only` to stop after extraction, translation and composite verification. No Vita3K process is launched.
@@ -70,16 +73,22 @@ CC=gcc python3 -B -m unittest discover -s vita/host -p 'test_host.py'
 bash scripts/audit_repo.sh
 ```
 
-- `CC` is the native host compiler, never `arm-vita-eabi-gcc`. Set `STACK` as above in a new shell.
+- `CC` is the native host compiler, never `arm-vita-eabi-gcc`. The private stack is resolved by
+  `vita_workspace.py`; `BLUEWAKE_VITA_STACK` is the only override.
 - The Python host harness generates synthetic vectors/contracts before CMake with `WW05_TESTS_ONLY=ON`;
   configuring `vita/host` alone misses these fixtures. Stop Vita3K first. Suites sharing
-  `build-f5/services-tests` must not run concurrently. Narrow discovery with `-p 'test_NAME.py'`.
+  `build-f5/services-tests` must not run concurrently, and the suite must not run while a build competes for
+  CPU: timing probes fail under load. Narrow discovery with `-p 'test_NAME.py'`.
 - Inspect `build-evidence.json`, `footprint.json`, `vita/ww05.map`, and `vita/compile_commands.json` before
   execution; completed builds preserve snapshots under `artifacts-*`. Compilation is not physical Vita acceptance.
 
 ## Execution and private data
 
 - `scripts/vita/ww05/stage_plan.py` stages without launching; `launch.py` installs/runs in fresh private profiles.
+  **Status on this fork:** the staged runner is not usable on this host yet — its `RUNTIME_SHA256` pin is the
+  previous host's build and its config templates predate the verified run configuration. Until it is repaired or
+  replaced, a hand launch is allowed only from a brand-new private profile with `pref-path` re-pointed at that
+  profile, authenticated owned processes and both logs preserved. Record it as a hand launch, not runner evidence.
   Launch requires a clean source checkpoint, including no untracked files; report blockers rather than deleting user files.
 - Read `safety-run-envelope` before trials: scope-specific memory admission/cgroup limits, zero swap and OOM-stop
   are mandatory. No RAM/RSS poller or gate bypass. Serialize install+guest under
@@ -92,6 +101,9 @@ bash scripts/audit_repo.sh
   not a title/render result; see `runtime-trial-harness-preconditions`.
 - Unsupported guest services must fail explicitly: never skip instructions, fabricate completions, or change FP
   semantics to work around an emulator defect. Vita3K results do not establish hardware behavior or frame rate.
+- Emulator patches are a last-resort diagnostic only, never acceptance: fix our code and the configuration first,
+  prove with an unpatched control run that the behaviour is emulator-only, then patch. The target remains real
+  Vita hardware. See `docs/vita/VITA3K_PATCH_POLICY.md`.
 - Acceptance belongs in task `GAMEPLAY`: logo cadence, present counters and diagnostic/sentinel builds are not
   controllable-gameplay FPS or a valid matched performance comparison.
 - Keep discs, extracted/translated game files, game VPK/SELF/ELF files, firmware, keys and saves private and untracked.
