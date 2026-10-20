@@ -28,4 +28,5 @@ Before any Vita3K patch:
 
 ## Status
 
-No Vita3K patch exists. The ~310-present fault is still unlocalized; it has not been shown to be emulator-only.
+Patch status, and whether the ~310-present fault has been shown to be emulator-only, are tracked in task
+`VITA3K-PATCH`. This file states policy only.
