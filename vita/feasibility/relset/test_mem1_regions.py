@@ -20,7 +20,7 @@ from mem1_regions import (  # noqa: E402
     measure_snapshot,
 )
 
-EVIDENCE = Path("/home/fred/projects/zeldaWWHDRecomp/build-f5/ww05")
+EVIDENCE = ROOT / 'build-f5/ww05'
 RUN = EVIDENCE / ("vita3k-run-1351063a0837427b87d242d99ace55ec/data/Vita3K"
                   "/Vita3K/ux0/data/bluewake-ww-fixture")
 

@@ -7,15 +7,17 @@ local image only, skipped when absent).
 
 import os
 import subprocess
+import sys
 import unittest
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[3]
-STACK = Path('/home/fred/projects/zeldaWWHDRecomp/build-vita-tools/local-stack')
+sys.path.insert(0, str(ROOT / 'scripts/vita'))
+from vita_workspace import STACK  # noqa: E402
 RECOMPCORE = Path(os.environ.get('RECOMPCORE_DIR', str(ROOT / 'ref/vita-ww-01/RecompCore')))
 ISO = Path(os.environ.get(
-    'WW13_ISO', '/home/fred/projects/zeldaWWHDRecomp/Legend of Zelda, The - The Wind Waker (USA).iso'))
-OUT = Path('/home/fred/projects/zeldaWWHDRecomp/build-f13/ww13-seam/dvd-probe-tests')
+    'WW13_ISO', str(ROOT / 'Legend of Zelda, The - The Wind Waker (USA).iso')))
+OUT = ROOT / 'build-f13/ww13-seam/dvd-probe-tests'
 
 
 def build():

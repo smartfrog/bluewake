@@ -13,7 +13,7 @@ import subprocess
 
 ROOT = Path(__file__).resolve().parents[3]
 PINS = {"recompcore": "ddd031b2a7f45fcbda37a49daac9b308b8d95da1"}
-DEFAULT_BUILD = Path("/home/fred/projects/zeldaWWHDRecomp/build-f2/ww02")
+DEFAULT_BUILD = ROOT / 'build-f2/ww02'
 
 
 def verify_source(path, sha):
@@ -27,7 +27,7 @@ def find_recompcore():
     candidate = ROOT / "ref/vita-ww-01/RecompCore"
     if (candidate / "GXRuntime").is_dir():
         return candidate
-    return Path("/home/fred/projects/zeldaWWHDRecomp/ref/vita-ww-01/RecompCore")
+    return ROOT / 'ref/vita-ww-01/RecompCore'
 
 
 def main():

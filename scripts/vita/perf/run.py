@@ -23,7 +23,7 @@ from frame_events import parse_frame_events  # noqa: E402
 from ww05_report import boot_series, parse_boot_report  # noqa: E402
 
 ROOT = Path(__file__).resolve().parents[3]
-DEFAULT_OUT = Path('/home/fred/projects/zeldaWWHDRecomp/build-f12/perf')
+DEFAULT_OUT = ROOT / 'build-f12/perf'
 
 
 def git_source() -> str:

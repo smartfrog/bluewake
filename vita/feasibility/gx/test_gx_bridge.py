@@ -20,7 +20,7 @@ import unittest
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[3]
-MAIN_CHECKOUT = Path("/home/fred/projects/zeldaWWHDRecomp")
+MAIN_CHECKOUT = ROOT
 DEFAULT_BUILD = MAIN_CHECKOUT / "build-f2" / "ww02"
 DEFAULT_EVIDENCE = MAIN_CHECKOUT / "build-f5"
 SOURCES = [

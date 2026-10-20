@@ -28,12 +28,13 @@ import uuid
 from capture_profile import surface_sync_config
 
 ROOT = Path(__file__).resolve().parents[3]
-DEFAULT_BUILD = Path("/home/fred/projects/zeldaWWHDRecomp/build-f2/ww02")
-DEFAULT_STACK = Path("/home/fred/projects/zeldaWWHDRecomp/build-vita-tools/local-stack")
-CLOUDPUNK_STACK = Path("/home/fred/cloudpunk-vita/tools")
-# Cloudpunk's pinned no-splash vitaGL: the SDK library's startup splashscreen
-# crashes the emulator (SIGSEGV host) before the first draw.
-VITAGL_NO_SPLASH = CLOUDPUNK_STACK / "vita3k/vitagl-source/libvitaGL.a"
+sys.path.insert(0, str(ROOT / 'scripts/vita'))
+from vita_workspace import SHADER_COMPILER, STACK, VITAGL  # noqa: E402
+
+DEFAULT_BUILD = ROOT / 'build-f2/ww02'
+DEFAULT_STACK = STACK
+# Official upstream vitaGL archive built with its stock Makefile and staged in the private stack.
+VITAGL_ARCHIVE = VITAGL
 TITLE_ID = "BWWG00002"
 FIRMWARE = Path("data/Vita3K/Vita3K")
 UX0_DATA = FIRMWARE / "ux0/data/ww02"
@@ -86,11 +87,11 @@ def find_recompcore():
     candidate = ROOT / "ref/vita-ww-01/RecompCore"
     if (candidate / "GXRuntime").is_dir():
         return candidate
-    return Path("/home/fred/projects/zeldaWWHDRecomp/ref/vita-ww-01/RecompCore")
+    return ROOT / 'ref/vita-ww-01/RecompCore'
 
 
 def build_vpk(build):
-    vitasdk = CLOUDPUNK_STACK / "vitasdk"
+    vitasdk = STACK / "vitasdk"
     env = dict(os.environ, VITASDK=str(vitasdk))
     vpk_dir = build / "gx-vita"
     vpk_dir.mkdir(parents=True, exist_ok=True)
@@ -98,7 +99,7 @@ def build_vpk(build):
                     "-B", str(vpk_dir),
                     f"-DCMAKE_TOOLCHAIN_FILE={vitasdk}/share/vita.toolchain.cmake",
                     f"-DRECOMPCORE_DIR={find_recompcore()}",
-                    f"-DWW02_VITAGL_LIBRARY={VITAGL_NO_SPLASH}",
+                    f"-DWW02_VITAGL_LIBRARY={VITAGL_ARCHIVE}",
                     "-DCMAKE_BUILD_TYPE=Release"], env=env, check=True,
                    stdout=subprocess.DEVNULL)
     subprocess.run(["cmake", "--build", str(vpk_dir), "--target", "ww02_gx_demo.vpk"],
@@ -223,7 +224,7 @@ def main():
     for name in ("vs0", "sa0"):
         shutil.copytree(stack / "firmware" / name, root / FIRMWARE / name, symlinks=True, copy_function=copy_static)
     # The Cg runtime compiler, staged privately for the profile only.
-    shacccg_source = CLOUDPUNK_STACK / "vita3k/data/Vita3K/Vita3K/ur0/data/libshacccg.suprx"
+    shacccg_source = SHADER_COMPILER
     if not shacccg_source.is_file():
         raise SystemExit(f"missing libshacccg.suprx at {shacccg_source}")
     ur0_data = root / FIRMWARE / "ur0/data"

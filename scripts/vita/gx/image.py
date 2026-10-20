@@ -36,12 +36,12 @@ def validate_fixture(directory, metadata):
 def build_replay(build):
     source = gx_build.find_recompcore()
     gx_build.verify_source(source, gx_build.PINS['recompcore'])
-    sdk = launch.CLOUDPUNK_STACK / 'vitasdk'
+    sdk = launch.STACK / 'vitasdk'
     directory = build / 'image-vita'
     environment = dict(os.environ, VITASDK=str(sdk))
     subprocess.run(['cmake', '-G', 'Ninja', '-S', str(ROOT / 'vita/renderer'), '-B', str(directory),
                     f'-DCMAKE_TOOLCHAIN_FILE={sdk}/share/vita.toolchain.cmake',
-                    f'-DRECOMPCORE_DIR={source}', f'-DWW02_VITAGL_LIBRARY={launch.VITAGL_NO_SPLASH}',
+                    f'-DRECOMPCORE_DIR={source}', f'-DWW02_VITAGL_LIBRARY={launch.VITAGL_ARCHIVE}',
                     '-DCMAKE_BUILD_TYPE=Release'], env=environment, check=True)
     subprocess.run(['cmake', '--build', str(directory), '--target', 'gx_image_replay.vpk', '-j', '2'],
                    env=environment, check=True)

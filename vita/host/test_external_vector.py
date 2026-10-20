@@ -10,7 +10,10 @@ from unittest.mock import patch
 import test_host
 from vector_fixture import external_vector_fixture
 
-sys.path.insert(0, str(test_host.ROOT / 'scripts/vita/ww05'))
+ROOT = test_host.ROOT
+
+(ROOT / 'build-f5').mkdir(parents=True, exist_ok=True)
+sys.path.insert(0, str(ROOT / 'scripts/vita/ww05'))
 
 
 def synthetic_lineage(exception_number=4):
@@ -83,7 +86,7 @@ class ExternalVectorInputTest(unittest.TestCase):
     def test_invalid_input_cannot_reach_the_emitter_or_replace_generated_output(self):
         import external_vector
         dol, _, observed = synthetic_lineage()
-        with tempfile.TemporaryDirectory(dir='/home/fred/projects/zeldaWWHDRecomp/build-f5', prefix='vector-input-') as directory:
+        with tempfile.TemporaryDirectory(dir=str(ROOT / 'build-f5'), prefix='vector-input-') as directory:
             output = Path(directory) / 'generated.c'
             output.write_bytes(b'previous generated source')
             with patch('subprocess.run') as run:
@@ -95,7 +98,7 @@ class ExternalVectorInputTest(unittest.TestCase):
     def test_emitter_failure_does_not_replace_previous_generated_output(self):
         import external_vector
         dol, source, observed = synthetic_lineage()
-        with tempfile.TemporaryDirectory(dir='/home/fred/projects/zeldaWWHDRecomp/build-f5', prefix='vector-input-') as directory:
+        with tempfile.TemporaryDirectory(dir=str(ROOT / 'build-f5'), prefix='vector-input-') as directory:
             output = Path(directory) / 'generated.c'
             output.write_bytes(b'previous generated source')
             with patch.object(external_vector, 'TEMPLATE_SHA256', hashlib.sha256(source).hexdigest()), \
@@ -108,7 +111,7 @@ class ExternalVectorInputTest(unittest.TestCase):
     def test_generated_output_uses_a_snapshot_of_exactly_the_validated_input(self):
         import external_vector
         dol, source, observed = synthetic_lineage()
-        with tempfile.TemporaryDirectory(dir='/home/fred/projects/zeldaWWHDRecomp/build-f5', prefix='vector-input-') as directory:
+        with tempfile.TemporaryDirectory(dir=str(ROOT / 'build-f5'), prefix='vector-input-') as directory:
             output = Path(directory) / 'generated.c'
             with patch.object(external_vector, 'TEMPLATE_SHA256', hashlib.sha256(source).hexdigest()), \
                  patch.object(external_vector, 'OBSERVED_SHA256', hashlib.sha256(observed).hexdigest()), \
@@ -195,7 +198,7 @@ class FpVectorInputTest(unittest.TestCase):
     def test_validated_fp_input_is_emitted_at_its_observed_physical_base(self):
         import external_vector
         dol, source, observed = synthetic_lineage(7)
-        with tempfile.TemporaryDirectory(dir='/home/fred/projects/zeldaWWHDRecomp/build-f5', prefix='fp-vector-input-') as directory:
+        with tempfile.TemporaryDirectory(dir=str(ROOT / 'build-f5'), prefix='fp-vector-input-') as directory:
             output = Path(directory) / 'generated.c'
             with patch.object(external_vector, 'TEMPLATE_SHA256', hashlib.sha256(source).hexdigest()), \
                  patch.object(external_vector, 'FP_OBSERVED_SHA256', hashlib.sha256(observed).hexdigest()), \
@@ -242,7 +245,7 @@ class DecrementerVectorInputTest(unittest.TestCase):
     def test_validated_decrementer_input_uses_the_observed_base(self):
         import external_vector
         dol, source, observed = synthetic_lineage(8)
-        with tempfile.TemporaryDirectory(dir='/home/fred/projects/zeldaWWHDRecomp/build-f5', prefix='dec-vector-input-') as directory:
+        with tempfile.TemporaryDirectory(dir=str(ROOT / 'build-f5'), prefix='dec-vector-input-') as directory:
             output = Path(directory) / 'generated.c'
             with patch.object(external_vector, 'TEMPLATE_SHA256', hashlib.sha256(source).hexdigest()), \
                  patch.object(external_vector, 'DECREMENTER_OBSERVED_SHA256', hashlib.sha256(observed).hexdigest()), \

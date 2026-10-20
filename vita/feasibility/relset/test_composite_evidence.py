@@ -20,7 +20,7 @@ from composite_evidence import (  # noqa: E402
     parse_rel_module_table,
 )
 
-EVIDENCE = Path("/home/fred/projects/zeldaWWHDRecomp/build-f5/ww05")
+EVIDENCE = ROOT / 'build-f5/ww05'
 
 
 class ParseRelModuleLinesTest(unittest.TestCase):

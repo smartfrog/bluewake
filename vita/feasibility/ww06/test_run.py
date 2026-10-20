@@ -15,7 +15,7 @@ import unittest
 
 ROOT = Path(__file__).resolve().parents[3]
 RUN = ROOT / "scripts/vita/ww06/run.py"
-OUT = Path('/home/fred/projects/zeldaWWHDRecomp/build-f6/ww06-tests')
+OUT = ROOT / 'build-f6/ww06-tests'
 SOURCE = '0' * 40
 
 

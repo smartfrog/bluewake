@@ -24,7 +24,7 @@ from boot_residency import (  # noqa: E402
     summarize,
 )
 
-EVIDENCE = Path("/home/fred/projects/zeldaWWHDRecomp/build-f5/ww05")
+EVIDENCE = ROOT / 'build-f5/ww05'
 
 LOG = (
     "[progress] turns=306415 edges=874090 cycles=78747007 pc=80307EF4\n"

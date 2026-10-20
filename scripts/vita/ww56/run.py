@@ -1078,7 +1078,7 @@ def parse_arguments():
     parser.add_argument('--run-id', required=True,
                         help='fresh identifier; the runroot is build-f5/ww56-<id>')
     parser.add_argument('--run-root-base', type=Path,
-                        default=Path('/home/fred/projects/zeldaWWHDRecomp/build-f5'))
+                        default=ROOT / 'build-f5')
     parser.add_argument('--receipts-root', type=Path, default=Path('/tmp/opencode'))
     parser.add_argument('--supervisor-unit', default='ww56-supervisor.service')
     parser.add_argument('--guest-ceiling-seconds', type=float, default=180.0)

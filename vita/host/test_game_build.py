@@ -9,6 +9,8 @@ import unittest
 
 ROOT = Path(__file__).resolve().parents[2]
 
+(ROOT / 'build-f5').mkdir(parents=True, exist_ok=True)
+
 
 def load_module():
     spec = importlib.util.spec_from_file_location('ww05_game_build', ROOT / 'scripts/vita/ww05/game_build.py')
@@ -20,7 +22,7 @@ def load_module():
 class GameInputTest(unittest.TestCase):
     def test_rebuild_preserves_previous_artifact_bytes(self):
         module = load_module()
-        with tempfile.TemporaryDirectory(dir='/home/fred/projects/zeldaWWHDRecomp/build-f5', prefix='ww05-artifacts-') as directory:
+        with tempfile.TemporaryDirectory(dir=str(ROOT / 'build-f5'), prefix='ww05-artifacts-') as directory:
             output = Path(directory)
             vita = output / 'vita'
             vita.mkdir()

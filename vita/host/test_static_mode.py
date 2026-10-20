@@ -1,5 +1,6 @@
 import json
 import os
+import sys
 from pathlib import Path
 import re
 import subprocess
@@ -7,7 +8,8 @@ import tempfile
 import unittest
 
 ROOT = Path(__file__).resolve().parents[2]
-STACK = Path('/home/fred/projects/zeldaWWHDRecomp/build-vita-tools/local-stack')
+sys.path.insert(0, str(ROOT / 'scripts/vita'))
+from vita_workspace import STACK  # noqa: E402
 
 
 class StaticModeTest(unittest.TestCase):

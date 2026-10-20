@@ -20,7 +20,7 @@ import unittest
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[3]
-MAIN_CHECKOUT = Path("/home/fred/projects/zeldaWWHDRecomp")
+MAIN_CHECKOUT = ROOT
 DEFAULT_ISO = MAIN_CHECKOUT / "Legend of Zelda, The - The Wind Waker (USA).iso"
 DEFAULT_BUILD = MAIN_CHECKOUT / "build-f13" / "ww13"
 

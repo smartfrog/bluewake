@@ -29,12 +29,13 @@ sys.path.insert(0, str(ROOT / 'scripts/vita/armv7'))
 
 from fp_launch import create_run, run_owned, sandbox_command, stage_runtime  # noqa: E402
 from fp_profile import stage_firmware, verify_firmware  # noqa: E402
+sys.path.insert(0, str(ROOT / 'scripts/vita'))
+from vita_workspace import FIRMWARE, STACK, VITA3K  # noqa: E402
 
-STACK = Path('/home/fred/projects/zeldaWWHDRecomp/build-vita-tools/local-stack')
-DEFAULT_VITA3K = STACK / 'vita3k/Vita3K'
+DEFAULT_VITA3K = VITA3K
 DEFAULT_LIBRARIES = STACK / 'vita3k-env'
-DEFAULT_FIRMWARE = STACK / 'firmware'
-DEFAULT_OUT = Path('/home/fred/projects/zeldaWWHDRecomp/build-f13/ww13-seam/vita3k')
+DEFAULT_FIRMWARE = FIRMWARE
+DEFAULT_OUT = ROOT / 'build-f13/ww13-seam/vita3k'
 PROBE_IMAGE = 'ux0:data/ww13/probe.img'
 PROBE_REPORT = 'ux0:data/ww13/probe.report'
 TITLE_ID = 'BWWG00013'

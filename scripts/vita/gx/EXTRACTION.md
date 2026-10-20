@@ -8,7 +8,7 @@ bridge. It never synthesizes commands or accessible captured bytes. Outputs belo
 
 ```sh
 WW02_BUILD=build-f6/ww18 python3 scripts/vita/gx/extract.py \
-  --latest /home/fred/projects/zeldaWWHDRecomp/build-f5/ww05 \
+  --latest build-f5/ww05 \
   --min-draws 2 --output build-f6/ww18/real-draw-sequence --replay
 ```
 
@@ -261,7 +261,7 @@ The gallery can wait without replaying the known initialization/logo captures:
 
 ```sh
 WW02_BUILD=build-f6/ww18/late-b403 python3 scripts/vita/gx/gallery.py \
-  --source /home/fred/projects/zeldaWWHDRecomp/build-f5 \
+  --source build-f5 \
   --build build-f6/ww18/late-b403 --output build-f6/ww18/images \
   --watch --interval 30 --recent-hours 24 --notify --after-command 102936 \
   --known-logo build-f6/ww18/scene-3f5aaa/image-snapshot1/capture.png

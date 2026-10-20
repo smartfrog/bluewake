@@ -6,6 +6,7 @@ Translated DOL inventory provenance is deliberately not inferred from a header.
 
 import argparse
 import hashlib
+import os
 import json
 import re
 import struct
@@ -13,10 +14,12 @@ import subprocess
 import sys
 from pathlib import Path
 
+ROOT = Path(__file__).resolve().parents[1]
+
 SPEC_SHA256 = 'c89b1585a9e3e6ad7b3fa90e71caf8b692ab6be03f4a730e73d81353557736f3'
 DELIVERY = 'd08dbc8d1b8242d501a4d7599748ed08a1c6285e'
 COVERAGE_MANIFEST_SHA256 = 'a1e96bc3ffbf0d356b76e2e4fe638943334390e9074638b6945071c5418a5a51'
-COVERAGE_SOURCE = Path('/home/fred/projects/zeldaWWHDRecomp')
+COVERAGE_SOURCE = Path(os.environ.get('BLUEWAKE_COVERAGE_SOURCE', ROOT)).expanduser()
 COVERAGE_SOURCE_HEAD = '23a8f348ec6c9ef4ab22fb69f2df4e412ffc9d10'
 COVERAGE_CLAIM = 'Audited historical identity + structural derived coverage only'
 COVERAGE_TAGGED_SCOPE = 'C0000000 <= address < C0400000; clear 40000000; set ctx->pc; call_original after replacement/host hooks'

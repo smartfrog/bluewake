@@ -300,7 +300,7 @@ In terminal 1 (keep actively watching CPU/logs; the existing harness's 30-second
 hang rule remains enabled):
 
 ```bash
-export MAIN=/home/fred/projects/zeldaWWHDRecomp
+export MAIN=$(git rev-parse --show-toplevel)
 export TOOL=/var/tmp/bluewake-ww123
 export VPK=/absolute/path/to/coordinator-approved-plain-WW120.vpk
 export LIVE=/tmp/opencode/ww123-live

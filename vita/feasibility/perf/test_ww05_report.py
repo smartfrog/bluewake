@@ -17,7 +17,7 @@ sys.path.insert(0, str(ROOT / "scripts/vita/perf"))
 
 from ww05_report import BootReportError, boot_series, parse_boot_report  # noqa: E402
 
-EVIDENCE = Path("/home/fred/projects/zeldaWWHDRecomp/build-f5/ww05")
+EVIDENCE = ROOT / 'build-f5/ww05'
 TOKEN, SOURCE, PACKAGE = 'a' * 32, 'b' * 40, 'c' * 64
 
 PASS_REPORT = f'''WW05 {TOKEN} {SOURCE} {PACKAGE} method=startup-gx-v1 phase=guest platform=VITA
