@@ -2,4 +2,3 @@
 *.db-shm
 *.db.bak*
 memory.db.pre-*
-memory/memory.db
