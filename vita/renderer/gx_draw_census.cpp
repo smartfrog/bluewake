@@ -1,34 +1,14 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 #include "gx_draw_census.h"
 #include "gx_vita.h"
-#include "gx_texgen.h"
 
 #include <cmath>
+#include <cstdio>
 #include <cstring>
 
 namespace gx_vita::census {
 namespace {
 namespace gxc = gxruntime::gxcore;
-
-bool unit_coordinates(const TranslatedDraw& draw, const gxc::ShaderKey& key,
-                      std::uint32_t texcoord) {
-  if (texcoord >= gxc::kMaxTexGens ||
-      (key.tev_valid && texcoord >= key.num_tex_gens) ||
-      draw.geometry.texcoords.size() != 4 * texgen::kFloatsPerVertex)
-    return false;
-  for (unsigned v = 0; v < 4; ++v) {
-    const float* uv = draw.geometry.texcoords.data() + v * texgen::kFloatsPerVertex + 3 * texcoord;
-    const float q = key.tex_gens[texcoord].projection ? uv[2] : 1.f;
-    if (!std::isfinite(q) || q <= 0)
-      return false;
-    for (unsigned axis = 0; axis < 2; ++axis) {
-      const float coordinate = uv[axis] / q;
-      if (!std::isfinite(coordinate) || coordinate < 0 || coordinate > 1)
-        return false;
-    }
-  }
-  return true;
-}
 
 void transform(const float* matrix, const float* in, float* out) {
   for (unsigned row = 0; row < 4; ++row) {
@@ -65,6 +45,20 @@ unsigned bit_count(std::uint32_t mask) {
     count += (mask >> t) & 1u;
   return count;
 }
+
+void inventory(Counts& counts, const DrawEntry& draw) {
+  for (unsigned i = 0; i < counts.entry_count; ++i) {
+    if (counts.entries[i].draw == draw) {
+      ++counts.entries[i].count;
+      return;
+    }
+  }
+  if (counts.entry_count == counts.entries.size()) {
+    ++counts.omitted;
+    return;
+  }
+  counts.entries[counts.entry_count++] = {draw, 1};
+}
 } // namespace
 
 DrawInfo describe(const gxc::DrawPlan& plan, const TranslatedDraw& draw) {
@@ -80,18 +74,16 @@ DrawInfo describe(const gxc::DrawPlan& plan, const TranslatedDraw& draw) {
     const auto& texture = draw.texmap_mask ? draw.textures[t] : draw.texture;
     if (!texture.valid)
       info.decode_failed_mask |= 1u << t;
-    const unsigned format = plan.texmap_mask ? plan.textures[t].format : plan.tex_format;
-    if (!info.is_quad || !plan.has_texture || draw.pipeline.depth_test ||
-        draw.pipeline.depth_write || (format != 3 && format != 9))
-      continue;
-    if (!key.tev_valid && t == 0 && unit_coordinates(draw, key, 0))
-      info.logo_mask |= 1u;
-    for (unsigned n = 0; n < key.num_tev_stages && n < gxc::kMaxTevStages; ++n) {
-      const auto& stage = key.tev_stages[n];
-      if (stage.tevorders_enable && stage.tevorders_texmap == t &&
-          unit_coordinates(draw, key, stage.tevorders_texcoord))
-        info.logo_mask |= 1u << t;
-    }
+    auto& entry = info.entries[t];
+    entry.texture = plan.texmap_mask
+        ? TextureIdentity{plan.textures[t].address, plan.textures[t].width,
+                          plan.textures[t].height, plan.textures[t].format}
+        : TextureIdentity{plan.tex_address, plan.tex_width, plan.tex_height, plan.tex_format};
+    entry.slot = t;
+    entry.four_vertices = draw.geometry.vertex_count == 4;
+    entry.fullscreen = info.fullscreen;
+    entry.depth_test = draw.pipeline.depth_test != 0;
+    entry.depth_write = draw.pipeline.depth_write != 0;
   }
   return info;
 }
@@ -115,11 +107,34 @@ void count_draw(Counts& counts, const DrawInfo& info,
   counts.incomplete_texture += (info.required_mask & valid_mask) != info.required_mask;
   counts.decode_failed += bit_count(info.decode_failed_mask);
   counts.required_skipped += bit_count(info.required_mask & skipped_mask);
-  if (info.logo_mask) {
-    ++counts.logo;
-    counts.logo_valid += (info.logo_mask & valid_mask) == info.logo_mask;
-    counts.logo_skipped += (info.logo_mask & skipped_mask) != 0;
+  counts.textured += info.required_mask != 0;
+  for (unsigned t = 0; t < info.entries.size(); ++t)
+    if (info.required_mask & (1u << t))
+      inventory(counts, info.entries[t]);
+}
+
+std::string format_frame(const Counts& c, std::uint32_t present, bool partial) {
+  char prefix[512];
+  std::snprintf(prefix, sizeof prefix,
+      "[draw-census] present=%u partial=%u tq=%u uq=%u other=%u tx=%u rest=%u "
+      "refused=%u invalid=%u skip=%u bindfail=%u uploadfail=%u draws=",
+      present, unsigned(partial), c.textured_quad, c.untextured_quad, c.other, c.textured,
+      c.omitted, c.refused, c.incomplete_texture, c.required_skipped, c.bind_failed, c.upload_failed);
+  std::string line = prefix;
+  if (!c.entry_count)
+    line += '-';
+  for (unsigned i = 0; i < c.entry_count; ++i) {
+    const auto& entry = c.entries[i];
+    const auto& d = entry.draw;
+    const auto& t = d.texture;
+    char record[128];
+    std::snprintf(record, sizeof record, "%s%08x@%u,%ux%u,%u,%u,%u,%u%u*%u",
+        i ? "|" : "", t.address, d.slot, t.width, t.height, t.format,
+        unsigned(d.four_vertices), unsigned(d.fullscreen), unsigned(d.depth_test),
+        unsigned(d.depth_write), entry.count);
+    line += record;
   }
+  return line;
 }
 
 } // namespace gx_vita::census

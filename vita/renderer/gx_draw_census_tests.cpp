@@ -23,6 +23,9 @@ struct Fixture {
     plan.ok = draw.ok = true;
     plan.vertex_count = draw.geometry.vertex_count = 4;
     plan.has_texture = true;
+    plan.tex_address = 0x123400;
+    plan.tex_width = 376;
+    plan.tex_height = 104;
     plan.tex_format = 3;
     auto& key = plan.pipeline.shader;
     key.textured = 1;
@@ -48,32 +51,44 @@ struct Fixture {
   }
 };
 
-int detects_logo(const std::string& scenario) {
+int describes_draw(const std::string& scenario) {
   Fixture fixture;
-  bool expected = true;
   if (scenario == "ci8") fixture.plan.tex_format = 9;
   if (scenario == "invalid-texture") fixture.draw.texture.valid = false;
-  if (scenario == "depth-test") { fixture.draw.pipeline.depth_test = 1; expected = false; }
-  if (scenario == "depth-write") { fixture.draw.pipeline.depth_write = 1; expected = false; }
-  if (scenario == "rgba8") { fixture.plan.tex_format = 6; expected = false; }
-  if (scenario == "untextured") { fixture.plan.pipeline.shader.textured = 0; expected = false; }
-  if (scenario == "triangle") { fixture.draw.geometry.vertex_count = 3; expected = false; }
-  if (scenario == "uv-range") { fixture.draw.geometry.texcoords[0] = 1.01f; expected = false; }
-  if (scenario == "uv-nan") { fixture.draw.geometry.texcoords[0] = std::numeric_limits<float>::quiet_NaN(); expected = false; }
+  if (scenario == "depth-test") fixture.draw.pipeline.depth_test = 1;
+  if (scenario == "depth-write") fixture.draw.pipeline.depth_write = 1;
+  if (scenario == "rgba8") fixture.plan.tex_format = 6;
+  if (scenario == "untextured") fixture.plan.pipeline.shader.textured = 0;
+  if (scenario == "triangle") fixture.draw.geometry.vertex_count = 3;
+  if (scenario == "uv-range") fixture.draw.geometry.texcoords[0] = 1.01f;
+  if (scenario == "uv-nan") fixture.draw.geometry.texcoords[0] = std::numeric_limits<float>::quiet_NaN();
   if (scenario == "uv-q-zero") {
     fixture.plan.pipeline.shader.tex_gens[0].projection = 1;
     fixture.draw.geometry.texcoords[2] = 0;
-    expected = false;
   }
   if (scenario == "nonzero-texmap") {
     fixture.plan.pipeline.shader.tev_stages[0].tevorders_texmap = 3;
-    fixture.draw.texmap_mask = 8;
+    fixture.plan.texmap_mask = fixture.draw.texmap_mask = 8;
+    fixture.plan.textures[3].address = 0x456780;
+    fixture.plan.textures[3].width = 320;
+    fixture.plan.textures[3].height = 240;
+    fixture.plan.textures[3].format = 3;
     fixture.draw.textures[3].valid = true;
   }
   const auto info = census::describe(fixture.plan, fixture.draw);
-  CHECK((info.logo_mask != 0) == expected);
+  CHECK(info.required_mask == (scenario == "untextured" ? 0u : scenario == "nonzero-texmap" ? 8u : 1u));
+  if (!info.required_mask) return 0;
+  const auto& entry = info.entries[scenario == "nonzero-texmap" ? 3 : 0];
+  CHECK(entry.four_vertices == (scenario != "triangle"));
+  CHECK(entry.depth_test == (scenario == "depth-test"));
+  CHECK(entry.depth_write == (scenario == "depth-write"));
+  if (scenario == "nonzero-texmap") {
+    CHECK(entry.slot == 3);
+    CHECK(entry.texture == (census::TextureIdentity{0x456780, 320, 240, 3}));
+  } else {
+    CHECK(entry.texture == (census::TextureIdentity{0x123400, 376, 104, fixture.plan.tex_format}));
+  }
   if (scenario == "invalid-texture") CHECK(info.decode_failed_mask == 1);
-  if (scenario == "nonzero-texmap") CHECK(info.logo_mask == 8);
   return 0;
 }
 
@@ -95,20 +110,62 @@ int counts_draw(const std::string& scenario) {
   if (scenario == "fullscreen") info.fullscreen = true;
   if (scenario == "missing") { info.required_mask = info.decode_failed_mask = skipped = 1; }
   if (scenario == "partial-bind") { info.required_mask = 9; valid = 1; skipped = 8; }
-  if (scenario == "logo-valid") { info.required_mask = info.logo_mask = valid = 1; }
-  if (scenario == "logo-skipped") { info.required_mask = info.logo_mask = skipped = 1; }
+  if (scenario == "textured-other") { info.is_quad = false; info.required_mask = valid = 1; }
   census::count_draw(counts, info, valid, skipped);
   CHECK(counts.textured_quad == (info.is_quad && info.required_mask != 0));
   CHECK(counts.untextured_quad == (info.is_quad && info.required_mask == 0));
   CHECK(counts.other == !info.is_quad);
   CHECK(counts.fullscreen == info.fullscreen);
-  CHECK(counts.no_valid_texture == (scenario == "missing" || scenario == "logo-skipped"));
+  CHECK(counts.no_valid_texture == (scenario == "missing"));
   CHECK(counts.incomplete_texture == (skipped != 0));
   CHECK(counts.decode_failed == (scenario == "missing"));
   CHECK(counts.required_skipped == (skipped != 0));
-  CHECK(counts.logo == (info.logo_mask != 0));
-  CHECK(counts.logo_valid == (scenario == "logo-valid"));
-  CHECK(counts.logo_skipped == (scenario == "logo-skipped"));
+  CHECK(counts.textured == (info.required_mask != 0));
+  return 0;
+}
+
+int formats_inventory(const std::string& scenario) {
+  census::Counts counts;
+  if (scenario == "empty") {
+    CHECK(census::format_frame(counts, 313, false) ==
+        "[draw-census] present=313 partial=0 tq=0 uq=0 other=0 tx=0 rest=0 refused=0 "
+        "invalid=0 skip=0 bindfail=0 uploadfail=0 draws=-");
+    return 0;
+  }
+  Fixture fixture;
+  if (scenario == "all-fields") {
+    fixture.draw.pipeline.depth_test = fixture.draw.pipeline.depth_write = 1;
+    census::count_draw(counts, census::describe(fixture.plan, fixture.draw), 1, 0);
+    CHECK(census::format_frame(counts, 314, true) ==
+        "[draw-census] present=314 partial=1 tq=1 uq=0 other=0 tx=1 rest=0 refused=0 "
+        "invalid=0 skip=0 bindfail=0 uploadfail=0 draws=00123400@0,376x104,3,1,1,11*1");
+    return 0;
+  }
+  if (scenario == "maximum-fields") {
+    census::DrawInfo info;
+    info.required_mask = 1;
+    auto& entry = info.entries[0];
+    entry.texture = {UINT32_MAX, UINT32_MAX, UINT32_MAX, UINT32_MAX};
+    for (unsigned i = 0; i < census::kMaxEntries; ++i) {
+      entry.slot = i;
+      census::count_draw(counts, info, 1, 0);
+    }
+    CHECK(census::format_frame(counts, UINT32_MAX, true).find(
+        "ffffffff@7,4294967295x4294967295,4294967295,0,0,00*1") != std::string::npos);
+    return 0;
+  }
+  for (unsigned i = 0; i < 12; ++i) {
+    fixture.plan.tex_address = i;
+    census::count_draw(counts, census::describe(fixture.plan, fixture.draw), 1, 0);
+  }
+  CHECK(counts.entry_count == 8 && counts.omitted == 4);
+  if (scenario == "repeat-after-full") {
+    fixture.plan.tex_address = 0;
+    census::count_draw(counts, census::describe(fixture.plan, fixture.draw), 1, 0);
+    CHECK(counts.entries[0].count == 2 && counts.omitted == 4);
+  }
+  CHECK(census::format_frame(counts, 315, false).find("|00000007@0,376x104,3,1,1,00*1") != std::string::npos);
+  CHECK(census::format_frame(counts, 315, false).find("00000008@") == std::string::npos);
   return 0;
 }
 
@@ -129,7 +186,8 @@ int counts_bind(const std::string& scenario) {
 int main(int argc, char** argv) {
   if (argc != 3) return 2;
   const std::string group = argv[1], scenario = argv[2];
-  if (group == "detect") return detects_logo(scenario);
+  if (group == "describe") return describes_draw(scenario);
+  if (group == "format") return formats_inventory(scenario);
   if (group == "fullscreen") return fullscreen(scenario);
   if (group == "draw") return counts_draw(scenario);
   if (group == "bind") return counts_bind(scenario);

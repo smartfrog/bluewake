@@ -134,8 +134,9 @@ int draw_census(const std::string& scenario) {
   CHECK(backend->init() == nullptr);
   gx_vita::TranslatedDraw draw;
   gx_vita::CgProgram program;
-  draw.census.required_mask = draw.census.logo_mask = 1;
+  draw.census.required_mask = 1;
   draw.census.is_quad = draw.census.fullscreen = true;
+  draw.census.entries[0].four_vertices = draw.census.entries[0].fullscreen = true;
   draw.texture.valid = true;
   draw.texture.width = draw.texture.height = 1;
   draw.texture.rgba = {255, 255, 255, 255};
@@ -145,23 +146,31 @@ int draw_census(const std::string& scenario) {
   }
   if (scenario == "untextured") {
     draw.texture.valid = false;
-    draw.census.required_mask = draw.census.logo_mask = 0;
+    draw.census.required_mask = 0;
   }
   if (scenario == "multimap") {
     draw.texmap_mask = draw.census.required_mask = 9;
-    draw.census.logo_mask = draw.census.decode_failed_mask = 8;
+    draw.census.decode_failed_mask = 8;
+    draw.census.entries[3].slot = 3;
     draw.textures[0] = draw.texture;
   }
   if (scenario == "bind-failed") test_gl::next_bind_error = GL_INVALID_VALUE;
   if (scenario == "upload-failed") test_gl::next_upload_error = GL_INVALID_VALUE;
   if (scenario == "sampler-failed") test_gl::next_sampler_error = GL_INVALID_VALUE;
+  if (scenario == "repeat" || scenario == "overflow") {
+    for (unsigned i = 1; i < 12; ++i) {
+      if (scenario == "overflow") draw.census.entries[0].texture.address = i;
+      CHECK(backend->submit_draw(draw, program) == nullptr);
+    }
+    draw.census.entries[0].texture.address = 0;
+  }
   const char* error = backend->submit_draw(draw, program);
   if (scenario.find("failed") != std::string::npos) {
     CHECK(error != nullptr);
     CHECK(test_gl::draws == 0);
   } else {
     CHECK(error == nullptr);
-    CHECK(test_gl::draws == 1);
+    CHECK(test_gl::draws == (scenario == "repeat" || scenario == "overflow" ? 12 : 1));
     CHECK(backend->present() == nullptr);
     if (scenario == "reset") CHECK(backend->present() == nullptr);
     if (scenario == "bound") {

@@ -287,16 +287,8 @@ public:
 private:
 #if defined(WW_RENDERER_DRAW_CENSUS)
   void dump_census(bool partial) {
-    std::fprintf(stderr,
-        "[draw-census] present=%u partial=%u tq=%u uq=%u other=%u full=%u "
-        "no_valid=%u incomplete=%u decode_failed=%u bind_valid=%u bind_skipped=%u "
-        "required_skipped=%u bind_failed=%u upload_failed=%u logo=%u logo_valid=%u "
-        "logo_skipped=%u refused=%u\n",
-        census_presented_, partial ? 1u : 0u, census_.textured_quad, census_.untextured_quad,
-        census_.other, census_.fullscreen, census_.no_valid_texture, census_.incomplete_texture,
-        census_.decode_failed, census_.bind_valid, census_.bind_skipped, census_.required_skipped,
-        census_.bind_failed, census_.upload_failed, census_.logo, census_.logo_valid,
-        census_.logo_skipped, census_.refused);
+    const auto line = gx_vita::census::format_frame(census_, census_presented_, partial);
+    std::fprintf(stderr, "%s\n", line.c_str());
     std::fflush(stderr);
     census_ = {};
     census_pending_ = false;
