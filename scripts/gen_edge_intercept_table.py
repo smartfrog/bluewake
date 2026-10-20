@@ -50,6 +50,7 @@ EDGE_FUNCS = (
     "bluewake_edge_requires_host",
 )
 CARD_FUNCS = ("bluewake_card_runtime_intercepts", "card_handler")
+ACTORS = Path("source-port/game/src/d/actor")
 
 # Candidate multipliers, tried with every shift that lands in range.
 MULTIPLIERS = (668265263, 2654435761, 2246822519, 3266489917, 374761393, 1103515245)
@@ -95,6 +96,55 @@ def collect():
     return sorted(k for k in keys if k != 0)
 
 
+def collect_draw_observations(observation_keys, service_keys, actors=ACTORS):
+    eligible = set(observation_keys) - set(service_keys)
+    members = {}
+    sources = sorted(actors.glob("d_a_*.cpp"))
+    if not sources:
+        raise ValueError(f"actor symbol sources missing: {actors}")
+    for source in sources:
+        for address, symbol in re.findall(
+            r"/\* ([0-9A-Fa-f]{8})-[0-9A-Fa-f]{8}\s+\.text (da[A-Za-z0-9_]*_Draw)__",
+            source.read_text(encoding="utf-8"),
+        ):
+            key = int(address, 16)
+            if key not in eligible:
+                continue
+            if key in members and members[key] != symbol:
+                raise ValueError(f"ambiguous actor draw at {key:08X}: {members[key]}, {symbol}")
+            members[key] = symbol
+    return sorted(members.items())
+
+
+def draw_metadata(members):
+    out = [
+        "/* Observation-switch keys with da*_Draw entry symbols in source-port/game/src/d/actor;",
+        " * address-service, CARD and chassis-service keys are excluded. */",
+        f"#define BLUEWAKE_EDGE_DRAW_COUNT {len(members)}u",
+        "typedef struct BluewakeEdgeDraw {",
+        "    u32 address;",
+        "    const char* symbol;",
+        "} BluewakeEdgeDraw;",
+        "static const BluewakeEdgeDraw g_edge_draws[BLUEWAKE_EDGE_DRAW_COUNT + 1u] = {",
+    ]
+    out.extend(f'    {{0x{address:08X}u, "{symbol}"}},' for address, symbol in members)
+    out.extend([
+        "    {0u, 0},",
+        "};",
+        "",
+        "static inline u32 bluewake_edge_draw_index(u32 address) {",
+        "    u32 index = 0u;",
+        "    while (index != BLUEWAKE_EDGE_DRAW_COUNT) {",
+        "        if (g_edge_draws[index].address == address)",
+        "            return index;",
+        "        ++index;",
+        "    }",
+        "    return BLUEWAKE_EDGE_DRAW_COUNT;",
+        "}",
+    ])
+    return out
+
+
 def build(keys, multiplier, shift):
     """Place every key with linear probing, then verify the lookup finds it.
 
@@ -135,6 +185,13 @@ def build(keys, multiplier, shift):
 
 def main() -> int:
     keys = collect()
+    edge = Path(EDGE).read_text(encoding="utf-8")
+    service_keys = set(cases(edge, "bluewake_edge_address_requires_host"))
+    service_keys.update(cases(Path(EDGE_HEADER).read_text(encoding="utf-8"), "bluewake_edge_requires_host"))
+    card = Path(CARD).read_text(encoding="utf-8")
+    for function in CARD_FUNCS:
+        service_keys.update(cases(card, function))
+    draws = collect_draw_observations(cases(edge, "bluewake_edge_observation_requires_host"), service_keys)
     masked = [k for k in keys if (k & 0x40000000) != 0]
     if masked:
         sys.exit(
@@ -206,6 +263,8 @@ def main() -> int:
     out.append("        slot = (slot + 1u) % BLUEWAKE_EDGE_KEY_SLOTS;")
     out.append("    }")
     out.append("}")
+    out.append("")
+    out.extend(draw_metadata(draws))
     out.append("")
     out.append("#endif")
     Path(EDGE).with_name("edge_intercept_table.h").write_text(

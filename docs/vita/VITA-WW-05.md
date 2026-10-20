@@ -3131,11 +3131,34 @@ at this boundary. The Vita guard refused it because `vita/host/boot_host.c` test
 shared table and the address was not in its compiled-boundary list.
 
 With `-DWW_EDGE_OBSERVATION_ADMIT=ON` (off by default in CMake; the private perf builder
-enables it) the host admits exactly two keys, both module-owned and free of a linked alias:
+enables it) the host retains two specific admissions, both module-owned and free of a linked alias:
 `0x80120188`, which must be return-shaped (`pc == lr == key`), and `0x8022F9FC`, which is a
 block entry (`pc == key`) and deliberately has **no** LR check. The host does not change
 PC, LR, registers or MSR; the guest executes its own compiled block from either key.
 `0x8022F9FC` is d_s_name's scene-create block observed by the NAME_SCENE boot milestone.
+
+The same opt-in now admits the **actor-draw observation class**, not arbitrary observation
+keys. The old generated table carried only addresses, not categories or symbols. The
+generator now intersects the observation-switch keys with `.text` entry annotations whose
+symbol matches `da[A-Za-z0-9_]*_Draw__...` in the checked-in
+`source-port/game/src/d/actor/d_a_*.cpp` files. Address-service, CARD and chassis-service
+keys are excluded even if a symbol matches. Ambiguous draw identities or missing actor
+sources fail generation. No per-edge behavior is defined.
+
+The generated class currently has four members: `0x800D8DB8 daBg_Draw`,
+`0x8015D80C daSea_Draw`, `0x8015E3F0 daVrbox_Draw`, and `0x8015EA5C daVrbox2_Draw`.
+Admission requires `pc == address`, existing module code-range ownership, and no linked
+alias overlapping any byte of the four-byte entry instruction. Draw entries have no LR
+shape requirement. The gate returns false so normal translated execution continues; it
+does not dispatch a substitute, skip instructions, change the guest return value, or
+synthesize completion. Code-range ownership is the existing translation contract, not a
+fresh code-byte integrity proof. An empty generated class adds no admissions.
+
+Each distinct admitted edge is logged once per initialized host, including the two legacy
+keys, as `[edge-admit] address=<key> symbol=<symbol> count=1 module_owned=1
+reason=<actor-draw-observation|observation-only>`. Per-edge admission counters continue to
+count subsequent visits without more log lines. A failed log write stops instead of
+admitting silently. The option remains compile-time and defaults OFF.
 
 For `0x80120188` the check is a **shape check**. The production call site passes `cpu->pc`
 as the address, so the discriminating term is `lr == key`; the address must also match that
@@ -3150,10 +3173,9 @@ The refusal capsule retains `r3/r13/r31` (plus `sp`/`msr`/`srr0`/`srr1`) but not
 `r2`, so a faithful re-check would need more retained state. The explicit consequence is
 that an incoherent `r29`/`f1` reaches the guest `stfs` unvalidated, so a later lava or
 collision anomaly could be a downstream symptom rather than a new fault. Unowned keys,
-shapes other than the two named above, other observation-only keys, alias-shadowed keys and
-every key that requires a host service are still refused. The admission is reported once per run as
-`[edge-admit] address=<80120188|8022F9FC> module_owned=1 reason=observation-only` so the
-next trial can tell which key fired.
+shapes other than the two named above, non-class observation-only keys, alias-shadowed keys
+and every unsupported key that requires a host service are still refused with the original
+`desktop interception unsupported; guest not skipped` message.
 
 A private ON build is requested with `scripts/vita/ww05/game_build.py --edge-observation-admit`.
 Every run passes the option explicitly: `-DWW_EDGE_OBSERVATION_ADMIT=ON` with the flag and
