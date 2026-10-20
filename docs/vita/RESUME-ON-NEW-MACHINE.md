@@ -40,7 +40,7 @@ Every branch deleted during the cleanups is preserved as a tag `archive/<name>-<
 
 1. Clone/copy the repository and check the state:
    ```sh
-   git log --oneline -3 development   # expect 5830a197 at the top
+   git log --oneline -3 development   # expect the handover commit at the top
    git tag -l 'archive/*' | wc -l     # expect 58
    ```
 2. Rebuild the tool stack. **The documented stack is ARM64; a x86-64 host cannot run it** (the vendored `build-vita-tools/local-stack/vitasdk/bin/arm-vita-eabi-gcc` and `host-toolchain/bin/aarch64-conda-linux-gnu-gcc` are both `ELF aarch64`). On such a host:
