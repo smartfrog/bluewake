@@ -80,4 +80,29 @@ static inline bool bluewake_edge_maybe_intercept(u32 address) {
     }
 }
 
+/* Observation-switch keys with da*_Draw entry symbols in source-port/game/src/d/actor;
+ * address-service, CARD and chassis-service keys are excluded. */
+#define BLUEWAKE_EDGE_DRAW_COUNT 4u
+typedef struct BluewakeEdgeDraw {
+    u32 address;
+    const char* symbol;
+} BluewakeEdgeDraw;
+static const BluewakeEdgeDraw g_edge_draws[BLUEWAKE_EDGE_DRAW_COUNT + 1u] = {
+    {0x800D8DB8u, "daBg_Draw"},
+    {0x8015D80Cu, "daSea_Draw"},
+    {0x8015E3F0u, "daVrbox_Draw"},
+    {0x8015EA5Cu, "daVrbox2_Draw"},
+    {0u, 0},
+};
+
+static inline u32 bluewake_edge_draw_index(u32 address) {
+    u32 index = 0u;
+    while (index != BLUEWAKE_EDGE_DRAW_COUNT) {
+        if (g_edge_draws[index].address == address)
+            return index;
+        ++index;
+    }
+    return BLUEWAKE_EDGE_DRAW_COUNT;
+}
+
 #endif

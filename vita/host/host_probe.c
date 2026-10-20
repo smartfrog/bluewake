@@ -401,7 +401,7 @@ int main(int argc, char** argv) {
             assert(ppc_guest_alias_add(address, 4u, NULL));
         bool admitted = false;
 #if WW_EDGE_OBSERVATION_ADMIT
-        admitted = owned;
+        admitted = owned || sea || background;
 #endif
         bluewake_cycle_domain_begin_turn(&host->cycles, &host->cpu);
         bluewake_cycle_domain_prepare_dispatch(&host->cycles, &host->cpu);

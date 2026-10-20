@@ -3131,11 +3131,14 @@ at this boundary. The Vita guard refused it because `vita/host/boot_host.c` test
 shared table and the address was not in its compiled-boundary list.
 
 With `-DWW_EDGE_OBSERVATION_ADMIT=ON` (off by default in CMake; the private perf builder
-enables it) the host admits exactly four keys, all module-owned and free of a linked alias:
+enables it) the host retains two specific admissions, both module-owned and free of a linked alias:
 `0x80120188`, which must be return-shaped (`pc == lr == key`), and `0x8022F9FC`, which is a
 block entry (`pc == key`) and deliberately has **no** LR check. The host does not change
 PC, LR, registers or MSR; the guest executes its own compiled block from each key.
 `0x8022F9FC` is d_s_name's scene-create block observed by the NAME_SCENE boot milestone.
+
+The vrbox admissions previously implemented as individual keys are now folded into the
+generated actor-draw class below. They have no separate admission path or log.
 
 `0x8015EA5C` is the main-DOL `daVrbox2_Draw(vrbox2_class*)` entry in
 `source-port/game/src/d/actor/d_a_vrbox2.cpp:27-85`. It updates sky colours and submits
@@ -3149,7 +3152,7 @@ LR restriction on this function entry. The host supplies neither a return value 
 capsule: the existing translated body performs all guest work and supplies its own result.
 This is not a fabricated success or a draw skip. Unknown service edges still stop loudly.
 
-The explicitly bounded vrbox family consists of `0x8015E3F0` (`daVrbox_Draw`) and
+The vrbox subset consists of `0x8015E3F0` (`daVrbox_Draw`) and
 `0x8015EA5C` (`daVrbox2_Draw`). The former updates sky colours, transforms the actor's sky
 model relative to the camera, submits it to the sky list and returns its own `TRUE`, including
 the invisible-sky early return (`source-port/game/src/d/actor/d_a_vrbox.cpp:15-55`). Both
@@ -3164,23 +3167,45 @@ at `runtime/host/src/main.c:12944-12960`:
 
 | Address | Symbol and guest work | Admission with option ON |
 |---|---|---|
-| `8015E3F0` | `daVrbox_Draw`: sky model/colour draw; `d_a_vrbox.cpp:15-55` | Admitted by this follow-up |
-| `8015EA5C` | `daVrbox2_Draw`: sea/haze/back-cloud model draw; `d_a_vrbox2.cpp:27-85` | Previously admitted |
-| `8015D80C` | `daSea_Draw`: enqueue the sea packet on the sky translucent list; `d_a_sea.cpp:1166-1171` | Still refused |
-| `800D8DB8` | `daBg_Draw`: delegate to the room/background actor's `draw()`; `d_a_bg.cpp:287-290` | Still refused |
+| `8015E3F0` | `daVrbox_Draw`: sky model/colour draw; `d_a_vrbox.cpp:15-55` | Generated actor-draw class |
+| `8015EA5C` | `daVrbox2_Draw`: sea/haze/back-cloud model draw; `d_a_vrbox2.cpp:27-85` | Generated actor-draw class |
+| `8015D80C` | `daSea_Draw`: enqueue the sea packet on the sky translucent list; `d_a_sea.cpp:1166-1171` | Generated actor-draw class |
+| `800D8DB8` | `daBg_Draw`: delegate to the room/background actor's `draw()`; `d_a_bg.cpp:287-290` | Generated actor-draw class |
 
 The actor file references in the table are under `source-port/game/src/d/actor/`.
-The strict two-entry vrbox family is exhausted after this follow-up; the broader sky-list
-family still includes the unadmitted sea entry, and the full environment census also has
-the unadmitted background entry. Neither is blanket-admitted. `0x800A0B60` is a collision
+All four entries use the same generated class mechanism; none is a separate per-edge
+exception. This is not blanket observation admission. `0x800A0B60` is a collision
 attribute lookup (`source-port/game/src/d/d_bg_s.cpp:226`), not another vrbox/sky draw.
+
+The same opt-in now admits the **actor-draw observation class**, not arbitrary observation
+keys. The old generated table carried only addresses, not categories or symbols. The
+generator now intersects the observation-switch keys with `.text` entry annotations whose
+symbol matches `da[A-Za-z0-9_]*_Draw__...` in the checked-in
+`source-port/game/src/d/actor/d_a_*.cpp` files. Address-service, CARD and chassis-service
+keys are excluded even if a symbol matches. Ambiguous draw identities or missing actor
+sources fail generation. No per-edge behavior is defined.
+
+The generated class currently has four members: `0x800D8DB8 daBg_Draw`,
+`0x8015D80C daSea_Draw`, `0x8015E3F0 daVrbox_Draw`, and `0x8015EA5C daVrbox2_Draw`.
+Admission requires `pc == address`, existing module code-range ownership, and no linked
+alias overlapping any byte of the four-byte entry instruction. Draw entries have no LR
+shape requirement. The gate returns false so normal translated execution continues; it
+does not dispatch a substitute, skip instructions, change the guest return value, or
+synthesize completion. Code-range ownership is the existing translation contract, not a
+fresh code-byte integrity proof. An empty generated class adds no admissions.
+
+Each distinct admitted edge is logged once per initialized host, including the two legacy
+keys, as `[edge-admit] address=<key> symbol=<symbol> count=1 module_owned=1
+reason=<actor-draw-observation|observation-only>`. Per-edge admission counters continue to
+count subsequent visits without more log lines. A failed log write stops instead of
+admitting silently. The option remains compile-time and defaults OFF.
 
 For `0x80120188` the check is a **shape check**. The production call site passes `cpu->pc`
 as the address, so the discriminating term is `lr == key`; the address must also match that
 `pc`. It does not prove the caller, does not verify `r29` or `f1`, does not exclude a
 corrupted `pc`/`lr` pair that both land on the key, and does not exclude a corrupted code
-page. `0x8022F9FC`, `0x8015E3F0` and `0x8015EA5C` are block-entry cases: each requires `pc == key` and has no
-`lr` term at all.
+page. `0x8022F9FC` and every generated actor-draw member are block-entry cases: each
+requires `pc == key` and has no `lr` term at all.
 
 The option is a diagnostic waiver, not an emulation of the desktop observation: the Vita
 host does **not** perform the desktop GroundCross `f1`/lava-constant check at this boundary.
@@ -3188,10 +3213,9 @@ The refusal capsule retains `r3/r13/r31` (plus `sp`/`msr`/`srr0`/`srr1`) but not
 `r2`, so a faithful re-check would need more retained state. The explicit consequence is
 that an incoherent `r29`/`f1` reaches the guest `stfs` unvalidated, so a later lava or
 collision anomaly could be a downstream symptom rather than a new fault. Unowned keys,
-shapes other than those named above, other observation-only keys, alias-shadowed keys and
-every key that requires a host service are still refused. The admission is reported once per run as
-`[edge-admit] address=<80120188|8022F9FC|8015E3F0|8015EA5C> module_owned=1 reason=observation-only` so the
-next trial can tell which key fired.
+shapes outside these documented rules, non-class observation-only keys, alias-shadowed keys
+and every unsupported key that requires a host service are still refused with the original
+`desktop interception unsupported; guest not skipped` message.
 
 A private ON build is requested with `scripts/vita/ww05/game_build.py --edge-observation-admit`.
 Every run passes the option explicitly: `-DWW_EDGE_OBSERVATION_ADMIT=ON` with the flag and

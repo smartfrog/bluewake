@@ -270,7 +270,7 @@ class StartupHostTest(unittest.TestCase):
                 with self.subTest(actor=actor, shape=shape):
                     subprocess.run([str(OUT / 'host_probe'), f'{actor}-edge-{shape}'], check=True)
 
-    def test_vrbox_draw_admission_does_not_admit_other_desktop_edges(self):
+    def test_draw_class_membership_controls_other_desktop_edges(self):
         for shape in ('unsupported', 'sea', 'background'):
             with self.subTest(shape=shape):
                 subprocess.run([str(OUT / 'host_probe'), f'vrbox-edge-{shape}'], check=True)

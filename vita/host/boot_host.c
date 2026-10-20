@@ -1215,12 +1215,7 @@ bool ww_host_edge(void* user, CPUState* cpu, u32 address) {
     // registers or MSR. See docs/vita/VITA-WW-05.md.
     bool admitted_observation = false;
 #if WW_EDGE_OBSERVATION_ADMIT
-    // Observation-only edges: the guest executes its own compiled block. 0x80120188
-    // is checkLavaFace's GroundCross caller-return (LR-shaped); 0x8022F9FC is
-    // d_s_name's scene-create block entry (no LR check), which the boot milestone
-    // reports. daVrbox_Draw (0x8015E3F0) and daVrbox2_Draw (0x8015EA5C) are
-    // desktop scene-draw census entries. The translated guest owns the result.
-    admitted_observation = ww_edge_observation_address(address) &&
+    admitted_observation = ww_edge_observation_index(address) < WW_EDGE_ADMISSION_COUNT &&
         ww_edge_admit_observation(
             address, cpu->pc, cpu->lr,
             ww_host_module_contains_address(host->module, address),
@@ -1230,18 +1225,22 @@ bool ww_host_edge(void* user, CPUState* cpu, u32 address) {
                                        observed_retrace_sleep || observed_draw_done_sleep || observed_async_draw_done || observed_receive_sleep ||
                                        admitted_observation) &&
                                          ww_host_module_contains_address(host->module, address);
+#if WW_EDGE_OBSERVATION_ADMIT
     if (admitted_observation && compiled_cpu_boundary) {
-        static bool reported;
-        if (!reported) {
-            reported = true;
-            if (fprintf(stderr, "[edge-admit] address=%08X module_owned=%u reason=observation-only\n",
-                        address, ww_host_module_contains_address(host->module, address) ? 1u : 0u) < 0) {
+        const u32 index = ww_edge_observation_index(address);
+        const u64 count = host->edge_admission_counts[index] + 1u;
+        if (count == 1u) {
+            if (fprintf(stderr, "[edge-admit] address=%08X symbol=%s count=%llu module_owned=1 reason=%s\n",
+                        address, ww_edge_observation_symbol(index), (unsigned long long)count,
+                        index >= 2u ? "actor-draw-observation" : "observation-only") < 0) {
                 ww_host_fail(host, "edge admission log write failed", address, cpu->pc);
                 host->edge_stopped = true;
                 return true;
             }
         }
+        host->edge_admission_counts[index] = count;
     }
+#endif
     const bool desktop_edge = bluewake_edge_maybe_intercept(address);
     if (address == 0x80307EF4u && ww_host_rel_linked(host, 1u) &&
         (!host->scheduler_idle_observed ||

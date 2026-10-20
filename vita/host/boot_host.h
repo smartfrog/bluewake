@@ -26,6 +26,9 @@
 #include "gxruntime/si.h"
 #include "gxruntime/audio_dma.h"
 #include "gxruntime/vi_clock.h"
+#if WW_EDGE_OBSERVATION_ADMIT
+#include "edge_admission.h"
+#endif
 
 #ifdef __vita__
 #define WW05_DIRECTORY "ux0:data/bluewake-ww-fixture/"
@@ -128,6 +131,9 @@ typedef struct WwHost {
     u64 backing_bytes;
     u32 alias_count;
     u64 edges;
+#if WW_EDGE_OBSERVATION_ADMIT
+    u64 edge_admission_counts[WW_EDGE_ADMISSION_COUNT];
+#endif
     u64 turns;
     u64 exi_transfers;
     u64 disc_reads;
