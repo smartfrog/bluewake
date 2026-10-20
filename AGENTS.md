@@ -103,9 +103,9 @@ bash scripts/audit_repo.sh
   not a title/render result; see `runtime-trial-harness-preconditions`.
 - Unsupported guest services must fail explicitly: never skip instructions, fabricate completions, or change FP
   semantics to work around an emulator defect. Vita3K results do not establish hardware behavior or frame rate.
-- Emulator patches are a last-resort diagnostic only, never acceptance: fix our code and the configuration first,
-  prove with an unpatched control run that the behaviour is emulator-only, then patch. The target remains real
-  Vita hardware. See `docs/vita/VITA3K_PATCH_POLICY.md`.
+- Emulator patches are a last-resort diagnostic only, never acceptance. The decision, its preconditions and its
+  evidence live in task `VITA3K-PATCH`; fix our code and the configuration first, and never present a patched-only
+  fix as game acceptance.
 - Acceptance belongs in task `GAMEPLAY`: logo cadence, present counters and diagnostic/sentinel builds are not
   controllable-gameplay FPS or a valid matched performance comparison.
 - Keep discs, extracted/translated game files, game VPK/SELF/ELF files, firmware, keys and saves private and untracked.
