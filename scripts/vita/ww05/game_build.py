@@ -228,7 +228,8 @@ def build_parser():
                         help='diagnostic: open the file-select menu instead of the title logo and movie (off by default)')
     parser.add_argument('--draw-census', action='store_true',
                         help='diagnostic: inventory sampled draw textures per present (off by default)')
-    parser.add_argument('--jobs', type=int, default=2)
+    parser.add_argument('--jobs', type=int, default=2,
+                        help='parallel build jobs (default 2; at most the available CPU cores)')
     parser.add_argument('--opt-level', choices=('1', '2', '3'), default='1',
                         help='translated module optimization level (default matches the verified private module)')
     parser.add_argument('--external-vector', type=Path, default=OUTPUT / 'private/external-vector.bin',
@@ -243,8 +244,8 @@ def build_parser():
 def parse_arguments(argv=None):
     parser = build_parser()
     args = parser.parse_args(argv)
-    if args.jobs < 1 or args.jobs > 4:
-        parser.error('jobs must be between one and four')
+    if args.jobs < 1 or args.jobs > (os.cpu_count() or 1):
+        parser.error(f'jobs must be between one and {os.cpu_count() or 1}')
     try:
         args.turn_cap = checked_turn_cap(args.turn_cap)
         args.gx_max_command_bytes = checked_gx_max_command_bytes(args.gx_max_command_bytes)

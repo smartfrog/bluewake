@@ -385,5 +385,20 @@ class CacheCheckTest(unittest.TestCase):
             module.checked_cache(text, config)
 
 
+class JobLimitTest(unittest.TestCase):
+    def parse(self, jobs):
+        module = load_module()
+        with contextlib.redirect_stderr(io.StringIO()):
+            return module.parse_arguments(['--disc', 'disc.iso', '--jobs', str(jobs)])
+
+    def test_jobs_above_the_cpu_count_are_rejected(self):
+        with self.assertRaises(SystemExit):
+            self.parse((os.cpu_count() or 1) + 1)
+
+    def test_jobs_up_to_the_cpu_count_are_accepted(self):
+        cores = os.cpu_count() or 1
+        self.assertEqual(self.parse(cores).jobs, cores)
+
+
 if __name__ == '__main__':
     unittest.main()
