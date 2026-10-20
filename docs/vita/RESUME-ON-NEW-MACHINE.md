@@ -17,6 +17,21 @@ Date: 2026-10-20. State: trunk `development = ae82cff0`. No run in flight.
 
 **Do not copy** build trees (`build-f5/ww05`, `build-f6`, `build-vita-private/*`): rebuildable, and they were the bulk of the old disk usage.
 
+## 1b. Branch inventory at handover (2026-10-20)
+
+Trunk: **`development` = the last commit in this file's history** (starts at `ae82cff0`, plus this doc commit).
+
+| Branch | Ahead / behind `development` | State | On `origin`? |
+|---|---|---|---|
+| `task/draw-class-admission` @ `4f57bce5` | 1 / 8 | **WIP**: class admission implemented and run to the MMIO wall, **not reviewed, not merged** — first thing to pick up | pushed |
+| `task/cycdomain-transfer-probe` @ `613318ff` | 13 / 36 | superseded experiment (2026-10-18/19), results in memory | pushed |
+| `task/dispatch-target-guard-20261019` @ `4b3f3cf5` | 19 / 36 | superseded experiment, results in memory | pushed |
+| `task/admit-desktop-edge-8015ea5c` @ `af1172c8` | 0 / 5 | **merged** (old pointer) | no |
+| `task/textured-draw-census` @ `ae82cff0` | 0 / 1 | **merged** (old pointer) | no |
+| `task/HIGH-BLOCK-GLOBAL-CTX` @ `862b2ce1` | 0 / 36 | fully merged content (ancestor) | no |
+
+Every branch deleted during the 2026-10-20 cleanup is preserved as a tag `archive/<name>-<date>` (40 tags, local only unless pushed). Push them with `git push origin --tags`.
+
 ## 2. Set up
 
 1. Clone/copy the repository and check the state:

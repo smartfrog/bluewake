@@ -1,0 +1,4 @@
+*.db-wal
+*.db-shm
+*.db.bak*
+memory.db.pre-*
