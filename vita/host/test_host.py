@@ -259,16 +259,21 @@ class StartupHostTest(unittest.TestCase):
     def test_unimplemented_desktop_service_edges_are_still_refused(self):
         subprocess.run([str(OUT / 'host_probe'), 'epilogue-edge-service'], check=True)
 
-    def test_vrbox2_draw_edge_preserves_cpu_state_and_requires_explicit_admission(self):
-        subprocess.run([str(OUT / 'host_probe'), 'vrbox2-edge-owned'], check=True)
+    def test_vrbox_draw_edges_preserve_cpu_state_and_require_explicit_admission(self):
+        for actor in ('vrbox', 'vrbox2'):
+            with self.subTest(actor=actor):
+                subprocess.run([str(OUT / 'host_probe'), f'{actor}-edge-owned'], check=True)
 
-    def test_vrbox2_draw_edge_refuses_invalid_ownership_alias_or_pc(self):
-        for shape in ('unowned', 'alias', 'mismatch'):
+    def test_vrbox_draw_edges_refuse_invalid_ownership_alias_or_pc(self):
+        for actor in ('vrbox', 'vrbox2'):
+            for shape in ('unowned', 'alias', 'mismatch'):
+                with self.subTest(actor=actor, shape=shape):
+                    subprocess.run([str(OUT / 'host_probe'), f'{actor}-edge-{shape}'], check=True)
+
+    def test_vrbox_draw_admission_does_not_admit_other_desktop_edges(self):
+        for shape in ('unsupported', 'sea', 'background'):
             with self.subTest(shape=shape):
-                subprocess.run([str(OUT / 'host_probe'), f'vrbox2-edge-{shape}'], check=True)
-
-    def test_vrbox2_draw_admission_does_not_admit_other_desktop_edges(self):
-        subprocess.run([str(OUT / 'host_probe'), 'vrbox2-edge-unsupported'], check=True)
+                subprocess.run([str(OUT / 'host_probe'), f'vrbox-edge-{shape}'], check=True)
 
     def test_owned_observed_retrace_wait_executes_guest_sleep_code_without_a_fake_wakeup(self):
         subprocess.run([str(OUT / 'host_probe'), 'epilogue-edge-retrace'], check=True)

@@ -3131,7 +3131,7 @@ at this boundary. The Vita guard refused it because `vita/host/boot_host.c` test
 shared table and the address was not in its compiled-boundary list.
 
 With `-DWW_EDGE_OBSERVATION_ADMIT=ON` (off by default in CMake; the private perf builder
-enables it) the host admits exactly three keys, all module-owned and free of a linked alias:
+enables it) the host admits exactly four keys, all module-owned and free of a linked alias:
 `0x80120188`, which must be return-shaped (`pc == lr == key`), and `0x8022F9FC`, which is a
 block entry (`pc == key`) and deliberately has **no** LR check. The host does not change
 PC, LR, registers or MSR; the guest executes its own compiled block from each key.
@@ -3149,11 +3149,37 @@ LR restriction on this function entry. The host supplies neither a return value 
 capsule: the existing translated body performs all guest work and supplies its own result.
 This is not a fabricated success or a draw skip. Unknown service edges still stop loudly.
 
+The explicitly bounded vrbox family consists of `0x8015E3F0` (`daVrbox_Draw`) and
+`0x8015EA5C` (`daVrbox2_Draw`). The former updates sky colours, transforms the actor's sky
+model relative to the camera, submits it to the sky list and returns its own `TRUE`, including
+the invisible-sky early return (`source-port/game/src/d/actor/d_a_vrbox.cpp:15-55`). Both
+entries now use the same owned, unaliased, exact-PC admission, with no LR restriction and
+no guest state or return-value substitution.
+
+All four environment-draw census keys are present at
+`runtime/host/src/edge_intercept_table.h:60`, collected from the explicit cases at
+`runtime/host/src/edge_intercepts.c:82-85` by
+`scripts/gen_edge_intercept_table.py:34-51,71-95`. The desktop groups exactly these four
+at `runtime/host/src/main.c:12944-12960`:
+
+| Address | Symbol and guest work | Admission with option ON |
+|---|---|---|
+| `8015E3F0` | `daVrbox_Draw`: sky model/colour draw; `d_a_vrbox.cpp:15-55` | Admitted by this follow-up |
+| `8015EA5C` | `daVrbox2_Draw`: sea/haze/back-cloud model draw; `d_a_vrbox2.cpp:27-85` | Previously admitted |
+| `8015D80C` | `daSea_Draw`: enqueue the sea packet on the sky translucent list; `d_a_sea.cpp:1166-1171` | Still refused |
+| `800D8DB8` | `daBg_Draw`: delegate to the room/background actor's `draw()`; `d_a_bg.cpp:287-290` | Still refused |
+
+The actor file references in the table are under `source-port/game/src/d/actor/`.
+The strict two-entry vrbox family is exhausted after this follow-up; the broader sky-list
+family still includes the unadmitted sea entry, and the full environment census also has
+the unadmitted background entry. Neither is blanket-admitted. `0x800A0B60` is a collision
+attribute lookup (`source-port/game/src/d/d_bg_s.cpp:226`), not another vrbox/sky draw.
+
 For `0x80120188` the check is a **shape check**. The production call site passes `cpu->pc`
 as the address, so the discriminating term is `lr == key`; the address must also match that
 `pc`. It does not prove the caller, does not verify `r29` or `f1`, does not exclude a
 corrupted `pc`/`lr` pair that both land on the key, and does not exclude a corrupted code
-page. `0x8022F9FC` and `0x8015EA5C` are block-entry cases: each requires `pc == key` and has no
+page. `0x8022F9FC`, `0x8015E3F0` and `0x8015EA5C` are block-entry cases: each requires `pc == key` and has no
 `lr` term at all.
 
 The option is a diagnostic waiver, not an emulation of the desktop observation: the Vita
@@ -3164,7 +3190,7 @@ that an incoherent `r29`/`f1` reaches the guest `stfs` unvalidated, so a later l
 collision anomaly could be a downstream symptom rather than a new fault. Unowned keys,
 shapes other than those named above, other observation-only keys, alias-shadowed keys and
 every key that requires a host service are still refused. The admission is reported once per run as
-`[edge-admit] address=<80120188|8022F9FC|8015EA5C> module_owned=1 reason=observation-only` so the
+`[edge-admit] address=<80120188|8022F9FC|8015E3F0|8015EA5C> module_owned=1 reason=observation-only` so the
 next trial can tell which key fired.
 
 A private ON build is requested with `scripts/vita/ww05/game_build.py --edge-observation-admit`.

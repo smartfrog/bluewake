@@ -206,7 +206,7 @@ def build_parser():
     parser.add_argument('--dst-alpha-admit', action=argparse.BooleanOptionalAction, default=True,
                         help='admit the non-conflict destination-alpha mono-pass (on by default)')
     parser.add_argument('--edge-observation-admit', action=argparse.BooleanOptionalAction, default=True,
-                        help='admit observation-only edges: 0x80120188 (GroundCross caller-return, LR-shaped), 0x8022F9FC (NAME_SCENE block entry) and 0x8015EA5C (daVrbox2_Draw entry) (on by default for the private perf profile)')
+                        help='admit observation-only edges: 0x80120188 (GroundCross caller-return, LR-shaped), 0x8022F9FC (NAME_SCENE block entry), 0x8015E3F0 (daVrbox_Draw entry) and 0x8015EA5C (daVrbox2_Draw entry) (on by default for the private perf profile)')
     parser.add_argument('--idle-deadline-advance', action=argparse.BooleanOptionalAction, default=True,
                         help='let a recognised scheduler-idle turn run to the next device deadline (needs the VI clock; on by default)')
     parser.add_argument('--turn-cap', type=int, default=4096,

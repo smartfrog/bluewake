@@ -9,7 +9,7 @@ import test_host
 SCENARIOS = ('retrace-unowned', 'draw-done-mismatch', 'restore-unowned', 'no-writer', 'delta',
              'unmapped-queue', 'alias-queue', 'thread-valid', 'thread-unmapped',
              'failed-write', 'short-write', 'short-complete', 'second-call', 'compiled-no-record',
-             'bounded', 'vrbox2-no-record')
+             'bounded', 'vrbox2-no-record', 'vrbox-no-record')
 REFUSAL_SCENARIOS = ('epilogue-edge-unowned', 'epilogue-edge-context-unowned', 'epilogue-edge-retrace-unowned',
                      'epilogue-edge-retrace-bad-caller', 'epilogue-edge-retrace-bad-queue',
                      'epilogue-edge-retrace-bad-sda', 'epilogue-edge-retrace-alias',
@@ -35,10 +35,11 @@ class RejectionCapsuleTest(unittest.TestCase):
             with self.subTest(scenario=scenario):
                 subprocess.run([str(self.output / 'host_probe'), scenario], cwd=self.output, check=True)
 
-    def test_vrbox2_draw_boundary_contract_with_admission_enabled(self):
-        for shape in ('owned', 'unowned', 'alias', 'mismatch', 'unsupported'):
-            with self.subTest(shape=shape):
-                subprocess.run([str(self.output / 'host_probe'), f'vrbox2-edge-{shape}'], check=True)
+    def test_vrbox_draw_boundary_contracts_with_admission_enabled(self):
+        for actor in ('vrbox', 'vrbox2'):
+            for shape in ('owned', 'unowned', 'alias', 'mismatch', 'unsupported', 'sea', 'background'):
+                with self.subTest(actor=actor, shape=shape):
+                    subprocess.run([str(self.output / 'host_probe'), f'{actor}-edge-{shape}'], check=True)
 
     def test_default_build_contains_no_capsule_code(self):
         root = test_host.ROOT

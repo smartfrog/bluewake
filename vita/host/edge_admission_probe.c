@@ -12,5 +12,7 @@ int main(void) {
     assert(!ww_edge_admit_observation(0x80120188u, 0x80120188u, 0x8012018Cu, true, false));
     assert(!ww_edge_admit_observation(0x8022FA00u, 0x8022FA00u, 0u, true, false));
     assert(!ww_edge_admit_observation(0x802305E0u, 0x802305E0u, 0u, true, false));
+    assert(ww_edge_admit_observation(0x8015E3F0u, 0x8015E3F0u, 0u, true, false));
+    assert(!ww_edge_admit_observation(0x8015E3F4u, 0x8015E3F4u, 0u, true, false));
     return 0;
 }

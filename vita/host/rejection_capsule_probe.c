@@ -250,15 +250,17 @@ int main(int argc, char** argv) {
         assert(writes == 2u);
         assert(ww_host_edge(host, &host->cpu, 0x80308A9Cu));
         assert(host->edge_stopped && strcmp(host->error, REFUSAL) == 0 && writes == 2u);
-    } else if (strcmp(scenario, "vrbox2-no-record") == 0) {
+    } else if (strcmp(scenario, "vrbox2-no-record") == 0 || strcmp(scenario, "vrbox-no-record") == 0) {
+        const bool vrbox2 = strcmp(scenario, "vrbox2-no-record") == 0;
+        const u32 address = vrbox2 ? 0x8015EA5Cu : 0x8015E3F0u;
         ww_rejection_capsule_init(sink, NULL);
-        StaticRecompModuleDesc module = module_for(0x8015EA5Cu, 0x8015EC30u);
+        StaticRecompModuleDesc module = module_for(address, vrbox2 ? 0x8015EC30u : 0x8015E530u);
         host->module = &module;
-        set_sleep_shape(host, 0x8015EA5Cu, 0x800190A0u, 0x80410000u, 0x803FE0E0u);
+        set_sleep_shape(host, address, 0x800190A0u, 0x80410000u, 0x803FE0E0u);
         bluewake_cycle_domain_begin_turn(&host->cycles, &host->cpu);
         bluewake_cycle_domain_prepare_dispatch(&host->cycles, &host->cpu);
         const CPUState before = host->cpu;
-        assert(!ww_host_edge(host, &host->cpu, 0x8015EA5Cu));
+        assert(!ww_host_edge(host, &host->cpu, address));
         assert(host->error == NULL && !host->edge_stopped && writes == 0u);
         assert(memcmp(&host->cpu, &before, sizeof before) == 0);
     } else if (strcmp(scenario, "compiled-no-record") == 0) {

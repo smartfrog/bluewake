@@ -376,14 +376,19 @@ int main(int argc, char** argv) {
         host->cpu.instruction_fallback(&host->cpu, 0xFFFFFFFFu, host->cpu.pc);
         assert(host->cpu.pc == 0x80001000u);
         assert(host->error != NULL);
-    } else if (strncmp(argv[1], "vrbox2-edge-", 12u) == 0) {
-        const bool owned = strcmp(argv[1], "vrbox2-edge-owned") == 0;
-        const bool unowned = strcmp(argv[1], "vrbox2-edge-unowned") == 0;
-        const bool alias = strcmp(argv[1], "vrbox2-edge-alias") == 0;
-        const bool mismatch = strcmp(argv[1], "vrbox2-edge-mismatch") == 0;
-        const bool unsupported = strcmp(argv[1], "vrbox2-edge-unsupported") == 0;
-        assert(owned || unowned || alias || mismatch || unsupported);
-        const u32 address = unsupported ? 0x802305E0u : 0x8015EA5Cu;
+    } else if (strncmp(argv[1], "vrbox2-edge-", 12u) == 0 || strncmp(argv[1], "vrbox-edge-", 11u) == 0) {
+        const bool vrbox2 = argv[1][5] == '2';
+        const char* shape = argv[1] + (vrbox2 ? 12u : 11u);
+        const bool owned = strcmp(shape, "owned") == 0;
+        const bool unowned = strcmp(shape, "unowned") == 0;
+        const bool alias = strcmp(shape, "alias") == 0;
+        const bool mismatch = strcmp(shape, "mismatch") == 0;
+        const bool unsupported = strcmp(shape, "unsupported") == 0;
+        const bool sea = strcmp(shape, "sea") == 0;
+        const bool background = strcmp(shape, "background") == 0;
+        assert(owned || unowned || alias || mismatch || unsupported || sea || background);
+        const u32 address = unsupported ? 0x802305E0u : sea ? 0x8015D80Cu : background ? 0x800D8DB8u :
+                            vrbox2 ? 0x8015EA5Cu : 0x8015E3F0u;
         StaticRecompRange range = {address, address + 4u};
         StaticRecompModuleDesc module = {.dispatch = dispatch, .code_ranges = &range, .num_code_ranges = 1u};
         host->module = unowned ? NULL : &module;

@@ -10,10 +10,11 @@
 // None of these edges runs a host service; the guest's own compiled block runs
 // unchanged. 0x8022F9FC is d_s_name's scene-create block (the NAME_SCENE
 // milestone); 0x80120188 is checkLavaFace's GroundCross return, which also
-// requires the caller-return LR. 0x8015EA5C is daVrbox2_Draw's entry; the
-// desktop hook only counts it, and the guest still owns all sky draw work.
+// requires the caller-return LR. 0x8015E3F0/0x8015EA5C are the two vrbox draw
+// entries; desktop only counts them, and the guest owns all sky draw work.
 static inline bool ww_edge_observation_address(uint32_t address) {
-    return address == 0x80120188u || address == 0x8022F9FCu || address == 0x8015EA5Cu;
+    return address == 0x80120188u || address == 0x8022F9FCu ||
+           address == 0x8015EA5Cu || address == 0x8015E3F0u;
 }
 
 static inline bool ww_edge_admit_observation(uint32_t address, uint32_t pc,
