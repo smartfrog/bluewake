@@ -3,6 +3,9 @@
 This fork is the PS Vita product home (`smartfrog/bluewake`); upstream is read-only, with no upstream PRs.
 The goal is visible title/menu, verified controls and normal-speed gameplay in Vita3K; audio is deferred.
 
+Transient state — current blockers, readiness, versions and run results — belongs on the task board, not in this
+file. This file states rules and pointers only.
+
 ## Project state and machines
 
 - Read the local `task-board` and relevant `knowledge`, starting with `project-rules`. SQLite memory under
