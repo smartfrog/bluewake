@@ -26,6 +26,7 @@ enum : unsigned {
 };
 constexpr GLenum GL_NO_ERROR = 0;
 constexpr GLenum GL_INVALID_VALUE = 0x501;
+constexpr unsigned GL_DEPTH_BUFFER_BIT = 0x100;
 
 namespace test_gl {
 struct Texture {
@@ -52,6 +53,17 @@ inline GLsizei last_binary_size = 0;
 inline GLint link_status = 1;
 inline bool fail_next_binary_link = false;
 inline GLenum read_buffer = GL_BACK;
+struct DepthClear {
+  unsigned mask;
+  float depth;
+  GLboolean depth_write;
+  unsigned frame;
+  unsigned draws;
+};
+inline std::vector<DepthClear> clears;
+inline float clear_depth = 1.0f;
+inline GLboolean depth_write = GL_TRUE;
+inline GLenum next_clear_error = GL_NO_ERROR;
 inline std::size_t texture_bytes() {
   std::size_t bytes = 0;
   for (const auto& [name, texture] : textures)
@@ -113,6 +125,14 @@ inline void glReadPixels(GLint, GLint, GLsizei width, GLsizei height, GLenum,
   std::fill_n(static_cast<std::uint8_t*>(data), std::size_t(width) * height * 4, 0x6b);
 }
 inline void glDrawElements(GLenum, GLsizei, GLenum, const void*) { ++test_gl::draws; }
+inline void glClearDepthf(float depth) { test_gl::clear_depth = depth; }
+inline void glDepthMask(GLboolean enabled) { test_gl::depth_write = enabled; }
+inline void glClear(unsigned mask) {
+  test_gl::clears.push_back({mask, test_gl::clear_depth, test_gl::depth_write,
+                            test_gl::swaps, test_gl::draws});
+  test_gl::error = test_gl::next_clear_error;
+  test_gl::next_clear_error = GL_NO_ERROR;
+}
 inline GLuint glCreateShader(GLenum) { return test_gl::next_name++; }
 inline GLuint glCreateProgram() { return test_gl::next_name++; }
 inline void glGetShaderiv(GLuint, GLenum, GLint* status) { *status = 1; }
@@ -166,7 +186,6 @@ TEST_GL_VOID(glEnable, (GLenum))
 TEST_GL_VOID(glDisable, (GLenum))
 TEST_GL_VOID(glDepthFunc, (GLenum))
 TEST_GL_VOID(glDepthRangef, (float, float))
-TEST_GL_VOID(glDepthMask, (GLboolean))
 TEST_GL_VOID(glBlendEquation, (GLenum))
 TEST_GL_VOID(glBlendFuncSeparate, (GLenum, GLenum, GLenum, GLenum))
 TEST_GL_VOID(glCullFace, (GLenum))

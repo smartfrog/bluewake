@@ -75,7 +75,7 @@ public:
             : kDefaultProgramCacheDirectory,
         gx_vita::kProgramCacheDefaultMaxBytes));
 #endif
-    return nullptr;
+    return clear_frame_depth();
   }
 
   const char* submit_draw(const gx_vita::TranslatedDraw& draw,
@@ -194,7 +194,9 @@ public:
 
   const char* present() override {
     vglSwapBuffers(GL_FALSE);
-    return check_gl("present");
+    if (const char* error = check_gl("present"))
+      return error;
+    return clear_frame_depth();
   }
 
   const char* readback(WwRendererFramePixels& frame) override {
@@ -241,6 +243,13 @@ public:
   }
 
 private:
+  const char* clear_frame_depth() {
+    glDepthMask(GL_TRUE);
+    glClearDepthf(1.0f);
+    glClear(GL_DEPTH_BUFFER_BIT);
+    return check_gl("frame depth clear");
+  }
+
   const char* check_gl(const char* what) {
     const GLenum error = glGetError();
     if (error == GL_NO_ERROR)

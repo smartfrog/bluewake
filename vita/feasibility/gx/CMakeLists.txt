@@ -141,7 +141,7 @@ else()
     target_compile_options(vita_gl_backend_cache_tests PRIVATE -O2 -Wall -Wextra)
 
     enable_testing()
-    foreach(scenario distinct same draw readback error shutdown)
+    foreach(scenario distinct same draw readback error shutdown depth-clear depth-clear-error)
         add_test(NAME vita_gl_backend_${scenario} COMMAND vita_gl_backend_tests ${scenario})
     endforeach()
     add_test(NAME program_cache COMMAND program_cache_tests)

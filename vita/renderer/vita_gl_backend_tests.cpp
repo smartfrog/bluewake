@@ -113,6 +113,51 @@ int copy_reports_error() {
   return 0;
 }
 
+int depth_clear_per_frame() {
+  auto* backend = ww_renderer_vita_backend();
+  glClearDepthf(0.25f);
+  glDepthMask(GL_FALSE);
+  CHECK(backend->init() == nullptr);
+  CHECK(test_gl::clears.size() == 1);
+  gx_vita::TranslatedDraw draw;
+  gx_vita::CgProgram program;
+  draw.pipeline.depth_write = 0;
+  for (unsigned frame = 0; frame < 3; ++frame) {
+    CHECK(backend->submit_draw(draw, program) == nullptr);
+    CHECK(backend->submit_copy(copy_to(0x1000)) == nullptr);
+    CHECK(backend->submit_draw(draw, program) == nullptr);
+    CHECK(backend->finish() == nullptr);
+    CHECK(test_gl::clears.size() == frame + 1);
+    CHECK(backend->present() == nullptr);
+    CHECK(test_gl::clears.size() == frame + 2);
+    WwRendererFramePixels pixels;
+    CHECK(backend->readback(pixels) == nullptr);
+    CHECK(pixels.rgba.front() == 0x6b);
+    CHECK(test_gl::clears.size() == frame + 2);
+  }
+  for (unsigned frame = 0; frame < test_gl::clears.size(); ++frame) {
+    const auto& clear = test_gl::clears[frame];
+    CHECK(clear.mask == GL_DEPTH_BUFFER_BIT);
+    CHECK(clear.depth == 1.0f);
+    CHECK(clear.depth_write == GL_TRUE);
+    CHECK(clear.frame == frame);
+    CHECK(clear.draws == frame * 2);
+  }
+  backend->shutdown();
+  return 0;
+}
+
+int depth_clear_reports_error() {
+  auto* backend = ww_renderer_vita_backend();
+  CHECK(backend->init() == nullptr);
+  test_gl::next_clear_error = GL_INVALID_VALUE;
+  const char* error = backend->present();
+  CHECK(error != nullptr);
+  CHECK(std::strcmp(error, "vitaGL frame depth clear error 0x501") == 0);
+  backend->shutdown();
+  return 0;
+}
+
 int releases_owned_resources() {
   auto* backend = ww_renderer_vita_backend();
   for (unsigned cycle = 0; cycle < 2; ++cycle) {
@@ -227,6 +272,8 @@ int main(int argc, char** argv) {
   if (scenario == "draw") return draw_slots();
   if (scenario == "readback") return copy_preserves_readback();
   if (scenario == "error") return copy_reports_error();
+  if (scenario == "depth-clear") return depth_clear_per_frame();
+  if (scenario == "depth-clear-error") return depth_clear_reports_error();
   if (scenario == "shutdown") return releases_owned_resources();
 #if defined(WW_PROGRAM_CACHE)
   if (scenario == "cache") return cache_round_trip();
