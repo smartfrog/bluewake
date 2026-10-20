@@ -1,131 +1,137 @@
-# Agent instructions
+# Vita port instructions
 
-Chris runs this repository. Elliott is co-maintainer. These rules apply to every person and every bot
-working here, including bots either of them runs. If another file in the repository disagrees with this
-one, this one wins.
+This fork is the PS Vita product home (`smartfrog/bluewake`); upstream is read-only, with no upstream PRs.
+The goal is visible title/menu, verified controls and normal-speed gameplay in Vita3K; audio is deferred.
 
-## Where things are
+## Project state and machines
 
-- `README.md`: for players.
-- `AGENTS.md` (this file): the rules.
-- `docs/GOAL_LOOP.md`: what we're doing, day by day, and the five-step loop every session follows. Start here.
-- `docs/PRIORITIES.md`: the ranked backlog of bugs, performance work and requests, with the evidence.
-- `docs/PERFORMANCE.md`: the speed strategy (three horizons, following the decompilation), the runbook, and how
-  to measure a change.
-- `docs/DIRECTION.md`: where BlueWake is going: releases without game code, the same app on every platform
-  (Android matches the iPhone app), fast contributor reviews, measured performance.
-- `docs/MIGRATION_STATUS.md`: what is done and what is open.
-- `docs/BUILD_YOUR_OWN.md`, `docs/BUILDER.md`, `docs/WINDOWS.md`, `docs/MODS.md`, `docs/WWHD_TEXTURES.md`:
-  how things work.
-- `docs/WINDOWS_TASKS.md`: Windows work waiting on a Windows PC, in priority order.
-- `docs/status/*_YYYY-MM-DD.md`: dated records of past work. They are evidence, not instructions.
-- `docs/archive/`: old plans, goal prompts and handoffs. Never act on them.
+- Read the local `task-board` and relevant `knowledge`, starting with `project-rules`. SQLite memory under
+  `.opencode/memory/` is authoritative, not old Markdown backlogs. All agents read; only memory-manager writes it.
+- `development` is the local integration trunk. Code tasks branch as `task/<id>` from its verified HEAD and
+  integrate only after independent review/checks. Leave `main` untouched; no push without explicit permission.
+  Retrieve `development-branch-integration` for the full flow; do not switch/reset someone else's workspace.
+- Development machines are **ARM64/AArch64 Linux**, not x86-64; there is no x86-64 emulator installed.
+  Native host tools and Vita3K are AArch64 ELF64/LP64 (8-byte pointers).
+- The Vita target is **ARMv7-A/Cortex-A9, NEON, hard-float, ELF32/ILP32** (4-byte pointers), not ARM64.
+  Native host tests do not certify Vita structure layouts or ABI.
+- Vita3K is a native AArch64 PIE: symbolize host PCs with the matching ELF and `/proc/<pid>/maps` load bias,
+  not as x86 addresses or raw file offsets. See knowledge `dev-machines-arm64-linux`.
 
-## Respect the machine you work on
+## Build wiring
 
-This checkout usually lives on someone's own computer: the maintainer's laptop, desktop or build PC. You are a
-guest on it. Its files, accounts, other projects, settings and uptime are not yours to change.
+- Two tracks coexist: native `source-port/` and the AOT recompilation fallback (`vita/host`, `vita/renderer`).
+  `source-port/` and newer harnesses are branch-dependent; verify Git refs before assuming code is absent.
+  Retrieve `runtime-sourceport-architecture` for import boundaries/provenance; do not create another working fork.
+- `vita/feasibility` contains diagnostics. Read relevant `docs/vita/VITA-WW-*.md`, checking dated claims against code.
+- `vita/host/CMakeLists.txt` reuses selected `runtime/host/src` services and builds the translated module
+  through `cmake/composite`. The static module borrows the host's CPU/runtime; do not add a second CPU owner.
+- Aurora itself is disabled, but `GXRUNTIME_ENABLE_AURORA_RECOMP=ON` supplies the GX frontend/gxcore used
+  by the Vita renderer. The rendering backend is vitaGL, not the desktop Dawn backend.
+- Dependencies are clean, exact-pinned checkouts in `ref/vita-ww-01/{RecompCore,DolRecomp}`, not `ref/recompcore`.
+  Pin checks involve the Vita scripts, `config/dependencies.lock.json`, and `scripts/builder/profiles/bluewake.sh`.
+  Do not edit ignored dependencies or replay historical patches to bypass these checks.
+- Fix generators/preparation scripts rather than generated chunks. Preserve disc and composite-digest validation.
+- Reuse sealed translated objects where valid; do not regenerate canonical exports or repeat full rebuilds speculatively.
+  CMake caches absolute paths/flags: pass explicit ON/OFF and verify emitted flags/cache, not just intended argv.
+  Reused composites must carry the current context macros; see `build-configuration-evidence` and
+  `build-composite-digest-requirement`. Keep large scratch under ignored `build-*`, not quota-limited `/tmp` tmpfs.
 
-- **Ask before installing anything.** No system packages (`sudo`, `apt`, `dnf`, `pacman`, `snap`, `flatpak`),
-  no `pip install` outside a project-local virtual environment, no global `npm`, `cargo` or `gem` installs, no
-  SDKs, drivers, services, shells, fonts or AppImage desktop integration, and no edits to `PATH` or shell
-  profiles, unless the person whose machine it is has agreed to that exact step. Say what it is, where it goes,
-  how large it is, and how to remove it.
-- **Prefer project-local, reversible setups.** Keep tools and generated data under the checkout's ignored
-  directories (`build-*/`, `ref/`, `.opencode/`). Download and extract there, not into the home directory or
-  `/usr`. If a step really needs a system package, stop and ask first; do not assume it is fine.
+## Recompilation build
+
+- Use Python 3.11+ and the GameCube USA `GZLE01` revision 0 disc, not Wii U WWHD.
+- `scripts/vita/ww05/game_build.py` uses existing tools without downloading them. It hardcodes paths to
+  `build-vita-tools/local-stack` (native AArch64 GCC, CMake, Ninja, VitaSDK) and vitaGL/renderer SDK files
+  under `/home/fred/cloudpunk-vita/tools/`. Check these paths before building; setting `VITASDK` alone does not relocate them.
+- Output defaults to `/home/fred/projects/zeldaWWHDRecomp/build-f5/ww05`. To isolate a build, set absolute
+  `WW05_BUILD_ROOT="$PWD/build-vita-private/ww05"` for build and launch commands; `--out` alone cannot change it.
+- Full builds also require verified private external, FP-unavailable and decrementer vector captures.
+  Their default paths and override flags are in `game_build.py`; `--prepare-only` does not create these captures.
+
+Run from the repository root, after checking the prerequisites:
+
+```sh
+STACK="$PWD/build-vita-tools/local-stack"
+PATH="$STACK/bin:$PATH" python3 -B scripts/vita/ww05/game_build.py --disc "/absolute/path/GZLE01.iso" --jobs 2
+```
+
+- Add `--prepare-only` to stop after extraction, translation and composite verification. No Vita3K process is launched.
+- The module defaults to `--opt-level 1` with `-fno-tree-dominator-opts`; retain `-ffp-contract=off` and
+  `-fno-fast-math`. Project limit is **`-j2` maximum**, targeted builds `-j1`, even if a CLI accepts more.
+  Feature defaults differ by branch: inspect `--help`, the actual cache and compile commands before comparing builds.
+  Toolchain/reuse details: knowledge `build-reuse-toolchain` and `build-vita-tools/local-stack/USAGE.md`.
+
+## Focused verification
+
+```sh
+python3 -B vita/host/test_build_root.py
+CC="$STACK/bin/aarch64-conda-linux-gnu-gcc" python3 -B -m unittest discover -s vita/host -p 'test_host.py'
+bash scripts/audit_repo.sh
+```
+
+- `CC` is the native host compiler, never `arm-vita-eabi-gcc`. Set `STACK` as above in a new shell.
+- The Python host harness generates synthetic vectors/contracts before CMake with `WW05_TESTS_ONLY=ON`;
+  configuring `vita/host` alone misses these fixtures. Stop Vita3K first. Suites sharing
+  `build-f5/services-tests` must not run concurrently. Narrow discovery with `-p 'test_NAME.py'`.
+- Inspect `build-evidence.json`, `footprint.json`, `vita/ww05.map`, and `vita/compile_commands.json` before
+  execution; completed builds preserve snapshots under `artifacts-*`. Compilation is not physical Vita acceptance.
+
+## Execution and private data
+
+- `scripts/vita/ww05/stage_plan.py` stages without launching; `launch.py` installs/runs in fresh private profiles.
+  Launch requires a clean source checkpoint, including no untracked files; report blockers rather than deleting user files.
+- Read `safety-run-envelope` before trials: scope-specific memory admission/cgroup limits, zero swap and OOM-stop
+  are mandatory. No RAM/RSS poller or gate bypass. Serialize install+guest under
+  `flock -w 600 /tmp/opencode/ww-guest.lock`; signal only authenticated owned guest processes, never the watcher.
+- Use the canonical two-log fault watcher, not stale per-run copies (`runtime-guest-watch-classification`).
+  Thirty seconds of low CPU/silence can be Mesa shader warm-up; reconcile the selected watcher's threshold
+  with the reviewed 120-second silent-idle fix before running. Preserve both guest and emulator logs.
+- Bind requests to the packaged guest's source identity, not a separate host-wrapper revision. Preserve exact argv,
+  packages, failed profiles and evidence. Without explicit continuation, the first GX command is an intentional stop,
+  not a title/render result; see `runtime-trial-harness-preconditions`.
+- Unsupported guest services must fail explicitly: never skip instructions, fabricate completions, or change FP
+  semantics to work around an emulator defect. Vita3K results do not establish hardware behavior or frame rate.
+- Acceptance belongs in task `GAMEPLAY`: logo cadence, present counters and diagnostic/sentinel builds are not
+  controllable-gameplay FPS or a valid matched performance comparison.
+- Keep discs, extracted/translated game files, game VPK/SELF/ELF files, firmware, keys and saves private and untracked.
+  Use ignored `build-*` outputs and save copies; never upload these artifacts or delete player data.
+
+## Measuring runs and diagnosing translated-code faults
+
+- A run is valid only from a **brand-new private profile**. A reused profile reproduces a false stop with
+  identical artefacts; one left by a killed run can carry a partial `.bwsc` program cache. Install afresh each time.
+- Launch through the canonical runner. A hand-launched profile keeps its absolute `pref-path` and then reads the
+  *sibling* run's files: the guest stalls near 1 % CPU, never opens `app0:/main.dol` or `libshacccg.suprx`, and
+  `/proc/<pid>/maps` has no `0x4…` guest block. If launching by hand, re-point `pref-path` at the profile first.
+- Guest memory is not identity-mapped: read a guest vaddr `X` at host `0x400000000 + X`. The module's own code and
+  data vaddrs are stable across runs, so they need no load bias; guest-space addresses always do.
+- Pixel verdicts come from **full-image scans** (960×544 is trivial) with the threshold stated. Never stride-sample:
+  a step-2 sample erased a 656-pixel cluster and produced two false "all black" calls in one night.
+- **ARM addresses are build-specific.** Re-derive every address against the exact `.velf`/`ww05.map` of the build
+  under test; never carry addresses across builds. Forgetting this wasted five gdb attempts.
+- Keep the three address spaces apart: **PowerPC guest PCs** (`0x80xxxxxx`, fixed 4-byte instructions, no state
+  bit), the **translated ARMv7 module** (`.text` ~`0x81…`–`0x97…`, Thumb-2, ILP32) and the **AArch64 host**
+  (`0xaaab…`, `0xffff…`). A PowerPC PC is not an ARM address; disassembling one inside the module is meaningless.
+- Thumb interworking: on ARMv7 a `blx` target's bit 0 selects the instruction set (odd = Thumb, even = ARM). A
+  function pointer that loses that bit, or a PowerPC address used as a function pointer, makes the CPU decode
+  Thumb bytes as ARM and run data as code.
+- Classify a fault before interpreting it: a fault PC inside `.rodata`/`.bss` means *data executed as code*, not a
+  wild store. Check the bytes at the PC and the register arithmetic before calling it memory corruption.
+- An opt-in switch must be **compile-time or fixture-driven, never an environment variable**: in the guest
+  `environ` is NULL (`_start` never installs `envp`), so a `getenv` gate is dead and looks like "never fires".
+- When a check cannot be run, report it as **unobserved**, not refuted. A fail-closed check must name the invalid
+  state and print the values (`pc`, `lr`, target value), never fall through.
+- Build trees are reproducible from their `build.sh`; releasing one is fine when its recipe, identity files and
+  artefact hashes are preserved. Run logs, `frames/`, `guest.maps`, `gdb*.log` and `.bwsc` caches are evidence:
+  keep them.
+
+## Machine hygiene
+
 - **Do not touch anything outside the checkout.** Never delete, move or rewrite files in the user's home, other
   repositories, saves or system directories. Do not kill processes you do not own.
-- **Leave the machine usable.** Bound build and test parallelism, keep disk space healthy, and do not saturate
-  the CPU or disk while the person is using the machine. Stop heavy work you started when it is no longer needed.
+- **Leave the machine usable.** Bound build and test parallelism (the `-j2` / `-j1` limits above), keep disk space
+  healthy, and do not saturate the CPU or disk while the person is using the machine. Stop heavy work you started
+  when it is no longer needed.
 - **Say what you changed on the machine.** If you installed, downloaded or generated something outside the
   checkout, list it and how to undo it.
-
-## Contributors and attribution
-
-- Commits, pull requests, issues and comments carry human names only. Never add an AI tool, model or bot
-  as author, co-author or committer, and never add "Generated with" lines, AI session links or bot
-  signatures. Turn off your tool's attribution setting (`.claude/settings.json` does this for Claude Code).
-- Keep human authorship. When bringing in someone else's work, cherry-pick it with its author, or credit
-  them with a `Co-authored-by:` line.
-- The "No bot or AI contributors" check (`scripts/check_attribution.py`) must pass on every pull request.
-
-## How to make changes
-
-- Every change goes through a branch and a pull request into `main`. Never push to `main` directly,
-  force-push it, or rewrite its history.
-- Before you start, check open pull requests and recently pushed branches (`gh pr list`,
-  `git branch -r --sort=-committerdate`) so two bots don't do the same work. Don't push to someone
-  else's open pull request unless they ask.
-- One concern per pull request. The title and description say what changes for players and how it was
-  checked, in plain language.
-- Anything that changes gameplay, timing or rendering is off by default until it has been tested on the
-  platform it affects.
-- Runtime changes go to [chrissotraidis/RecompCore](https://github.com/chrissotraidis/RecompCore), branch
-  `bluewake-next`, by pull request. BlueWake then pins the commit (`scripts/builder/profiles/bluewake.sh`,
-  `config/dependencies.lock.json`) and exports it as `patches/recompcore/NNNN-*.patch`.
-- Run the checks that fit the change: `scripts/audit_repo.sh`, the host tests, and the Windows CI.
-
-## Keep Windows in step
-
-Chris works on a Mac; Elliott builds and tests Windows. Write every fix so the Windows build gets it
-just by building from `main`:
-
-- Put game, audio, timing and logging changes in shared code (`runtime/host/src`, or RecompCore for the
-  runtime). The Windows build compiles the same files.
-- A desktop setting goes in both menus: `runtime/host/src/settings_menu.cpp` (Mac) and
-  `windows/src/win_settings.cpp` (Windows). Share a header between them when you can, as
-  `runtime/host/src/button_remap.h` does.
-- The Windows CI ("host" job) must pass before merging.
-- If the change still needs a check on a Windows PC, add it to "In `main`, waiting for a Windows build"
-  in [docs/WINDOWS_TASKS.md](docs/WINDOWS_TASKS.md) in the same pull request.
-
-## Talking to people on GitHub
-
-- Write as the person whose account posts, in the first person and in plain, friendly language. If a bot
-  drafts a reply, it is still that person's reply: say "I", and don't mention bots, agents or AI models.
-- Post only from your own maintainer's account. Never post as or for the other maintainer.
-- Don't close an issue until the reporter confirms the fix, unless it is a clear duplicate or off-topic.
-  Say why when you close it.
-- Ask for what helps: the platform, the BlueWake version and the session log. Don't promise dates.
-- Don't post, push, or open issues or pull requests on other repositories (including
-  `elliotttate/Wind-Waker-Recomp`) unless the maintainer asks for that specific action.
-
-## Releases
-
-The maintainers decided on October 4, 2026 to make two exceptions: BlueWake may publish a ready-made Windows build and a ready-made Linux build that contain the translated game module, as Wind Waker Recomp did for Windows. Mac, iPhone and iPad stay on PadMint: their releases hold source and the app without game code. Do not publish any other build with game code.
-
-Every release artifact must pass `scripts/release/check_public_assets.sh <artifact>...`, which runs `python3 ~/.codex/release-gate/release_gate.py` on the maintainer's machine. For the Windows and Linux builds the only accepted finding is `containsTranslatedGameCode: true`. Any other failure is a stop, not a note: these builds must contain no disc data, game assets, saves, signing material or console keys (Elliott's `nodtool.exe` embeds Wii common keys, so it is left out).
-
-Build the Windows and Linux release builds on a maintainer's or contributor's own machine from their own disc. Never put a disc image, files from a disc, or keys in CI secrets, caches or artifacts.
-
-The goal is releases without game code on every platform, with the game built on the player's machine the first
-time it starts ([docs/DIRECTION.md](docs/DIRECTION.md)). The Windows and Linux exceptions above stand until that works
-on each platform.
-
-Only Chris publishes or changes releases.
-
-## Personal builds stay personal
-
-The game module (`gGZLE01_recomp.dylib`) is translated from the player's own disc. An IPA or app that contains it is a personal build: never upload, attach, commit or link it anywhere. The maintainers' Windows and Linux release builds are the only exceptions. Public Mac, iPhone and iPad releases hold source plus the app without game code (`scripts/builder/build.sh --app-only --ipa BlueWake-vX.Y.Z-ios-unsigned.ipa`, checked with PadMint's `audit` before upload); players add their own module with PadMint (`padmint make bluewake ios`) or `scripts/builder/build.sh DISC.iso --ipa OUT.ipa`.
-
-Never commit or upload disc images, files extracted from a disc, saves or memory cards, signing
-certificates or profiles, or console keys. Test with copies of saves, and never delete a player's data.
-
-## Saying what you tested
-
-Say what you ran and on what device. A build that compiles is not a game that plays, and CI is not
-hardware. If you could not test something, say so plainly.
-
-## Watch the runs you start
-
-Never start an emulator run and passively wait out its timeout. Watch the run while it lives:
-tail the log and check the process CPU (a healthy boot runs near 100% CPU; near 0% means it is
-hung). A run whose log is silent and whose CPU has been near zero for more than about 30 seconds
-is a hang: abort it early and keep the partial log as evidence. A timeout is a ceiling for the
-slow healthy path, never a waiting plan.
-
-## When to stop and ask
-
-Ask Chris before anything that is hard to undo: publishing or deleting a release, deleting branches,
-changing repository settings, or acting on another repository.
+- Commits, branches, issues and comments carry **human names only**. Never add an AI tool, model or bot as author,
+  co-author or committer, and never add "Generated with" lines or bot signatures.
