@@ -43,7 +43,13 @@ Every branch deleted during the cleanups is preserved as a tag `archive/<name>-<
    git log --oneline -3 development   # expect 5830a197 at the top
    git tag -l 'archive/*' | wc -l     # expect 58
    ```
-2. Rebuild the tool stack (`build-vita-tools/local-stack`: native AArch64 GCC, CMake, Ninja, VitaSDK), or reinstall it per `AGENTS.md`.
+2. Rebuild the tool stack. **The documented stack is ARM64; a x86-64 host cannot run it** (the vendored `build-vita-tools/local-stack/vitasdk/bin/arm-vita-eabi-gcc` and `host-toolchain/bin/aarch64-conda-linux-gnu-gcc` are both `ELF aarch64`). On such a host:
+   - install the official **VitaSDK for x86-64** (provides `arm-vita-eabi` plus `vita-elf-create`, `vita-make-fself`, `vita-pack-vpk`);
+   - use the host's native **gcc** as the host compiler (`CC=... python3 -m unittest ...`), never the aarch64 conda one;
+   - install **Vita3K x86-64**;
+   - copy the **prebuilt `libvitaGL.a`** (5.6 MB, ARM static library — host-independent) and `libshacccg.suprx` from a working machine;
+   - then fix the four hard-coded absolute paths: `scripts/vita/ww05/game_build.py:17` (local stack), `:404` (`libvitaGL.a`), `:405` (`arm-vita-eabi`), `scripts/vita/ww05/stage_plan.py:29` (`libshacccg.suprx`).
+   - A machine that already holds the data can be seeded directly: the disc ISO (verified `sha256 ec2d4ee7…436df`), and the firmware partitions `vs0`/`sa0`/`ur0` (1473/20/1 files).
 3. Put the disc at a stable path and symlink it into run profiles as before (`GZLE01.iso`).
 4. Vita3K + firmware: a working profile needs `vs0` (1473 files), `sa0` (20), `ur0` (1) under `profile/data/Vita3K/Vita3K/`. Staging seeds only `ux0`; copy the partitions from a known-good profile. A profile without them idles at ~0.1 % CPU and never creates `ww05.log`.
 
