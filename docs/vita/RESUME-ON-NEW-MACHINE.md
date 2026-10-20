@@ -1,6 +1,6 @@
 # Resuming this project on a new machine
 
-Date: 2026-10-20. State: trunk `development = ae82cff0`. No run in flight.
+Date: 2026-10-20. State: trunk `development = 5830a197` (class admission merged). No run in flight.
 
 ## 1. What to copy
 
@@ -19,16 +19,15 @@ Date: 2026-10-20. State: trunk `development = ae82cff0`. No run in flight.
 
 ## 1b. Branch inventory at handover (2026-10-20)
 
-Trunk: **`development` = the last commit in this file's history** (starts at `ae82cff0`, plus this doc commit).
+Trunk: **`development` = the last commit in this file's history** (`5830a197`, which includes the class-admission merge).
 
 | Branch | Ahead / behind `development` | State | On `origin`? |
 |---|---|---|---|
-| `task/draw-class-admission` @ `4f57bce5` | 1 / 8 | **WIP**: class admission implemented and run to the MMIO wall, **not reviewed, not merged** — first thing to pick up | pushed |
-| `task/cycdomain-transfer-probe` @ `613318ff` | 13 / 36 | superseded experiment (2026-10-18/19), results in memory | pushed |
-| `task/dispatch-target-guard-20261019` @ `4b3f3cf5` | 19 / 36 | superseded experiment, results in memory | pushed |
-| `task/admit-desktop-edge-8015ea5c` @ `af1172c8` | 0 / 5 | **merged** (old pointer) | no |
-| `task/textured-draw-census` @ `ae82cff0` | 0 / 1 | **merged** (old pointer) | no |
-| `task/HIGH-BLOCK-GLOBAL-CTX` @ `862b2ce1` | 0 / 36 | fully merged content (ancestor) | no |
+| `task/HIGH-BLOCK-GLOBAL-CTX` @ `862b2ce1` | 0 / 39 | fully merged content (ancestor); the only branch kept as a pointer | no |
+| `task/cycdomain-transfer-probe` @ `613318ff` | 13 / 39 | superseded experiment (2026-10-18/19), results in memory | pushed |
+| `task/dispatch-target-guard-20261019` @ `4b3f3cf5` | 19 / 39 | superseded experiment, results in memory | pushed |
+
+Merged and then deleted on 2026-10-20: `task/draw-class-admission` (now `7f2d45d4` + `5830a197` on the trunk), `task/admit-desktop-edge-8015ea5c`, `task/textured-draw-census`.
 
 Every branch deleted during the 2026-10-20 cleanup is preserved as a tag `archive/<name>-<date>` (40 tags, local only unless pushed). Push them with `git push origin --tags`.
 
@@ -36,7 +35,7 @@ Every branch deleted during the 2026-10-20 cleanup is preserved as a tag `archiv
 
 1. Clone/copy the repository and check the state:
    ```sh
-   git log --oneline -3 development   # expect ae82cff0 at the top
+   git log --oneline -3 development   # expect 5830a197 at the top
    git tag -l 'archive/*' | wc -l     # expect 40
    ```
 2. Rebuild the tool stack (`build-vita-tools/local-stack`: native AArch64 GCC, CMake, Ninja, VitaSDK), or reinstall it per `AGENTS.md`.
@@ -57,8 +56,8 @@ Every branch deleted during the 2026-10-20 cleanup is preserved as a tag `archiv
 - **Crash**: worked around (`cpu-opt: false`). 368 presents, 24 M edges, no fault.
 - **Title background**: renders (night sky, clouds, moon; max RGB 255) from present ~312 on the builds that reach it.
 - **Logo**: **never observed**. Current wall: the run stops at **307 presents**.
-  - Desktop-edge gates for the sky family are solved on branch `task/draw-class-admission` (`4f57bce5`, **unmerged**, review pending): four members admitted (`daBg_Draw`, `daSea_Draw`, `daVrbox_Draw`, `daVrbox2_Draw`), invariants held, fail-closed preserved.
-  - Next stop after that admission: **`unsupported MMIO read address=C84F0500 pc=80322E04`** — investigate MMIO/address provenance, not more draw admissions.
+  - Desktop-edge gates for the draw family are **solved and merged** (`development = 5830a197`): the generated actor-draw class admits four members (`daBg_Draw`, `daSea_Draw`, `daVrbox_Draw`, `daVrbox2_Draw`), invariants held, fail-closed preserved, generator rejects malformed switches.
+  - Next stop after that admission: **`unsupported MMIO read address=C84F0500 pc=80322E04`** — investigate MMIO/address provenance, not more draw admissions. Offline address mapping is available: `source-port/game/src/d/actor/d_a_*.cpp` annotate `.text` ranges (`/* 8015E3F0-8015E530 .text daVrbox_Draw__FP11vrbox_class */`); `80322E04` is not one of those starts. Note `runtime/host/src/main.c` already has an EFB-peek handler for `0xC8xxxxxx` reads, gated on `aurora_enabled` (off in this build).
 - **Draw census** is on the trunk (`ae82cff0`) with a builder flag `--draw-census` (default OFF); use it to answer "is a logo-sized textured draw submitted?" once the guest passes 307.
 - **CPU identity guard** is on the trunk (`21abc3fa`) as a permanent diagnostic (no false positives over a full run).
 
