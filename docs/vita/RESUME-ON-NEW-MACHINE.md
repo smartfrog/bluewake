@@ -43,16 +43,16 @@ Every branch deleted during the cleanups is preserved as a tag `archive/<name>-<
    git log --oneline -3 development   # expect the handover commit at the top
    git tag -l 'archive/*' | wc -l     # expect 58
    ```
-2. Rebuild the tool stack. **The documented stack is ARM64; a x86-64 host cannot run it** (the vendored `build-vita-tools/local-stack/vitasdk/bin/arm-vita-eabi-gcc` and `host-toolchain/bin/aarch64-conda-linux-gnu-gcc` are both `ELF aarch64`). On such a host:
-   - install the official **VitaSDK for x86-64** (provides `arm-vita-eabi` plus `vita-elf-create`, `vita-make-fself`, `vita-pack-vpk`);
-   - use the host's native **gcc** as the host compiler (`CC=... python3 -m unittest ...`), never the aarch64 conda one;
-   - install **Vita3K x86-64**;
+2. Rebuild the tool stack. **The vendored stack belongs to the previous machine and cannot be reused** (its compilers are built for a different host architecture). Install fresh for this host:
+   - install the official **VitaSDK** for this host (provides `arm-vita-eabi` plus `vita-elf-create`, `vita-make-fself`, `vita-pack-vpk`);
+   - use the host's **native `gcc`** as the host compiler (`CC=... python3 -m unittest ...`);
+   - install **Vita3K** for this host;
    - install the official **vitaGL** package with the SDK's own package manager:
      `VITASDK=<stack>/vitasdk <stack>/vitasdk/bin/vdpm install vitaGL` (pulls `vitaShaRK`, `SceShaccCgExt`,
      `libmathneon` and `taihen`); `libshacccg.suprx` comes from the firmware tree;
    - the scripts no longer carry absolute paths: `scripts/vita/vita_workspace.py` resolves the private stack to
      `<repo>/build-vita-tools/local-stack` (override with `BLUEWAKE_VITA_STACK`) and every build/test path is
-     relative to the checkout. Expected layout: `<stack>/vitasdk` (official x86-64 VitaSDK),
+     relative to the checkout. Expected layout: `<stack>/vitasdk` (official VitaSDK),
      `<stack>/vita3k/Vita3K` with its assets, and `<stack>/firmware/{vs0,sa0,ur0}`; vitaGL comes from the
      official VitaSDK package (`vdpm install vitaGL`), not from a separate build.
      `libshacccg.suprx` comes from the firmware tree.

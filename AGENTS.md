@@ -10,12 +10,12 @@ The goal is visible title/menu, verified controls and normal-speed gameplay in V
 - `development` is the local integration trunk. Code tasks branch as `task/<id>` from its verified HEAD and
   integrate only after independent review/checks. Leave `main` untouched; no push without explicit permission.
   Retrieve `development-branch-integration` for the full flow; do not switch/reset someone else's workspace.
-- Development machines are **ARM64/AArch64 Linux**, not x86-64; there is no x86-64 emulator installed.
-  Native host tools and Vita3K are AArch64 ELF64/LP64 (8-byte pointers).
-- The Vita target is **ARMv7-A/Cortex-A9, NEON, hard-float, ELF32/ILP32** (4-byte pointers), not ARM64.
-  Native host tests do not certify Vita structure layouts or ABI.
-- Vita3K is a native AArch64 PIE: symbolize host PCs with the matching ELF and `/proc/<pid>/maps` load bias,
-  not as x86 addresses or raw file offsets. See knowledge `dev-machines-arm64-linux`.
+- The host may be any Linux machine (the current one is **x86-64**); never assume a host architecture in
+  scripts, paths, binaries or addresses. Rebuild or reinstall host tooling per machine instead of copying it.
+- The Vita target is **ARMv7-A/Cortex-A9, NEON, hard-float, ELF32/ILP32** (4-byte pointers). Native host tests
+  do not certify Vita structure layouts or ABI.
+- Symbolize host PCs with the matching ELF and `/proc/<pid>/maps` load bias, never as raw file offsets or as
+  addresses taken from another host or another build.
 
 ## Build wiring
 
@@ -40,8 +40,9 @@ The goal is visible title/menu, verified controls and normal-speed gameplay in V
 
 - Use Python 3.11+ and the GameCube USA `GZLE01` revision 0 disc, not Wii U WWHD.
 - `scripts/vita/ww05/game_build.py` uses existing tools without downloading them. It hardcodes paths to
-  `build-vita-tools/local-stack` (native AArch64 GCC, CMake, Ninja, VitaSDK) and vitaGL/renderer SDK files
+  `build-vita-tools/local-stack` (native GCC, CMake, Ninja, VitaSDK) and vitaGL/renderer SDK files
   under `/home/fred/cloudpunk-vita/tools/`. Check these paths before building; setting `VITASDK` alone does not relocate them.
+  On a new host these paths and the vendored toolchain must be replaced, not copied.
 - Output defaults to `/home/fred/projects/zeldaWWHDRecomp/build-f5/ww05`. To isolate a build, set absolute
   `WW05_BUILD_ROOT="$PWD/build-vita-private/ww05"` for build and launch commands; `--out` alone cannot change it.
 - Full builds also require verified private external, FP-unavailable and decrementer vector captures.
@@ -56,15 +57,16 @@ PATH="$STACK/bin:$PATH" python3 -B scripts/vita/ww05/game_build.py --disc "/abso
 
 - Add `--prepare-only` to stop after extraction, translation and composite verification. No Vita3K process is launched.
 - The module defaults to `--opt-level 1` with `-fno-tree-dominator-opts`; retain `-ffp-contract=off` and
-  `-fno-fast-math`. Project limit is **`-j2` maximum**, targeted builds `-j1`, even if a CLI accepts more.
-  Feature defaults differ by branch: inspect `--help`, the actual cache and compile commands before comparing builds.
+  `-fno-fast-math`. Bound parallelism so the machine stays usable: the default is 2 jobs, targeted builds use 1,
+  and any higher value must fit the machine's real capacity. Feature defaults differ by branch: inspect `--help`,
+  the actual cache and compile commands before comparing builds.
   Toolchain/reuse details: knowledge `build-reuse-toolchain` and `build-vita-tools/local-stack/USAGE.md`.
 
 ## Focused verification
 
 ```sh
 python3 -B vita/host/test_build_root.py
-CC="$STACK/bin/aarch64-conda-linux-gnu-gcc" python3 -B -m unittest discover -s vita/host -p 'test_host.py'
+CC=gcc python3 -B -m unittest discover -s vita/host -p 'test_host.py'
 bash scripts/audit_repo.sh
 ```
 
@@ -109,8 +111,8 @@ bash scripts/audit_repo.sh
 - **ARM addresses are build-specific.** Re-derive every address against the exact `.velf`/`ww05.map` of the build
   under test; never carry addresses across builds. Forgetting this wasted five gdb attempts.
 - Keep the three address spaces apart: **PowerPC guest PCs** (`0x80xxxxxx`, fixed 4-byte instructions, no state
-  bit), the **translated ARMv7 module** (`.text` ~`0x81…`–`0x97…`, Thumb-2, ILP32) and the **AArch64 host**
-  (`0xaaab…`, `0xffff…`). A PowerPC PC is not an ARM address; disassembling one inside the module is meaningless.
+  bit), the **translated ARMv7 module** (`.text` ~`0x81…`–`0x97…`, Thumb-2, ILP32) and the **host process**
+  (addresses from the host's own mapping, symbolized with the matching ELF). A PowerPC PC is not an ARM address; disassembling one inside the module is meaningless.
 - Thumb interworking: on ARMv7 a `blx` target's bit 0 selects the instruction set (odd = Thumb, even = ARM). A
   function pointer that loses that bit, or a PowerPC address used as a function pointer, makes the CPU decode
   Thumb bytes as ARM and run data as code.
@@ -128,7 +130,7 @@ bash scripts/audit_repo.sh
 
 - **Do not touch anything outside the checkout.** Never delete, move or rewrite files in the user's home, other
   repositories, saves or system directories. Do not kill processes you do not own.
-- **Leave the machine usable.** Bound build and test parallelism (the `-j2` / `-j1` limits above), keep disk space
+- **Leave the machine usable.** Bound build and test parallelism (see the build rules above), keep disk space
   healthy, and do not saturate the CPU or disk while the person is using the machine. Stop heavy work you started
   when it is no longer needed.
 - **Say what you changed on the machine.** If you installed, downloaded or generated something outside the
